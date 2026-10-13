@@ -146,7 +146,15 @@ pub(super) fn run_vm<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    run_vm_slice(ctx, lua_frame, max_instructions)
+    run_vm_slice::<false>(ctx, lua_frame, max_instructions)
+}
+
+pub(super) fn resume_hook<'gc>(
+    ctx: Context<'gc>,
+    lua_frame: LuaFrame<'gc, '_>,
+    max_instructions: u32,
+) -> Result<u32, VMError> {
+    run_vm_slice::<true>(ctx, lua_frame, max_instructions)
 }
 
 #[cfg(all(
@@ -168,7 +176,7 @@ pub(super) fn resume_vm<'gc>(
     assert!(scope.resume.is_none());
     assert!(scope.handoff.is_none());
     scope.resume = Some(resume);
-    run_vm_slice(
+    run_vm_slice::<false>(
         ctx,
         LuaFrame {
             pair_handoff: Some(scope),
@@ -180,7 +188,7 @@ pub(super) fn resume_vm<'gc>(
     )
 }
 
-fn run_vm_slice<'gc>(
+fn run_vm_slice<'gc, const RESUME_HOOK: bool>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
@@ -351,6 +359,7 @@ fn run_vm_slice<'gc>(
         }
     }
 
+    let mut skip_hook = RESUME_HOOK;
     loop {
         #[cfg(feature = "jit")]
         let run_native = {
@@ -466,6 +475,7 @@ fn run_vm_slice<'gc>(
             }
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Observing(id) if run_native => ctx.jit().observe(*id),
+            dispatch::Dispatch::Hooked if std::mem::take(&mut skip_hook) => {}
             dispatch::Dispatch::Hooked => {
                 let line = ctx
                     .hook_line()

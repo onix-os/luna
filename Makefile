@@ -728,6 +728,10 @@ jit-scoped-helpers-miri:
 jit-call-pairs:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests $(ARGS)
 
+.PHONY: jit-call-observation
+jit-call-observation:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests::vm_call_observation_preserves_count_across_slice_policies -- --exact
+
 .PHONY: jit-call-runtime
 jit-call-runtime:
 	@$(CARGO) test --locked -p luna --features jit --test jit_call_pairs $(TARGET_ARG) $(ARGS)
@@ -1288,6 +1292,16 @@ jit-errors:
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_errors $(TARGET_ARG)
 
 .PHONY: jit-debug
+.PHONY: hook-progress
+hook-progress:
+	@$(CARGO) test --locked -p luna --no-default-features --test hook_progress $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --test hook_progress $(TARGET_ARG) $(ARGS)
+
+.PHONY: hook-progress-miri
+hook-progress-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --test hook_progress --target '$(MIRI_TARGET)' -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --test hook_progress --target '$(MIRI_TARGET)' -- --test-threads=1
+
 jit-debug:
 	@$(CARGO) test --locked -p luna --features jit --test jit_debug $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_debug $(TARGET_ARG) $(ARGS)

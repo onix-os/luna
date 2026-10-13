@@ -11,6 +11,150 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Hook instruction resumption — count-one starvation corrected
+
+The separate hook finding from the policy trial has a bounded standalone
+reproducer (`a368697`, `make hook-progress`). On the unchanged no-feature VM,
+1,000 executor steps at fuel one fire the Rust hook **500 times** without
+finishing the first instruction. Hook calls leave the originating PC unchanged;
+returning retried hook delivery before executing that same instruction.
+
+Fix `0e4d600` gives a successful hook return its own frame-owned resumption
+marker. The executor consumes it and runs a specialization of the common VM
+that skips only the first hook check. Ordinary instruction execution, errors,
+fuel accounting and subsequent hook checks remain in the shared implementation.
+Normal VM entry uses the constant-false specialization; no additional field is
+added to every Lua frame or register view. Actual inactive-path performance is
+still measured, not assumed unchanged from that source structure.
+
+The reference Lua VM likewise distinguishes a resumed hooked instruction from
+a new hook delivery; see [Lua's trace-execution implementation](https://www.lua.org/source/5.4/ldebug.c.html#luaG_traceexec).
+This is not a claim that all existing global-hook ownership or combined-event
+semantics are now equivalent to Lua's implementation.
+
+Corrected initial checks pass **55 executions / nine summaries**, including
+both feature configurations, all-feature checking, debug traces and call-pair
+observation. The first all-feature check found a missing new-variant arm in an
+existing test-only frame printer; its failed log remains. Follow-up `d0c408e`
+adds six bounded tests, passing once without JIT and once with JIT, for exact
+count intervals, Lua hook bodies, prepared Auto mode, replacement/removal,
+yield/resume, restart after hook return, hook/opcode errors and GC between steps.
+Counts are checked against the count-one execution of the same bytecode, not
+merely an approximate range. Formatting and all-feature checking also pass.
+
+Full-suite, Miri and ordinary-workload performance validation are underway.
+Pre-fix controls reuse the immutable, byte-verified
+`call-state-policy/restored` executables, with that provenance recorded; they
+are not described as newly built controls. Fresh candidate images and results
+use the ignored `hook-progress` evidence prefix. The original performance,
+platform and release gates remain open.
+
+#### Call-site paired-policy query — both forms withdrawn
+
+Exact restored shipping disassembly already branches directly from a single
+inactive-dispatch test to opcode decode. There is no redundant inactive switch
+to remove. A separate per-slice `call_pairs_enabled` query still runs on Return,
+TailCall, budget exits and other slices without calls. The trial moves that
+unchanged query into the two existing Call observation sites, both of which end
+the VM slice. It preserves the slice's hook flag and observation ordering before
+`call_function`, and introduces no extra cached policy, manager borrow, pointer,
+value or lifetime across callbacks. This is not the previously rejected
+native-active flag or combined-policy snapshot experiment.
+
+Independent test `bf2bc90` passes on the unchanged runtime and the candidate:
+48 combinations of Off/Auto, prepared/unprepared code, enabled/disabled pair
+state, real debug hooks and fuel budgets 1/64/65,536. It checks exactly seven
+eligible call observations, zero in refused configurations, the result, hook
+execution, collection between steps, and native work for prepared unhooked
+large-budget runs. `make jit-call-observation` exposes this regression.
+Candidate focused verification passes **58 executions / 10 summaries**, plus
+formatting and all-feature checking. Timing acceptance remains unproven.
+
+The first baseline fixture used a count-one debug hook and failed to finish
+within 10,000 steps before any runtime edit. The passing policy fixture uses
+interval seven. The count-one progress failure is a separate unresolved
+baseline finding, not a fixed behavior or evidence against this candidate;
+its failing log is retained. Full debug/release acceptance must not overlook it.
+
+Fresh baseline/candidate images and evidence live under the ignored
+`target/jit-evidence/short-slice-performance/call-site-policy` prefix.
+Original performance thresholds and full-plan scope remain unchanged.
+
+The first form (`8e489e8`) completes **4,536 native measured executions** with
+zero execution-counter/resource mismatches and **181,440 feature-cost workload
+iterations**. No owned build, test or profile overlaps elapsed measurements.
+CPU0/16, both outer orders, paired modes, same-image A/B controls, every raw
+sample and external contention telemetry remain intact.
+
+Shipping upvalue software work falls **89,176,738 -> 88,926,708 instructions**,
+entirely VM self-work (**250,030 fewer instructions**). Shipping CPU16 direct
+JIT-Off control/candidate timing ratios improve **1.010454 / 1.013767**, but
+cost ratios remain **1.2111 / 1.2142**, failing the original 1.05 ceiling.
+The first form also introduces losses:
+
+- Speed CPU0 float JIT-Off control/candidate ratios **0.914974 / 0.922108**,
+  with same-image placebos **0.999868 / 1.002984**. One float cost check newly
+  fails at **1.0590**; the other narrowly passes at **1.0482**.
+- Speed CPU0 integer ratios **0.936984 / 0.934158**, and CPU16 upvalue
+  **0.975616 / 0.977622**, with upvalue cost ratios **1.1439 / 1.1310**.
+- Native callbacks are slower in all four comparisons: CPU0 **0.992979 /
+  0.991472**, CPU16 **0.986377 / 0.993650**. All four callback gates fail.
+- Candidate cost failures total **18/72**, versus controls **19/72 and 18/72**.
+  Similar failure counts conceal individual regressions. Shipping CPU0's second
+  window has major co-moving timing changes; retain it without causal claims.
+
+Post-timing exact-image profiles show speed float JIT-Off work **20,204,995 ->
+20,783,330 instructions**, all **578,335 extra** in the VM; no-feature work is
+unchanged at **20,325,225**. Shipping integer JIT-Off work instead falls
+**19,540,720 -> 19,521,940**, despite its initial CPU0 timing loss. All twelve
+profiles pass exclusive event-count audits. Instruction counts do not establish
+a hardware cause or performance acceptance. Commit `b48d575` restores the VM
+source exactly to `7329363`; the independent observation regression remains.
+
+A possible refinement must avoid extending `hook_enabled` through the opcode
+loop: the existing `Dispatch::Hooked` state already expresses the same choice,
+and a compiled dispatch cannot be hooked. This is an unverified code-generation
+hypothesis, not a claim that an extra live flag caused the measured losses.
+
+The isolated dispatch-state refinement now uses `Dispatch::Hooked` at the
+interpreted Call site and the fresh policy query alone in the compiled Call
+arm. Construction makes compiled and hooked states mutually exclusive; no new
+source-eligibility filter or cached policy is added. The restored five-image
+control, rebuilt under `call-state-policy/baseline`, matches the original
+`call-site-policy/baseline` executables byte-for-byte. Refinement focused
+verification passes **58 executions / 10 summaries**, formatting and all-feature
+checking. Numeric and upvalue exact-image profiles precede elapsed acceptance;
+the refinement was not accepted from correctness alone.
+
+Refinement `de054a2` does not remove the increased speed-profile work. Sixteen
+exact-image profiles verify results, zero native work, independent exclusive
+event totals and stable source manifests:
+
+| Profile / workload, JIT-Off | Restored control instructions | Dispatch-state refinement |
+| --- | ---: | ---: |
+| Speed float | 20,204,995 | 20,777,065 |
+| Speed upvalue | 81,879,656 | 82,479,363 |
+| Shipping integer | 19,540,720 | 19,518,810 |
+| Shipping upvalue | 89,177,146 | 88,827,111 |
+
+The speed float increase remains **572,070 instructions**, close to the rejected
+first form, and the upvalue target also gains work under the speed profile.
+Shipping savings do not justify another full elapsed campaign for this form.
+This is an early code-generation rejection, **not a measured timing regression**
+for the refinement. No-feature numeric and shipping upvalue totals are unchanged;
+speed no-feature upvalues vary by 158 instructions outside the VM. Do not infer
+that reusing a source-level state necessarily prevents an extra generated live
+value, or repeat flag reshuffling without new machine-code evidence.
+Commit `9821505` withdraws the refinement; production VM source again matches
+`7329363`. The independent 48-combination observation regression remains.
+
+Final restoration passes **58 focused executions / 10 summaries**, with zero
+failures or ignored tests, formatting and all-feature checking. All five fresh
+`call-state-policy/restored` executables byte-match their original controls:
+native benchmark and shipping/speed no-feature/JIT-Off probes. No candidate
+runtime change remains. These checks are not a new full-suite/platform pass,
+and neither experiment closes the original performance or release gates.
+
 #### Register-view base redundancy — measured and withdrawn
 
 All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:

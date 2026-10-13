@@ -657,6 +657,83 @@ fn shared_queue_capacity_and_hotness_preserve_normal_requests() {
 }
 
 #[test]
+fn vm_call_observation_preserves_count_across_slice_policies() {
+    for mode in [JitMode::Off, JitMode::Auto] {
+        for prepare in [false, true] {
+            for paired in [false, true] {
+                for hooked in [false, true] {
+                    for budget in [1, 64, 65536] {
+                        let (mut lua, closure, key) = fixture_source(
+                            b"local n=7 local function f(v) n=n+v end for i=1,7 do f(2) end return n",
+                        );
+                        lua.set_jit_config(JitConfig {
+                            mode,
+                            hot_threshold: u32::MAX,
+                            ..Default::default()
+                        })
+                        .unwrap();
+                        lua.enter(|ctx| ctx.jit().test_call_pairs(paired));
+                        if prepare && mode == JitMode::Auto {
+                            assert_eq!(lua.prepare_jit().unwrap(), 2);
+                        }
+                        let events = std::rc::Rc::new(std::cell::Cell::new(0));
+                        let executor = lua.enter(|ctx| {
+                            if hooked {
+                                let events = events.clone();
+                                let hook = crate::Callback::from_fn(&ctx, move |_, _, _| {
+                                    events.set(events.get() + 1);
+                                    Ok(crate::CallbackReturn::Return)
+                                });
+                                ctx.set_debug_hook(hook.into(), false, 7);
+                            }
+                            ctx.stash(crate::Executor::start(ctx, ctx.fetch(&closure).into(), ()))
+                        });
+                        let mut completed = false;
+                        for _ in 0..10000 {
+                            completed = lua.enter(|ctx| {
+                                ctx.fetch(&executor)
+                                    .step(ctx, &mut Fuel::with(budget))
+                                    .unwrap()
+                            });
+                            lua.gc_collect();
+                            if completed {
+                                break;
+                            }
+                        }
+                        assert!(completed, "{mode:?} prepare={prepare} paired={paired} hooked={hooked} budget={budget}");
+                        lua.enter(|ctx| {
+                            assert_eq!(
+                                ctx.fetch(&executor).take_result::<i64>(ctx).unwrap().unwrap(),
+                                21
+                            );
+                            let manager = ctx.jit().0.borrow();
+                            let observed = manager
+                                .pairs
+                                .as_ref()
+                                .and_then(|pairs| pairs.entries.get(&key))
+                                .map_or(0, |entry| entry.hotness);
+                            assert_eq!(
+                                observed,
+                                if mode == JitMode::Auto && paired && !hooked { 7 } else { 0 },
+                                "{mode:?} prepare={prepare} paired={paired} hooked={hooked} budget={budget}",
+                            );
+                            if prepare && mode == JitMode::Auto && !hooked {
+                                if budget == 65536 {
+                                    assert!(manager.stats.native_instructions > 0);
+                                }
+                            } else {
+                                assert_eq!(manager.stats.native_instructions, 0);
+                            }
+                        });
+                        assert_eq!(events.get() > 0, hooked);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn vm_observes_real_call_pairs_but_never_compiles_within_a_step() {
     let (mut lua, closure, key) = fixture();
     lua.enter(|ctx| {

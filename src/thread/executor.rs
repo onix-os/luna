@@ -631,6 +631,40 @@ impl<'gc> Executor<'gc> {
                             }
                         }
                     }
+                    Some(Frame::HookResume) => {
+                        let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                        let stack = top_state.stack;
+                        let frame_stack = stack.borrow_mut(&ctx);
+                        #[cfg(feature = "jit")]
+                        let mut frame_stack = frame_stack;
+                        let lua_frame = LuaFrame {
+                            #[cfg(all(
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            pair_handoff: None,
+                            state: top_state,
+                            #[cfg(feature = "jit")]
+                            stack: &mut frame_stack,
+                            #[cfg(not(feature = "jit"))]
+                            stack: frame_stack,
+                            fuel,
+                        };
+                        match super::vm::resume_hook(ctx, lua_frame, Self::VM_GRANULARITY) {
+                            Ok(instructions) => fuel.consume(instructions.try_into().unwrap()),
+                            Err(error) => {
+                                let error = match error_position(&top_state.frames) {
+                                    Some(at) => Error::from(crate::RuntimeError::new(
+                                        anyhow::Error::new(error).context(at),
+                                    )),
+                                    None => Error::from(error),
+                                };
+                                top_state.frames.push(Frame::Error(error));
+                            }
+                        }
+                    }
                     Some(frame @ Frame::Lua { .. }) => {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
                         top_state.frames.push(frame);
@@ -1295,6 +1329,7 @@ mod activation_tests {
                                     format!("close:{bottom}:{}", pending_error.is_some())
                                 }
                                 Frame::Start(_) => "start".to_owned(),
+                                Frame::HookResume => "hook-resume".to_owned(),
                                 Frame::Yielded => "yielded".to_owned(),
                                 Frame::WaitThread => "wait".to_owned(),
                                 Frame::Result { bottom } => format!("result:{bottom}"),
