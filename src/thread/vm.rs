@@ -324,6 +324,14 @@ fn run_vm_slice<'gc>(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     let mut pair_scope = lua_frame.pair_handoff.take();
     let mut registers = lua_frame.registers();
     #[cfg(not(feature = "jit"))]
@@ -431,7 +439,7 @@ fn run_vm_slice<'gc>(
                                 target_os = "linux",
                                 any(target_arch = "x86_64", target_arch = "aarch64")
                             ))]
-                            if !hook_enabled && ctx.jit().call_pairs_enabled() {
+                            if observe_pairs {
                                 ctx.jit().observe_call(
                                     ctx,
                                     current_function,
@@ -641,7 +649,7 @@ fn run_vm_slice<'gc>(
                     target_os = "linux",
                     any(target_arch = "x86_64", target_arch = "aarch64")
                 ))]
-                if !hook_enabled && ctx.jit().call_pairs_enabled() {
+                if observe_pairs {
                     ctx.jit()
                         .observe_call(ctx, current_function, &registers, func, args, returns);
                 }
