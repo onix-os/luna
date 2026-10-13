@@ -39,8 +39,13 @@ fn live_frames_preserve_helpers_rebinding_weak_modes_and_panics() {
             Operation::GetUpTable { .. }
         ));
         assert!(snapshot.prepared_keys.is_some());
-        let codes = [Failure::None, Failure::RequirePreferredEntry]
-            .map(|failure| compile(&snapshot, failure));
+        let codes = [
+            Failure::DisablePreferredEntry,
+            Failure::RequirePreferredEntry,
+        ]
+        .map(|failure| compile(&snapshot, failure));
+        assert!(!codes[0].preferred_entry);
+        assert!(codes[1].preferred_entry);
         let values = [
             Value::Nil,
             Value::Boolean(false),

@@ -1999,6 +1999,15 @@ jit-frame-view:
 jit-frame-view-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) thread::register_view_tests
 
+.PHONY: vm-register-base vm-register-base-miri
+vm-register-base:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests::register_base
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests::register_base
+
+vm-register-base-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests::register_base -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::tests::register_base -- --test-threads=1
+
 jit-set-list-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::set_list_tests
 
@@ -2305,7 +2314,7 @@ jit-preferred-entry-miri:
 
 .PHONY: jit-preferred-entry-native
 jit-preferred-entry-native:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 5 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-preferred-entry-runtime
 jit-preferred-entry-runtime:

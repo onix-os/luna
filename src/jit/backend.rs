@@ -224,6 +224,8 @@ pub(super) struct Code {
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
+    #[cfg(test)]
+    pub(super) preferred_entry: bool,
     pub(super) relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
@@ -393,6 +395,7 @@ pub(super) enum Failure {
     RequireUniversalMemory,
     RequireFieldMemory,
     RequirePreferredEntry,
+    DisablePreferredEntry,
     PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
@@ -968,6 +971,7 @@ fn compile_selected_rooted(
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
                     | Failure::RequirePreferredEntry
+                    | Failure::DisablePreferredEntry
             ))
         && !selection.leaf
         && !selection.cell_kernel
@@ -1507,6 +1511,7 @@ fn compile_selected_rooted(
             | Failure::RequireUniversalMemory
             | Failure::RequireFieldMemory
             | Failure::RequirePreferredEntry
+            | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
             | Failure::RequirePayload
@@ -2201,6 +2206,8 @@ fn compile_selected_rooted(
         entry,
         #[cfg(test)]
         byte_len,
+        #[cfg(test)]
+        preferred_entry: preferred_entry.is_some(),
         relocations,
         registers: snapshot.registers,
         entries,

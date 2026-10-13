@@ -37,6 +37,10 @@ fn measure(preferred: bool) -> Sample {
         assert!(manager
             .code
             .values()
+            .all(|cached| cached.code.preferred_entry == preferred));
+        assert!(manager
+            .code
+            .values()
             .all(|cached| cached.code.entry_kind == backend::EntryKind::Ordinary));
     });
     let counters = std::array::from_fn(|i| counters(after)[i] - counters(before)[i]);

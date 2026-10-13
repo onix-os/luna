@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "register_base.rs"]
+mod register_base;
+
 #[cfg(feature = "jit")]
 #[test]
 fn direct_capture_matches_register_projection_without_mutation() {

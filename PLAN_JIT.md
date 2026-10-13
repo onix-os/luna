@@ -11,14 +11,208 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Register-view base redundancy — measured and withdrawn
+
+All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:
+the physical and projection constructors use `split_at_mut(base)`, while the
+test-only detached constructor uses an empty upper slice and zero base.
+The private view therefore stores the same boundary twice. The next isolated
+trial removes only that duplicate word, deriving capture, close-list and JIT
+projection boundaries from the existing upper slice. Physical `Frame::Lua`
+bases remain unchanged; no stack pointer/value survives a callback or reborrow.
+The scoped raw-pointer accessor must read only its already-permitted upper-stack
+field, never borrow the current-frame values while field loans exist.
+
+This differs from the rejected register-view constructor inlining and frame
+tuple/accessor trials. It adds no inline hint, cache, mode split or accounting
+change. The hypothesized benefit is less frame-view materialization and fewer
+redundant boundary loads, not a measured speedup. Freeze current production
+and no-feature controls, verify split/close/capture semantics and footprint,
+then compare exact-image profiles and both native/feature-cost timing gates.
+
+The trial removed the duplicate word. Dedicated native tests verified **64-byte
+no-feature / 80-byte JIT views on x86-64**, every split boundary from zero through
+the complete stack, capture read/write hook coordinates, capture reuse and
+closing, close-list order, and unchanged PC/fuel. Focused verification passes
+**83 executions / 15 summaries**, with formatting and all-feature checking.
+The first fixture compile failed because `Value` deliberately has no `PartialEq`;
+the corrected fixture matches exact integer variants rather than changing
+runtime equality. That failed log is retained separately.
+
+Miri passes **19 model executions**: the two new tests with and without JIT,
+four existing view tests, six aliased/foreign/panicking upvalue-read tests and
+five terminal/liveness models. The packed upvalue sibling-loan test additionally
+passes once under default Stacked Borrows and once under Tree Borrows. These
+are Rust alias/model checks, not generated native execution under Miri.
+
+Fresh baseline/candidate opt3 benchmark and both feature-cost profiles have
+exact-link symbol companions; their program headers and allocated sections
+match the corresponding timing images. Eight warm upvalue software profiles
+verify results and zero native work:
+
+| Profile | Build | Baseline instructions | Candidate instructions |
+| --- | --- | ---: | ---: |
+| Shipping | No feature | 79,372,477 | 78,922,472 |
+| Shipping | JIT-Off | 89,176,738 | 88,676,733 |
+| Speed | No feature | 72,523,479 | 71,473,434 |
+| Speed | JIT-Off | 81,879,248 | 81,479,651 |
+
+Shipping JIT-Off view-constructor self-work falls **4,600,230 -> 4,500,225**
+instructions and loses **100,005 stores**. VM self-work falls by **150,000**
+instructions in shipping and **250,005** in speed; the executor and statistics
+destructor do not become cheaper in these profiles. Whole totals include other
+functions and minor allocator variation. Profiling overlapped owned correctness
+validation; none of its elapsed durations is performance evidence. Fresh native
+and compiled-Off timing waits until all owned validation/profiling is terminal.
+No acceptance gate is closed by the smaller representation or instruction counts.
+
+The trial was committed as `8aa360f`. Full no-feature/documentation/Force
+validation completed **2,395 executions / 174 summaries**, zero failures and
+20 ignored tests. Two native screens then completed **47,952 measured
+executions** (21 and 201 samples, two CPUs, two outer orders, ordinary-A /
+candidate / ordinary-B). All native execution-counter/resource comparisons
+match exactly. Two feature-cost campaigns add **362,880 measured workload
+iterations** across both profiles, CPUs and three arms. All owned builds,
+tests and instruction profiles were terminal before timing. Original thresholds,
+all raw samples and external-load telemetry are retained. All eight software
+profiles also pass independent exclusive-self-count audits and artifact checks.
+
+The elapsed results reject the representation change:
+
+- Native upvalue time is worse in **seven of eight** comparisons. Sustained
+  CPU16 control/candidate ratios are **0.979017 / 0.975687**, with same-image
+  placebos **0.997168 / 0.998958**. CPU0 native allocation ratios in that repeat
+  are **0.981684 / 0.973410**.
+- CPU0 callbacks improve around **1.2–1.6%** in the sustained screen, but still
+  fail their original performance gate. This does not offset the other losses.
+- Shipping CPU16 upvalue cost ratios appear better, around **1.12** rather than
+  **1.23**, but direct JIT-Off timings are essentially unchanged. The four
+  direct no-feature control/candidate ratios are **0.915470 / 0.909728** and
+  **0.908608 / 0.911847**: the interpreter-only control gets about **9–10% slower**.
+  A lower relative overhead caused by slowing the control is not an overhead fix.
+- Speed CPU16 table JIT-Off ratios are **0.975708 / 0.980819**, then
+  **0.953655 / 0.949961**. Some other no-feature cases get faster; those mixed
+  changes and co-moving outliers are preserved rather than pooled into a gain.
+- Candidate feature-cost failures total **20/72**, then **16/72**, versus
+  controls **22/72 and 21/72**, then **18/72 and 16/72**. Aggregate counts alone
+  conceal the slower controls and do not establish a generally faster runtime.
+
+**Decision:** withdraw duplicate-base removal. Preserve the independent
+split/capture/close-coordinate regression; remove the candidate-only footprint
+assertion with the layout it described. Its module declaration moves inside the
+existing test module, leaving production `thread.rs` identical to `d13a157`
+instead of shifting production panic-location metadata for a test-only addition.
+The compact-layout patch, exact images, profiles and repeated timing evidence
+remain under the ignored `register-base` directory. The full goal remains open;
+this is a rejected performance trial, not a fix for the original regressions.
+
+Post-withdrawal focused verification passes **83 executions / 15 summaries**,
+zero failures or ignored tests, plus formatting and all-feature checking.
+The retained split/capture/close regression passes Miri once without JIT and
+once with JIT. All five freshly rebuilt restored executables are byte-identical
+to their pre-trial controls: the native benchmark and shipping/speed no-feature
+and JIT-Off images. The retained test therefore changes none of these measured
+production binaries. The full-suite counts above describe the rejected trial,
+not a new full-suite run on the restored source.
+
 The bounded-verifier baseline at `b9e9e9f` completed
 `make jit-test JIT_MODE=force`: **1,936 passed, zero failed, 18 ignored,
 87 summaries**. This includes the explicitly selected preferred-entry tests;
 ordinary production selection was still unchanged. The full-suite log is
 `preferred-entry-bounded-force.log` in the ignored short-slice evidence directory.
-A fresh production benchmark and both feature-cost profiles are being frozen
+A fresh production benchmark and both feature-cost profiles were frozen
 before trying automatic guarded-entry selection. No production speedup or
 release acceptance follows from the test result.
+
+#### Automatic preferred-entry production trial — measured and withdrawn
+
+Fresh baseline images were frozen under `preferred-production/baseline` before
+editing the selector. The optimized baseline benchmark SHA256 is
+`470a17c68355fe65fba764d417b317c555533b3b09b57467e2a1da6e99e5d610`,
+different from the older prepared-identity baseline; the older image is not
+substituted for this control. Shipping and speed feature-cost controls were
+also rebuilt, with source manifests verified after all builds.
+
+The trial enabled the bounded rewrite for eligible ordinary lowering.
+Projected, rooted, scoped and alternate test-only lowerings were excluded;
+ineligible sources kept their original dispatcher. The independent clone/display
+oracle and native test module remain test-only. There is no new production
+runtime field, ABI, persistent selector state or callback-spanning value cache.
+
+An explicit test-only `DisablePreferredEntry` mode preserves ordinary controls
+with the same prepared-key helpers and integer-loop pass. A test-only result flag
+checks actual route installation, not just equivalent final results. Dedicated
+native tests pass for eligible/ineligible default selection and explicit controls;
+workspace boundary/refusal/release tests now cover both default and required
+selection. The four-way runtime differential compares Off, disabled, required
+and default selection across all previous fuel/interrupt/GC scenarios.
+
+The first added runtime observer incorrectly expected code to remain cached
+after a completed executor released its source. Its failing log is retained;
+the corrected observer checks actual installation while the source is live,
+plus cumulative installation and reclamation afterward. The corrected runtime
+tests and all-feature checking pass. A preceding missing-`mut` compile error
+is also retained.
+
+The production trial completed full Force testing: **1,937 passed, zero failed,
+18 ignored, 87 summaries**. Fresh candidate benchmark SHA256 was
+`86c3a3e1abb7b0c782755c72324f5e8fccaa53ad659bafeb28ce7ea06bbace75`.
+Both profiles' no-feature controls were byte-identical between builds. All
+owned builds/tests finished before any elapsed measurement; external contention
+was retained with per-process telemetry. Source/binary/tool checks passed.
+
+Two complete native screens use the original nine workloads, Off/Auto pairing,
+baseline-A/candidate/baseline-B, both CPU0 and CPU16, and reversed outer orders.
+The 21-sample screen contains **4,536 measured executions**; the independent
+201-sample screen contains **43,416**, totaling **47,952**. Ratios below one
+mean the candidate is slower than the geometric mean of its two controls:
+
+| CPU / round | Callback, 21 samples | Callback, 201 samples | Upvalue, 201 samples |
+| --- | ---: | ---: | ---: |
+| 0 / 0 | 0.978418 | 0.968672 | 0.993200 |
+| 16 / 0 | 0.991973 | 0.992415 | 0.986817 |
+| 0 / 1 | 0.965408 | 0.976464 | 0.980724 |
+| 16 / 1 | 0.994546 | 0.992273 | 0.995415 |
+
+The sustained callback placebo ratios are **0.992994, 0.992690, 0.999141,
+0.998306** in table order. Candidate callback Off/Auto ratios are
+**0.7860, 0.8164, 0.8052, 0.8156**: all four fail the unchanged **1/1.2**
+floor, as do all four shorter screens. Upvalue native gates pass, but elapsed
+time is slower than controls in all eight screens. The first screen also has
+large integer/float placebo movements; those samples are retained rather than
+presented as a stable effect. Every reported execution counter matches its
+control. Each screen's four resource differences are exclusively callback
+snapshot-workspace peak **10,737 -> 10,789 bytes**; no counter mismatch is hidden
+inside that resource classification.
+
+The feature-cost screen covers both shipping/speed profiles, CPUs0/16, two
+outer orders, three arms, 21 fresh-process pairs and 20 workload iterations:
+**181,440 measured workload iterations**. Independent raw-pair audits retain
+the original **1.05** ceiling and all nine scored cases. Candidate fails
+**13/72 gates**, compared with **15/72** and **17/72** for the controls. Some
+compiled-Off callback results improve, but the original upvalue regression
+remains: shipping CPU16 **1.230414 / 1.242063**, shipping CPU0
+**1.077300 / 1.075267**, speed CPU16 **1.115450 / 1.106364**.
+Those mixed results do not establish a generally better production candidate.
+
+**Decision:** withdraw automatic production selection. The optimization stays
+test-only; the bounded verifier and stronger explicit-control/installation
+tests remain. Neither the diagnostic instruction reduction nor earlier test-
+binary timing predicted a production improvement. The frozen candidate patch,
+all successful/failed runs and audits remain under `preferred-production` in
+the ignored short-slice evidence directory. No original performance threshold
+was lowered; performance/resource/platform/release acceptance remains open.
+
+After withdrawal, **10 model, six native and three runtime tests** pass
+(two diagnostic tests ignored), as do formatting and all-feature checking.
+The retained test-only controls are committed in `b3a6f2b`; rejection evidence
+is committed in `e0e931e`. A fresh optimized ordinary production build has SHA256
+`ef4b37355968fddc8606786afdabe8d8b4012910ffac6cefccf319cad6c4b92b`.
+It is not byte-identical to the earlier frozen baseline, so a separate
+post-withdrawal **4,536-execution** paired screen checks the actual rebuilt
+image. All execution-counter and resource fields match controls. CPU0 callback
+gates still fail both rounds; CPU16 passes both narrowly (**0.8335 / 0.8370**).
+That short restoration check is not a claim of a new speedup or full acceptance.
 
 #### Preferred call-resumption dispatcher — test-only prototype
 

@@ -59,6 +59,7 @@ impl Rewrite {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::jit) fn verify(
         &self,
         original: &Function,
@@ -714,5 +715,5 @@ mod tests {
     }
 }
 
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
 mod native;
