@@ -78,6 +78,16 @@ loop: the existing `Dispatch::Hooked` state already expresses the same choice,
 and a compiled dispatch cannot be hooked. This is an unverified code-generation
 hypothesis, not a claim that an extra live flag caused the measured losses.
 
+The isolated dispatch-state refinement now uses `Dispatch::Hooked` at the
+interpreted Call site and the fresh policy query alone in the compiled Call
+arm. Construction makes compiled and hooked states mutually exclusive; no new
+source-eligibility filter or cached policy is added. The restored five-image
+control, rebuilt under `call-state-policy/baseline`, matches the original
+`call-site-policy/baseline` executables byte-for-byte. Refinement focused
+verification passes **58 executions / 10 summaries**, formatting and all-feature
+checking. Numeric and upvalue exact-image profiles precede elapsed acceptance;
+the refinement remains unaccepted pending those measurements.
+
 #### Register-view base redundancy — measured and withdrawn
 
 All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:
