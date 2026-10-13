@@ -2001,12 +2001,12 @@ jit-frame-view-miri:
 
 .PHONY: vm-register-base vm-register-base-miri
 vm-register-base:
-	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::register_base
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::register_base
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests::register_base
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests::register_base
 
 vm-register-base-miri:
-	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::register_base -- --test-threads=1
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::register_base -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests::register_base -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::tests::register_base -- --test-threads=1
 
 jit-set-list-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::set_list_tests

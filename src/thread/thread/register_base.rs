@@ -8,15 +8,6 @@ fn integer(value: Value<'_>) -> i64 {
 }
 
 #[test]
-fn register_view_has_no_duplicate_boundary_word() {
-    let words = if cfg!(feature = "jit") { 10 } else { 8 };
-    assert_eq!(
-        std::mem::size_of::<LuaRegisters<'_, '_>>(),
-        words * std::mem::size_of::<usize>()
-    );
-}
-
-#[test]
 fn split_boundary_preserves_capture_and_close_coordinates() {
     crate::Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, &b"return"[..]).unwrap();

@@ -11,8 +11,6 @@ use ottavino_gc_arena::{
 use thiserror::Error;
 
 #[cfg(test)]
-mod register_base;
-#[cfg(test)]
 mod tests;
 
 #[cfg(all(test, feature = "jit"))]
@@ -978,6 +976,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                     pc,
                     stack_frame,
                     upper_stack,
+                    base: *base,
                     open_upvalues: &mut self.state.open_upvalues,
                     to_be_closed: &mut self.state.to_be_closed,
                     stack: self.state.stack,
@@ -1448,6 +1447,7 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
     upper_stack: &'a mut [Value<'gc>],
+    base: usize,
     open_upvalues: &'a mut vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
     to_be_closed: &'a mut vec::Vec<usize, MetricsAlloc<'gc>>,
     stack: Gc<'gc, RefLock<StackVec<'gc>>>,
@@ -1475,9 +1475,9 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
                 if open.stack.as_ptr() != Gc::as_ptr(stack) {
                     return Some(ScopedUpvalue::Foreign(open));
                 }
-                let upper = unsafe { &*std::ptr::addr_of!((*registers).upper_stack) };
-                let base = upper.len();
+                let base = unsafe { std::ptr::addr_of!((*registers).base).read() };
                 if open.stack_index < base {
+                    let upper = unsafe { &*std::ptr::addr_of!((*registers).upper_stack) };
                     upper
                         .get(open.stack_index)
                         .copied()
@@ -1529,7 +1529,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         )
     ))]
     pub(crate) fn shadow_key(&self) -> (usize, usize) {
-        (Gc::as_ptr(self.stack) as usize, self.upper_stack.len())
+        (Gc::as_ptr(self.stack) as usize, self.base)
     }
 
     #[cfg(all(test, feature = "jit"))]
@@ -1558,6 +1558,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             pc,
             stack_frame,
             upper_stack: &mut [],
+            base: 0,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
             stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
@@ -1567,7 +1568,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     }
 
     pub(super) fn open_upvalue(&mut self, mc: &Mutation<'gc>, reg: RegisterIndex) -> UpValue<'gc> {
-        let ind = self.upper_stack.len() + reg.0 as usize;
+        let ind = self.base + reg.0 as usize;
         match self
             .open_upvalues
             .binary_search_by(|&u| open_upvalue_ind(u).cmp(&ind))
@@ -1609,10 +1610,10 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
-                    if open_upvalue.stack_index < self.upper_stack.len() {
+                    if open_upvalue.stack_index < self.base {
                         self.upper_stack[open_upvalue.stack_index]
                     } else {
-                        let index = open_upvalue.stack_index - self.upper_stack.len();
+                        let index = open_upvalue.stack_index - self.base;
                         read(index, self.stack_frame[index])
                     }
                 } else {
@@ -1642,10 +1643,10 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
-                    if open_upvalue.stack_index < self.upper_stack.len() {
+                    if open_upvalue.stack_index < self.base {
                         self.upper_stack[open_upvalue.stack_index] = value;
                     } else {
-                        let index = open_upvalue.stack_index - self.upper_stack.len();
+                        let index = open_upvalue.stack_index - self.base;
                         self.stack_frame[index] = value;
                         write(index);
                     }
@@ -1661,7 +1662,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
 
     /// Mark a register's value as to-be-closed.
     pub(super) fn mark_to_be_closed(&mut self, reg: RegisterIndex) {
-        let index = self.upper_stack.len() + reg.0 as usize;
+        let index = self.base + reg.0 as usize;
         if let Err(at) = self.to_be_closed.binary_search(&index) {
             self.to_be_closed.insert(at, index);
         }
@@ -1669,7 +1670,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
 
     /// Take the to-be-closed values at or above a register, in declaration order.
     pub(super) fn take_to_be_closed(&mut self, bottom_register: RegisterIndex) -> Vec<Value<'gc>> {
-        let bottom = self.upper_stack.len() + bottom_register.0 as usize;
+        let bottom = self.base + bottom_register.0 as usize;
         let start = match self.to_be_closed.binary_search(&bottom) {
             Ok(i) => i,
             Err(i) => i,
@@ -1677,8 +1678,8 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         let taken = self.to_be_closed[start..]
             .iter()
             .map(|&i| {
-                if i >= self.upper_stack.len() {
-                    self.stack_frame[i - self.upper_stack.len()]
+                if i >= self.base {
+                    self.stack_frame[i - self.base]
                 } else {
                     self.upper_stack[i]
                 }
@@ -1689,7 +1690,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     }
 
     pub(super) fn close_upvalues(&mut self, mc: &Mutation<'gc>, bottom_register: RegisterIndex) {
-        let bottom = self.upper_stack.len() + bottom_register.0 as usize;
+        let bottom = self.base + bottom_register.0 as usize;
         let start = match self
             .open_upvalues
             .binary_search_by(|&u| open_upvalue_ind(u).cmp(&bottom))
@@ -1704,13 +1705,11 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
                     assert!(open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack));
                     upval.set(
                         mc,
-                        UpValueState::Closed(
-                            if open_upvalue.stack_index < self.upper_stack.len() {
-                                self.upper_stack[open_upvalue.stack_index]
-                            } else {
-                                self.stack_frame[open_upvalue.stack_index - self.upper_stack.len()]
-                            },
-                        ),
+                        UpValueState::Closed(if open_upvalue.stack_index < self.base {
+                            self.upper_stack[open_upvalue.stack_index]
+                        } else {
+                            self.stack_frame[open_upvalue.stack_index - self.base]
+                        }),
                     );
                 }
                 UpValueState::Closed(_) => panic!("upvalue is not open"),
@@ -1738,13 +1737,13 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         match upvalue.get() {
             UpValueState::Closed(value) => Some(Origin::Closed(value)),
             UpValueState::Open(open) if open.stack.as_ptr() == Gc::as_ptr(self.stack) => {
-                if open.stack_index < self.upper_stack.len() {
+                if open.stack_index < self.base {
                     Some(Origin::Upper(
                         open.stack_index,
                         *self.upper_stack.get(open.stack_index)?,
                     ))
                 } else {
-                    let index = open.stack_index - self.upper_stack.len();
+                    let index = open.stack_index - self.base;
                     Some(Origin::Register(index, *self.stack_frame.get(index)?))
                 }
             }
@@ -1786,6 +1785,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             pc,
             stack_frame,
             upper_stack,
+            base,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
             stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
