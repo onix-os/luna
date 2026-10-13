@@ -146,7 +146,7 @@ pub(super) fn run_vm<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    run_vm_slice::<false>(ctx, lua_frame, max_instructions)
+    run_vm_slice(ctx, lua_frame, max_instructions, false)
 }
 
 pub(super) fn resume_hook<'gc>(
@@ -154,7 +154,7 @@ pub(super) fn resume_hook<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    run_vm_slice::<true>(ctx, lua_frame, max_instructions)
+    run_vm_slice(ctx, lua_frame, max_instructions, true)
 }
 
 #[cfg(all(
@@ -176,7 +176,7 @@ pub(super) fn resume_vm<'gc>(
     assert!(scope.resume.is_none());
     assert!(scope.handoff.is_none());
     scope.resume = Some(resume);
-    run_vm_slice::<false>(
+    run_vm_slice(
         ctx,
         LuaFrame {
             pair_handoff: Some(scope),
@@ -185,13 +185,15 @@ pub(super) fn resume_vm<'gc>(
             fuel: lua_frame.fuel,
         },
         max_instructions,
+        false,
     )
 }
 
-fn run_vm_slice<'gc, const RESUME_HOOK: bool>(
+fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
+    resume_hook: bool,
 ) -> Result<u32, VMError> {
     #[cfg(all(
         test,
@@ -316,6 +318,7 @@ fn run_vm_slice<'gc, const RESUME_HOOK: bool>(
     let native_dispatch = dispatch::Dispatch::new(native_id, native_code, hook_enabled);
     #[cfg(not(feature = "jit"))]
     let native_dispatch = dispatch::Dispatch::interpreted(hook_enabled);
+    let mut native_dispatch = native_dispatch.resume_hook(resume_hook);
     #[cfg(feature = "jit")]
     let mut native_instructions = prefix_instructions;
     #[cfg(feature = "jit")]
@@ -359,7 +362,6 @@ fn run_vm_slice<'gc, const RESUME_HOOK: bool>(
         }
     }
 
-    let mut skip_hook = RESUME_HOOK;
     loop {
         #[cfg(feature = "jit")]
         let run_native = {
@@ -475,7 +477,7 @@ fn run_vm_slice<'gc, const RESUME_HOOK: bool>(
             }
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Observing(id) if run_native => ctx.jit().observe(*id),
-            dispatch::Dispatch::Hooked if std::mem::take(&mut skip_hook) => {}
+            dispatch::Dispatch::HookResume => native_dispatch = dispatch::Dispatch::Hooked,
             dispatch::Dispatch::Hooked => {
                 let line = ctx
                     .hook_line()

@@ -5,9 +5,15 @@ use luna::{Callback, CallbackReturn, Closure, Executor, Fuel, Lua, StashedExecut
 const SOURCE: &[u8] = b"local n=0 for i=1,7 do n=n+i end return n";
 
 fn native_modes() -> impl Iterator<Item = bool> {
-    [false, true]
-        .into_iter()
-        .filter(|native| !native || cfg!(all(feature = "jit", not(miri))))
+    [false, true].into_iter().filter(|native| {
+        !native
+            || cfg!(all(
+                feature = "jit",
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))
+    })
 }
 
 fn state(native: bool) -> Lua {
