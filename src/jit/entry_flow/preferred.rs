@@ -66,6 +66,27 @@ impl Rewrite {
         paths: &Paths,
         root: Root,
     ) -> Result<(), JitError> {
+        self.routing(function, paths, root)?;
+        let [_, literal, compare, branch] = super::instructions::<4>(function, root.dispatch)?;
+        let mut restored = function.clone();
+        for inst in [literal, compare, branch] {
+            restored.layout.remove_inst(inst);
+        }
+        restored.layout.remove_inst(self.table);
+        restored.layout.append_inst(self.table, root.dispatch);
+        restored.layout.remove_block(self.slow);
+        if restored.display().to_string() != original.display().to_string() {
+            return Err(super::invalid());
+        }
+        Ok(())
+    }
+
+    fn routing(
+        &self,
+        function: &Function,
+        paths: &Paths,
+        root: Root,
+    ) -> Result<super::Routing, JitError> {
         let point = paths
             .points
             .get(self.resume as usize)
@@ -83,17 +104,49 @@ impl Rewrite {
         let arms = super::conditional(function, branch, condition)?;
         super::no_args(function, arms[0], point.trampoline)?;
         super::no_args(function, arms[1], self.slow)?;
-        let mut restored = function.clone();
-        for inst in [literal, compare, branch] {
-            restored.layout.remove_inst(inst);
-        }
-        restored.layout.remove_inst(self.table);
-        restored.layout.append_inst(self.table, root.dispatch);
-        restored.layout.remove_block(self.slow);
-        if restored.display().to_string() != original.display().to_string() {
-            return Err(super::invalid());
-        }
-        Ok(())
+        Ok(super::Routing {
+            reduce,
+            table: self.table,
+            fast: Some(super::Shortcut {
+                pc: self.resume as usize,
+                branch,
+                table_block: self.slow,
+            }),
+        })
+    }
+
+    pub(in crate::jit) fn verify_entry(
+        &self,
+        function: &Function,
+        source: &Snapshot,
+        paths: &Paths,
+        headers: &[Block],
+        root: Root,
+        fallback: Block,
+        exhausted: Block,
+    ) -> Result<(), JitError> {
+        paths.verify_routing(
+            function,
+            source,
+            headers,
+            root,
+            fallback,
+            exhausted,
+            self.routing(function, paths, root)?,
+        )
+    }
+
+    pub(in crate::jit) fn verify_regions(
+        &self,
+        function: &Function,
+        graph: &FlowGraph,
+        paths: &Paths,
+        headers: &[Block],
+        root: Root,
+        handlers: &[Block; 4],
+    ) -> Result<(), JitError> {
+        self.routing(function, paths, root)?;
+        paths.verify_regions_with_table(function, graph, headers, root, handlers, Some(self.slow))
     }
 }
 
@@ -155,7 +208,7 @@ mod tests {
                 super::super::tests::fixture_with(
                     length,
                     None,
-                    |function, _, paths, _, root, _, _| {
+                    |function, source, paths, headers, root, fallback, exhausted| {
                         let original = function.clone();
                         let rewrite = Rewrite::apply(
                             Plan {
@@ -183,7 +236,10 @@ mod tests {
                         )
                         .is_err());
                         assert_eq!(function.display().to_string(), once);
-                        rewrite.verify(&original, function, paths, root)
+                        rewrite.verify(&original, function, paths, root)?;
+                        rewrite.verify_entry(
+                            function, source, paths, headers, root, fallback, exhausted,
+                        )
                     },
                 )
                 .unwrap();
@@ -210,7 +266,7 @@ mod tests {
             super::super::tests::fixture_with(
                 2,
                 None,
-                |function, _, paths, headers, root, _, _| {
+                |function, source, paths, headers, root, fallback, exhausted| {
                     let original = function.clone();
                     let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
                     let [_, literal, comparison, branch] =
@@ -265,6 +321,14 @@ mod tests {
                         rewrite.verify(&original, function, paths, root).is_err(),
                         "fault {fault}"
                     );
+                    assert!(
+                        rewrite
+                            .verify_entry(
+                                function, source, paths, headers, root, fallback, exhausted
+                            )
+                            .is_err(),
+                        "bounded fault {fault}"
+                    );
                     Ok(())
                 },
             )
@@ -275,78 +339,243 @@ mod tests {
     #[test]
     fn corrupt_generic_routing_bounds_and_initial_counts_are_refused() {
         for fault in 0..8 {
-            super::super::tests::fixture_with(2, None, |function, _, paths, _, root, _, _| {
-                let original = function.clone();
-                let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
-                let entry = function.layout.entry_block().unwrap();
-                let [length, bound, _] = super::super::instructions::<3>(function, entry)?;
-                match fault {
-                    0 | 1 => {
-                        let InstructionData::BranchTable { table, .. } =
-                            function.dfg.insts[rewrite.table]
-                        else {
-                            unreachable!()
-                        };
-                        if fault == 0 {
-                            function.dfg.jump_tables[table].as_mut_slice().swap(0, 1);
-                        } else {
-                            let wrong = function.dfg.jump_tables[table].as_slice()[0];
-                            *function.dfg.jump_tables[table].default_block_mut() = wrong;
+            super::super::tests::fixture_with(
+                2,
+                None,
+                |function, source, paths, headers, root, fallback, exhausted| {
+                    let original = function.clone();
+                    let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
+                    let entry = function.layout.entry_block().unwrap();
+                    let [length, bound, _] = super::super::instructions::<3>(function, entry)?;
+                    match fault {
+                        0 | 1 => {
+                            let InstructionData::BranchTable { table, .. } =
+                                function.dfg.insts[rewrite.table]
+                            else {
+                                unreachable!()
+                            };
+                            if fault == 0 {
+                                function.dfg.jump_tables[table].as_mut_slice().swap(0, 1);
+                            } else {
+                                let wrong = function.dfg.jump_tables[table].as_slice()[0];
+                                *function.dfg.jump_tables[table].default_block_mut() = wrong;
+                            }
                         }
+                        2 => {
+                            let budget = function.dfg.block_params(entry)[2];
+                            let InstructionData::BranchTable { arg, .. } =
+                                &mut function.dfg.insts[rewrite.table]
+                            else {
+                                unreachable!()
+                            };
+                            *arg = budget;
+                        }
+                        3 => {
+                            let branch = function.layout.last_inst(root.dispatch).unwrap();
+                            let target = cranelift_codegen::ir::BlockCall::new(
+                                paths.points[0].trampoline,
+                                [],
+                                &mut function.dfg.value_lists,
+                            );
+                            let InstructionData::Brif { blocks, .. } =
+                                &mut function.dfg.insts[branch]
+                            else {
+                                unreachable!()
+                            };
+                            blocks[1] = target;
+                        }
+                        4 | 6 | 7 => {
+                            let inst = match fault {
+                                4 => length,
+                                6 => function
+                                    .layout
+                                    .first_inst(paths.points[1].trampoline)
+                                    .unwrap(),
+                                _ => function.layout.first_inst(root.unknown).unwrap(),
+                            };
+                            let InstructionData::UnaryImm { imm, .. } =
+                                &mut function.dfg.insts[inst]
+                            else {
+                                unreachable!()
+                            };
+                            *imm = 1.into();
+                        }
+                        5 => {
+                            let InstructionData::IntCompare { cond, .. } =
+                                &mut function.dfg.insts[bound]
+                            else {
+                                unreachable!()
+                            };
+                            *cond = IntCC::SignedLessThan;
+                        }
+                        _ => unreachable!(),
                     }
-                    2 => {
-                        let budget = function.dfg.block_params(entry)[2];
-                        let InstructionData::BranchTable { arg, .. } =
-                            &mut function.dfg.insts[rewrite.table]
-                        else {
-                            unreachable!()
-                        };
-                        *arg = budget;
+                    assert!(
+                        rewrite.verify(&original, function, paths, root).is_err(),
+                        "fault {fault}"
+                    );
+                    assert!(
+                        rewrite
+                            .verify_entry(
+                                function, source, paths, headers, root, fallback, exhausted
+                            )
+                            .is_err(),
+                        "bounded fault {fault}"
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn bounded_entry_and_region_checks_charge_and_release_workspace() {
+        for resume in [0, 1] {
+            super::super::region_tests::fixture_inspect(
+                None,
+                false,
+                true,
+                |function, source, graph, paths, headers, root, handlers| {
+                    let rewrite = Rewrite::apply(Plan { resume }, function, paths, root)?;
+                    let ledger = &source.operations.allocator().0;
+                    let baseline = ledger.current();
+                    let shape = function.display().to_string();
+                    rewrite.verify_entry(
+                        function,
+                        source,
+                        paths,
+                        headers,
+                        root,
+                        handlers[0],
+                        handlers[2],
+                    )?;
+                    rewrite.verify_regions(function, graph, paths, headers, root, handlers)?;
+                    assert_eq!(ledger.current(), baseline);
+                    assert!(ledger.peak() > baseline);
+                    ledger.set_limit(baseline);
+                    assert!(matches!(
+                        rewrite.verify_entry(
+                            function,
+                            source,
+                            paths,
+                            headers,
+                            root,
+                            handlers[0],
+                            handlers[2]
+                        ),
+                        Err(JitError::ResourceLimit("frontend predecessor graph"))
+                    ));
+                    assert_eq!(ledger.current(), baseline);
+                    assert!(matches!(
+                        rewrite.verify_regions(function, graph, paths, headers, root, handlers),
+                        Err(JitError::ResourceLimit("source path verification"))
+                    ));
+                    assert_eq!(ledger.current(), baseline);
+                    ledger.set_limit(usize::MAX);
+                    rewrite.verify_entry(
+                        function,
+                        source,
+                        paths,
+                        headers,
+                        root,
+                        handlers[0],
+                        handlers[2],
+                    )?;
+                    rewrite.verify_regions(function, graph, paths, headers, root, handlers)?;
+                    assert_eq!(function.display().to_string(), shape);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn bounded_preferred_route_rejects_source_region_corruption() {
+        use super::super::RegionFault as F;
+        for fault in [
+            F::Gap,
+            F::End,
+            F::Missing,
+            F::Fuel,
+            F::Successor,
+            F::Retry,
+            F::Pc,
+            F::Count,
+            F::Kind,
+            F::Root,
+            F::Cycle,
+            F::Cross,
+            F::Unreachable,
+        ] {
+            super::super::region_tests::fixture_inspect(None, false, true,
+                |function, source, graph, paths, headers, root, handlers| {
+                    let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
+                    rewrite.verify_entry(function, source, paths, headers, root, handlers[0], handlers[2])?;
+                    rewrite.verify_regions(function, graph, paths, headers, root, handlers)?;
+                    if matches!(fault, F::Fuel | F::Successor | F::Retry | F::Root | F::Cycle | F::Cross) {
+                        let body = paths.points[0].body;
+                        paths.points[0].body = Block::from_u32(paths.points[0].region[1] - 1);
+                        paths.corrupt_region(function, headers, root, handlers, fault);
+                        paths.points[0].body = body;
+                    } else {
+                        paths.corrupt_region(function, headers, root, handlers, fault);
                     }
-                    3 => {
-                        let branch = function.layout.last_inst(root.dispatch).unwrap();
-                        let target = cranelift_codegen::ir::BlockCall::new(
-                            paths.points[0].trampoline,
-                            [],
-                            &mut function.dfg.value_lists,
-                        );
-                        let InstructionData::Brif { blocks, .. } = &mut function.dfg.insts[branch]
-                        else {
-                            unreachable!()
-                        };
-                        blocks[1] = target;
-                    }
-                    4 | 6 | 7 => {
-                        let inst = match fault {
-                            4 => length,
-                            6 => function
-                                .layout
-                                .first_inst(paths.points[1].trampoline)
-                                .unwrap(),
-                            _ => function.layout.first_inst(root.unknown).unwrap(),
-                        };
-                        let InstructionData::UnaryImm { imm, .. } = &mut function.dfg.insts[inst]
-                        else {
-                            unreachable!()
-                        };
-                        *imm = 1.into();
-                    }
-                    5 => {
-                        let InstructionData::IntCompare { cond, .. } =
-                            &mut function.dfg.insts[bound]
-                        else {
-                            unreachable!()
-                        };
-                        *cond = IntCC::SignedLessThan;
-                    }
-                    _ => unreachable!(),
-                }
-                assert!(
-                    rewrite.verify(&original, function, paths, root).is_err(),
-                    "fault {fault}"
-                );
-                Ok(())
-            })
+                    assert!(matches!(rewrite.verify_regions(function, graph, paths, headers, root, handlers),
+                        Err(JitError::Compilation(ref message)) if message == "invalid source region data flow"));
+                    Ok(())
+                }).unwrap();
+        }
+    }
+
+    #[test]
+    fn source_edges_cannot_enter_the_generic_table_or_reset_a_counter() {
+        for target in 0..3 {
+            super::super::region_tests::fixture_inspect(
+                None,
+                false,
+                true,
+                |function, source, graph, paths, headers, root, handlers| {
+                    let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
+                    rewrite.verify_entry(
+                        function,
+                        source,
+                        paths,
+                        headers,
+                        root,
+                        handlers[0],
+                        handlers[2],
+                    )?;
+                    rewrite.verify_regions(function, graph, paths, headers, root, handlers)?;
+                    let tail = Block::from_u32(paths.points[0].region[1] - 1);
+                    let terminal = function.layout.last_inst(tail).unwrap();
+                    function.layout.remove_inst(terminal);
+                    let target = [
+                        rewrite.slow,
+                        paths.points[1].trampoline,
+                        paths.points[0].trampoline,
+                    ][target];
+                    let mut cursor = FuncCursor::new(function);
+                    cursor.goto_bottom(tail);
+                    cursor.ins().jump(target, &[]);
+                    assert!(rewrite
+                        .verify_entry(
+                            function,
+                            source,
+                            paths,
+                            headers,
+                            root,
+                            handlers[0],
+                            handlers[2]
+                        )
+                        .is_err());
+                    assert!(rewrite
+                        .verify_regions(function, graph, paths, headers, root, handlers)
+                        .is_err());
+                    Ok(())
+                },
+            )
             .unwrap();
         }
     }

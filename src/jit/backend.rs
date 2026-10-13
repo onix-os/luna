@@ -1366,6 +1366,12 @@ fn compile_selected_rooted(
     if let Failure::CorruptTransfer(fault) = failure {
         stores.corrupt_transfer(&mut context.func, fault, snapshot.registers);
     }
+    #[cfg(test)]
+    let preferred_entry = preferred_entry
+        .map(|plan| {
+            super::entry_flow::preferred::Rewrite::apply(plan, &mut context.func, &paths, root)
+        })
+        .transpose()?;
     let block_count = context.func.layout.blocks().count();
     let instructions = context
         .func
@@ -1449,6 +1455,21 @@ fn compile_selected_rooted(
     if let Failure::CorruptEntryFlow(fault) = failure {
         paths.corrupt(&mut context.func, &blocks, &mut root, fallback, fault);
     }
+    #[cfg(test)]
+    if let Some(rewrite) = &preferred_entry {
+        rewrite.verify_entry(
+            &context.func,
+            snapshot,
+            &paths,
+            &blocks,
+            root,
+            fallback,
+            exhausted,
+        )?;
+    } else {
+        paths.verify(&context.func, snapshot, &blocks, root, fallback, exhausted)?;
+    }
+    #[cfg(not(test))]
     paths.verify(&context.func, snapshot, &blocks, root, fallback, exhausted)?;
     #[cfg(test)]
     if let Failure::CorruptRegionFlow(fault) = failure {
@@ -1459,32 +1480,19 @@ fn compile_selected_rooted(
         let ledger = &snapshot.operations.allocator().0;
         ledger.set_limit(ledger.current());
     }
+    #[cfg(test)]
+    if let Some(rewrite) = &preferred_entry {
+        rewrite.verify_regions(&context.func, &graph, &paths, &blocks, root, &exit_handlers)?;
+    } else {
+        paths.verify_regions(&context.func, &graph, &blocks, root, &exit_handlers)?;
+    }
+    #[cfg(not(test))]
     paths.verify_regions(&context.func, &graph, &blocks, root, &exit_handlers)?;
     #[cfg(test)]
     if let Failure::CorruptBinding(fault) = failure {
         stores.corrupt_binding(&mut context.func, parameters[0], fault);
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
-    #[cfg(test)]
-    let (instructions, block_count) = if let Some(plan) = preferred_entry {
-        let original = context.func.clone();
-        let rewrite =
-            super::entry_flow::preferred::Rewrite::apply(plan, &mut context.func, &paths, root)?;
-        rewrite.verify(&original, &context.func, &paths, root)?;
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
-        let actual = context
-            .func
-            .layout
-            .blocks()
-            .map(|block| context.func.layout.block_insts(block).count())
-            .sum();
-        let count = context.func.layout.blocks().count();
-        expansion.verify_actual(actual, count)?;
-        (actual, count)
-    } else {
-        (instructions, block_count)
-    };
     #[cfg(test)]
     if failure == Failure::AuditIntegerLoop {
         integer_loop::audit::run(&context.func, snapshot, &blocks, exhausted, expansion)?;

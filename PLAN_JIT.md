@@ -168,6 +168,28 @@ all six `preferred-entry-timing-v2-*` screen directories and
 `preferred-entry-timing-audit.json`. Production source/default selection and the
 shipping benchmark image remain unchanged.
 
+The preferred backend path now replaces clone/display comparison with bounded
+structural verification of the transformed graph. Entry verification checks
+the exact guard, original full-width bound and generic table, the sole predecessor
+of the auxiliary table block, and the two permitted predecessors of the preferred
+zero-count trampoline. Source-region verification accounts for exactly one
+appended block, retains its charged predecessor/dominator/effect workspaces and
+rejects source-body edges into either dispatch path or counter-reset trampoline.
+All original store/arithmetic/helper/exit/binding checks now inspect the rewritten
+function, not a pre-rewrite function. Actual instruction/block limits are checked
+after adding the guard. The original restoration oracle remains only in model
+tests as a separate comparison, not in backend compilation.
+
+Normal validation passes ten preferred model tests, three native tests, three
+runtime tests, sixteen existing region tests and fourteen backend region checks
+(inspect the retained log for exact counts), plus formatting/all-feature checking.
+The model suite checks all twelve earlier corruption cases against both oracles,
+thirteen source-region corruptions, extra entry/reset edges, successful budgeted
+workspace release, refusal at the current quota, and successful retry without
+mutating IR. Miri and broader compiler quota acceptance are still being checked;
+this removes the known clone/display dependency but does not by itself establish
+full compiler-resource or release acceptance. Preferred routing remains test-only.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
