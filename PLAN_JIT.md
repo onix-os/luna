@@ -20,6 +20,85 @@ A fresh production benchmark and both feature-cost profiles are being frozen
 before trying automatic guarded-entry selection. No production speedup or
 release acceptance follows from the test result.
 
+#### Automatic preferred-entry production trial — measured and withdrawn
+
+Fresh baseline images are frozen under `preferred-production/baseline` before
+editing the selector. Its optimized benchmark SHA256 is
+`470a17c68355fe65fba764d417b317c555533b3b09b57467e2a1da6e99e5d610`,
+different from the older prepared-identity baseline; the older image is not
+substituted for this control. Shipping and speed feature-cost controls were
+also rebuilt, with source manifests verified after all builds.
+
+The working trial enables the bounded rewrite for eligible ordinary lowering.
+Projected, rooted, scoped and alternate test-only lowerings are excluded;
+ineligible sources keep their original dispatcher. The independent clone/display
+oracle and native test module remain test-only. There is no new production
+runtime field, ABI, persistent selector state or callback-spanning value cache.
+
+An explicit test-only `DisablePreferredEntry` mode preserves ordinary controls
+with the same prepared-key helpers and integer-loop pass. A test-only result flag
+checks actual route installation, not just equivalent final results. Dedicated
+native tests pass for eligible/ineligible default selection and explicit controls;
+workspace boundary/refusal/release tests now cover both default and required
+selection. The four-way runtime differential compares Off, disabled, required
+and default selection across all previous fuel/interrupt/GC scenarios.
+
+The first added runtime observer incorrectly expected code to remain cached
+after a completed executor released its source. Its failing log is retained;
+the corrected observer checks actual installation while the source is live,
+plus cumulative installation and reclamation afterward. The corrected runtime
+tests and all-feature checking pass. A preceding missing-`mut` compile error
+is also retained.
+
+The production trial completed full Force testing: **1,937 passed, zero failed,
+18 ignored, 87 summaries**. Fresh candidate benchmark SHA256 was
+`86c3a3e1abb7b0c782755c72324f5e8fccaa53ad659bafeb28ce7ea06bbace75`.
+Both profiles' no-feature controls were byte-identical between builds. All
+owned builds/tests finished before any elapsed measurement; external contention
+was retained with per-process telemetry. Source/binary/tool checks passed.
+
+Two complete native screens use the original nine workloads, Off/Auto pairing,
+baseline-A/candidate/baseline-B, both CPU0 and CPU16, and reversed outer orders.
+The 21-sample screen contains **4,536 measured executions**; the independent
+201-sample screen contains **43,416**, totaling **47,952**. Ratios below one
+mean the candidate is slower than the geometric mean of its two controls:
+
+| CPU / round | Callback, 21 samples | Callback, 201 samples | Upvalue, 201 samples |
+| --- | ---: | ---: | ---: |
+| 0 / 0 | 0.978418 | 0.968672 | 0.993200 |
+| 16 / 0 | 0.991973 | 0.992415 | 0.986817 |
+| 0 / 1 | 0.965408 | 0.976464 | 0.980724 |
+| 16 / 1 | 0.994546 | 0.992273 | 0.995415 |
+
+The sustained callback placebo ratios are **0.992994, 0.992690, 0.999141,
+0.998306** in table order. Candidate callback Off/Auto ratios are
+**0.7860, 0.8164, 0.8052, 0.8156**: all four fail the unchanged **1/1.2**
+floor, as do all four shorter screens. Upvalue native gates pass, but elapsed
+time is slower than controls in all eight screens. The first screen also has
+large integer/float placebo movements; those samples are retained rather than
+presented as a stable effect. Every reported execution counter matches its
+control. Each screen's four resource differences are exclusively callback
+snapshot-workspace peak **10,737 -> 10,789 bytes**; no counter mismatch is hidden
+inside that resource classification.
+
+The feature-cost screen covers both shipping/speed profiles, CPUs0/16, two
+outer orders, three arms, 21 fresh-process pairs and 20 workload iterations:
+**181,440 measured workload iterations**. Independent raw-pair audits retain
+the original **1.05** ceiling and all nine scored cases. Candidate fails
+**13/72 gates**, compared with **15/72** and **17/72** for the controls. Some
+compiled-Off callback results improve, but the original upvalue regression
+remains: shipping CPU16 **1.230414 / 1.242063**, shipping CPU0
+**1.077300 / 1.075267**, speed CPU16 **1.115450 / 1.106364**.
+Those mixed results do not establish a generally better production candidate.
+
+**Decision:** withdraw automatic production selection. The optimization stays
+test-only; the bounded verifier and stronger explicit-control/installation
+tests remain. Neither the diagnostic instruction reduction nor earlier test-
+binary timing predicted a production improvement. The frozen candidate patch,
+all successful/failed runs and audits remain under `preferred-production` in
+the ignored short-slice evidence directory. No original performance threshold
+was lowered; performance/resource/platform/release acceptance remains open.
+
 #### Preferred call-resumption dispatcher — test-only prototype
 
 `84beab8` adds a source selector for one reachable fixed-arity Call enclosed by
