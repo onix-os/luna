@@ -75,6 +75,33 @@ code and source/binary hashes. This is a diagnostic instruction profile, not the
 shipping performance or compiled-Off overhead gate. Results must be inspected
 before claiming the preferred route reduces actual work.
 
+The six optimized diagnostic runs are now complete. All three fresh-process
+pairs have exactly **10,596,104 -> 10,556,107 instructions (-0.37747%)**.
+An independent Callgrind self-cost audit sums every function back to each
+whole-profile total and attributes the entire **39,997-instruction reduction**
+to the finalized native entry (**730,160 -> 690,163**); Rust function self-work
+is unchanged. All 25 execution counters and the expected result agree across
+all six runs. Reads fall by 15,000, writes are unchanged, and indirect branches
+fall by 5,000. These are software-profile events, not hardware timing.
+
+Disassembly confirms the original full-width bound precedes the preferred-PC
+guard and generic dispatcher. Finalized native code grows **2,160 -> 2,176
+bytes**; provider-requested storage grows **2,184 -> 2,200**, while both use one
+4,096-byte mapping. Reported metadata and snapshot peaks match, but those
+counters do not account for the test-only clone/display oracle and cannot
+establish production workspace acceptance.
+
+The preferred route remains **test-only**, not a claimed regression fix.
+This small whole-workload instruction reduction cannot establish an elapsed
+benefit or close callback/compiled-Off gates. The same control profile attributes
+19.59% of instructions to `run_vm_slice`, 16.33% to `invoke_transport` and 15.12%
+to `Executor::step`; these costs are untouched. Any promotion still requires
+bounded verification, full workload/resource checks and paired elapsed results.
+Evidence: `preferred-entry-profile/{audit.json,*-annotation.log,*-native/}`;
+all profiles and source/binary integrity checks pass. The local audit's initial
+Perl capture-variable error is retained in its first log; its corrected rerun
+passes the independent self-total checks for all six profiles.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
