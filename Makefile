@@ -1297,6 +1297,11 @@ hook-progress:
 	@$(CARGO) test --locked -p luna --no-default-features --test hook_progress $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --test hook_progress $(TARGET_ARG) $(ARGS)
 
+.PHONY: hook-progress-miri
+hook-progress-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --test hook_progress --target '$(MIRI_TARGET)' -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --test hook_progress --target '$(MIRI_TARGET)' -- --test-threads=1
+
 jit-debug:
 	@$(CARGO) test --locked -p luna --features jit --test jit_debug $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_debug $(TARGET_ARG) $(ARGS)
