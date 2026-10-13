@@ -110,6 +110,13 @@ value, or repeat flag reshuffling without new machine-code evidence.
 Commit `9821505` withdraws the refinement; production VM source again matches
 `7329363`. The independent 48-combination observation regression remains.
 
+Final restoration passes **58 focused executions / 10 summaries**, with zero
+failures or ignored tests, formatting and all-feature checking. All five fresh
+`call-state-policy/restored` executables byte-match their original controls:
+native benchmark and shipping/speed no-feature/JIT-Off probes. No candidate
+runtime change remains. These checks are not a new full-suite/platform pass,
+and neither experiment closes the original performance or release gates.
+
 #### Register-view base redundancy — measured and withdrawn
 
 All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:
