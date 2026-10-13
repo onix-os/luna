@@ -42,7 +42,39 @@ yield/resume, restart after hook return, hook/opcode errors and GC between steps
 Counts are checked against the count-one execution of the same bytecode, not
 merely an approximate range. Formatting and all-feature checking also pass.
 
-Full-suite, Miri and ordinary-workload performance validation are underway.
+Miri passes all six bounded hook regressions with and without the JIT feature
+(**12 executions**), with native compilation excluded from the Miri modes.
+The first full-suite run passes the baseline/doc suites, then reports **1,421
+passed / one failed / 18 ignored** in the all-feature Force library tests.
+The single failure is an old builtin-fusion oracle explicitly requiring that a
+persistent count-one hook never completes within 64 zero-fuel steps. Correction
+`a1f1425` keeps the same zero fuel and step bound, complete frame/value/fuel/
+dispatch trace equality and zero-fusion check, and now requires completion with
+result 12. Its focused test and the 12 lifecycle executions pass; no performance
+or resource threshold is changed.
+
+The initial two-specialization VM fix also needs a performance refinement.
+Sixteen exact-image software profiles show substantial ordinary-path instruction
+growth: speed float no-feature **20,325,225 -> 23,318,775**, JIT-Off
+**20,204,995 -> 23,861,035**; shipping integer no-feature **20,276,780 ->
+24,158,350**, JIT-Off **19,540,720 -> 23,416,000**. All event sums, results,
+zero-native checks and artifact/source manifests verify. No elapsed campaign is
+claimed for that form, and the root cause is not established by instruction
+counts alone.
+
+Refinement `30ff905` preserves the frame-owned marker but restores a single
+nongeneric VM body. Its resumption argument is consumed at entry into a unit
+`Dispatch::HookResume` state, which becomes `Hooked` after skipping one check.
+There is no additional loop-local boolean or larger dispatch payload: the
+original **one-byte no-feature / 16-byte JIT** storage ceilings still pass.
+State selection and compiled-lease lifetime checks cover normal and resumed
+entry. Focused validation passes **21 executions / five summaries**, formatting
+and all-feature checking, plus the six lifecycle tests in each feature mode
+after restricting native preparation to supported non-Miri targets.
+
+Fresh full-suite/Miri runs and ordinary-workload performance validation of the
+single-VM refinement are underway. Earlier Miri counts describe the initial
+form until the new runs finish.
 Pre-fix controls reuse the immutable, byte-verified
 `call-state-policy/restored` executables, with that provenance recorded; they
 are not described as newly built controls. Fresh candidate images and results
