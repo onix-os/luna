@@ -157,3 +157,94 @@ fn native_route_matches_all_entries_budgets_and_scalar_tags() {
     }
     assert_eq!(executions, 104_104);
 }
+
+#[test]
+fn preferred_compiler_workspace_boundary_refuses_and_recovers_without_leaks() {
+    use std::sync::atomic::Ordering;
+    crate::Lua::empty().enter(|ctx| {
+        for script in [
+            "local sum=0 for i=1,80 do sum=sum+host_increment(i) end return sum",
+            "local total=0 for i=1,3 do host_increment(i); total=target end return total",
+        ] {
+            let closure = crate::Closure::load(ctx, None, script.as_bytes()).unwrap();
+            let attempt = |limit, accepted| {
+                let workspace = Ledger::new(limit);
+                let metadata = Ledger::new(2 << 20);
+                let memory = MappingCounter::new(Ledger::new(usize::MAX));
+                let snapshot = Snapshot::new_in(
+                    &closure.prototype(),
+                    4096,
+                    BudgetAllocator(workspace.clone()),
+                )
+                .unwrap();
+                assert!(snapshot.prepared_keys.is_some());
+                let result = backend::compile_in(
+                    &snapshot,
+                    memory.clone(),
+                    8 << 20,
+                    BudgetAllocator(metadata.clone()),
+                    work::Limits::from(&JitConfig::default()),
+                    Failure::RequirePreferredEntry,
+                );
+                if accepted {
+                    assert!(result.is_ok(), "{:?}", result.as_ref().err());
+                    assert!(memory.load(Ordering::Relaxed) > 0);
+                } else {
+                    assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                    assert!(workspace.refusals() > 0);
+                }
+                drop(result);
+                drop(snapshot);
+                assert_eq!(workspace.current(), 0);
+                assert_eq!(metadata.current(), 0);
+                assert_eq!(memory.load(Ordering::Relaxed), 0);
+                assert_eq!(memory.requested(), 0);
+                assert!(workspace.peak() <= limit);
+                workspace.peak()
+            };
+            let peak = attempt(8 << 20, true);
+            assert!(peak > 0);
+            attempt(peak - 1, false);
+            assert_eq!(attempt(peak, true), peak);
+        }
+    });
+}
+
+#[test]
+fn preferred_compilation_preserves_ir_admission_limits() {
+    use std::sync::atomic::Ordering;
+    let snapshot = super::tests::source();
+    let admitted =
+        work::Expansion::admit(&snapshot, work::Limits::from(&JitConfig::default())).unwrap();
+    let source_ledger = &snapshot.operations.allocator().0;
+    let baseline = source_ledger.current();
+    for fault in 0..3 {
+        let memory = MappingCounter::new(Ledger::new(usize::MAX));
+        let metadata = Ledger::new(2 << 20);
+        let result = backend::compile_in(
+            &snapshot,
+            memory.clone(),
+            8 << 20,
+            BudgetAllocator(metadata.clone()),
+            work::Limits {
+                instructions: admitted.instructions - usize::from(fault == 0),
+                blocks: admitted.blocks - usize::from(fault == 1),
+                relocations: JitConfig::default().max_relocations,
+            },
+            Failure::RequirePreferredEntry,
+        );
+        match fault {
+            0 => assert!(matches!(
+                result,
+                Err(JitError::ResourceLimit("IR instructions"))
+            )),
+            1 => assert!(matches!(result, Err(JitError::ResourceLimit("IR blocks")))),
+            _ => assert!(result.is_ok(), "{:?}", result.as_ref().err()),
+        }
+        drop(result);
+        assert_eq!(source_ledger.current(), baseline);
+        assert_eq!(metadata.current(), 0);
+        assert_eq!(memory.load(Ordering::Relaxed), 0);
+        assert_eq!(memory.requested(), 0);
+    }
+}

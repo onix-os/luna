@@ -190,6 +190,17 @@ mutating IR. Miri and broader compiler quota acceptance are still being checked;
 this removes the known clone/display dependency but does not by itself establish
 full compiler-resource or release acceptance. Preferred routing remains test-only.
 
+All **ten model tests pass under Miri** (266.45 seconds). Two further native
+resource tests pass: for both scalar and table-reading callback sources, the
+required preferred route compiles at its measured workspace peak, refuses at
+peak minus one, and releases snapshot/workspace, metadata, mapped and requested
+code charges after either outcome. Separate checks retain exact IR admission
+limits: instruction or block allowance minus one refuses, while the admitted
+bounds compile successfully with the guarded entry. The native target now
+passes five tests; formatting and all-feature checking pass. These are explicit
+boundary/refusal/recovery checks, not a claim that all resource/platform or
+shipping benchmark gates have been completed.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
