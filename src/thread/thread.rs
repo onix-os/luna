@@ -378,6 +378,7 @@ pub(super) enum MetaReturn {
     Register(RegisterIndex),
     /// Increment the PC by one if the returned value converted to a boolean is equal to this.
     SkipIf(bool),
+    Hook,
 }
 
 #[derive(Debug, Copy, Clone, Collect)]
@@ -431,9 +432,12 @@ pub(super) enum Frame<'gc> {
     /// We are waiting on an upper thread to finish. Must be the top frame of the stack.
     WaitThread,
     /// Results are waiting to be taken. Must be the top frame of the stack.
-    Result { bottom: usize },
+    Result {
+        bottom: usize,
+    },
     /// An error is currently unwinding. Must be the top frame of the stack.
     Error(Error<'gc>),
+    HookResume,
 }
 
 impl<'gc> Frame<'gc> {
@@ -532,6 +536,7 @@ impl<'gc> ThreadState<'gc> {
             }
             Some(frame) => match frame {
                 Frame::Lua { .. }
+                | Frame::HookResume
                 | Frame::Callback { .. }
                 | Frame::Sequence { .. }
                 | Frame::Close { .. } => ThreadMode::Normal,
@@ -671,6 +676,7 @@ impl<'gc> ThreadState<'gc> {
                         *is_variable = false;
                         match meta_ret {
                             MetaReturn::None => {}
+                            MetaReturn::Hook => self.frames.push(Frame::HookResume),
                             MetaReturn::Register(reg) => {
                                 stack[*base + reg.0 as usize] = meta_val;
                             }
@@ -958,7 +964,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                 None => Value::Nil,
             },
         ];
-        self.call_meta_function(ctx, function, &args, MetaReturn::None)?;
+        self.call_meta_function(ctx, function, &args, MetaReturn::Hook)?;
         Ok(true)
     }
 
