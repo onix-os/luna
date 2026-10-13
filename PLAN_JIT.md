@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Hook instruction resumption — count-one starvation corrected
+
+The separate hook finding from the policy trial has a bounded standalone
+reproducer (`a368697`, `make hook-progress`). On the unchanged no-feature VM,
+1,000 executor steps at fuel one fire the Rust hook **500 times** without
+finishing the first instruction. Hook calls leave the originating PC unchanged;
+returning retried hook delivery before executing that same instruction.
+
+Fix `0e4d600` gives a successful hook return its own frame-owned resumption
+marker. The executor consumes it and runs a specialization of the common VM
+that skips only the first hook check. Ordinary instruction execution, errors,
+fuel accounting and subsequent hook checks remain in the shared implementation.
+Normal VM entry uses the constant-false specialization; no additional field is
+added to every Lua frame or register view. Actual inactive-path performance is
+still measured, not assumed unchanged from that source structure.
+
+The reference Lua VM likewise distinguishes a resumed hooked instruction from
+a new hook delivery; see [Lua's trace-execution implementation](https://www.lua.org/source/5.4/ldebug.c.html#luaG_traceexec).
+This is not a claim that all existing global-hook ownership or combined-event
+semantics are now equivalent to Lua's implementation.
+
+Corrected initial checks pass **55 executions / nine summaries**, including
+both feature configurations, all-feature checking, debug traces and call-pair
+observation. The first all-feature check found a missing new-variant arm in an
+existing test-only frame printer; its failed log remains. Follow-up `d0c408e`
+adds six bounded tests, passing once without JIT and once with JIT, for exact
+count intervals, Lua hook bodies, prepared Auto mode, replacement/removal,
+yield/resume, restart after hook return, hook/opcode errors and GC between steps.
+Counts are checked against the count-one execution of the same bytecode, not
+merely an approximate range. Formatting and all-feature checking also pass.
+
+Full-suite, Miri and ordinary-workload performance validation are underway.
+Pre-fix controls reuse the immutable, byte-verified
+`call-state-policy/restored` executables, with that provenance recorded; they
+are not described as newly built controls. Fresh candidate images and results
+use the ignored `hook-progress` evidence prefix. The original performance,
+platform and release gates remain open.
+
 #### Call-site paired-policy query — both forms withdrawn
 
 Exact restored shipping disassembly already branches directly from a single
