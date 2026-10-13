@@ -728,6 +728,10 @@ jit-scoped-helpers-miri:
 jit-call-pairs:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests $(ARGS)
 
+.PHONY: jit-call-observation
+jit-call-observation:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests::vm_call_observation_preserves_count_across_slice_policies -- --exact
+
 .PHONY: jit-call-runtime
 jit-call-runtime:
 	@$(CARGO) test --locked -p luna --features jit --test jit_call_pairs $(TARGET_ARG) $(ARGS)
