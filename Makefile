@@ -2298,18 +2298,18 @@ h: help
 
 .PHONY: jit-preferred-entry jit-preferred-entry-miri
 jit-preferred-entry:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::tests | awk '/^test result: ok[.] 7 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::tests | awk '/^test result: ok[.] 10 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-preferred-entry-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_flow::preferred::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_flow::preferred::tests -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-preferred-entry-native
 jit-preferred-entry-native:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 5 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-preferred-entry-runtime
 jit-preferred-entry-runtime:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::preferred_entry | awk '/^test result: ok[.] 2 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::preferred_entry | awk '/^test result: ok[.] 3 passed; 0 failed; 2 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 PREFERRED_ENTRY_DIR ?= target/jit-evidence/short-slice-performance/preferred-entry-profile
 .PHONY: jit-preferred-entry-profile-build jit-preferred-entry-profile-run
@@ -2328,3 +2328,17 @@ jit-preferred-entry-profile-run: jit-profile-cpu-check
 		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
 	done; done
 	@sha256sum -c '$(PREFERRED_ENTRY_DIR)/binary.sha256' '$(PREFERRED_ENTRY_DIR)/source.sha256' > '$(PREFERRED_ENTRY_DIR)/verification-after.log'
+
+PREFERRED_TIMING_IMAGE ?= target/jit-evidence/short-slice-performance/preferred-entry-timing-image
+PREFERRED_TIMING_DIR ?= target/jit-evidence/short-slice-performance/preferred-entry-timing
+PREFERRED_TIMING_WINDOWS ?= 201
+.PHONY: jit-preferred-entry-time-build jit-preferred-entry-time-run jit-preferred-entry-time-audit
+jit-preferred-entry-time-build:
+	@$(MAKE) jit-preferred-entry-profile-build PREFERRED_ENTRY_DIR='$(PREFERRED_TIMING_IMAGE)'
+	@sha256sum examples/jit_support/strided_timing.sh examples/jit_support/strided_timing_audit.pl tests/test-jit-strided-timing.pl >> '$(PREFERRED_TIMING_IMAGE)/source.sha256'
+
+jit-preferred-entry-time-run: jit-profile-cpu-check
+	@bash examples/jit_support/strided_timing.sh '$(PREFERRED_TIMING_IMAGE)' '$(PREFERRED_TIMING_DIR)' '$(PROFILE_CPU)' '$(PREFERRED_TIMING_WINDOWS)' preferred_entry
+
+jit-preferred-entry-time-audit:
+	@perl examples/jit_support/strided_timing_audit.pl '$(PREFERRED_TIMING_DIR)'

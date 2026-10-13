@@ -5,31 +5,35 @@ use JSON::PP;
 
 my $root = tempdir(CLEANUP => 1);
 my @cases = qw(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc);
-my @orders = ([qw(a candidate b)], [qw(candidate b a)], [qw(b a candidate)]);
+my @orders = ([qw(a candidate b)], [qw(candidate b a)], [qw(b a candidate)],
+    [qw(b candidate a)], [qw(candidate a b)], [qw(a b candidate)]);
 sub write_file {
     my ($path, $text) = @_;
     open my $file, '>', $path or die "$path: $!";
     print $file $text;
 }
 sub fixture {
-    my ($name) = @_;
+    my ($name, $experiment, $windows) = @_;
+    $windows //= 3;
+    my @selected = defined $experiment && $experiment eq 'preferred_entry' ? ('rust_callbacks') : @cases;
+    my $field = defined $experiment && $experiment eq 'preferred_entry' ? 'preferred' : 'strided';
     my $dir = "$root/$name";
     mkdir $dir or die $!;
-    write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=3\n");
+    write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=$windows\n" . (defined $experiment ? "experiment=$experiment\n" : ''));
     write_file("$dir/completed", "complete\n");
     write_file("$dir/verification-after.log", "image: OK\n");
     my $order = '';
-    for my $window (0 .. 2) {
+    for my $window (0 .. $windows - 1) {
         write_file("$dir/$window-$_.telemetry", "cpu 1 2 3\nsome avg10=4\n") for qw(before after);
-        for my $position (0 .. $#cases) {
-            my $case = $cases[($position + $window) % @cases];
-            for my $label (@{$orders[$window]}) {
+        for my $position (0 .. $#selected) {
+            my $case = $selected[($position + $window) % @selected];
+            for my $label (@{$orders[$window % @orders]}) {
                 $order .= "$window $case $label\n";
                 my $mode = $label eq 'candidate' ? 'true' : 'false';
                 my $ns = $label eq 'candidate' ? 500 : 1000;
                 my $counters = join ', ', (1) x 25;
                 write_file("$dir/$window-$case-$label.log",
-                    "TIMING_V1 case=$case strided=$mode elapsed_ns=$ns counters=[$counters] code_bytes=4096 metadata_bytes=16 metadata_peak_bytes=32 snapshot_peak_bytes=64\ntest result: ok. 1 passed; 0 failed;\n");
+                    "TIMING_V1 case=$case $field=$mode elapsed_ns=$ns counters=[$counters] code_bytes=4096 metadata_bytes=16 metadata_peak_bytes=32 snapshot_peak_bytes=64\ntest result: ok. 1 passed; 0 failed;\n");
             }
         }
     }
@@ -59,27 +63,95 @@ for my $case (@{$report->{reports}}) {
     die 'wrong ratios' unless $case->{ratio}{median} == 2 && $case->{placebo}{median} == 1;
     die 'wrong sample count' unless $case->{ordinary_ns}{count} == 6 && $case->{candidate_ns}{count} == 3;
 }
-for my $fault (qw(missing duplicate zero signed mode counters native failed order telemetry incomplete)) {
-    my $dir = fixture($fault);
-    my $path = "$dir/0-integer_loop-candidate.log";
-    open my $file, '<', $path or die $!;
-    my $log = do { local $/; <$file> };
-    close $file;
-    if ($fault eq 'missing') { unlink $path or die $!; }
-    elsif ($fault eq 'order') { write_file("$dir/order.log", "wrong\n"); }
-    elsif ($fault eq 'telemetry') { unlink "$dir/0-before.telemetry" or die $!; }
-    elsif ($fault eq 'incomplete') { unlink "$dir/completed" or die $!; }
-    else {
-        if ($fault eq 'duplicate') { $log .= $log; }
-        elsif ($fault eq 'zero') { $log =~ s/elapsed_ns=500/elapsed_ns=0/; }
-        elsif ($fault eq 'signed') { $log =~ s/elapsed_ns=500/elapsed_ns=-500/; }
-        elsif ($fault eq 'mode') { $log =~ s/strided=true/strided=false/; }
-        elsif ($fault eq 'counters') { $log =~ s/counters=\[1/counters=[2/; }
-        elsif ($fault eq 'native') { $log =~ s/code_bytes=4096/code_bytes=0/; }
-        elsif ($fault eq 'failed') { $log =~ s/0 failed/1 failed/; }
-        write_file($path, $log);
+for my $experiment (qw(strided preferred_entry)) {
+    my $good = fixture("good-$experiment", $experiment, 6);
+    die "valid $experiment screen refused" unless audit($good);
+    open my $json, '<', "$good/audit.json" or die $!;
+    my $report = decode_json(do { local $/; <$json> });
+    die 'wrong experiment' unless $report->{experiment} eq $experiment;
+    die 'wrong case count' unless @{$report->{reports}} == ($experiment eq 'strided' ? 7 : 1);
+    die 'incorrect acceptance claim' if $report->{performance_acceptance};
+    for my $case (@{$report->{reports}}) {
+        die 'wrong ratios or counts' unless $case->{ratio}{median} == 2 && $case->{placebo}{median} == 1
+            && $case->{ordinary_ns}{count} == 12 && $case->{candidate_ns}{count} == 6;
     }
-    die "accepted $fault" if audit($dir);
-    die "wrote success artifact for $fault" if -e "$dir/audit.json";
+    for my $fault (qw(missing duplicate zero signed mode counters native failed order telemetry incomplete experiment field)) {
+        my $dir = fixture("$experiment-$fault", $experiment, 6);
+        my $shape = $experiment eq 'strided' ? 'integer_loop' : 'rust_callbacks';
+        my $path = "$dir/0-$shape-candidate.log";
+        open my $file, '<', $path or die $!;
+        my $log = do { local $/; <$file> };
+        close $file;
+        if ($fault eq 'missing') { unlink $path or die $!; }
+        elsif ($fault eq 'order') { write_file("$dir/order.log", "wrong\n"); }
+        elsif ($fault eq 'telemetry') { unlink "$dir/0-before.telemetry" or die $!; }
+        elsif ($fault eq 'incomplete') { unlink "$dir/completed" or die $!; }
+        elsif ($fault eq 'experiment') { write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=6\nexperiment=unknown\n"); }
+        else {
+            if ($fault eq 'duplicate') { $log .= $log; }
+            elsif ($fault eq 'zero') { $log =~ s/elapsed_ns=500/elapsed_ns=0/; }
+            elsif ($fault eq 'signed') { $log =~ s/elapsed_ns=500/elapsed_ns=-500/; }
+            elsif ($fault eq 'mode') { $log =~ s/=true/=false/; }
+            elsif ($fault eq 'field') { $log =~ s/(strided|preferred)=/unknown=/; }
+            elsif ($fault eq 'counters') { $log =~ s/counters=\[1/counters=[2/; }
+            elsif ($fault eq 'native') { $log =~ s/code_bytes=4096/code_bytes=0/; }
+            elsif ($fault eq 'failed') { $log =~ s/0 failed/1 failed/; }
+            write_file($path, $log);
+        }
+        die "accepted $fault" if audit($dir);
+        die "wrote success artifact for $fault" if -e "$dir/audit.json";
+    }
 }
-print "Strided timing audit: valid ratios and eleven malformed screens checked\n";
+print "Timing audit: legacy and both six-order experiments; 26 malformed screens refused\n";
+
+my $image = "$root/runner-image";
+my $bin = "$root/runner-bin";
+mkdir $image or die $!;
+mkdir $bin or die $!;
+write_file("$bin/taskset", "#!$^X\n" . <<'TASKSET');
+use strict;
+use warnings;
+die 'affinity option' unless shift(@ARGV) eq '-c';
+die 'affinity CPU' unless shift(@ARGV) =~ /^\d+$/;
+exec @ARGV;
+die $!;
+TASKSET
+write_file("$image/test-binary", "#!$^X\n" . <<'BINARY');
+use strict;
+use warnings;
+my $preferred = exists $ENV{LUNA_PREFERRED_ENTRY};
+my $case = $ENV{$preferred ? 'LUNA_PREFERRED_CASE' : 'LUNA_STRIDED_CASE'};
+my $mode = $ENV{$preferred ? 'LUNA_PREFERRED_ENTRY' : 'LUNA_STRIDED'};
+my $test = $preferred ? 'preferred_entry::timing::time_preferred_runtime' : 'strided_profile::timing::time_strided_runtime';
+die 'test selection' unless $ARGV[0] eq "jit::payload_runtime_tests::$test";
+die 'case and mode required' unless defined $case && defined $mode && $mode =~ /^[01]$/;
+my $field = $preferred ? 'preferred' : 'strided';
+my $selected = $mode ? 'true' : 'false';
+my $ns = $mode ? 500 : 1000;
+my $counters = join ', ', (1) x 25;
+print "TIMING_V1 case=$case $field=$selected elapsed_ns=$ns counters=[$counters] code_bytes=4096 metadata_bytes=16 metadata_peak_bytes=32 snapshot_peak_bytes=64\n";
+print "test result: ok. 1 passed; 0 failed;\n";
+BINARY
+chmod 0755, "$bin/taskset", "$image/test-binary" or die $!;
+open my $checksums, '-|', 'sha256sum', "$image/test-binary" or die $!;
+my $manifest = do { local $/; <$checksums> };
+close $checksums or die 'checksum failure';
+write_file("$image/binary.sha256", $manifest);
+write_file("$image/source.sha256", $manifest);
+for my $experiment (qw(strided preferred_entry)) {
+    my $out = "$root/runner-$experiment";
+    my $pid = fork();
+    die $! unless defined $pid;
+    if (!$pid) {
+        local $ENV{PATH} = "$bin:$ENV{PATH}";
+        delete @ENV{qw(LUNA_STRIDED_CASE LUNA_STRIDED LUNA_PREFERRED_CASE LUNA_PREFERRED_ENTRY)};
+        open STDOUT, '>', "$root/runner-$experiment.stdout" or die $!;
+        open STDERR, '>', "$root/runner-$experiment.stderr" or die $!;
+        exec 'bash', 'examples/jit_support/strided_timing.sh', $image, $out, 0, 3, $experiment;
+        die $!;
+    }
+    waitpid($pid, 0);
+    die "runner failed $experiment; inspect $root" unless $? == 0;
+    die "runner output audit failed $experiment" unless audit($out);
+}
+print "Timing runner: both experiment selectors, telemetry and record checks passed with synthetic workers\n";

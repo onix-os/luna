@@ -22,6 +22,18 @@ pub(super) struct Root {
     pub unknown: Block,
 }
 
+struct Routing {
+    reduce: Inst,
+    table: Inst,
+    fast: Option<Shortcut>,
+}
+
+struct Shortcut {
+    pc: usize,
+    branch: Inst,
+    table_block: Block,
+}
+
 pub(super) struct Paths {
     points: Vec<Point, BudgetAllocator>,
     expected: usize,
@@ -114,6 +126,32 @@ impl Paths {
         fallback: Block,
         exhausted: Block,
     ) -> Result<(), JitError> {
+        let [reduce, table] = instructions::<2>(function, root.dispatch)?;
+        self.verify_routing(
+            function,
+            snapshot,
+            headers,
+            root,
+            fallback,
+            exhausted,
+            Routing {
+                reduce,
+                table,
+                fast: None,
+            },
+        )
+    }
+
+    fn verify_routing(
+        &self,
+        function: &Function,
+        snapshot: &Snapshot,
+        headers: &[Block],
+        root: Root,
+        fallback: Block,
+        exhausted: Block,
+        routing: Routing,
+    ) -> Result<(), JitError> {
         if self.overflowed
             || self.points.len() != self.expected
             || self.expected != snapshot.operations.len()
@@ -140,7 +178,11 @@ impl Paths {
         let arms = conditional(function, branch, valid)?;
         no_args(function, arms[0], root.dispatch)?;
         no_args(function, arms[1], root.unknown)?;
-        let [reduce, table_inst] = instructions::<2>(function, root.dispatch)?;
+        let Routing {
+            reduce,
+            table: table_inst,
+            fast,
+        } = routing;
         let InstructionData::Unary {
             opcode: Opcode::Ireduce,
             arg,
@@ -176,6 +218,9 @@ impl Paths {
         jump(function, unknown_exit, fallback, &[params[1], zero])?;
         let cfg = Predecessors::new(function, self.points.allocator().clone())?;
         single_predecessor(&cfg, root.dispatch, branch)?;
+        if let Some(fast) = &fast {
+            single_predecessor(&cfg, fast.table_block, fast.branch)?;
+        }
         let mut unknown_predecessors = cfg.pred_iter(root.unknown);
         if cfg.pred_iter(root.unknown).count() != 2
             || unknown_predecessors
@@ -191,7 +236,16 @@ impl Paths {
             .enumerate()
         {
             no_args(function, target, point.trampoline)?;
-            single_predecessor(&cfg, point.trampoline, table_inst)?;
+            if let Some(fast) = fast.as_ref().filter(|fast| fast.pc == pc) {
+                let mut incoming = cfg.pred_iter(point.trampoline);
+                if cfg.pred_iter(point.trampoline).count() != 2
+                    || incoming.any(|pred| pred.inst != table_inst && pred.inst != fast.branch)
+                {
+                    return Err(invalid());
+                }
+            } else {
+                single_predecessor(&cfg, point.trampoline, table_inst)?;
+            }
             let [zero, trampoline_jump] = instructions::<2>(function, point.trampoline)?;
             let zero = result(function, zero, types::I32)?;
             if !constant(function, zero, types::I32, 0) {
@@ -276,6 +330,18 @@ impl Paths {
         root: Root,
         handlers: &[Block; 4],
     ) -> Result<(), JitError> {
+        self.verify_regions_with_table(function, graph, headers, root, handlers, None)
+    }
+
+    fn verify_regions_with_table(
+        &self,
+        function: &Function,
+        graph: &super::flow::FlowGraph,
+        headers: &[Block],
+        root: Root,
+        handlers: &[Block; 4],
+        table_block: Option<Block>,
+    ) -> Result<(), JitError> {
         let rejected = || JitError::Compilation("invalid source region data flow".into());
         if self.overflowed
             || self.expected != self.points.len()
@@ -298,6 +364,12 @@ impl Paths {
             }
             frontier = point.region[1];
         }
+        if let Some(block) = table_block {
+            if block.as_u32() != frontier {
+                return Err(rejected());
+            }
+            frontier = frontier.checked_add(1).ok_or_else(rejected)?;
+        }
         if frontier as usize != function.dfg.num_blocks() {
             return Err(rejected());
         }
@@ -312,6 +384,7 @@ impl Paths {
         for block in function.layout.blocks() {
             let Some(pc) = self.owner(block) else {
                 if ![entry, root.dispatch, root.unknown].contains(&block)
+                    && Some(block) != table_block
                     && !handlers.contains(&block)
                     && headers
                         .binary_search_by_key(&block.as_u32(), |block| block.as_u32())
@@ -861,6 +934,23 @@ mod region_tests {
         quota: bool,
         write: bool,
     ) -> Result<(), JitError> {
+        fixture_inspect(fault, quota, write, |_, _, _, _, _, _, _| Ok(()))
+    }
+
+    pub(super) fn fixture_inspect(
+        fault: Option<RegionFault>,
+        quota: bool,
+        write: bool,
+        inspect: impl FnOnce(
+            &mut Function,
+            &Snapshot,
+            &super::super::flow::FlowGraph,
+            &mut Paths,
+            &[Block],
+            Root,
+            &[Block; 4],
+        ) -> Result<(), JitError>,
+    ) -> Result<(), JitError> {
         let source = Snapshot {
             prepared_keys: None,
             operations: super::super::resources::owned(&[
@@ -1006,6 +1096,17 @@ mod region_tests {
             ));
             assert_eq!(ledger.refusals(), 1);
         }
+        let result = result.and_then(|()| {
+            inspect(
+                &mut function,
+                &source,
+                &graph,
+                &mut paths,
+                &headers,
+                root,
+                &handlers,
+            )
+        });
         drop(paths);
         drop(graph);
         assert_eq!(ledger.current(), baseline);

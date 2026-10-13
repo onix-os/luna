@@ -11,6 +11,15 @@
 
 ### Progress snapshot — 2026-10-13
 
+The bounded-verifier baseline at `b9e9e9f` completed
+`make jit-test JIT_MODE=force`: **1,936 passed, zero failed, 18 ignored,
+87 summaries**. This includes the explicitly selected preferred-entry tests;
+ordinary production selection was still unchanged. The full-suite log is
+`preferred-entry-bounded-force.log` in the ignored short-slice evidence directory.
+A fresh production benchmark and both feature-cost profiles are being frozen
+before trying automatic guarded-entry selection. No production speedup or
+release acceptance follows from the test result.
+
 #### Preferred call-resumption dispatcher — test-only prototype
 
 `84beab8` adds a source selector for one reachable fixed-arity Call enclosed by
@@ -101,6 +110,105 @@ Evidence: `preferred-entry-profile/{audit.json,*-annotation.log,*-native/}`;
 all profiles and source/binary integrity checks pass. The local audit's initial
 Perl capture-variable error is retained in its first log; its corrected rerun
 passes the independent self-total checks for all six profiles.
+
+The test-only elapsed harness now reuses the existing three-arm timing runner
+with an explicit `preferred_entry` experiment rather than mislabeling it as a
+strided transport. It preserves fresh-process warmups, all six arm orders,
+two ordinary controls per candidate, per-window contention telemetry and
+before/after binary/source/tool integrity checks. The older seven-workload
+strided protocol remains supported. Audit fixtures pass the legacy protocol,
+both six-order experiment scopes and 26 malformed-screen refusals; three
+preferred runtime tests, formatting and all-feature checking pass. Dedicated
+Make build/run/audit targets freeze the timing image and label this callback-only
+test-image screen as **not release acceptance**. Timing results remain to be
+collected and audited before any elapsed-improvement claim.
+
+The first timing launch stopped after one valid ordinary sample: the shell
+telemetry loop overwrote the newly added record-field selector, so validation
+incorrectly refused that log. The partial directory is retained, not treated as
+a completed comparison. A distinct record selector fixes the bug; end-to-end
+runner tests with synthetic workers now exercise both experiments, telemetry,
+environment/test selection and the final audit. They fail against the original
+bug and pass after restoration. Timing restarts with a separately frozen image
+directory and fresh output paths; no partial sample is silently discarded.
+
+Six corrected screens now complete **846 three-arm windows / 2,538 measured
+executions**, plus the separately retained initial partial sample. Both CPUs
+run 21-window screens, 201-window screens and independent 201-window repeats.
+Each fresh process executes two warmups and one checked measurement from the
+same optimized test image. No owned build, test or profiler overlaps timing.
+All six order/telemetry/source/binary/tool audits pass. An independent campaign
+audit rereads every raw record, recomputes every paired ratio, and finds zero
+25-counter or reported-resource mismatches across the completed screens.
+
+Ratios above one favor the preferred route; the placebo compares the two
+ordinary controls:
+
+| CPU | Windows | Ordinary / preferred median | Ordinary / ordinary median |
+| --- | ---: | ---: | ---: |
+| 0 | 21 | 1.004968 | 0.994888 |
+| 16 | 21 | 1.003487 | 0.973911 |
+| 16 | 201 | 1.008847 | 1.002515 |
+| 0 | 201 | 0.852879 | 1.007886 |
+| 0 | 201 repeat | 1.011463 | 0.996873 |
+| 16 | 201 repeat | 1.011697 | 1.001854 |
+
+CPU16's long-screen candidate-ratio interquartile ranges are **0.976158–1.028874**
+and **0.994293–1.037917**; its placebo ranges are **0.978024–1.030744** and
+**0.978203–1.025576**. CPU0's first long screen is much less stable: candidate
+**0.615081–1.735262**, placebo **0.532456–1.808353**. The repeat narrows to
+candidate **0.979841–1.034836**, placebo **0.972024–1.027371**. All outliers and
+external-load observations remain included; there is no causal hardware
+attribution for the adverse CPU0 screen and no waiver for it.
+
+This provides a small repeated CPU16 elapsed signal, **not release acceptance
+or a solution to the original callback/compiled-Off regressions**. It is one
+callback workload in an opt3 test image, not a shipping full-workload or
+feature-disabled comparison. Reported mapping/metadata/snapshot fields agree,
+but native requested size differs as already recorded, and the clone/display
+oracle is still unbounded test machinery. Keep this route test-only. Any next
+production trial must first replace that oracle with bounded source/entry-flow
+verification, then run its own full correctness/resource and unchanged native
+and compiled-Off gates; a one-percent diagnostic gain is not a substitute.
+
+Evidence: `preferred-entry-timing-image-v2` (binary SHA-256
+`8054d79806d65740ba2c6ce6adae8180dc36303c2cf0fdeca71a0a1410ad45af`),
+all six `preferred-entry-timing-v2-*` screen directories and
+`preferred-entry-timing-audit.json`. Production source/default selection and the
+shipping benchmark image remain unchanged.
+
+The preferred backend path now replaces clone/display comparison with bounded
+structural verification of the transformed graph. Entry verification checks
+the exact guard, original full-width bound and generic table, the sole predecessor
+of the auxiliary table block, and the two permitted predecessors of the preferred
+zero-count trampoline. Source-region verification accounts for exactly one
+appended block, retains its charged predecessor/dominator/effect workspaces and
+rejects source-body edges into either dispatch path or counter-reset trampoline.
+All original store/arithmetic/helper/exit/binding checks now inspect the rewritten
+function, not a pre-rewrite function. Actual instruction/block limits are checked
+after adding the guard. The original restoration oracle remains only in model
+tests as a separate comparison, not in backend compilation.
+
+Normal validation passes ten preferred model tests, three native tests, three
+runtime tests, sixteen existing region tests and fourteen backend region checks
+(inspect the retained log for exact counts), plus formatting/all-feature checking.
+The model suite checks all twelve earlier corruption cases against both oracles,
+thirteen source-region corruptions, extra entry/reset edges, successful budgeted
+workspace release, refusal at the current quota, and successful retry without
+mutating IR. Miri and broader compiler quota acceptance are still being checked;
+this removes the known clone/display dependency but does not by itself establish
+full compiler-resource or release acceptance. Preferred routing remains test-only.
+
+All **ten model tests pass under Miri** (266.45 seconds). Two further native
+resource tests pass: for both scalar and table-reading callback sources, the
+required preferred route compiles at its measured workspace peak, refuses at
+peak minus one, and releases snapshot/workspace, metadata, mapped and requested
+code charges after either outcome. Separate checks retain exact IR admission
+limits: instruction or block allowance minus one refuses, while the admitted
+bounds compile successfully with the guarded entry. The native target now
+passes five tests; formatting and all-feature checking pass. These are explicit
+boundary/refusal/recovery checks, not a claim that all resource/platform or
+shipping benchmark gates have been completed.
 
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
