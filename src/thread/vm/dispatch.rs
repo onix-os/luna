@@ -8,17 +8,13 @@ pub(super) enum Dispatch {
     Observing(u64),
     #[cfg(feature = "jit")]
     Compiled(Prepared),
-    HookResume,
+}
+
+pub(super) fn hook_due(resume: bool, instructions: u32) -> bool {
+    !resume || instructions != 0
 }
 
 impl Dispatch {
-    pub(super) fn resume_hook(self, resume: bool) -> Self {
-        match self {
-            Self::Hooked if resume => Self::HookResume,
-            dispatch => dispatch,
-        }
-    }
-
     pub(super) fn interpreted(hook_enabled: bool) -> Self {
         if hook_enabled {
             Self::Hooked
@@ -65,17 +61,12 @@ mod tests {
     }
 
     #[test]
-    fn resumption_changes_only_hooked_dispatch() {
+    fn resumption_skips_only_the_first_hook_check() {
         for resume in [false, true] {
-            assert!(matches!(
-                Dispatch::Interpreted.resume_hook(resume),
-                Dispatch::Interpreted
-            ));
-            assert!(matches!(Dispatch::Hooked.resume_hook(resume), Dispatch::HookResume) == resume);
-            #[cfg(feature = "jit")]
-            for source in [0, 1, u64::MAX] {
-                assert!(
-                    matches!(Dispatch::Observing(source).resume_hook(resume), Dispatch::Observing(found) if found == source)
+            for instructions in [0, 1, 64, u32::MAX] {
+                assert_eq!(
+                    super::hook_due(resume, instructions),
+                    !(resume && instructions == 0)
                 );
             }
         }
@@ -111,7 +102,7 @@ mod tests {
     fn compiled_state_keeps_one_owner_through_retirement_and_gc() {
         use crate::{Closure, JitConfig, JitMode, Lua};
 
-        for source_choice in 0..6 {
+        for source_choice in 0..3 {
             let mut lua = Lua::empty();
             lua.set_jit_config(JitConfig {
                 mode: JitMode::Auto,
@@ -134,12 +125,12 @@ mod tests {
                 (source, ctx.jit().lookup(source).unwrap())
             });
             let before = lua.jit_stats();
-            let source = match source_choice % 3 {
+            let source = match source_choice {
                 0 => None,
                 1 => Some(source),
                 _ => Some(u64::MAX),
             };
-            let dispatch = Dispatch::new(source, Some(code), false).resume_hook(source_choice >= 3);
+            let dispatch = Dispatch::new(source, Some(code), false);
             assert!(matches!(&dispatch, Dispatch::Compiled(_)));
             let after = lua.jit_stats();
             assert_eq!(

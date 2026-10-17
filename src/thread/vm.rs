@@ -318,7 +318,6 @@ fn run_vm_slice<'gc>(
     let native_dispatch = dispatch::Dispatch::new(native_id, native_code, hook_enabled);
     #[cfg(not(feature = "jit"))]
     let native_dispatch = dispatch::Dispatch::interpreted(hook_enabled);
-    let native_dispatch = native_dispatch.resume_hook(resume_hook);
     #[cfg(feature = "jit")]
     let mut native_instructions = prefix_instructions;
     #[cfg(feature = "jit")]
@@ -477,8 +476,7 @@ fn run_vm_slice<'gc>(
             }
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Observing(id) if run_native => ctx.jit().observe(*id),
-            dispatch::Dispatch::HookResume if instructions_run == 0 => {}
-            dispatch::Dispatch::Hooked | dispatch::Dispatch::HookResume => {
+            dispatch::Dispatch::Hooked if dispatch::hook_due(resume_hook, instructions_run) => {
                 let line = ctx
                     .hook_line()
                     .then(|| line_of(&current_prototype, *registers.pc));
@@ -500,7 +498,7 @@ fn run_vm_slice<'gc>(
                     registers = lua_frame.registers();
                 }
             }
-            dispatch::Dispatch::Interpreted => {}
+            dispatch::Dispatch::Interpreted | dispatch::Dispatch::Hooked => {}
             #[cfg(feature = "jit")]
             _ => {}
         }
