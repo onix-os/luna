@@ -119,9 +119,35 @@ controls. No-feature counts remain higher at **21,144,140**, **19,742,000** and
 **75,172,517**, respectively; a lower feature-cost ratio must not be credited
 as a speedup if it comes from that slower control.
 
-Fresh full-suite/Miri validation and stripped timing builds are running for
-this candidate. Its elapsed screen has not started. The preceding trial's
-2,429-test and 19-Miri results do not substitute for these fresh checks.
+Fresh full-suite validation passes **2,429 tests / 20 ignored / 177 summaries**;
+fresh lifecycle/dispatch Miri passes **19 executions**. The stripped timing
+builds and source/artifact manifests verify. Its complete elapsed screen and
+independent audit pass structural validation: **4,536 native executions**,
+**181,440 cost iterations**, unchanged thresholds and zero counter/reported-
+resource mismatches. These are fresh checks of `2865fd9`, not inherited results
+from the immutable trial.
+
+Performance remains **unaccepted**. Shipping JIT-Off callbacks improve by about
+**8–10%**, with smaller shipping numeric gains. However, speed JIT-Off float
+execution on CPU 16 is **5–6% slower** in both rounds; its control/trial ratios
+are **0.9489 / 0.9442**, with same-image placebos **0.9904 / 1.0018**.
+The separate native-benchmark executable has an even larger **20–21%** CPU-0
+float Off slowdown, while float Auto time is nearly unchanged. Its larger
+Off/Auto speedup therefore cannot establish a genuine native improvement.
+Speed no-feature numeric controls also become slower, so passing relative
+feature-cost gates is not sufficient to accept this candidate.
+
+Native callbacks still fail in three of four trial windows, metamethods in one,
+and shipping upvalue feature cost in all four. Speed upvalue and callback costs
+fail in two windows each; cold cost fails once. Evidence is
+`hook-resume-recovery/hook-local-screen/` and `hook-local-audit.json`.
+No full performance acceptance or release completion is claimed.
+
+The current host reports `perf_event_paranoid=2`, unlike the earlier value 4,
+and exposes hybrid `cpu_core`/`cpu_atom` PMUs. A pinned-Nix user-space hardware
+counter probe is being attempted without modifying kernel policy or capabilities.
+Availability is not assumed from the sysctl alone. Hardware evidence may help
+separate instruction work from the profile/executable-specific timing losses.
 
 ### Progress snapshot — 2026-10-13
 
