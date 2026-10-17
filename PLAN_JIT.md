@@ -31,10 +31,20 @@ The fallback is deliberately not marked cold and remains correct for every
 Value kind. There is no new unsafe code or assumption about enum layout.
 
 Formatting/all-feature checks and **55 ABI/native/heap/upvalue executions**
-pass. The no-feature optimized image is byte-identical to its control. A fresh
-matched-image profile campaign is running for float, upvalue and callback
-workloads in Off and Auto. No instruction reduction, elapsed speedup, full/Miri
-validation or performance acceptance is claimed yet. Evidence prefix:
+pass. The no-feature optimized image is byte-identical to its control. All 24
+matched-image profiles for float, upvalue and callback workloads in Off and Auto
+complete with verified event sums, hashes, results and native-work checks.
+The trial is **rejected**: Auto instruction totals increase from 5,859,342 to
+5,927,048 for float, 26,332,319 to 26,846,770 for upvalues, and 47,185,639 to
+47,583,483 for callbacks. Float/callback Off totals are unchanged; upvalue Off
+saves only 408 instructions. Callback transport itself grows by 49,682
+instructions, so lower self counts in one helper do not establish a net saving.
+
+Commit `944e518` withdraws the split. Restoration formatting/all-feature checks
+and all 55 focused executions pass. Both rebuilt speed-profile diagnostic
+images are byte-identical to their split-hook controls, and source manifests
+match. No elapsed speedup or new full/Miri validation is claimed for the rejected
+experiment. Evidence prefix:
 `hook-resume-recovery/owned-import-*`; the preceding source's disabled-cost
 profiles remain under `hook-split/profile/{shipping,speed}/callgrind`.
 
@@ -68,9 +78,9 @@ The follow-up applies the cold hint only under `not(feature = "jit")`, retaining
 the outlined non-cold helper in JIT-feature builds. This is a compile-time code
 placement choice between two materially different VM bodies, not workload-based
 tier disabling or a changed performance threshold. Semantic source, ownership,
-fuel and counters stay shared. It still needs its own frozen builds and complete
-paired validation; the two previous campaigns cannot be treated as measurements
-of this new combined source. Formatting/all-feature checks and **77 focused
+fuel and counters stay shared. Its own frozen builds and paired validation are
+reported below; the two previous campaigns are not treated as measurements
+of this combined source. Formatting/all-feature checks and **77 focused
 executions** pass. Full validation passes **2,433 executions, zero failures,
 20 ignored across 177 summaries**; **23 Miri executions** also pass.
 
@@ -95,7 +105,7 @@ This is still **not full performance acceptance**. Native callback gates fail
 **5/8** windows and metamethod gates **4/8**; shipping upvalue feature-cost
 gates fail **8/8**, speed upvalue **5/8**, with additional failures retained in
 the raw audits. Fresh shipping/speed Off-versus-no-feature instruction profiles
-are being built to attribute the remaining compiled-disabled cost. The lookup
+are complete and summarized above. The lookup
 source already contains a two-hint bucket-offset cache; hashing every repeated
 lookup is not a valid diagnosis of the current implementation.
 
