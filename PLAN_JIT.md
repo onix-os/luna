@@ -78,11 +78,40 @@ hash checks caught this before timing. Each was restored from Cargo's retained
 executable matching its **original** manifest digest, without rebasing hashes.
 The rewritten copies and `objcopy-restoration.log` remain as evidence.
 
-Paired timing now runs after all owned builds, profilers and tests have ended:
+Paired timing completed after all owned builds, profilers and tests had ended:
 two CPUs, two rounds, same-image A/B controls around the trial, 21 samples,
 both shipping/speed feature-cost profiles and all nine native workloads.
-External contention is retained in telemetry. No elapsed improvement or full
-performance acceptance is claimed before this campaign is audited.
+External contention is retained in telemetry. Independent audit verifies
+**4,536 native measured executions**, **181,440 feature-cost workload
+iterations**, all original thresholds, raw cost medians, alternating samples,
+run order and zero native-counter/reported-resource mismatches.
+
+The immutable trial is **rejected**. Speed-profile JIT-Off integer controls are
+about **12% slower**, and float controls about **10–13% slower**, in all four
+CPU/round windows. Same-image placebos for these comparisons range from
+**0.9938 to 1.0123**, much smaller than the loss. Native callbacks still fail
+their original gate in all four trial windows; shipping upvalue feature cost
+also fails in all four. Some shipping numeric gains and smaller callback gains
+do not offset these failures. Speed upvalue JIT-Off improves slightly, but its
+lower feature-cost ratio also includes a slower no-feature control.
+
+The accepted audit is `hook-resume-recovery/audit.json`; its complete screen
+is under `screen/`. An earlier complete measurement attempt failed the final
+driver hash check because an audit target was briefly appended to its frozen
+Make fragment. That failed attempt remains under `screen-driver-change/` and
+is excluded from the accepted audit. The driver was restored before repeating
+the entire campaign; the auditor uses a separate Make fragment.
+
+#### Hook-local resumption predicate — next trial
+
+The next candidate removes `Dispatch::HookResume` from VM dispatch entirely.
+The frame-owned `Frame::HookResume` correctness fix remains. A predicate in the
+ordinary `Hooked` arm suppresses delivery only when resuming with zero executed
+instructions. Interpreted, observing and compiled dispatch retain their original
+variants; no mutable dispatch state or extra loop-local flag is introduced.
+Pure tests cover resumed/non-resumed counts 0, 1, 64 and `u32::MAX`; the original
+three distinct compiled-owner source choices remain covered. Focused lifecycle
+validation and fresh software profiles are underway; no speed claim is made.
 
 ### Progress snapshot — 2026-10-13
 
