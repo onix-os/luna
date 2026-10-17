@@ -28,8 +28,9 @@ is a changed internal contract, not a newly discovered user-facing defect.
 Formatting/all-feature checks and **77 focused test executions** pass. All
 **23 Miri executions** pass. Frozen shipping/speed feature-cost images and the
 native benchmark image have been built. Full baseline/docs/all-feature Force
-validation is still running; no elapsed result is yet available for this trial.
-The next campaign retains the existing two-CPU, two-round, 21-sample A/trial/B
+validation passes: **2,433 passed, zero failed, 20 ignored across 177 summaries**.
+The elapsed campaign is running; no audited result is yet available for this
+trial. It retains the existing two-CPU, two-round, 21-sample A/trial/B
 controls and every original threshold. Earlier regressions are not declared
 fixed on correctness results or instruction counts alone.
 
