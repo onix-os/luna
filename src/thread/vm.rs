@@ -11,7 +11,10 @@ use crate::{
     Closure, Constant, Context, Function, String, Table, Value,
 };
 
-use super::{thread::LuaFrame, VMError};
+use super::{
+    thread::{Frame, LuaFrame},
+    VMError,
+};
 
 #[cfg(test)]
 mod constant_add;
@@ -148,15 +151,7 @@ pub(super) fn run_vm<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    run_vm_slice(ctx, lua_frame, max_instructions, false)
-}
-
-pub(super) fn resume_hook<'gc>(
-    ctx: Context<'gc>,
-    lua_frame: LuaFrame<'gc, '_>,
-    max_instructions: u32,
-) -> Result<u32, VMError> {
-    run_vm_slice(ctx, lua_frame, max_instructions, true)
+    run_vm_slice(ctx, lua_frame, max_instructions)
 }
 
 #[cfg(all(
@@ -187,7 +182,6 @@ pub(super) fn resume_vm<'gc>(
             fuel: lua_frame.fuel,
         },
         max_instructions,
-        false,
     )
 }
 
@@ -195,7 +189,6 @@ fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    resume_hook: bool,
 ) -> Result<u32, VMError> {
     #[cfg(all(
         test,
@@ -232,6 +225,10 @@ fn run_vm_slice<'gc>(
         return Ok(0);
     }
 
+    let resume_hook = matches!(lua_frame.state.frames.last(), Some(Frame::HookResume));
+    if resume_hook {
+        lua_frame.state.frames.pop();
+    }
     let current_function = lua_frame.closure();
     let current_prototype = current_function.prototype();
     let current_upvalues = current_function.upvalues();

@@ -633,6 +633,7 @@ impl<'gc> Executor<'gc> {
                     }
                     Some(Frame::HookResume) => {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                        top_state.frames.push(Frame::HookResume);
                         let stack = top_state.stack;
                         let frame_stack = stack.borrow_mut(&ctx);
                         #[cfg(feature = "jit")]
@@ -652,7 +653,7 @@ impl<'gc> Executor<'gc> {
                             stack: frame_stack,
                             fuel,
                         };
-                        match super::vm::resume_hook(ctx, lua_frame, Self::VM_GRANULARITY) {
+                        match run_vm(ctx, lua_frame, Self::VM_GRANULARITY) {
                             Ok(instructions) => fuel.consume(instructions.try_into().unwrap()),
                             Err(error) => {
                                 let error = match error_position(&top_state.frames) {
