@@ -9,6 +9,29 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Validation recovery — 2026-10-17
+
+The checkout remains at the committed single-VM hook fix, but the ignored
+`target/` evidence tree and previous process handles are no longer present.
+Previously observed results below remain historical reports; unfinished runs
+are not promoted to passes, and their former binaries cannot be reused.
+
+Fresh formatting/all-feature checks and **21 focused test executions** pass
+for the current implementation: six hook lifecycle tests in each feature mode,
+the zero-fuel builtin oracle, and three/five dispatch tests without/with JIT.
+The host has no `/bin/bash`; invoking Make with
+`SHELL="$(command -v bash)"` inside the pinned Nix shell resolves that launch
+failure without changing runtime source. The failed first launch is retained.
+
+The full baseline/docs and all-feature Force suite is being rerun. Fresh
+profile controls are built from archived commit `999931b` and compared with
+archived `b7e6ec4` using the same pinned toolchain and build options. These are
+new builds, not the lost byte-verified control images. Recovery evidence lives
+under `target/jit-evidence/hook-resume-recovery`. Software-profile instruction
+counts are diagnostic only; elapsed acceptance still requires independent
+timing after owned builds, tests and profilers finish. All original performance,
+resource and platform gates remain unchanged and open.
+
 ### Progress snapshot — 2026-10-13
 
 #### Hook instruction resumption — count-one starvation corrected
