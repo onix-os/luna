@@ -44,6 +44,7 @@ fn line_of(proto: &crate::FunctionPrototype<'_>, pc: usize) -> LineNumber {
     }
 }
 
+#[cfg_attr(not(feature = "jit"), cold)]
 #[inline(never)]
 fn dispatch_hook<'gc>(
     ctx: Context<'gc>,

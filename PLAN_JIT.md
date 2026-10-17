@@ -9,6 +9,112 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Owned scalar-import diagnostic — 2026-10-18
+
+Fresh shipping/speed Off-versus-no-feature profiles for the split-hook source
+verify all sixteen event sums, artifact hashes, results and zero native work.
+Shipping upvalues execute **78,773,277** no-feature versus **88,577,253** JIT-Off
+instructions; speed upvalues **70,922,252** versus **80,378,156**. Shipping
+callbacks are **45,562,240 / 47,640,030**, speed **36,436,460 / 38,915,025**.
+Numeric JIT-Off instruction counts are lower than no-feature counts in both
+profiles despite some slower elapsed windows. The remaining cost has more than
+one cause; instruction totals cannot stand in for throughput measurements.
+
+Trial `fd53bbf` targets ordinary native import work separately: an inlined
+Integer case consumes the existing owned `Value`, while a non-inlined total
+converter handles the fallback. It retains the same tags, bits, canonical roots,
+full register coverage and writeback. This is not the rejected borrowed-value
+numeric/cold remainder, integer-prefix loop or same-integer writeback. The older
+same-function owned numeric prefix was folded back into the original sequence;
+this experiment tests whether an actual call boundary prevents that folding.
+The fallback is deliberately not marked cold and remains correct for every
+Value kind. There is no new unsafe code or assumption about enum layout.
+
+Formatting/all-feature checks and **55 ABI/native/heap/upvalue executions**
+pass. The no-feature optimized image is byte-identical to its control. All 24
+matched-image profiles for float, upvalue and callback workloads in Off and Auto
+complete with verified event sums, hashes, results and native-work checks.
+The trial is **rejected**: Auto instruction totals increase from 5,859,342 to
+5,927,048 for float, 26,332,319 to 26,846,770 for upvalues, and 47,185,639 to
+47,583,483 for callbacks. Float/callback Off totals are unchanged; upvalue Off
+saves only 408 instructions. Callback transport itself grows by 49,682
+instructions, so lower self counts in one helper do not establish a net saving.
+
+Commit `944e518` withdraws the split. Restoration formatting/all-feature checks
+and all 55 focused executions pass. Both rebuilt speed-profile diagnostic
+images are byte-identical to their split-hook controls, and source manifests
+match. No elapsed speedup or new full/Miri validation is claimed for the rejected
+experiment. Evidence prefix:
+`hook-resume-recovery/owned-import-*`; the preceding source's disabled-cost
+profiles remain under `hook-split/profile/{shipping,speed}/callgrind`.
+
+### Whole-hook cold-path diagnostic — 2026-10-18
+
+A fresh 270-process hardware-counter campaign for the outlined implementation
+covers integer, float and upvalue workloads on both CPU types with five
+A/trial/B repeats. All grouped events have 100% scheduling coverage and verified
+results. CPU16 speed-profile no-feature integer has median control/trial cycles
+**0.9291**, despite instruction ratio **1.0119** and branch-miss ratio **0.9996**;
+cycle placebo is **0.9961**. This corroborates the repeated elapsed regression
+rather than dismissing it as contention. Instruction-count reduction alone did
+not repair its execution throughput. Exact front-end/cache attribution is not
+established by these counters.
+
+The diagnostic marked the entire already-outlined `dispatch_hook` as cold.
+It tests hot/cold placement of the actual hook-only branch, not the previously
+rejected cold `hook_due` predicate inside an ordinary match guard. The patch is
+one attribute; frame ownership, opcode execution, counters and limits do not
+change. Formatting/all-feature checks and **77 focused executions** pass.
+The completed diagnostic campaign audits 4,536 native executions and 181,440
+cost iterations, with zero counter/resource mismatches and unchanged thresholds.
+The blanket cold attribute is **rejected**: CPU16 no-feature speed integer
+control/trial ratios improve to 1.0075/1.0382, but JIT-Off integer drops to
+0.9116/0.9693 and JIT-Off float to 0.8999/0.9454. The latter controls have
+near-unity A/B placebos. Restoring one build's throughput by regressing the other
+does not satisfy acceptance. Full/Miri repetition was deferred for this rejected
+attribute-only diagnostic and is not claimed.
+
+The follow-up applies the cold hint only under `not(feature = "jit")`, retaining
+the outlined non-cold helper in JIT-feature builds. This is a compile-time code
+placement choice between two materially different VM bodies, not workload-based
+tier disabling or a changed performance threshold. Semantic source, ownership,
+fuel and counters stay shared. Its own frozen builds and paired validation are
+reported below; the two previous campaigns are not treated as measurements
+of this combined source. Formatting/all-feature checks and **77 focused
+executions** pass. Full validation passes **2,433 executions, zero failures,
+20 ignored across 177 summaries**; **23 Miri executions** also pass.
+
+The rebuilt no-feature shipping/speed images are byte-identical to the blanket
+cold trial's corresponding images. JIT-feature shipping/speed images have
+identical `.text` and `.rodata` to the non-cold outlined trial; the native
+benchmark's `.text` also matches. Full JIT-feature images differ, so full-image
+identity is not asserted. These are read-only ELF comparisons, not substituted
+timing evidence.
+
+Two complete `hook-split` timing campaigns each pass independent structural,
+counter/resource and original-threshold audits: **9,072 native measured
+executions and 362,880 cost iterations** combined, zero mismatches. Large
+same-image control drift in the first CPU0 window remains retained. In the
+repeat, CPU0 speed no-feature integer/float are near the pre-fix control, and
+CPU16 no-feature integer control/trial ratios are **1.0538/1.0280**, rather than
+the earlier roughly 7% loss. JIT-Off numeric losses are smaller than with the
+blanket cold hint, but CPU16 speed JIT-Off float still measures
+**0.9740/0.9547** relative to its controls and fails its feature-cost gate.
+
+This is still **not full performance acceptance**. Native callback gates fail
+**5/8** windows and metamethod gates **4/8**; shipping upvalue feature-cost
+gates fail **8/8**, speed upvalue **5/8**, with additional failures retained in
+the raw audits. Fresh shipping/speed Off-versus-no-feature instruction profiles
+are complete and summarized above. The lookup
+source already contains a two-hint bucket-offset cache; hashing every repeated
+lookup is not a valid diagnosis of the current implementation.
+
+Evidence includes `hook-split-{audit,repeat-audit}.json`,
+`hook-split/image-comparison/sections.log` and `hook-split-off-profile*`.
+
+Evidence: `hook-resume-recovery/perf/hook-outline-counts/audit.json`,
+`hook-outline/callback-transport-hot.asm` and `hook-outline-cold-*`.
+
 ### Outlined hook-check trial — 2026-10-18
 
 The VM-entry trial's symbol-retained profiles locate **893,975** of the
@@ -44,9 +150,47 @@ Executor-collected instruction counts are:
 
 All six counts are now below the pre-fix control, not just below the regressing
 trial. This resolves the measured instruction excess in these diagnostic
-images, not the elapsed-performance gates. Full validation, Miri and stripped
-timing builds are running. Elapsed acceptance remains pending. Evidence prefix:
-`hook-resume-recovery/hook-outline-*`.
+images, not the elapsed-performance gates. Full validation passes **2,433
+executions, zero failures, 20 ignored across 177 summaries**; **23 Miri
+executions** also pass. Stripped shipping/speed and native timing images are
+frozen separately from the diagnostic profiles.
+
+Two complete unchanged-image timing campaigns are independently audited. Each
+contains 4,536 measured native executions and 181,440 feature-cost iterations,
+with zero execution-counter/reported-resource mismatches. Both retain every
+original threshold, A/trial/B controls, two CPU types, two rounds and 21 samples.
+No owned build, test or profiler overlaps timing. Combined totals are **9,072
+native executions and 362,880 cost iterations**; this is not an all-gates pass.
+
+The earlier CPU0 native-benchmark Off float regression is no longer reproduced
+in stable-control windows: control/trial ratios are **1.0648**, **1.0499** and
+**1.0862**. Native Auto float remains close to its control, so this is not a
+speedup manufactured by slowing the interpreter. The first campaign's other
+CPU0 native window has large same-image A/B drift and is retained but does not
+support a causal speedup claim. The repeat also contains trial-only broad
+no-feature slowdowns; near-unity bracketing controls do not rule out contention
+inside the trial interval. Those observations are retained, not rewritten.
+
+Performance acceptance remains **open**: native callback gates fail **5/8**
+windows and metamethod gates **3/8**. Shipping upvalue feature-cost gates fail
+**7/8**, speed upvalue **4/8**, with additional profile-dependent and noisy
+failures in the raw audits. No-feature speed float still loses in some windows;
+instruction reductions do not establish that all elapsed regressions are fixed.
+
+Fresh Off/Auto callback profiles verify four event sums, artifact hashes, results
+and the expected absent/present native execution. They collect **38,915,025 Off
+versus 47,185,720 Auto instructions** from executor steps, including two warmups
+and three measured workload invocations. Auto self-work includes 9,010,769 VM
+instructions, 7,750,507 in `invoke_transport::<7, true, false>`, 1,353,107 in
+`Runtime::lookup`, and 3,626,823 in generated code. These are instruction costs,
+not elapsed shares. The remaining callback investigation must target native
+entry/transport overhead, not assume the hook fix closes that separate gate.
+Earlier selective-transport, preferred-entry and zero-counter-merge experiments
+remain documented below and must not be repeated without a new hypothesis.
+
+Evidence prefix: `hook-resume-recovery/hook-outline-*`, with distinct
+`hook-outline-audit.json`, `hook-outline-repeat-audit.json` and
+`hook-outline/speed/callgrind/rust_callbacks/{off,auto}` results.
 
 ### VM-entry hook continuation trial — 2026-10-18
 
