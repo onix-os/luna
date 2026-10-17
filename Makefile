@@ -1293,6 +1293,15 @@ jit-errors:
 
 .PHONY: jit-debug
 .PHONY: hook-progress
+.PHONY: vm-hook-resume vm-hook-resume-miri
+vm-hook-resume:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::hook_resume $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::hook_resume $(ARGS)
+
+vm-hook-resume-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::hook_resume -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::hook_resume -- --test-threads=1
+
 hook-progress:
 	@$(CARGO) test --locked -p luna --no-default-features --test hook_progress $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --test hook_progress $(TARGET_ARG) $(ARGS)

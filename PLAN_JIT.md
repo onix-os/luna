@@ -9,6 +9,100 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Outlined hook-check trial — 2026-10-18
+
+The VM-entry trial's symbol-retained profiles locate **893,975** of the
+**915,615** extra no-feature float instructions inside `run_vm_slice`.
+Its annotated assembly evaluates the resumption predicate on every ordinary
+opcode: compare/set, test/set, OR and a hook-enabled test, even with no hook
+installed. The pre-fix loop instead tests the hook-enabled flag directly.
+These profiles have their own verified image hashes; they are not asserted
+to be exact symbol companions of the separately measured stripped images.
+
+The next trial moves the entire hook decision into a non-inlined helper called
+only by `Dispatch::Hooked`. Both the resumption predicate and line/count-hook
+work stay behind that branch. Frame ownership, zero-budget preservation,
+instruction accounting and the one-delivery continuation contract remain
+unchanged; no dispatch variant, field, threshold or resource limit is added.
+This differs from the rejected cold-predicate attribute trial: the ordinary
+loop no longer evaluates the predicate at its match guard.
+
+All **77 focused executions** pass, with formatting and all-feature checks.
+The first focused invocation used a nonexistent Make target; that launch is
+retained, and the corrected complete command passes. Six symbol-retained
+profiles pass artifact, exclusive-event-sum, result and zero-native-work checks.
+Executor-collected instruction counts are:
+
+| Workload / build | Pre-fix control | VM-entry trial | Outlined hook check |
+| --- | ---: | ---: | ---: |
+| Float / no feature | 20,325,225 | 21,240,840 | 19,996,800 |
+| Float / JIT Off | 20,204,995 | 20,195,320 | 20,060,895 |
+| Integer / no feature | 19,023,265 | 19,938,765 | 18,794,840 |
+| Integer / JIT Off | 18,803,025 | 18,793,350 | 18,658,925 |
+| Upvalue / no feature | 72,523,637 | 74,522,382 | 71,622,202 |
+| Upvalue / JIT Off | 81,879,248 | 81,577,798 | 80,377,748 |
+
+All six counts are now below the pre-fix control, not just below the regressing
+trial. This resolves the measured instruction excess in these diagnostic
+images, not the elapsed-performance gates. Full validation, Miri and stripped
+timing builds are running. Elapsed acceptance remains pending. Evidence prefix:
+`hook-resume-recovery/hook-outline-*`.
+
+### VM-entry hook continuation trial — 2026-10-18
+
+Trial `5a1a25c` restores the ordinary VM call signature: the executor retains
+the frame-owned `HookResume` marker until VM entry, rather than passing a
+separate resumption boolean through a wrapper. The VM consumes the marker only
+after the zero-instruction-budget check. It still skips exactly the already
+delivered hook, preserves the native-activation barrier, and uses the existing
+frame allocation. No context-global continuation flag is introduced.
+
+Boundary tests committed separately as `7d19825` establish the new internal
+entry contract: repeated zero-budget entries preserve the marker, PC, fuel and
+interruption state; the next instruction consumes it without growing frame
+capacity; subsequent hooks are delivered normally. The new marker-entry test
+fails against the old entry API while its ordinary-entry control passes. This
+is a changed internal contract, not a newly discovered user-facing defect.
+
+Formatting/all-feature checks and **77 focused test executions** pass. All
+**23 Miri executions** pass. Frozen shipping/speed feature-cost images and the
+native benchmark image have been built. Full baseline/docs/all-feature Force
+validation passes: **2,433 passed, zero failed, 20 ignored across 177 summaries**.
+The elapsed campaign is complete and independently audited: **4,536 native
+measured executions**, **181,440 feature-cost workload iterations**, and zero
+native-counter/reported-resource mismatches. It retains the existing two-CPU,
+two-round, 21-sample A/trial/B controls and every original threshold.
+
+The trial is **not performance-accepted**. CPU16 speed-profile JIT-Off float
+control/trial ratios are 1.0008 and 1.0328, rather than the earlier hook-local
+loss. CPU0 native-benchmark Off float still loses about 7–8% (ratios 0.9310
+and 0.9255), although this is smaller than the earlier 20–21% loss. These are
+separate campaigns normalized to their controls, not direct paired trials.
+Native Auto callback thresholds fail in all four windows, metamethod thresholds
+in two, and shipping upvalue feature-cost thresholds in all four.
+
+There is also a clear no-feature upvalue regression on CPU16: shipping
+control/trial ratios 0.8730 and 0.8781, with near-unity A/B controls. Speed
+no-feature float loses about 7% on CPU0. CPU0 round-one shipping timing has an
+additional broad slowdown; it is retained rather than silently excluded, and
+its magnitude is not attributed entirely to the implementation.
+
+A separate hardware-counter campaign verifies **180 process profiles** with
+positive cycles/instructions/branches/branch-misses, the correct CPU PMU and
+100% scheduling coverage. Counters include process startup and warmups, not
+only VM execution. No-feature float retires about **4.5% more instructions**
+than the pre-fix control on both CPU types; no-feature upvalue about **2.8%
+more**. JIT-Off float instruction counts are essentially unchanged, despite
+CPU0 cycles improving in the cost executable and worsening in the native
+benchmark executable. The no-feature excess therefore merits instruction-level
+attribution; instruction count alone does not explain every elapsed loss.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-entry-*`. The timing
+driver required successful focused, full, Miri and build statuses before it
+started. No owned tests, builds or profilers overlapped elapsed measurement;
+external contention remains recorded rather than becoming a prerequisite for
+progress. Full native JIT acceptance remains open.
+
 ### Validation recovery — 2026-10-17
 
 The checkout remains at the committed single-VM hook fix, but the ignored
