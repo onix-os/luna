@@ -517,6 +517,17 @@ impl<'gc> fmt::Debug for ThreadState<'gc> {
 
 impl<'gc> ThreadState<'gc> {
     pub(super) fn mode(&self) -> ThreadMode {
+        #[inline(never)]
+        fn other_frame_mode(frame: &Frame<'_>, depth: usize) -> ThreadMode {
+            match frame {
+                Frame::Start(_) | Frame::Yielded => ThreadMode::Suspended,
+                Frame::WaitThread => ThreadMode::Waiting,
+                Frame::Result { .. } => ThreadMode::Result,
+                Frame::Error(_) if depth == 1 => ThreadMode::Result,
+                _ => ThreadMode::Normal,
+            }
+        }
+
         if self.deferred_error {
             return if self.error_taken {
                 ThreadMode::Stopped
@@ -534,23 +545,14 @@ impl<'gc> ThreadState<'gc> {
                 );
                 ThreadMode::Stopped
             }
-            Some(frame) => match frame {
+            Some(
                 Frame::Lua { .. }
                 | Frame::HookResume
                 | Frame::Callback { .. }
                 | Frame::Sequence { .. }
-                | Frame::Close { .. } => ThreadMode::Normal,
-                Frame::Start(_) | Frame::Yielded => ThreadMode::Suspended,
-                Frame::WaitThread => ThreadMode::Waiting,
-                Frame::Result { .. } => ThreadMode::Result,
-                Frame::Error(_) => {
-                    if self.frames.len() == 1 {
-                        ThreadMode::Result
-                    } else {
-                        ThreadMode::Normal
-                    }
-                }
-            },
+                | Frame::Close { .. },
+            ) => ThreadMode::Normal,
+            Some(frame) => other_frame_mode(frame, self.frames.len()),
         }
     }
 
