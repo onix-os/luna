@@ -29,14 +29,38 @@ Formatting/all-feature checks and **77 focused test executions** pass. All
 **23 Miri executions** pass. Frozen shipping/speed feature-cost images and the
 native benchmark image have been built. Full baseline/docs/all-feature Force
 validation passes: **2,433 passed, zero failed, 20 ignored across 177 summaries**.
-The elapsed campaign is running; no audited result is yet available for this
-trial. It retains the existing two-CPU, two-round, 21-sample A/trial/B
-controls and every original threshold. Earlier regressions are not declared
-fixed on correctness results or instruction counts alone.
+The elapsed campaign is complete and independently audited: **4,536 native
+measured executions**, **181,440 feature-cost workload iterations**, and zero
+native-counter/reported-resource mismatches. It retains the existing two-CPU,
+two-round, 21-sample A/trial/B controls and every original threshold.
+
+The trial is **not performance-accepted**. CPU16 speed-profile JIT-Off float
+control/trial ratios are 1.0008 and 1.0328, rather than the earlier hook-local
+loss. CPU0 native-benchmark Off float still loses about 7–8% (ratios 0.9310
+and 0.9255), although this is smaller than the earlier 20–21% loss. These are
+separate campaigns normalized to their controls, not direct paired trials.
+Native Auto callback thresholds fail in all four windows, metamethod thresholds
+in two, and shipping upvalue feature-cost thresholds in all four.
+
+There is also a clear no-feature upvalue regression on CPU16: shipping
+control/trial ratios 0.8730 and 0.8781, with near-unity A/B controls. Speed
+no-feature float loses about 7% on CPU0. CPU0 round-one shipping timing has an
+additional broad slowdown; it is retained rather than silently excluded, and
+its magnitude is not attributed entirely to the implementation.
+
+A separate hardware-counter campaign verifies **180 process profiles** with
+positive cycles/instructions/branches/branch-misses, the correct CPU PMU and
+100% scheduling coverage. Counters include process startup and warmups, not
+only VM execution. No-feature float retires about **4.5% more instructions**
+than the pre-fix control on both CPU types; no-feature upvalue about **2.8%
+more**. JIT-Off float instruction counts are essentially unchanged, despite
+CPU0 cycles improving in the cost executable and worsening in the native
+benchmark executable. The no-feature excess therefore merits instruction-level
+attribution; instruction count alone does not explain every elapsed loss.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/vm-entry-*`. The timing
-driver requires successful focused, full, Miri and build statuses before it
-starts. No owned tests, builds or profilers may overlap elapsed measurement;
+driver required successful focused, full, Miri and build statuses before it
+started. No owned tests, builds or profilers overlapped elapsed measurement;
 external contention remains recorded rather than becoming a prerequisite for
 progress. Full native JIT acceptance remains open.
 
