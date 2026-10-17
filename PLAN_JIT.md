@@ -144,10 +144,41 @@ fail in two windows each; cold cost fails once. Evidence is
 No full performance acceptance or release completion is claimed.
 
 The current host reports `perf_event_paranoid=2`, unlike the earlier value 4,
-and exposes hybrid `cpu_core`/`cpu_atom` PMUs. A pinned-Nix user-space hardware
-counter probe is being attempted without modifying kernel policy or capabilities.
-Availability is not assumed from the sysctl alone. Hardware evidence may help
-separate instruction work from the profile/executable-specific timing losses.
+and exposes hybrid `cpu_core`/`cpu_atom` PMUs. The pinned-Nix `perf` probe
+**succeeds** without changing kernel policy or capabilities. A 180-process
+counter campaign covers both CPUs, float/upvalue cases, no-feature/JIT-Off
+cost workers and the separate native-benchmark Off executable. All four grouped
+user-space events are counted with **100% scheduling**, with five A/trial/B
+repeats and immutable artifact hashes. Counts include process startup/warmups;
+they are not VM-exclusive Callgrind totals.
+
+For float JIT-Off on CPU 0, retired instructions and branch misses are nearly
+unchanged across the candidate/control. Nevertheless, the cost probe's median
+control/trial cycle ratio is **1.0838**, while the native benchmark's is
+**0.8274**. CPU-16 cost cycles reproduce the slowdown at **0.9453**. This is
+hardware cycle evidence of executable-specific throughput differences, not an
+inference from elapsed time alone.
+
+A separate, non-multiplexed CPU-0 top-down campaign reports median front-end-
+bound slots of **10.9% -> 2.3%** for the cost probe, but **9.3% -> 25.8%** for
+native-benchmark Off. Backend-bound fractions are small; branch-miss counts do
+not explain the cycle change. Deeper fetch-latency/bandwidth attribution is
+noisier under external contention, so neither a particular cache nor an exact
+assembly cause is established. The initial top-down probe multiplexed counters
+and is excluded; one subsequent run had an incorrect CPU-list label and was
+preserved separately before a full corrected repeat. Raw counters, telemetry
+and summaries are under `hook-resume-recovery/perf/`.
+
+#### Cold hook predicate — diagnostic trial
+
+The next candidate marks the hook-only resumption predicate `cold` and
+`inline(never)`. It does not change its result, any frame marker, fuel or native
+accounting. The hypothesis is that removing this check's code from the VM body
+may improve hot-loop instruction delivery; the PMU data does not prove that
+this particular change will help. Focused checks and fresh stripped artifacts
+are underway. This is a diagnostic candidate, not a completed performance fix;
+full correctness/Miri and unchanged performance gates are still required for
+acceptance.
 
 ### Progress snapshot — 2026-10-13
 
