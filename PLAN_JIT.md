@@ -78,11 +78,131 @@ hash checks caught this before timing. Each was restored from Cargo's retained
 executable matching its **original** manifest digest, without rebasing hashes.
 The rewritten copies and `objcopy-restoration.log` remain as evidence.
 
-Paired timing now runs after all owned builds, profilers and tests have ended:
+Paired timing completed after all owned builds, profilers and tests had ended:
 two CPUs, two rounds, same-image A/B controls around the trial, 21 samples,
 both shipping/speed feature-cost profiles and all nine native workloads.
-External contention is retained in telemetry. No elapsed improvement or full
-performance acceptance is claimed before this campaign is audited.
+External contention is retained in telemetry. Independent audit verifies
+**4,536 native measured executions**, **181,440 feature-cost workload
+iterations**, all original thresholds, raw cost medians, alternating samples,
+run order and zero native-counter/reported-resource mismatches.
+
+The immutable trial is **rejected**. Speed-profile JIT-Off integer controls are
+about **12% slower**, and float controls about **10–13% slower**, in all four
+CPU/round windows. Same-image placebos for these comparisons range from
+**0.9938 to 1.0123**, much smaller than the loss. Native callbacks still fail
+their original gate in all four trial windows; shipping upvalue feature cost
+also fails in all four. Some shipping numeric gains and smaller callback gains
+do not offset these failures. Speed upvalue JIT-Off improves slightly, but its
+lower feature-cost ratio also includes a slower no-feature control.
+
+The accepted audit is `hook-resume-recovery/audit.json`; its complete screen
+is under `screen/`. An earlier complete measurement attempt failed the final
+driver hash check because an audit target was briefly appended to its frozen
+Make fragment. That failed attempt remains under `screen-driver-change/` and
+is excluded from the accepted audit. The driver was restored before repeating
+the entire campaign; the auditor uses a separate Make fragment.
+
+#### Hook-local resumption predicate — next trial
+
+The next candidate removes `Dispatch::HookResume` from VM dispatch entirely.
+The frame-owned `Frame::HookResume` correctness fix remains. A predicate in the
+ordinary `Hooked` arm suppresses delivery only when resuming with zero executed
+instructions. Interpreted, observing and compiled dispatch retain their original
+variants; no mutable dispatch state or extra loop-local flag is introduced.
+Pure tests cover resumed/non-resumed counts 0, 1, 64 and `u32::MAX`; the original
+three distinct compiled-owner source choices remain covered. Commit `2865fd9`
+passes formatting, all-feature checking and **21 focused test executions**.
+Six new software profiles pass their event-sum, result, zero-native, binary and
+source-manifest audits. Speed JIT-Off counts are now **20,189,060 float**,
+**18,787,090 integer** and **81,377,788 upvalue**, slightly below the pre-fix
+controls. No-feature counts remain higher at **21,144,140**, **19,742,000** and
+**75,172,517**, respectively; a lower feature-cost ratio must not be credited
+as a speedup if it comes from that slower control.
+
+Fresh full-suite validation passes **2,429 tests / 20 ignored / 177 summaries**;
+fresh lifecycle/dispatch Miri passes **19 executions**. The stripped timing
+builds and source/artifact manifests verify. Its complete elapsed screen and
+independent audit pass structural validation: **4,536 native executions**,
+**181,440 cost iterations**, unchanged thresholds and zero counter/reported-
+resource mismatches. These are fresh checks of `2865fd9`, not inherited results
+from the immutable trial.
+
+Performance remains **unaccepted**. Shipping JIT-Off callbacks improve by about
+**8–10%**, with smaller shipping numeric gains. However, speed JIT-Off float
+execution on CPU 16 is **5–6% slower** in both rounds; its control/trial ratios
+are **0.9489 / 0.9442**, with same-image placebos **0.9904 / 1.0018**.
+The separate native-benchmark executable has an even larger **20–21%** CPU-0
+float Off slowdown, while float Auto time is nearly unchanged. Its larger
+Off/Auto speedup therefore cannot establish a genuine native improvement.
+Speed no-feature numeric controls also become slower, so passing relative
+feature-cost gates is not sufficient to accept this candidate.
+
+Native callbacks still fail in three of four trial windows, metamethods in one,
+and shipping upvalue feature cost in all four. Speed upvalue and callback costs
+fail in two windows each; cold cost fails once. Evidence is
+`hook-resume-recovery/hook-local-screen/` and `hook-local-audit.json`.
+No full performance acceptance or release completion is claimed.
+
+The current host reports `perf_event_paranoid=2`, unlike the earlier value 4,
+and exposes hybrid `cpu_core`/`cpu_atom` PMUs. The pinned-Nix `perf` probe
+**succeeds** without changing kernel policy or capabilities. A 180-process
+counter campaign covers both CPUs, float/upvalue cases, no-feature/JIT-Off
+cost workers and the separate native-benchmark Off executable. All four grouped
+user-space events are counted with **100% scheduling**, with five A/trial/B
+repeats and immutable artifact hashes. Counts include process startup/warmups;
+they are not VM-exclusive Callgrind totals.
+
+For float JIT-Off on CPU 0, retired instructions and branch misses are nearly
+unchanged across the candidate/control. Nevertheless, the cost probe's median
+control/trial cycle ratio is **1.0838**, while the native benchmark's is
+**0.8274**. CPU-16 cost cycles reproduce the slowdown at **0.9453**. This is
+hardware cycle evidence of executable-specific throughput differences, not an
+inference from elapsed time alone.
+
+A separate, non-multiplexed CPU-0 top-down campaign reports median front-end-
+bound slots of **10.9% -> 2.3%** for the cost probe, but **9.3% -> 25.8%** for
+native-benchmark Off. Backend-bound fractions are small; branch-miss counts do
+not explain the cycle change. Deeper fetch-latency/bandwidth attribution is
+noisier under external contention, so neither a particular cache nor an exact
+assembly cause is established. The initial top-down probe multiplexed counters
+and is excluded; one subsequent run had an incorrect CPU-list label and was
+preserved separately before a full corrected repeat. Raw counters, telemetry
+and summaries are under `hook-resume-recovery/perf/`.
+
+#### Cold hook predicate — diagnostic trial
+
+Candidate `e57a31b` marks the hook-only resumption predicate `cold` and
+`inline(never)`. It does not change its result, any frame marker, fuel or native
+accounting. The hypothesis is that removing this check's code from the VM body
+may improve hot-loop instruction delivery; the PMU data does not prove that
+this particular change will help. Its 21 focused checks and artifact/source
+verification pass. The diagnostic elapsed screen also audits correctly:
+**4,536 native executions**, **181,440 cost iterations**, unchanged gates,
+zero counter/reported-resource mismatches. Full-suite/Miri repetition was
+deliberately deferred until this attribute-only trial passed the diagnostic
+performance screen; it did not pass and is not granted correctness/release
+acceptance from that screen.
+
+The cold outlining is **withdrawn**. It reduces the CPU-0 native-benchmark
+float Off loss, but moves/worsens losses elsewhere. CPU-16 speed JIT-Off float
+control/trial ratios are **0.8833 / 0.8953**, and integer ratios
+**0.9064 / 0.9005**, with much smaller same-image placebo differences.
+Shipping upvalue cost and native callback gates fail all four windows; several
+additional speed gates fail. CPU-0 second-round cost measurements are unusually
+noisy and remain in the evidence rather than being discarded. The repeated
+CPU-16 losses alone preclude accepting the trial.
+
+Only the two predicate attributes are removed; the frame-owned starvation fix
+and hook-local predicate remain. Evidence is `hook-cold-screen/` and
+`hook-cold-audit.json`. Hardware counters establish that throughput and
+front-end delivery differ between executable shapes, but simply marking the
+predicate cold is not a robust remedy. Performance acceptance remains open.
+
+Restoration passes formatting, all-feature checking and **21 focused tests**.
+All source-manifest entries match the fully tested hook-local implementation.
+The rebuilt native benchmark is byte-identical to its frozen hook-local image
+(`3a508b141823d66fa19f2f0f7632bffbc7dc1debe785e5d912a5d5ea0fb4adda`).
+No rejected cold attribute remains in the current source or rebuilt benchmark.
 
 ### Progress snapshot — 2026-10-13
 
