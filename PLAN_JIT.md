@@ -32,6 +32,42 @@ counts are diagnostic only; elapsed acceptance still requires independent
 timing after owned builds, tests and profilers finish. All original performance,
 resource and platform gates remain unchanged and open.
 
+#### Immutable hook-resumption dispatch trial
+
+Fresh speed-profile builds reproduce ordinary-path growth in `b7e6ec4`.
+For float execution without the JIT feature, executor-collected instructions
+rise from **20,325,225** before the hook fix to **21,359,720**; the VM function
+accounts for **1,009,725** of the **1,034,495** added instructions.
+
+Trial `52d016b` keeps `Dispatch::HookResume` immutable within the slice. Its
+first iteration skips hook delivery while `instructions_run == 0`; subsequent
+iterations use the ordinary hook arm. The frame-owned return marker, instruction
+execution, fuel charges, errors and native dispatch ownership are unchanged.
+All **21 focused executions**, formatting and all-feature checks pass.
+
+The following exact-image Callgrind totals cover three measured plus two warmup
+executions, collecting only executor steps. All 18 profiles pass exclusive
+event-sum, artifact-hash, result and zero-native-work checks. These binaries use
+opt-level 3, LTO, one codegen unit and retained symbols; they are diagnostic
+profiles, not shipping-size or elapsed acceptance.
+
+| Workload / build | Pre-fix `999931b` | Mutable `b7e6ec4` | Immutable trial |
+| --- | ---: | ---: | ---: |
+| Float / no feature | 20,325,225 | 21,359,720 | 20,262,445 |
+| Float / JIT Off | 20,204,995 | 20,682,910 | 20,786,105 |
+| Integer / no feature | 19,023,265 | 20,057,610 | 18,960,525 |
+| Integer / JIT Off | 18,803,025 | 18,980,890 | 19,384,060 |
+| Upvalue / no feature | 72,523,637 | 75,522,482 | 73,322,242 |
+| Upvalue / JIT Off | 81,879,248 | 81,478,276 | 82,177,913 |
+
+The trial removes the numeric no-feature instruction regression, but JIT-Off
+instruction work is higher than both controls. That tradeoff is not accepted
+on instruction counts alone. Separate stripped speed/shipping controls and
+native benchmark artifacts are building for unchanged-gate paired timing.
+Full-suite and Miri validation of the trial remain outstanding. Fresh Miri
+sysroot setup requires a temporary directory outside this Cargo workspace;
+the failed in-workspace setup is preserved before retrying with `TMPDIR=/tmp`.
+
 ### Progress snapshot — 2026-10-13
 
 #### Hook instruction resumption — count-one starvation corrected
