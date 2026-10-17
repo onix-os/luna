@@ -10,8 +10,6 @@ pub(super) enum Dispatch {
     Compiled(Prepared),
 }
 
-#[cold]
-#[inline(never)]
 pub(super) fn hook_due(resume: bool, instructions: u32) -> bool {
     !resume || instructions != 0
 }
