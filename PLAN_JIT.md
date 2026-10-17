@@ -198,6 +198,12 @@ and hook-local predicate remain. Evidence is `hook-cold-screen/` and
 front-end delivery differ between executable shapes, but simply marking the
 predicate cold is not a robust remedy. Performance acceptance remains open.
 
+Restoration passes formatting, all-feature checking and **21 focused tests**.
+All source-manifest entries match the fully tested hook-local implementation.
+The rebuilt native benchmark is byte-identical to its frozen hook-local image
+(`3a508b141823d66fa19f2f0f7632bffbc7dc1debe785e5d912a5d5ea0fb4adda`).
+No rejected cold attribute remains in the current source or rebuilt benchmark.
+
 ### Progress snapshot — 2026-10-13
 
 #### Hook instruction resumption — count-one starvation corrected
