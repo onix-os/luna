@@ -44,9 +44,47 @@ Executor-collected instruction counts are:
 
 All six counts are now below the pre-fix control, not just below the regressing
 trial. This resolves the measured instruction excess in these diagnostic
-images, not the elapsed-performance gates. Full validation, Miri and stripped
-timing builds are running. Elapsed acceptance remains pending. Evidence prefix:
-`hook-resume-recovery/hook-outline-*`.
+images, not the elapsed-performance gates. Full validation passes **2,433
+executions, zero failures, 20 ignored across 177 summaries**; **23 Miri
+executions** also pass. Stripped shipping/speed and native timing images are
+frozen separately from the diagnostic profiles.
+
+Two complete unchanged-image timing campaigns are independently audited. Each
+contains 4,536 measured native executions and 181,440 feature-cost iterations,
+with zero execution-counter/reported-resource mismatches. Both retain every
+original threshold, A/trial/B controls, two CPU types, two rounds and 21 samples.
+No owned build, test or profiler overlaps timing. Combined totals are **9,072
+native executions and 362,880 cost iterations**; this is not an all-gates pass.
+
+The earlier CPU0 native-benchmark Off float regression is no longer reproduced
+in stable-control windows: control/trial ratios are **1.0648**, **1.0499** and
+**1.0862**. Native Auto float remains close to its control, so this is not a
+speedup manufactured by slowing the interpreter. The first campaign's other
+CPU0 native window has large same-image A/B drift and is retained but does not
+support a causal speedup claim. The repeat also contains trial-only broad
+no-feature slowdowns; near-unity bracketing controls do not rule out contention
+inside the trial interval. Those observations are retained, not rewritten.
+
+Performance acceptance remains **open**: native callback gates fail **5/8**
+windows and metamethod gates **3/8**. Shipping upvalue feature-cost gates fail
+**7/8**, speed upvalue **4/8**, with additional profile-dependent and noisy
+failures in the raw audits. No-feature speed float still loses in some windows;
+instruction reductions do not establish that all elapsed regressions are fixed.
+
+Fresh Off/Auto callback profiles verify four event sums, artifact hashes, results
+and the expected absent/present native execution. They collect **38,915,025 Off
+versus 47,185,720 Auto instructions** from executor steps, including two warmups
+and three measured workload invocations. Auto self-work includes 9,010,769 VM
+instructions, 7,750,507 in `invoke_transport::<7, true, false>`, 1,353,107 in
+`Runtime::lookup`, and 3,626,823 in generated code. These are instruction costs,
+not elapsed shares. The remaining callback investigation must target native
+entry/transport overhead, not assume the hook fix closes that separate gate.
+Earlier selective-transport, preferred-entry and zero-counter-merge experiments
+remain documented below and must not be repeated without a new hypothesis.
+
+Evidence prefix: `hook-resume-recovery/hook-outline-*`, with distinct
+`hook-outline-audit.json`, `hook-outline-repeat-audit.json` and
+`hook-outline/speed/callgrind/rust_callbacks/{off,auto}` results.
 
 ### VM-entry hook continuation trial — 2026-10-18
 
