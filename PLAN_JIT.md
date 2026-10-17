@@ -9,6 +9,31 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Whole-hook cold-path diagnostic — 2026-10-18
+
+A fresh 270-process hardware-counter campaign for the outlined implementation
+covers integer, float and upvalue workloads on both CPU types with five
+A/trial/B repeats. All grouped events have 100% scheduling coverage and verified
+results. CPU16 speed-profile no-feature integer has median control/trial cycles
+**0.9291**, despite instruction ratio **1.0119** and branch-miss ratio **0.9996**;
+cycle placebo is **0.9961**. This corroborates the repeated elapsed regression
+rather than dismissing it as contention. Instruction-count reduction alone did
+not repair its execution throughput. Exact front-end/cache attribution is not
+established by these counters.
+
+The next diagnostic marks the entire already-outlined `dispatch_hook` as cold.
+It tests hot/cold placement of the actual hook-only branch, not the previously
+rejected cold `hook_due` predicate inside an ordinary match guard. The patch is
+one attribute; frame ownership, opcode execution, counters and limits do not
+change. Formatting/all-feature checks and **77 focused executions** pass.
+Frozen timing builds are running. A diagnostic
+campaign is prepared with unchanged timing thresholds and controls; full/Miri
+repetition is explicitly pending, not inherited from the prior source. This is
+an experiment, not a claimed fix or accepted performance result.
+
+Evidence: `hook-resume-recovery/perf/hook-outline-counts/audit.json`,
+`hook-outline/callback-transport-hot.asm` and `hook-outline-cold-*`.
+
 ### Outlined hook-check trial — 2026-10-18
 
 The VM-entry trial's symbol-retained profiles locate **893,975** of the
