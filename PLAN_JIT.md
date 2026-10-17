@@ -110,8 +110,18 @@ ordinary `Hooked` arm suppresses delivery only when resuming with zero executed
 instructions. Interpreted, observing and compiled dispatch retain their original
 variants; no mutable dispatch state or extra loop-local flag is introduced.
 Pure tests cover resumed/non-resumed counts 0, 1, 64 and `u32::MAX`; the original
-three distinct compiled-owner source choices remain covered. Focused lifecycle
-validation and fresh software profiles are underway; no speed claim is made.
+three distinct compiled-owner source choices remain covered. Commit `2865fd9`
+passes formatting, all-feature checking and **21 focused test executions**.
+Six new software profiles pass their event-sum, result, zero-native, binary and
+source-manifest audits. Speed JIT-Off counts are now **20,189,060 float**,
+**18,787,090 integer** and **81,377,788 upvalue**, slightly below the pre-fix
+controls. No-feature counts remain higher at **21,144,140**, **19,742,000** and
+**75,172,517**, respectively; a lower feature-cost ratio must not be credited
+as a speedup if it comes from that slower control.
+
+Fresh full-suite/Miri validation and stripped timing builds are running for
+this candidate. Its elapsed screen has not started. The preceding trial's
+2,429-test and 19-Miri results do not substitute for these fresh checks.
 
 ### Progress snapshot — 2026-10-13
 
