@@ -21,15 +21,29 @@ rather than dismissing it as contention. Instruction-count reduction alone did
 not repair its execution throughput. Exact front-end/cache attribution is not
 established by these counters.
 
-The next diagnostic marks the entire already-outlined `dispatch_hook` as cold.
+The diagnostic marked the entire already-outlined `dispatch_hook` as cold.
 It tests hot/cold placement of the actual hook-only branch, not the previously
 rejected cold `hook_due` predicate inside an ordinary match guard. The patch is
 one attribute; frame ownership, opcode execution, counters and limits do not
 change. Formatting/all-feature checks and **77 focused executions** pass.
-Frozen timing builds are running. A diagnostic
-campaign is prepared with unchanged timing thresholds and controls; full/Miri
-repetition is explicitly pending, not inherited from the prior source. This is
-an experiment, not a claimed fix or accepted performance result.
+The completed diagnostic campaign audits 4,536 native executions and 181,440
+cost iterations, with zero counter/resource mismatches and unchanged thresholds.
+The blanket cold attribute is **rejected**: CPU16 no-feature speed integer
+control/trial ratios improve to 1.0075/1.0382, but JIT-Off integer drops to
+0.9116/0.9693 and JIT-Off float to 0.8999/0.9454. The latter controls have
+near-unity A/B placebos. Restoring one build's throughput by regressing the other
+does not satisfy acceptance. Full/Miri repetition was deferred for this rejected
+attribute-only diagnostic and is not claimed.
+
+The follow-up applies the cold hint only under `not(feature = "jit")`, retaining
+the outlined non-cold helper in JIT-feature builds. This is a compile-time code
+placement choice between two materially different VM bodies, not workload-based
+tier disabling or a changed performance threshold. Semantic source, ownership,
+fuel and counters stay shared. It still needs its own frozen builds and complete
+paired validation; the two previous campaigns cannot be treated as measurements
+of this new combined source. Formatting/all-feature checks and **77 focused
+executions** pass. Full validation, Miri and timing builds are running under
+the `hook-split-*` prefix; elapsed gates remain open.
 
 Evidence: `hook-resume-recovery/perf/hook-outline-counts/audit.json`,
 `hook-outline/callback-transport-hot.asm` and `hook-outline-cold-*`.
