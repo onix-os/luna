@@ -30,7 +30,19 @@ impl Slot {
         }
     }
 
+    #[inline(always)]
     pub fn from_value(value: Value<'_>) -> Self {
+        if let Value::Integer(value) = value {
+            return Self {
+                tag: INTEGER,
+                bits: value as u64,
+            };
+        }
+        Self::from_general_value(value)
+    }
+
+    #[inline(never)]
+    fn from_general_value(value: Value<'_>) -> Self {
         match value {
             Value::Nil => Self { tag: NIL, bits: 0 },
             Value::Boolean(value) => Self {
