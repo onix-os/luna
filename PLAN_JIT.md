@@ -9,6 +9,36 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### VM-entry hook continuation trial — 2026-10-18
+
+Trial `5a1a25c` restores the ordinary VM call signature: the executor retains
+the frame-owned `HookResume` marker until VM entry, rather than passing a
+separate resumption boolean through a wrapper. The VM consumes the marker only
+after the zero-instruction-budget check. It still skips exactly the already
+delivered hook, preserves the native-activation barrier, and uses the existing
+frame allocation. No context-global continuation flag is introduced.
+
+Boundary tests committed separately as `7d19825` establish the new internal
+entry contract: repeated zero-budget entries preserve the marker, PC, fuel and
+interruption state; the next instruction consumes it without growing frame
+capacity; subsequent hooks are delivered normally. The new marker-entry test
+fails against the old entry API while its ordinary-entry control passes. This
+is a changed internal contract, not a newly discovered user-facing defect.
+
+Formatting/all-feature checks and **77 focused test executions** pass. All
+**23 Miri executions** pass. Frozen shipping/speed feature-cost images and the
+native benchmark image have been built. Full baseline/docs/all-feature Force
+validation is still running; no elapsed result is yet available for this trial.
+The next campaign retains the existing two-CPU, two-round, 21-sample A/trial/B
+controls and every original threshold. Earlier regressions are not declared
+fixed on correctness results or instruction counts alone.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-entry-*`. The timing
+driver requires successful focused, full, Miri and build statuses before it
+starts. No owned tests, builds or profilers may overlap elapsed measurement;
+external contention remains recorded rather than becoming a prerequisite for
+progress. Full native JIT acceptance remains open.
+
 ### Validation recovery — 2026-10-17
 
 The checkout remains at the committed single-VM hook fix, but the ignored
