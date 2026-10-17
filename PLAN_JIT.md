@@ -9,6 +9,31 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Outlined hook-check trial — 2026-10-18
+
+The VM-entry trial's symbol-retained profiles locate **893,975** of the
+**915,615** extra no-feature float instructions inside `run_vm_slice`.
+Its annotated assembly evaluates the resumption predicate on every ordinary
+opcode: compare/set, test/set, OR and a hook-enabled test, even with no hook
+installed. The pre-fix loop instead tests the hook-enabled flag directly.
+These profiles have their own verified image hashes; they are not asserted
+to be exact symbol companions of the separately measured stripped images.
+
+The next trial moves the entire hook decision into a non-inlined helper called
+only by `Dispatch::Hooked`. Both the resumption predicate and line/count-hook
+work stay behind that branch. Frame ownership, zero-budget preservation,
+instruction accounting and the one-delivery continuation contract remain
+unchanged; no dispatch variant, field, threshold or resource limit is added.
+This differs from the rejected cold-predicate attribute trial: the ordinary
+loop no longer evaluates the predicate at its match guard.
+
+All **77 focused executions** pass, with formatting and all-feature checks.
+The first focused invocation used a nonexistent Make target; that launch is
+retained, and the corrected complete command passes. Symbol-retained diagnostic
+builds are running. Full validation, Miri and elapsed acceptance for this new
+trial remain pending; neither correctness nor instruction reduction establishes
+a speedup. Evidence prefix: `hook-resume-recovery/hook-outline-*`.
+
 ### VM-entry hook continuation trial — 2026-10-18
 
 Trial `5a1a25c` restores the ordinary VM call signature: the executor retains
