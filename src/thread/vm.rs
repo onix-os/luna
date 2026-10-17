@@ -44,6 +44,34 @@ fn line_of(proto: &crate::FunctionPrototype<'_>, pc: usize) -> LineNumber {
     }
 }
 
+#[inline(never)]
+fn dispatch_hook<'gc>(
+    ctx: Context<'gc>,
+    frame: &mut LuaFrame<'gc, '_>,
+    prototype: &crate::FunctionPrototype<'gc>,
+    resume_hook: bool,
+    instructions_run: u32,
+) -> Result<bool, VMError> {
+    if !dispatch::hook_due(resume_hook, instructions_run) {
+        return Ok(false);
+    }
+    let line = ctx
+        .hook_line()
+        .then(|| line_of(prototype, *frame.registers().pc));
+    let fire_line = line.is_some_and(|line| ctx.hook_line_changed(frame.frame_depth(), line.0));
+    let fire_count = ctx.hook_tick();
+    if fire_line || fire_count {
+        let (event, line) = if fire_line {
+            ("line", line)
+        } else {
+            ("count", None)
+        };
+        frame.fire_hook(ctx, event, line)
+    } else {
+        Ok(false)
+    }
+}
+
 /// A catchable runtime error carrying the `chunk:line` of the instruction before `pc`.
 ///
 /// The same position the executor attaches to a [`VMError`], for the errors the VM raises without
@@ -274,8 +302,6 @@ fn run_vm_slice<'gc>(
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     let pair_handoff = !hook_enabled && lua_frame.pair_handoff.is_some();
-    let frame_depth = lua_frame.frame_depth();
-
     #[cfg(all(test, feature = "jit"))]
     let mock = (!hook_enabled)
         .then(|| ctx.jit().mock_snapshot(&current_prototype))
@@ -475,29 +501,19 @@ fn run_vm_slice<'gc>(
             }
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Observing(id) if run_native => ctx.jit().observe(*id),
-            dispatch::Dispatch::Hooked if dispatch::hook_due(resume_hook, instructions_run) => {
-                let line = ctx
-                    .hook_line()
-                    .then(|| line_of(&current_prototype, *registers.pc));
-                let fire_line = line.is_some_and(|line| ctx.hook_line_changed(frame_depth, line.0));
-                let fire_count = ctx.hook_tick();
-
-                if fire_line || fire_count {
-                    let (event, line) = if fire_line {
-                        ("line", line)
-                    } else {
-                        ("count", None)
-                    };
-                    if lua_frame.fire_hook(ctx, event, line)? {
-                        // Fired: a call frame is on top, so this slice is over — the same exit a
-                        // metamethod call takes.
-                        break;
-                    }
-                    // Declined, but the frame was still borrowed mutably to find that out.
-                    registers = lua_frame.registers();
+            dispatch::Dispatch::Hooked => {
+                if dispatch_hook(
+                    ctx,
+                    &mut lua_frame,
+                    &current_prototype,
+                    resume_hook,
+                    instructions_run,
+                )? {
+                    break;
                 }
+                registers = lua_frame.registers();
             }
-            dispatch::Dispatch::Interpreted | dispatch::Dispatch::Hooked => {}
+            dispatch::Dispatch::Interpreted => {}
             #[cfg(feature = "jit")]
             _ => {}
         }
