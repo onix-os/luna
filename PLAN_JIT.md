@@ -9,6 +9,35 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Owned scalar-import diagnostic — 2026-10-18
+
+Fresh shipping/speed Off-versus-no-feature profiles for the split-hook source
+verify all sixteen event sums, artifact hashes, results and zero native work.
+Shipping upvalues execute **78,773,277** no-feature versus **88,577,253** JIT-Off
+instructions; speed upvalues **70,922,252** versus **80,378,156**. Shipping
+callbacks are **45,562,240 / 47,640,030**, speed **36,436,460 / 38,915,025**.
+Numeric JIT-Off instruction counts are lower than no-feature counts in both
+profiles despite some slower elapsed windows. The remaining cost has more than
+one cause; instruction totals cannot stand in for throughput measurements.
+
+Trial `fd53bbf` targets ordinary native import work separately: an inlined
+Integer case consumes the existing owned `Value`, while a non-inlined total
+converter handles the fallback. It retains the same tags, bits, canonical roots,
+full register coverage and writeback. This is not the rejected borrowed-value
+numeric/cold remainder, integer-prefix loop or same-integer writeback. The older
+same-function owned numeric prefix was folded back into the original sequence;
+this experiment tests whether an actual call boundary prevents that folding.
+The fallback is deliberately not marked cold and remains correct for every
+Value kind. There is no new unsafe code or assumption about enum layout.
+
+Formatting/all-feature checks and **55 ABI/native/heap/upvalue executions**
+pass. The no-feature optimized image is byte-identical to its control. A fresh
+matched-image profile campaign is running for float, upvalue and callback
+workloads in Off and Auto. No instruction reduction, elapsed speedup, full/Miri
+validation or performance acceptance is claimed yet. Evidence prefix:
+`hook-resume-recovery/owned-import-*`; the preceding source's disabled-cost
+profiles remain under `hook-split/profile/{shipping,speed}/callgrind`.
+
 ### Whole-hook cold-path diagnostic — 2026-10-18
 
 A fresh 270-process hardware-counter campaign for the outlined implementation
