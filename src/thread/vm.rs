@@ -19,6 +19,8 @@ mod constant_add;
 mod constants;
 mod dispatch;
 #[cfg(test)]
+mod hook_resume;
+#[cfg(test)]
 mod instantiate;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
