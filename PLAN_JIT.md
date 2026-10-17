@@ -23,7 +23,7 @@ The host has no `/bin/bash`; invoking Make with
 `SHELL="$(command -v bash)"` inside the pinned Nix shell resolves that launch
 failure without changing runtime source. The failed first launch is retained.
 
-The full baseline/docs and all-feature Force suite is being rerun. Fresh
+The full baseline/docs and all-feature Force suite has been rerun. Fresh
 profile controls are built from archived commit `999931b` and compared with
 archived `b7e6ec4` using the same pinned toolchain and build options. These are
 new builds, not the lost byte-verified control images. Recovery evidence lives
@@ -63,10 +63,26 @@ profiles, not shipping-size or elapsed acceptance.
 The trial removes the numeric no-feature instruction regression, but JIT-Off
 instruction work is higher than both controls. That tradeoff is not accepted
 on instruction counts alone. Separate stripped speed/shipping controls and
-native benchmark artifacts are building for unchanged-gate paired timing.
-Full-suite and Miri validation of the trial remain outstanding. Fresh Miri
+native benchmark artifacts are built for unchanged-gate paired timing.
+Both the prior implementation and the immutable trial pass the full baseline/
+docs/all-feature Force command: **2,429 passed, zero failed, 20 ignored across
+177 summaries per run**. The trial also passes **19 Miri executions**: six hook
+lifecycle tests in each feature mode and three/four dispatch tests. Fresh Miri
 sysroot setup requires a temporary directory outside this Cargo workspace;
 the failed in-workspace setup is preserved before retrying with `TMPDIR=/tmp`.
+
+The stripped timing images are separately verified artifacts, not asserted to
+be exact symbol companions of the profile images. An inspection command using
+`objcopy --dump-section` without an output path rewrote eight speed images;
+hash checks caught this before timing. Each was restored from Cargo's retained
+executable matching its **original** manifest digest, without rebasing hashes.
+The rewritten copies and `objcopy-restoration.log` remain as evidence.
+
+Paired timing now runs after all owned builds, profilers and tests have ended:
+two CPUs, two rounds, same-image A/B controls around the trial, 21 samples,
+both shipping/speed feature-cost profiles and all nine native workloads.
+External contention is retained in telemetry. No elapsed improvement or full
+performance acceptance is claimed before this campaign is audited.
 
 ### Progress snapshot — 2026-10-13
 
