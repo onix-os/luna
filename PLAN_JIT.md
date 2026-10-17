@@ -171,14 +171,32 @@ and summaries are under `hook-resume-recovery/perf/`.
 
 #### Cold hook predicate — diagnostic trial
 
-The next candidate marks the hook-only resumption predicate `cold` and
+Candidate `e57a31b` marks the hook-only resumption predicate `cold` and
 `inline(never)`. It does not change its result, any frame marker, fuel or native
 accounting. The hypothesis is that removing this check's code from the VM body
 may improve hot-loop instruction delivery; the PMU data does not prove that
-this particular change will help. Focused checks and fresh stripped artifacts
-are underway. This is a diagnostic candidate, not a completed performance fix;
-full correctness/Miri and unchanged performance gates are still required for
-acceptance.
+this particular change will help. Its 21 focused checks and artifact/source
+verification pass. The diagnostic elapsed screen also audits correctly:
+**4,536 native executions**, **181,440 cost iterations**, unchanged gates,
+zero counter/reported-resource mismatches. Full-suite/Miri repetition was
+deliberately deferred until this attribute-only trial passed the diagnostic
+performance screen; it did not pass and is not granted correctness/release
+acceptance from that screen.
+
+The cold outlining is **withdrawn**. It reduces the CPU-0 native-benchmark
+float Off loss, but moves/worsens losses elsewhere. CPU-16 speed JIT-Off float
+control/trial ratios are **0.8833 / 0.8953**, and integer ratios
+**0.9064 / 0.9005**, with much smaller same-image placebo differences.
+Shipping upvalue cost and native callback gates fail all four windows; several
+additional speed gates fail. CPU-0 second-round cost measurements are unusually
+noisy and remain in the evidence rather than being discarded. The repeated
+CPU-16 losses alone preclude accepting the trial.
+
+Only the two predicate attributes are removed; the frame-owned starvation fix
+and hook-local predicate remain. Evidence is `hook-cold-screen/` and
+`hook-cold-audit.json`. Hardware counters establish that throughput and
+front-end delivery differ between executable shapes, but simply marking the
+predicate cold is not a robust remedy. Performance acceptance remains open.
 
 ### Progress snapshot — 2026-10-13
 
