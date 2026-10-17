@@ -29,10 +29,24 @@ loop no longer evaluates the predicate at its match guard.
 
 All **77 focused executions** pass, with formatting and all-feature checks.
 The first focused invocation used a nonexistent Make target; that launch is
-retained, and the corrected complete command passes. Symbol-retained diagnostic
-builds are running. Full validation, Miri and elapsed acceptance for this new
-trial remain pending; neither correctness nor instruction reduction establishes
-a speedup. Evidence prefix: `hook-resume-recovery/hook-outline-*`.
+retained, and the corrected complete command passes. Six symbol-retained
+profiles pass artifact, exclusive-event-sum, result and zero-native-work checks.
+Executor-collected instruction counts are:
+
+| Workload / build | Pre-fix control | VM-entry trial | Outlined hook check |
+| --- | ---: | ---: | ---: |
+| Float / no feature | 20,325,225 | 21,240,840 | 19,996,800 |
+| Float / JIT Off | 20,204,995 | 20,195,320 | 20,060,895 |
+| Integer / no feature | 19,023,265 | 19,938,765 | 18,794,840 |
+| Integer / JIT Off | 18,803,025 | 18,793,350 | 18,658,925 |
+| Upvalue / no feature | 72,523,637 | 74,522,382 | 71,622,202 |
+| Upvalue / JIT Off | 81,879,248 | 81,577,798 | 80,377,748 |
+
+All six counts are now below the pre-fix control, not just below the regressing
+trial. This resolves the measured instruction excess in these diagnostic
+images, not the elapsed-performance gates. Full validation, Miri and stripped
+timing builds are running. Elapsed acceptance remains pending. Evidence prefix:
+`hook-resume-recovery/hook-outline-*`.
 
 ### VM-entry hook continuation trial — 2026-10-18
 
