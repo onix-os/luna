@@ -9,6 +9,81 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Validation recovery — 2026-10-17
+
+The checkout remains at the committed single-VM hook fix, but the ignored
+`target/` evidence tree and previous process handles are no longer present.
+Previously observed results below remain historical reports; unfinished runs
+are not promoted to passes, and their former binaries cannot be reused.
+
+Fresh formatting/all-feature checks and **21 focused test executions** pass
+for the current implementation: six hook lifecycle tests in each feature mode,
+the zero-fuel builtin oracle, and three/five dispatch tests without/with JIT.
+The host has no `/bin/bash`; invoking Make with
+`SHELL="$(command -v bash)"` inside the pinned Nix shell resolves that launch
+failure without changing runtime source. The failed first launch is retained.
+
+The full baseline/docs and all-feature Force suite has been rerun. Fresh
+profile controls are built from archived commit `999931b` and compared with
+archived `b7e6ec4` using the same pinned toolchain and build options. These are
+new builds, not the lost byte-verified control images. Recovery evidence lives
+under `target/jit-evidence/hook-resume-recovery`. Software-profile instruction
+counts are diagnostic only; elapsed acceptance still requires independent
+timing after owned builds, tests and profilers finish. All original performance,
+resource and platform gates remain unchanged and open.
+
+#### Immutable hook-resumption dispatch trial
+
+Fresh speed-profile builds reproduce ordinary-path growth in `b7e6ec4`.
+For float execution without the JIT feature, executor-collected instructions
+rise from **20,325,225** before the hook fix to **21,359,720**; the VM function
+accounts for **1,009,725** of the **1,034,495** added instructions.
+
+Trial `52d016b` keeps `Dispatch::HookResume` immutable within the slice. Its
+first iteration skips hook delivery while `instructions_run == 0`; subsequent
+iterations use the ordinary hook arm. The frame-owned return marker, instruction
+execution, fuel charges, errors and native dispatch ownership are unchanged.
+All **21 focused executions**, formatting and all-feature checks pass.
+
+The following exact-image Callgrind totals cover three measured plus two warmup
+executions, collecting only executor steps. All 18 profiles pass exclusive
+event-sum, artifact-hash, result and zero-native-work checks. These binaries use
+opt-level 3, LTO, one codegen unit and retained symbols; they are diagnostic
+profiles, not shipping-size or elapsed acceptance.
+
+| Workload / build | Pre-fix `999931b` | Mutable `b7e6ec4` | Immutable trial |
+| --- | ---: | ---: | ---: |
+| Float / no feature | 20,325,225 | 21,359,720 | 20,262,445 |
+| Float / JIT Off | 20,204,995 | 20,682,910 | 20,786,105 |
+| Integer / no feature | 19,023,265 | 20,057,610 | 18,960,525 |
+| Integer / JIT Off | 18,803,025 | 18,980,890 | 19,384,060 |
+| Upvalue / no feature | 72,523,637 | 75,522,482 | 73,322,242 |
+| Upvalue / JIT Off | 81,879,248 | 81,478,276 | 82,177,913 |
+
+The trial removes the numeric no-feature instruction regression, but JIT-Off
+instruction work is higher than both controls. That tradeoff is not accepted
+on instruction counts alone. Separate stripped speed/shipping controls and
+native benchmark artifacts are built for unchanged-gate paired timing.
+Both the prior implementation and the immutable trial pass the full baseline/
+docs/all-feature Force command: **2,429 passed, zero failed, 20 ignored across
+177 summaries per run**. The trial also passes **19 Miri executions**: six hook
+lifecycle tests in each feature mode and three/four dispatch tests. Fresh Miri
+sysroot setup requires a temporary directory outside this Cargo workspace;
+the failed in-workspace setup is preserved before retrying with `TMPDIR=/tmp`.
+
+The stripped timing images are separately verified artifacts, not asserted to
+be exact symbol companions of the profile images. An inspection command using
+`objcopy --dump-section` without an output path rewrote eight speed images;
+hash checks caught this before timing. Each was restored from Cargo's retained
+executable matching its **original** manifest digest, without rebasing hashes.
+The rewritten copies and `objcopy-restoration.log` remain as evidence.
+
+Paired timing now runs after all owned builds, profilers and tests have ended:
+two CPUs, two rounds, same-image A/B controls around the trial, 21 samples,
+both shipping/speed feature-cost profiles and all nine native workloads.
+External contention is retained in telemetry. No elapsed improvement or full
+performance acceptance is claimed before this campaign is audited.
+
 ### Progress snapshot — 2026-10-13
 
 #### Hook instruction resumption — count-one starvation corrected
@@ -42,7 +117,39 @@ yield/resume, restart after hook return, hook/opcode errors and GC between steps
 Counts are checked against the count-one execution of the same bytecode, not
 merely an approximate range. Formatting and all-feature checking also pass.
 
-Full-suite, Miri and ordinary-workload performance validation are underway.
+Miri passes all six bounded hook regressions with and without the JIT feature
+(**12 executions**), with native compilation excluded from the Miri modes.
+The first full-suite run passes the baseline/doc suites, then reports **1,421
+passed / one failed / 18 ignored** in the all-feature Force library tests.
+The single failure is an old builtin-fusion oracle explicitly requiring that a
+persistent count-one hook never completes within 64 zero-fuel steps. Correction
+`a1f1425` keeps the same zero fuel and step bound, complete frame/value/fuel/
+dispatch trace equality and zero-fusion check, and now requires completion with
+result 12. Its focused test and the 12 lifecycle executions pass; no performance
+or resource threshold is changed.
+
+The initial two-specialization VM fix also needs a performance refinement.
+Sixteen exact-image software profiles show substantial ordinary-path instruction
+growth: speed float no-feature **20,325,225 -> 23,318,775**, JIT-Off
+**20,204,995 -> 23,861,035**; shipping integer no-feature **20,276,780 ->
+24,158,350**, JIT-Off **19,540,720 -> 23,416,000**. All event sums, results,
+zero-native checks and artifact/source manifests verify. No elapsed campaign is
+claimed for that form, and the root cause is not established by instruction
+counts alone.
+
+Refinement `30ff905` preserves the frame-owned marker but restores a single
+nongeneric VM body. Its resumption argument is consumed at entry into a unit
+`Dispatch::HookResume` state, which becomes `Hooked` after skipping one check.
+There is no additional loop-local boolean or larger dispatch payload: the
+original **one-byte no-feature / 16-byte JIT** storage ceilings still pass.
+State selection and compiled-lease lifetime checks cover normal and resumed
+entry. Focused validation passes **21 executions / five summaries**, formatting
+and all-feature checking, plus the six lifecycle tests in each feature mode
+after restricting native preparation to supported non-Miri targets.
+
+Fresh full-suite/Miri runs and ordinary-workload performance validation of the
+single-VM refinement are underway. Earlier Miri counts describe the initial
+form until the new runs finish.
 Pre-fix controls reuse the immutable, byte-verified
 `call-state-policy/restored` executables, with that provenance recorded; they
 are not described as newly built controls. Fresh candidate images and results
