@@ -42,8 +42,36 @@ tier disabling or a changed performance threshold. Semantic source, ownership,
 fuel and counters stay shared. It still needs its own frozen builds and complete
 paired validation; the two previous campaigns cannot be treated as measurements
 of this new combined source. Formatting/all-feature checks and **77 focused
-executions** pass. Full validation, Miri and timing builds are running under
-the `hook-split-*` prefix; elapsed gates remain open.
+executions** pass. Full validation passes **2,433 executions, zero failures,
+20 ignored across 177 summaries**; **23 Miri executions** also pass.
+
+The rebuilt no-feature shipping/speed images are byte-identical to the blanket
+cold trial's corresponding images. JIT-feature shipping/speed images have
+identical `.text` and `.rodata` to the non-cold outlined trial; the native
+benchmark's `.text` also matches. Full JIT-feature images differ, so full-image
+identity is not asserted. These are read-only ELF comparisons, not substituted
+timing evidence.
+
+Two complete `hook-split` timing campaigns each pass independent structural,
+counter/resource and original-threshold audits: **9,072 native measured
+executions and 362,880 cost iterations** combined, zero mismatches. Large
+same-image control drift in the first CPU0 window remains retained. In the
+repeat, CPU0 speed no-feature integer/float are near the pre-fix control, and
+CPU16 no-feature integer control/trial ratios are **1.0538/1.0280**, rather than
+the earlier roughly 7% loss. JIT-Off numeric losses are smaller than with the
+blanket cold hint, but CPU16 speed JIT-Off float still measures
+**0.9740/0.9547** relative to its controls and fails its feature-cost gate.
+
+This is still **not full performance acceptance**. Native callback gates fail
+**5/8** windows and metamethod gates **4/8**; shipping upvalue feature-cost
+gates fail **8/8**, speed upvalue **5/8**, with additional failures retained in
+the raw audits. Fresh shipping/speed Off-versus-no-feature instruction profiles
+are being built to attribute the remaining compiled-disabled cost. The lookup
+source already contains a two-hint bucket-offset cache; hashing every repeated
+lookup is not a valid diagnosis of the current implementation.
+
+Evidence includes `hook-split-{audit,repeat-audit}.json`,
+`hook-split/image-comparison/sections.log` and `hook-split-off-profile*`.
 
 Evidence: `hook-resume-recovery/perf/hook-outline-counts/audit.json`,
 `hook-outline/callback-transport-hot.asm` and `hook-outline-cold-*`.
