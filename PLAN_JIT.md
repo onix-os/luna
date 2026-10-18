@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Single Add result store — shipping recovery, acceptance open, 2026-10-19
+
+Trial `f0a3406` on `trial/jit-add-result-store` retains the same-kind numeric
+guards but computes one Value before the final destination assignment. The
+canonical operator, metamethod call/exit behavior, operand reads, PC and fuel
+ordering stay unchanged. It passes **137 focused executions / 22 summaries**,
+four pinned Miri model executions (both feature choices in each borrow model),
+**106 real i686 executions / 16 summaries**, and full all-feature Force
+**2,036 passes / 90 summaries**, **23 ignored**, zero failures. Miri's retained
+warnings are not suppressed; generated machine code is not Miri-covered.
+
+Two matched stripped production campaigns finish **288 commands / 28,512
+native measured executions / 570,240 feature-cost iterations**, with zero
+execution/resource-counter mismatches and valid/restored plus 13 corruption
+checks passing for each. Initial/repeat shipping cost control/candidate ratios:
+
+| Workload/build/CPU | Initial | Repeat | Previous scalar-guard repeat |
+| --- | ---: | ---: | ---: |
+| Integer JIT-Off, CPU0 | 1.012380 | 1.014106 | 0.965896 |
+| Metamethod JIT-Off, CPU16 | 0.999654 | 0.999665 | 0.971885 |
+| Array no-feature, CPU16 | 1.008144 | 1.008744 | 0.988018 |
+| GC no-feature, CPU16 | 0.996251 | 0.989336 | 0.980573 |
+
+These are separate balanced campaigns against the same original-main images,
+not direct predecessor-versus-trial pairs. Numeric speed-cost gains remain,
+but acceptance is still open: CPU16 speed native callbacks give **0.980370 /
+0.984596**, CPU0 shipping native Oslo Auto **0.984303 / 0.982208**, and CPU0
+shipping no-feature metamethod **0.990478 / 0.987098**. A repeat CPU16 speed
+no-feature array loss **0.932188**, all six adverse with placebo **1.001892**,
+reverses the first campaign's **1.023158**. Both observations are retained;
+longer exact-image counter diagnosis follows validation, not an assumption
+that the adverse repeat is noise. Original release gates remain unchanged.
+
+The change was motivated by exact shipping assembly: the previous integer
+fast path split its tag and payload stores across a distant shared block.
+The new assembly still uses distant arithmetic/store blocks, so this is not
+proof that removing a particular jump caused recovery. The preceding exact
+sampled-IP capture completes 36 commands / 36,000 iterations with a strict
+address join and 13 corruption checks. Perf DSO offsets are translated through
+the ELF section's file-offset/VMA relation and checked against MMAP2; two
+unknown samples remain unattributed. Sampled IPs may skid and are not exact
+instruction-latency measurements.
+
+Evidence: `vm-add-result/{timing,timing-repeat,speed-counters}` and
+`vm-scalar-guards/shipping-samples` under the hook-resume recovery directory.
+The trial is committed/pushed separately, not promoted to main.
+
 ### Stripped scalar-guard production comparison — not accepted, 2026-10-19
 
 Both matched profiles for `79631fe` and trial `6b5e5c7` are built: 12 images
