@@ -9,6 +9,37 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Function byte tag — compact but slower, not promoted, 2026-10-18
+
+Trial `2323cfa` annotates only Function with `repr(u8)`; Value and generated
+Slot declarations remain unchanged. Baseline-valid Function/Option size guards
+are retained on main as `d35a0a3`. Baseline representation checks pass **104
+executions / 14 summaries**; the candidate passes **137 / 22** focused checks
+and **44 / 6** layout-aware native, rooted-move and ABI checks.
+
+Fourteen exact whole-execution profiles preserve logical/resource counters but
+increase every instruction total: integer/float Off **+13.3817% / +11.9639%**.
+Executed-instruction maps show additional byte-field loads at offsets zero and
+one; numeric Add still subtracts two and conditionally selects a semantic tag.
+The targeted normalization did not disappear. Profile auditing passes nine
+corruptions; exact hot-map auditing passes four, with the removed instruction
+derived from this candidate rather than a historical hard-coded address.
+
+A seven-workload balanced elapsed screen completes **252 commands / 25,704
+measured executions**, CPUs 0/16, six A/candidate/B orders, 51 Off/Auto samples,
+unchanged gates and zero logical/resource-counter mismatches. Strict auditing
+and nine corruptions pass. CPU0 integer/float Off control-time/candidate-time
+ratios are **0.867614 / 0.878185**, placebos **1.001324 / 0.999239**, both six
+adverse rounds. Array Off is **0.770916**, also six adverse rounds. This trial
+is rejected; compactness alone does not establish faster enum handling.
+
+Evidence is under `target/jit-evidence/hook-resume-recovery/function-byte-tag`.
+No full Force, Miri, fallback-platform or shipping acceptance is claimed for
+this rejected runtime. The next isolated probe uses pointer-width high callable
+tags, subject to unchanged footprint and semantic gates; it is not an accepted
+representation policy. Full original JIT performance/release acceptance remains
+open.
+
 ### Direct numeric Add — forwarding hazard removed, not promoted, 2026-10-18
 
 The new actual-VM model covers **384 combinations** of sixteen numeric,
