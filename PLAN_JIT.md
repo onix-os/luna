@@ -9,6 +9,42 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Native callback composition — instruction reduction, 2026-10-18
+
+Trial `673218c` combines two previously rejected work reductions rather than
+presenting either old trial as accepted: native-only physical callback setup
+and an advisory compact string-bucket hint. The current prepared-string helper
+bypasses the older generic `get_map` path, so this version applies the hint
+only to JIT-feature prepared reads. Ordinary interpreter map lookup and the
+no-feature table shape remain unchanged. Both native Call transition paths
+use the independently modeled callback setup; interpreter calls are unchanged.
+
+The hint retains only an integer offset. Every hit checks current map bounds,
+occupancy and live strong string identity, then reads the current slot through
+the ordinary weak-value accessor. Misses retain prepared hashing/content
+equality. Mutation/rehashing/weak conversion/GC do not rely on a cached value,
+pointer or invalidation notification. Poisoned-offset, equal-content, weak
+lifecycle and 64-bit layout/positive GC-charge comparisons pass.
+
+Focused validation passes 164 executions across 22 summaries, all-feature
+checking and formatting. Real i686-musl fallback passes 25 executions across
+five summaries. The initial build caught a missing field in the separate
+capacity-test constructor; its failure is retained and the constructor is
+updated before the passing run. Both-model Miri validation is still running.
+
+Fourteen full-execution instruction comparisons preserve all execution and
+resource counters, with valid/nine-corruption audits passing. Callback Auto
+work falls 4.397%; upvalue Auto falls 0.527%, metamethod Auto 0.419%.
+Integer/float Off and Auto counts are unchanged. Five cases improve, five are
+unchanged and four increase (largest increase 0.0595%). These are instruction
+observations, not elapsed acceptance or proof of either component's isolated
+contribution. The runtime is committed/pushed separately on
+`trial/jit-callback-composition`, not promoted to main. Production timing
+images are building; all original thresholds remain in force.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-composition/`
+(`warm-audit.json`, `candidate/`, `focused-tests.log`, `fallback.log`, `timing/`).
+
 ### Shared numeric stores — rejected instruction trial, 2026-10-18
 
 Trial `3fc3ece` on `trial/jit-numeric-loop-store` consolidates the three
