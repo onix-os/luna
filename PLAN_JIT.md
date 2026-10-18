@@ -28,11 +28,45 @@ It adds no cached state, unsafe code, layout assumption or fuel/stat change.
 Formatting/all-feature checks and **32 focused executions / eight summaries**
 pass; all four mode fixtures also pass under Miri without JIT. Fresh shipping
 assembly confirms a bit test and direct return replace the normal-path indirect
-jump; uncommon states retain their separate mapping. This is machine-code
-evidence, not a speedup claim. Shipping/speed builds and matched Off/Auto profiles
-precede any elapsed acceptance campaign. Evidence prefix:
-`hook-resume-recovery/mode-classification*`. All original performance gates remain
-open and unchanged.
+jump; uncommon states retain their separate mapping. All 48 matched profiles
+verify independent exclusive-event sums, images, results and native-work checks.
+Shipping Off upvalue work falls 88,577,253 to 88,377,293 instructions, with
+200,010 fewer indirect branches. Speed Off upvalue work instead rises 80,378,156
+to 80,578,551, despite 100,000 fewer indirect branches. Speed Off callbacks grow
+38,915,025 to 39,140,290. Branch structure, not instruction totals alone, motivated
+checking elapsed performance. Full validation passes **2,435 executions, zero
+failures, 20 ignored across 177 summaries**.
+
+Two complete elapsed campaigns verify **9,072 native executions and 362,880 cost
+iterations**, zero counter/resource mismatches, all original thresholds and all
+nine workloads. They retain substantial external-contention/control drift;
+no owned build, test or profiler overlaps timing. The trial is **rejected**.
+CPU0 round-one shipping JIT-Off integer control/trial ratios are
+**0.9443 / 0.9384**, float **0.9530 / 0.9505**, with near-unity same-image A/B
+controls. No-feature shipping float also slows (**0.9440 / 0.9475**). In the
+repeat's CPU16 round one, shipping JIT-Off float is **0.9117**, A/B **1.0030**.
+The first campaign's apparent speed callback gain does not repeat: CPU16
+JIT-Off callbacks are **0.9611 / 0.9628** in the repeat. Native callback gates
+and shipping upvalue cost gates fail **8/8** windows; all other failures and
+noisy windows remain in the audits rather than being discarded.
+
+Commit `07db1c1` restores the original runtime mapping. Restoration formatting,
+all-feature checks and **32 focused executions** pass. All four rebuilt diagnostic
+images (shipping/speed, no-feature/JIT-Off) are byte-identical to split-hook
+controls. The new classification test remains; no performance fix is claimed.
+Evidence prefix: `hook-resume-recovery/mode-classification*`.
+
+A separate attribution check also finds same-image Auto upvalue instruction
+variation: the unchanged speed control, SHA-256
+`db97466d7c33d8e275031367294bdca77083043cc3663a1447485e28da101fc8`,
+executes 26,332,319 instructions in the preceding import campaign versus
+25,756,887 here, with the same 298,423 native logical instructions. Of that
+difference, 533,652 self instructions are in `Session::complete_inline` and
+39,864 in `Admitted::new`. Current source inlines linear registry ID-resolution
+scans into those paths; prior instruction-level scan attribution is recorded
+below. This is a source-supported next investigation, not new causal proof or
+permission to subtract variability from measured totals. It argues against
+accepting small Auto upvalue instruction differences from single runs.
 
 ### Owned scalar-import diagnostic — 2026-10-18
 
