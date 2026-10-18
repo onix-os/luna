@@ -9,6 +9,37 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Narrow canonical helper ABI — correctness validated, 2026-10-18
+
+Separate trial `84a2c07` on `trial/jit-canonical-narrow` removes the two unused
+hash arguments from ordinary canonical lookup calls. The private
+`luna_get_up_table_c2` entry takes host, slots, packed operand indexes and source
+PC. Import signatures, call emission, temporary signature allocation accounting
+and the independent helper-flow verifier agree on four arguments. Prepared
+snapshots remain validated; supplied-hash and wide helper contracts are unchanged.
+The native diagnostic dump now lists the c2 entry address.
+
+Direct helper comparisons include six independent entry/transport variants,
+invalid operands, null hosts, mutation, metamethod decline and panic/frame
+materialization. New corruption cases check parameter count and width. The
+full JIT suite initially finds five strided-runtime failures: that test-only
+transport has a verified six-argument bridge. An explicit ABI selector retains
+its c1 family rather than weakening its grammar or reinterpreting function
+pointers. The initial build failures and failing full-suite run are retained.
+
+The corrected revision passes formatting/all-feature checking and **1,487 test
+executions / fifteen summaries**, zero failures and 23 ignored, including all
+1,359 JIT unit tests and the previously failing strided cases. Fresh i686-musl
+checks pass 32 executions / three summaries, one ignored. Pinned Miri passes
+four selected tests under each borrowing model. All trial commits are pushed;
+main runtime is unchanged. Full Force/release acceptance is not implied.
+
+Fresh control (`9515e33`) and candidate instruction profiles are running from
+the same historical source/target build path, with frozen source witnesses and
+the existing strict execution/resource auditor. No instruction saving or elapsed
+speedup is claimed yet; the disabled numeric regressions remain unresolved.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/narrow-helper/`.
+
 ### Canonical string lookup — isolated runtime trial, 2026-10-18
 
 Trial `c7a165b` separates canonical string lookup from the existing supplied-hash
