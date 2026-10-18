@@ -9,6 +9,36 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### High callable tags — normalization remains, not promoted, 2026-10-18
+
+Trial `0ca3979` uses Function `repr(usize)` with the top two discriminants,
+leaving Value and generated Slot declarations untouched. Main `01381d4` retains
+only stronger Function/Option bounds of two pointer widths. Corrected baseline
+`6374d5a` and candidate each pass **104 real i686-musl representation executions**;
+the initial baseline formatting-only failure is preserved. The candidate also
+passes **137 host focused executions / 22 summaries** and **44 layout/native/ABI
+executions / 6 summaries**. This is not full Force or Miri acceptance.
+
+Fourteen exact warm profiles retain identical logical/resource fields. Integer
+Off instructions increase **0.5299%**, float Off **0.0002%**; upvalue Auto falls
+**1.5505%**. Actual maps restore full-word copies, but numeric Add still uses
+`lea 0xb(tag)`, a comparison against `0xfffffffffffffffe`, and a conditional
+selection of semantic tag 6. Integer stores use `0xfffffffffffffff7`. Moving
+both callable tags high relocated normalization instead of removing it. These
+are observations of the exact image, not portable Rust layout assumptions.
+
+The balanced seven-case screen completes **252 commands / 25,704 executions**,
+six orders on CPUs 0/16, zero counter mismatches and unchanged gates. CPU0 float
+Off control/candidate ratio is **0.943782**, placebo **1.004252**, all six adverse;
+CPU16 float Off is **0.988016**, also six adverse. CPU0 upvalue Auto is
+**0.971547**, five adverse, placebo **0.989240**. Favorable CPU0 callback Auto
+**1.113472** does not erase these losses. Both profile and elapsed auditors pass
+nine corruptions each; exact maps pass four. This runtime is rejected.
+
+Evidence is under `target/jit-evidence/hook-resume-recovery/function-high-tag`.
+No full Force, Miri, stripped shipping or complete performance acceptance is
+claimed. No tested callable representation change is promoted to main.
+
 ### Function byte tag — compact but slower, not promoted, 2026-10-18
 
 Trial `2323cfa` annotates only Function with `repr(u8)`; Value and generated
