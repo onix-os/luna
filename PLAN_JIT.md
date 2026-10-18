@@ -9,9 +9,92 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Seeded address-hash cache — candidate, 2026-10-18
+### No-array native entry specialization — rejected, 2026-10-18
 
-Current trial `8495f75` remembers two source-address hashes in the GC-owned
+Trial `0d134de` selects an array-capable or no-array native transport from the
+immutable Code-owned kernel option, across all register tiers. The no-array
+instantiation removes optional-prefix invocation/budget/count handling; the
+general path retains its original checks. This is not the previously rejected
+array-call outlining, which left the ordinary entry unchanged. No ABI, owner,
+quota, hook, helper or native coverage contract changes.
+
+GNU formatting/check-all and **131 focused executions / nine summaries** pass.
+A differential fixture compares selected no-array entry against the original
+optional-prefix path over **1,862 cases**, admitted PCs, seven budgets, scalar/
+reference inputs, neighboring slots and borrowed globals. PC, fuel, full stats
+and canonical bits/identities agree, including **84 caught-panic comparisons**.
+The same fixture and native/upvalue/array gates pass on musl (**63 executions /
+five summaries**). These are focused checks, not a new full native suite.
+
+Two matched rounds produce **64 audited instruction profiles**, now including
+array workloads. Callback Auto falls **47,185,639 -> 47,061,444 / 47,061,525**;
+float Auto falls **5,859,342 -> 5,847,071**. Callback/float Off counts match;
+upvalue Auto varies in both directions, and array Auto rises about **0.04%**.
+All native worker records and thirteen exclusive event sums verify. Callback
+entry self work falls **7,750,507 -> 7,576,620**, while VM self work grows
+**9,010,769 -> 9,060,461**. Its stack reservation remains `0x828`; eliminating
+the array call does not remove embedded projection storage. Diagnostic text
+size reported by `size` grows **114,916 bytes**. No-feature images match controls.
+
+Two unchanged all-nine-case elapsed campaigns retain **9,072 native executions,
+362,880 cost iterations and 432 native proof records**, with zero counter/resource
+mismatches. No owned tests/builds/profilers overlap timing. Callback Auto improves
+in **6/8** direct comparisons (median control/trial **1.008395**), but its gate
+still fails **7/8**. Shipping integer Off and allocation Off are slower **8/8**,
+with median control/trial **0.922166 / 0.976696**; shipping upvalue cost fails
+**8/8**. Float Auto improves only **2/8**. Severe externally contended windows and
+identical-image placebo variation are retained, not credited as causal effects.
+
+Reject the specialization rather than keep the small callback signal with these
+cross-workload costs and extra code. Restore the prior runtime and archive the
+candidate-specific differential fixture with the rejected commit. Restoration
+`2bcdcee` matches all prior `src/` and Makefile bytes, passes formatting/check-all
+and **131 focused executions / nine summaries**, and rebuilds all five
+shipping/speed/native timing images byte-identical to their original controls.
+No fresh full-suite or full-platform acceptance is claimed for the restoration. Original
+performance/resource/platform/release gates remain open. Evidence prefix:
+`target/jit-evidence/hook-resume-recovery/array-presence*`.
+
+### Shared VM slice policy — rejected, 2026-10-18
+
+Trial `d957621` reads Auto activity and call-pair admission under one temporary
+manager borrow at VM slice entry. It reuses those booleans for source lookup,
+hook-exit accounting and pair observation, without persistent policy state,
+allocation, ownership changes or new unsafe code. Each new slice reads current
+policy; no borrow crosses a hook, callback or native entry. Other executor
+callers retain their original policy methods.
+
+Test-first commit `22c321b` checks forty observations across pair toggles,
+Off/Auto transitions and cloned owners, including unchanged whole statistics and
+released manager borrows. It passes before the runtime edit. The candidate
+passes formatting/check-all, **106 focused executions / eleven summaries**,
+the new model under Miri (39 warnings) and its real i686-musl execution.
+
+Two alternating matched rounds produce **48 checked instruction profiles** for
+callbacks/upvalues/float, Off/Auto and both feature images. Worker/native counts
+match and all thirteen exclusive event totals verify. Float Off grows
+**20,060,895 -> 20,673,480** in both rounds; float Auto grows
+**5,859,342 -> 5,893,731**. Callback Auto grows **47,185,639 -> 47,348,439** and
+**47,185,720 -> 47,337,727**; callback Off grows **38,915,025 -> 39,190,090**.
+Upvalue Off grows in both rounds; Auto varies in both directions. All no-feature
+instruction counts match; no-feature `.text` is byte-identical, but the whole
+ELF differs and is not represented as identical.
+
+Reject this form at diagnostic screening. No elapsed speedup or slowdown is
+claimed, and no new timing campaign is spent on it. The live-policy regression
+is retained against the original queries; the runtime change is withdrawn.
+Restoration `aee8d13` passes formatting/check-all and the same **106 focused
+executions / eleven summaries**. Both rebuilt speed diagnostic images are
+byte-identical to the original split-hook controls. The test module is appended
+after runtime definitions, preserving their existing source-line metadata.
+Initial fixture/check failures are preserved: Force is a test-runner policy,
+not a public `JitMode`, and executor callers still require `call_pairs_enabled`.
+Evidence: `target/jit-evidence/hook-resume-recovery/slice-policy*`.
+Full performance, resource/platform and release acceptance remain open.
+
+### Seeded address-hash cache — rejected, 2026-10-18
+
+Rejected trial `8495f75` remembers two source-address hashes in the GC-owned
 registry. It caches neither identity nor eligibility: every query still probes
 the map, upgrades the weak entry, compares the live prototype and reads its
 current registration ID. Reset clears both pairs before changing hash seeds;
@@ -46,15 +129,47 @@ Off run is **40,640,025**, versus control **38,915,025**; the other three match.
 All process variation remains. These are diagnostic instructions, not elapsed
 speedups. All three no-feature diagnostic images match their frozen control.
 
-The current candidate passes **164 focused/host-memory executions across
+The candidate passes **164 focused/host-memory executions across
 nineteen summaries** and **16 fresh registry Miri tests** (39 warnings).
-Full `make jit-verify` is still running: its initial verification portion has
-completed **2,441 passing executions / 177 summaries**, but subsequent JIT-mode,
-documentation and fuzz stages are not yet accepted. The five immutable timing
-images are being built; no elapsed campaign has started. Original all-nine-case
-native and disabled-cost gates, resource/platform and release acceptance remain
-open. Evidence and exact source manifests are under `address-hash*` in
-`target/jit-evidence/hook-resume-recovery/`. This candidate is **not accepted**.
+Full `make jit-verify` completes **10,288 passing executions / 536 summaries**,
+including documentation and fuzz, on the frozen pre-portability-fix source.
+Separate test-only fixes `66e87b0` and `88f0f43` retain the portable strided tests:
+gate the native-only layout assertion, bound fixture PCs by representable
+successors, and corrupt both hash words so the wrong-hash fixture misses with
+32-bit as well as 64-bit hashbrown tags. Full i686 `make jit-fallback` passes
+**2,997 executions / 355 summaries**; its isolated source tree matches the
+integrated tree exactly. Native follow-up checking and **23 focused tests**
+pass. All five rebuilt production images are byte-identical before/after these
+test-only fixes. Failed intermediate fallback logs remain preserved.
+
+Two elapsed campaigns then run without owned tests/builds/profilers, retaining
+external contention. Each uses CPU0/16, two rotated A/trial/B rounds, 21 samples,
+all nine workloads and unchanged gates. Together they retain **9,072 native
+executions, 362,880 feature-cost iterations and 432 native proof records**;
+all 27 native counter/resource fields agree. Auditor validation passes one
+historical positive fixture and thirteen deliberately invalid cases; that
+validation is separate from the new elapsed evidence.
+
+Across eight direct comparisons, native float Off is slower **8/8** (median
+control/trial **0.954168**), shipping float Off is slower **8/8** (**0.941624**),
+and shipping integer Off is slower **8/8** (**0.913128**). Callback Auto improves
+only **5/8**, with median control/trial **1.003319** and range **0.991311–1.009935**.
+Native callback gates fail **6/8**, metamethod gates **4/8**; shipping upvalue
+disabled-cost gates fail **8/8**, speed-profile upvalues **7/8**. No favorable
+instruction count overrides these elapsed results. Identical-image placebo
+variation, including severe speed-profile disturbance, remains in the data;
+these are contended observations, not a causal speedup claim.
+
+Restoration `9a2f58e` removes the runtime cache and its cache-specific test; the
+independent wide-key hash oracle and both portability fixes remain. The restored
+source passes formatting/check-all, **197 focused executions / 23 summaries**
+and full i686 fallback (**2,994 executions / 355 summaries**). All five rebuilt
+shipping/speed/native images are byte-identical to the original pre-cache
+control. This is separate restoration evidence, not a claim that the candidate's
+full native verification ran on restored source. Original native, disabled-cost,
+resource/platform and release acceptance remain open. Evidence, failed runs and
+source manifests are under `address-hash*` in
+`target/jit-evidence/hook-resume-recovery/`.
 
 ### Scoped VM lease classification — rejected, 2026-10-18
 

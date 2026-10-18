@@ -203,9 +203,10 @@ fn compare(native: bool) {
             ),
         ];
         let mut comparisons = 0;
+        let max_pc = u32::try_from(usize::MAX - 1).unwrap_or(u32::MAX);
         for value in values {
             for scenario in 0..12 {
-                for pc in [0, 65536, u32::MAX] {
+                for pc in [0, 65536, max_pc] {
                     let mut args = args;
                     args[0] = (args[0] & 0xffff) | (1 << 16);
                     args[3] = pc;
@@ -214,7 +215,10 @@ fn compare(native: bool) {
                         4 => args[0] = (args[0] & !255) | 255,
                         5 => args[0] = (args[0] & !(255 << 8)) | (255 << 8),
                         6 => args[0] = (args[0] & 0xffff) | (255 << 16),
-                        8 => args[2] ^= 1 << 31,
+                        8 => {
+                            args[1] ^= 1 << 31;
+                            args[2] ^= 1 << 31;
+                        }
                         _ => {}
                     }
                     let reports = entries

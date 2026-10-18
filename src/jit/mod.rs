@@ -3514,3 +3514,6 @@ mod packed_runtime;
 
 #[cfg(test)]
 mod scheduled_import_tests;
+
+#[cfg(test)]
+mod slice_policy_tests;

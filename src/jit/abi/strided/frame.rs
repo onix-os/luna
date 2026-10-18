@@ -283,6 +283,10 @@ pub(in crate::jit) fn probe<const KIND: u32>(
     })
 }
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 const _: () = {
     use abi::payload::runtime as payload;
     assert!(mem::offset_of!(Bridge, functions) == mem::offset_of!(payload::Bridge, functions));

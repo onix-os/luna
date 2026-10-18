@@ -1112,6 +1112,10 @@ jit-projection-runtime-miri:
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1; \
 	done
 
+.PHONY: jit-slice-policy
+jit-slice-policy:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::slice_policy_tests::
+
 jit-registry:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::
 
