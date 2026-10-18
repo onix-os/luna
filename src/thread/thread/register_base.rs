@@ -42,8 +42,6 @@ fn split_boundary_preserves_capture_and_close_coordinates() {
             let mut fuel = Fuel::with(31);
             fuel.interrupt();
             let mut frame = LuaFrame {
-                #[cfg(feature = "jit")]
-                callback_scratch: None,
                 #[cfg(all(
                     feature = "jit",
                     not(miri),

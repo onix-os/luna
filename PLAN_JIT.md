@@ -9,9 +9,76 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Private callback scratch reuse — diagnostic only, 2026-10-18
+### Private callback scratch reuse — rejected, 2026-10-18
 
-**Current follow-up: step-local ownership, still test-only.** Scratch now lives
+**Outcome: both variants lose against a scratch-free control.** The earlier
+same-image improvements were relative to a control that still paid experimental
+tracking costs. They did not establish a useful optimization.
+
+A detached, unmodified `2e0c44c` source checkout supplies the scratch-free
+library-test baseline. Its existing ordinary timing/profile workers use the same
+seven workloads, compiler, opt-level 3, two warmups and measured execution scope.
+Source and symbol scans confirm the absence of scratch tracking; workload and
+Cargo inputs match. This is a library-test comparison, not a production release
+benchmark. The baseline's generic build configuration names synthetic transport;
+the separate `experiment` record identifies the actual full-workload workers.
+
+Fourteen new baseline profiles pass result, counter and exclusive-event checks.
+Callback instructions are **10594582 baseline versus 11182426 step-local
+candidate (+5.548%)**, identical across rounds. Integer/float instruction costs
+also rise; upvalue and metamethod results remain adverse. Callback generated work
+is 730160 instructions with matching mnemonic counts. Cross-image callback body
+comparison validates two prepared-hash immediates and three RIP-relative helper
+relocations against exact instruction patterns and ELF symbols; all remaining
+bytes match. The first audit, which allowed only one helper relocation, rejected
+the other two correctly. Its failed log is retained, and the corrected audit
+checks all three targets with a consistent image load bias.
+
+The step-local and earlier outlined candidates each complete four balanced
+42-window/seven-workload/two-control screens: **7056 timing samples total**.
+Both include CPUs0/16 and reversed-order repeats, verified source/image/tool
+manifests, all25 counter comparisons and external-contention telemetry. No owned
+build/test/profiler overlaps elapsed measurement. Callback control/candidate
+ratios (less than one means the candidate is slower):
+
+| Screen | Step-local | Its placebo | Earlier outlined | Its placebo |
+| --- | ---: | ---: | ---: | ---: |
+| CPU0 first | 0.933022 | 0.993587 | 0.922333 | 1.000551 |
+| CPU16 first | 0.910687 | 0.999985 | 0.934119 | 1.000058 |
+| CPU16 repeat | 0.907699 | 0.998631 | 0.934076 | 0.998033 |
+| CPU0 repeat | 0.936159 | 0.998736 | 0.921068 | 1.003204 |
+
+The local candidate is approximately **6.8–10.2% slower on callbacks**, and the
+earlier outlined candidate **7.1–8.6% slower**, against this scratch-free baseline.
+Integer and closure/upvalue medians are also adverse in every screen for both
+candidates. Favorable/mixed array and allocation observations do not offset these
+losses; complete vectors remain in the evidence.
+
+The entire test-only scratch experiment is withdrawn rather than restoring the
+earlier misleading same-image winner. Runtime and test source is restored to
+`2e0c44c`, including the already accepted stack-overflow repair. Experiment-only
+test targets are removed so an empty test filter cannot masquerade as a pass.
+Historical commits and frozen images retain the trial tests and implementation.
+After withdrawal, formatting/all-feature checks and the strided runtime/timing,
+activation, in-place call/return, call-pair, native-region, hook-resumption and
+callback stack-overflow targets pass. Runtime/test source equality against
+`2e0c44c` is verified independently of those tests.
+The cross-image timing controller remains, with56 malformed-screen refusals,
+four synthetic experiment runners and four pre-sampling manifest/input refusals.
+This removes a rejected experiment; it does **not** fix the original production
+JIT regressions or close performance/resource/platform/release acceptance.
+
+Evidence: `callback-scratch/{scratch-free-source,scratch-free-image,local-view,
+outlined-view}/`, `baseline-audit.json`, `baseline-time*`,
+`outlined-baseline-time*` and `baseline-restored.log/status`. The views reference
+their own frozen source roots, not the changing main checkout. Source and image
+verification therefore remains reproducible after withdrawal. Reproduction uses
+`jit-callback-baseline-time-run` plus `jit-callback-scratch-time-audit`, explicit
+candidate/control directories and `STRIDED_TIMING_WINDOWS=42`.
+
+#### Historical trial records
+
+**Step-local trial (`92a0d54`), test-only.** Scratch lived
 inside each `Executor::step`, passed by scoped mutable reference through
 `LuaFrame` and `ActivationHost`, instead of residing in `ThreadState` with a
 manager epoch. Per-thread diagnostic counts and irreversible alias exclusion

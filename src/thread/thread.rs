@@ -101,10 +101,6 @@ impl<'gc> Thread<'gc> {
                 deferred_error: false,
                 error_taken: false,
                 max_call_depth: ctx.max_call_depth(),
-                #[cfg(all(test, feature = "jit"))]
-                scratch_private: std::cell::Cell::new(true),
-                #[cfg(all(test, feature = "jit"))]
-                callback_scratch_counts: (0, 0),
             }),
         );
         ctx.finalizers().register_thread(&ctx, p);
@@ -471,10 +467,6 @@ pub type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;
 #[derive(Collect)]
 #[collect(no_drop)]
 pub struct ThreadState<'gc> {
-    #[cfg(all(test, feature = "jit"))]
-    pub(super) scratch_private: std::cell::Cell<bool>,
-    #[cfg(all(test, feature = "jit"))]
-    pub(super) callback_scratch_counts: (u64, u64),
     pub(super) frames: vec::Vec<Frame<'gc>, MetricsAlloc<'gc>>,
     pub(super) stack: Gc<'gc, RefLock<StackVec<'gc>>>,
     pub(super) open_upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
@@ -501,8 +493,6 @@ impl<'gc> ThreadState<'gc> {
     /// Exposed so `debug.getlocal` can read a register by index; it locks independently of the
     /// frames, which is what makes reading one from inside a native possible at all.
     pub fn stack(&self) -> Gc<'gc, RefLock<StackVec<'gc>>> {
-        #[cfg(all(test, feature = "jit"))]
-        self.scratch_private.set(false);
         self.stack
     }
 }
@@ -858,8 +848,6 @@ type FrameStack<'gc, 'a> = RefMut<'a, StackVec<'gc>>;
 type FrameStack<'gc, 'a> = &'a mut StackVec<'gc>;
 
 pub(super) struct LuaFrame<'gc, 'a> {
-    #[cfg(all(test, feature = "jit"))]
-    pub(super) callback_scratch: Option<&'a mut crate::jit::callback_scratch::Scratch>,
     #[cfg(all(
         feature = "jit",
         not(miri),
@@ -991,12 +979,6 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
             }) => {
                 let (upper_stack, stack_frame) = self.stack[..].split_at_mut(*base);
                 LuaRegisters {
-                    #[cfg(all(test, feature = "jit"))]
-                    scratch_private: Some(&self.state.scratch_private),
-                    #[cfg(all(test, feature = "jit"))]
-                    callback_scratch: self.callback_scratch.as_deref_mut(),
-                    #[cfg(all(test, feature = "jit"))]
-                    callback_scratch_counts: Some(&mut self.state.callback_scratch_counts),
                     pc,
                     stack_frame,
                     upper_stack,
@@ -1468,12 +1450,6 @@ pub(crate) enum ScopedUpvalue<'gc> {
 }
 
 pub(crate) struct LuaRegisters<'gc, 'a> {
-    #[cfg(all(test, feature = "jit"))]
-    pub(crate) scratch_private: Option<&'a std::cell::Cell<bool>>,
-    #[cfg(all(test, feature = "jit"))]
-    pub(crate) callback_scratch: Option<&'a mut crate::jit::callback_scratch::Scratch>,
-    #[cfg(all(test, feature = "jit"))]
-    pub(crate) callback_scratch_counts: Option<&'a mut (u64, u64)>,
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
     upper_stack: &'a mut [Value<'gc>],
@@ -1588,9 +1564,6 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             pc,
             stack_frame,
             upper_stack: &mut [],
-            scratch_private: None,
-            callback_scratch: None,
-            callback_scratch_counts: None,
             base: 0,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
@@ -1601,10 +1574,6 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     }
 
     pub(super) fn open_upvalue(&mut self, mc: &Mutation<'gc>, reg: RegisterIndex) -> UpValue<'gc> {
-        #[cfg(all(test, feature = "jit"))]
-        if let Some(private) = self.scratch_private {
-            private.set(false);
-        }
         let ind = self.base + reg.0 as usize;
         match self
             .open_upvalues
@@ -1822,9 +1791,6 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             pc,
             stack_frame,
             upper_stack,
-            scratch_private: None,
-            callback_scratch: None,
-            callback_scratch_counts: None,
             base,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
@@ -1835,9 +1801,6 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     }
 
     pub(crate) fn projection_open_at(&self, ctx: Context<'gc>, index: usize) -> UpValue<'gc> {
-        if let Some(private) = self.scratch_private {
-            private.set(false);
-        }
         UpValue::new(
             &ctx,
             UpValueState::Open(OpenUpValue {

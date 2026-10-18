@@ -205,7 +205,6 @@ pub(super) fn resume_vm<'gc>(
     run_vm_slice(
         ctx,
         LuaFrame {
-            callback_scratch: lua_frame.callback_scratch,
             pair_handoff: Some(scope),
             state: lua_frame.state,
             stack: lua_frame.stack,
@@ -520,10 +519,6 @@ fn run_vm_slice<'gc>(
             _ => {}
         }
 
-        #[cfg(all(test, feature = "jit"))]
-        if let Some(scratch) = registers.callback_scratch.as_deref_mut() {
-            scratch.invalidate();
-        }
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {

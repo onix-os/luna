@@ -164,8 +164,6 @@ fn return_spans_preserve_bounds_fuel_and_capture_closing() {
                         fuel.interrupt();
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             LuaFrame {
-                                #[cfg(feature = "jit")]
-                                callback_scratch: None,
                                 #[cfg(all(
                                     feature = "jit",
                                     not(miri),
