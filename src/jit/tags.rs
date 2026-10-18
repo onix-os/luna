@@ -249,6 +249,8 @@ impl Stores {
 pub(super) struct Stores {
     pub helper_calls: super::helper_flow::Calls,
     pub rooted_moves: bool,
+    #[cfg(test)]
+    pub compact_integer_pairs: bool,
     transfer_writes: Vec<TransferWrite, BudgetAllocator>,
     transfer_edges: Vec<TransferEdge, BudgetAllocator>,
     expected_transfers: Option<(usize, usize)>,
@@ -383,6 +385,8 @@ impl Stores {
         Ok(Self {
             helper_calls: super::helper_flow::Calls::new(snapshot)?,
             rooted_moves: false,
+            #[cfg(test)]
+            compact_integer_pairs: false,
             transfer_writes: writes,
             transfer_edges: edges,
             expected_transfers: Some((transfer_writes, transfer_edges)),
@@ -2888,6 +2892,16 @@ impl Analysis<'_> {
             InstructionData::IntCompare { cond, args, .. } => {
                 let left = self.literal(args[0], queried, tag, remaining);
                 let right = self.literal(args[1], queried, tag, remaining);
+                #[cfg(test)]
+                if matches!(cond, IntCC::Equal | IntCC::NotEqual)
+                    && (right.is_some_and(|expected| {
+                        self.or_conflict(args[0], expected, queried, tag, remaining)
+                    }) || left.is_some_and(|expected| {
+                        self.or_conflict(args[1], expected, queried, tag, remaining)
+                    }))
+                {
+                    return Some(Some(cond == IntCC::NotEqual));
+                }
                 Some(match (left, right, cond) {
                     (Some(left), Some(right), IntCC::Equal) => Some(left == right),
                     (Some(left), Some(right), IntCC::NotEqual) => Some(left != right),
@@ -2945,6 +2959,39 @@ impl Analysis<'_> {
             ),
             _ => None,
         }
+    }
+
+    #[cfg(test)]
+    fn or_conflict(
+        &self,
+        value: Value,
+        expected: u64,
+        queried: Option<Value>,
+        tag: u64,
+        remaining: &mut usize,
+    ) -> bool {
+        let Some(next) = remaining.checked_sub(1) else {
+            return false;
+        };
+        *remaining = next;
+        let value = self.function.dfg.resolve_aliases(value);
+        if self.function.dfg.value_type(value) != types::I64 {
+            return false;
+        }
+        let ValueDef::Result(inst, 0) = self.function.dfg.value_def(value) else {
+            return false;
+        };
+        let InstructionData::Binary {
+            opcode: Opcode::Bor,
+            args,
+        } = self.function.dfg.insts[inst]
+        else {
+            return false;
+        };
+        args.into_iter().any(|arg| {
+            self.literal(arg, queried, tag, remaining)
+                .is_some_and(|bits| bits & !expected != 0)
+        })
     }
 
     fn unreachable(&self, mut block: Block) -> bool {
@@ -3095,6 +3142,7 @@ mod tests {
         let mut stores = Stores {
             helper_calls: super::super::helper_flow::Calls::empty(records.allocator().clone()),
             rooted_moves: false,
+            compact_integer_pairs: false,
             transfer_writes: Vec::new_in(records.allocator().clone()),
             transfer_edges: Vec::new_in(records.allocator().clone()),
             expected_transfers: None,
@@ -3714,6 +3762,77 @@ mod tests {
                 result.unwrap();
             } else {
                 rejected(result);
+            }
+        }
+    }
+
+    #[test]
+    fn compact_integer_pairs_require_both_numeric_guards_and_operands() {
+        for guarded in 0..4 {
+            for inverted in [false, true] {
+                for wrong in [false, true] {
+                    let result = fixture(|builder, slots, _, stores| {
+                        let inputs = [0, 16].map(|offset| {
+                            let tag =
+                                builder
+                                    .ins()
+                                    .load(types::I64, MemFlagsData::new(), slots, offset);
+                            let bits = builder.ins().load(
+                                types::I64,
+                                MemFlagsData::new(),
+                                slots,
+                                offset + 8,
+                            );
+                            (tag, bits)
+                        });
+                        let rejected = builder.create_block();
+                        for (index, (tag, _)) in inputs.iter().copied().enumerate() {
+                            if guarded & (1 << index) == 0 {
+                                continue;
+                            }
+                            let mask = builder.ins().iconst(types::I64, -2);
+                            let masked = builder.ins().band(tag, mask);
+                            let numeric =
+                                builder
+                                    .ins()
+                                    .icmp_imm_s(IntCC::Equal, masked, abi::INTEGER as i64);
+                            let next = builder.create_block();
+                            builder.ins().brif(numeric, next, &[], rejected, &[]);
+                            builder.switch_to_block(next);
+                        }
+                        let pair = builder
+                            .ins()
+                            .bor(inputs[0].0, inputs[usize::from(!wrong)].0);
+                        let condition = builder.ins().icmp_imm_s(
+                            if inverted {
+                                IntCC::NotEqual
+                            } else {
+                                IntCC::Equal
+                            },
+                            pair,
+                            abi::INTEGER as i64,
+                        );
+                        let accepted = builder.create_block();
+                        let (yes, no) = if inverted {
+                            (rejected, accepted)
+                        } else {
+                            (accepted, rejected)
+                        };
+                        builder.ins().brif(condition, yes, &[], no, &[]);
+                        builder.switch_to_block(accepted);
+                        for (tag, bits) in inputs {
+                            numeric_use(builder, stores, tag, bits, true);
+                        }
+                        builder.ins().return_(&[]);
+                        builder.switch_to_block(rejected);
+                        builder.ins().return_(&[]);
+                    });
+                    if guarded == 3 && !wrong {
+                        result.unwrap();
+                    } else {
+                        rejected(result);
+                    }
+                }
             }
         }
     }

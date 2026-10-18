@@ -405,6 +405,7 @@ pub(super) enum Failure {
     AuditPackedLowering,
     RequireReadCache,
     PreferReadEffects,
+    CompactIntegerPairs,
     BranchLoopDirection,
     WidePrepared(Option<super::helper_flow::Fault>),
     RequireWriteback,
@@ -814,7 +815,10 @@ fn compile_selected_rooted(
     #[cfg(test)]
     if matches!(
         failure,
-        Failure::RequireFieldMemory | Failure::RequirePreferredEntry | Failure::PreferReadEffects
+        Failure::RequireFieldMemory
+            | Failure::RequirePreferredEntry
+            | Failure::PreferReadEffects
+            | Failure::CompactIntegerPairs
     ) {
         let incompatible = rooted_moves
             || selection.projected
@@ -829,6 +833,8 @@ fn compile_selected_rooted(
                     "preferred entry requires ordinary lowering"
                 } else if failure == Failure::PreferReadEffects {
                     "read effects require ordinary lowering"
+                } else if failure == Failure::CompactIntegerPairs {
+                    "compact integer pairs require ordinary lowering"
                 } else {
                     "field memory requires ordinary lowering"
                 }
@@ -904,6 +910,10 @@ fn compile_selected_rooted(
         None
     };
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
+    #[cfg(test)]
+    {
+        stores.compact_integer_pairs = failure == Failure::CompactIntegerPairs;
+    }
     if rooted_moves {
         stores.helper_calls = super::helper_flow::Calls::rooted(snapshot)?;
         stores.rooted_moves = true;
@@ -974,6 +984,7 @@ fn compile_selected_rooted(
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
                     | Failure::PreferReadEffects
+                    | Failure::CompactIntegerPairs
                     | Failure::RequirePreferredEntry
                     | Failure::DisablePreferredEntry
             ))
@@ -1515,6 +1526,7 @@ fn compile_selected_rooted(
             | Failure::RequireUniversalMemory
             | Failure::RequireFieldMemory
             | Failure::PreferReadEffects
+            | Failure::CompactIntegerPairs
             | Failure::RequirePreferredEntry
             | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop
@@ -2941,6 +2953,13 @@ impl Emitter<'_, '_> {
             let li = self.tag_is(lt, abi::INTEGER);
             let ri = self.tag_is(rt, abi::INTEGER);
             let both = self.builder.ins().band(li, ri);
+            #[cfg(test)]
+            let both = if self.stores.compact_integer_pairs {
+                let combined = self.builder.ins().bor(lt, rt);
+                self.tag_is(combined, abi::INTEGER)
+            } else {
+                both
+            };
             self.builder.ins().brif(both, integer, &[], float, &[]);
             self.builder.switch_to_block(integer);
             let bits = match op {

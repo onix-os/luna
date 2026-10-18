@@ -1175,6 +1175,16 @@ jit-read-cache:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_helpers_match_canonical_execution_at_every_boundary
 
 .PHONY: jit-read-effects
+.PHONY: jit-compact-integer-pairs
+.PHONY: jit-compact-integer-pairs-miri
+jit-compact-integer-pairs-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::tags::tests::compact_integer_pairs_ -- --test-threads=1
+
+jit-compact-integer-pairs:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) compact_integer_pairs -- --nocapture
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests::
+	@$(MAKE) --no-print-directory jit-arithmetic
+
 jit-read-effects: jit-read-cache
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_flow::read_effect_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::effect_cached_

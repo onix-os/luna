@@ -189,6 +189,26 @@ fn profile_effect_memory_runtime() {
 }
 
 #[test]
+fn compact_integer_pairs_frozen_workloads_preserve_results_and_coverage() {
+    for workload in workloads::WORKLOADS {
+        let (expected, _) = run(workload, backend::Failure::None, false);
+        let (actual, _) = run(workload, backend::Failure::CompactIntegerPairs, false);
+        assert_eq!(actual, expected, "{}", workload.name);
+    }
+}
+
+#[test]
+fn compact_integer_pairs_steps_callbacks_upvalues_gc_and_arrays() {
+    payload_runtime_contract(backend::Failure::CompactIntegerPairs);
+}
+
+#[test]
+#[ignore]
+fn profile_integer_pair_memory_runtime() {
+    profile_memory_runtime(backend::Failure::CompactIntegerPairs, "integer_pair_memory");
+}
+
+#[test]
 fn read_effects_runtime_steps_callbacks_upvalues_gc_and_arrays() {
     payload_runtime_contract(backend::Failure::PreferReadEffects);
 }
