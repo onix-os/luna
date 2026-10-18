@@ -9,6 +9,59 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Isolated executor mode selection — rejected, 2026-10-18
+
+Trial `40f1f43` on `trial/jit-mode-isolation` separates the executor's
+ordinary and known-Normal bodies through a mode-selected wrapper. It preserves
+child-result mode checks and exercises both bodies against independent callback,
+fuel, interruption and child-handoff expectations. The trial remains isolated;
+its production changes are not merged into `feat/native-jit`.
+
+The trial passes73 focused test executions, four Miri mode tests, formatting and
+check-all. Separately, full `make jit-verify` on baseline `a13b8c5` completes:
+10,537 passing test executions across541 summaries,119 ignored, and all/heap
+four-seed fuzz smoke. That full-suite result does not validate the trial or close
+performance, resource-policy, platform or release acceptance.
+
+Production instruction collection covers the common outer Lua execution boundary,
+including the new wrapper rather than measuring only the specialized body.
+Twenty-eight captures contain308 measured warmed executions after two warmups
+each; partition sums, non-timing counters and source/image hashes verify.
+Callback Auto instructions fall3.34035%, from9,438,782 to9,123,494 per warmed
+execution. This is not an elapsed speedup.
+
+The completed production screen uses144 commands, six balanced A/trial/B orders,
+CPUs0/16, speed/shipping profiles, both no-feature controls and all original nine
+workloads. It retains14,256 native executions and285,120 cost iterations with
+zero counter/resource mismatches. No owned builds, tests or profilers overlap
+elapsed collection. Cost medians are independently recomputed from raw durations;
+native records expose summary medians only. Source/image hashes verify, and the
+screen auditor accepts two valid screens and rejects13 malformed variants.
+
+The following compiled-JIT-Off comparisons are adverse in all six rounds each.
+Ratios are control/trial elapsed time; below1 means the trial is slower.
+
+| CPU | Profile | Workload | Median ratio | Same-image placebo |
+| --- | --- | --- | ---: | ---: |
+| 0 | speed | float | 0.95841 | 0.99975 |
+| 0 | shipping | float | 0.96407 | 0.99662 |
+| 16 | shipping | integer | 0.95467 | 1.00185 |
+| 16 | shipping | float | 0.95246 | 1.00230 |
+
+These correspond to approximately3.7–5.0% longer elapsed times. Callback Auto
+ratios are0.99880/1.01419 for speed CPUs0/16 and1.03454/1.01260 for shipping;
+benefits elsewhere do not erase the numeric regressions. Both baseline controls
+and the trial also fail some original workload gates. Direct historical
+comparisons above are distinct from the original1.05 compiled-Off overhead gate;
+shipping native results remain diagnostic rather than release acceptance.
+
+Decision: reject production promotion of this mode-isolation implementation.
+Separating bodies did not preserve compiled-Off elapsed performance. Preserve the
+trial and negative evidence; fewer instructions alone cannot justify adoption.
+Evidence is under `target/jit-evidence/hook-resume-recovery/mode-isolation/`,
+especially `warm-audit.json`, `production-audit.json` and `production-screen/`.
+Baseline verification is under the adjacent `entry-followup/` directory.
+
 ### Optional bound-entry runtime pair — test-only, 2026-10-18
 
 `PreferBoundPair` retains ordinary native code and optionally attaches a
