@@ -9,6 +9,49 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Scoped VM lease classification — rejected, 2026-10-18
+
+Trial `5d59e5c` classifies ordinary versus scoped native execution during the
+VM's existing code lookup. A tagged dispatch variant carries that classification
+without expanding its 16-byte bound or adding an owner/allocation. Every existing
+scope, including claimed and foreign-source states, retains the original
+owner/closure/stack/PC/once check. Other `Runtime::run` callers remain checked;
+legacy test resumption selects the checked path conservatively. Only an ordinary
+VM slice bypasses the repeated manager borrow. Scope installation remains behind
+the canonical-slice entry boundary; helpers cannot install a scope or call users.
+
+Formatting/check-all and **189 focused executions / nineteen summaries** pass,
+with two existing ignored tests. Coverage includes prefix/fuel/counter parity,
+nested scope unwinding, debug hooks, ownership, resources and upvalues. The new
+classification fixture checks ordinary, claimed, Off/Auto and foreign-source
+scope cases; dispatch retirement/GC checks exercise both compiled tags.
+
+Four alternating baseline/trial rounds yield **96 checked instruction profiles**
+for callbacks/upvalues/float, Off/Auto and both feature images. Worker/native
+records agree and all thirteen exclusive event totals verify. Callback Auto
+work is effectively unchanged but slightly higher: control **47,185,720**,
+candidate **47,188,521** (one **47,188,440**). In round zero, VM self work falls
+**767,927**, but the newly separate `run_without_resume` executes **670,707**
+instructions and code lookup grows **100,021**. Those changes account for the
+entire **2,801** increase; moving work out of the VM is not its removal.
+
+Disabled-JIT work rises repeatedly: float **20,060,895 -> 21,470,635 (+7.027%)**,
+callbacks **38,915,025 -> 39,715,250 (+2.056%)**, and upvalues about **2.924%**.
+Upvalue Auto ranges from **-0.625% to +0.267%**; favorable and adverse runs remain.
+The no-feature image differs from the older control, so byte identity is not
+claimed for the candidate. Five of its 24 paired instruction counts differ;
+all data remain in the audit rather than being replaced with a selected control.
+No hardware cause or elapsed-time result is inferred from these profiles.
+
+Reject this form before a broad timing campaign. `e4cb1da` restores every runtime
+and candidate-only test change exactly to `5362611`; restored formatting/check-all
+and **188 focused executions / nineteen summaries** pass, with the same two
+ignores. Both fresh restored diagnostic images match the split-hook controls
+byte-for-byte. No new full-suite, Miri, platform or elapsed acceptance is claimed.
+The rejected source/tests, frozen images, complete profiles and checks remain
+under `scoped-dispatch*` in `target/jit-evidence/hook-resume-recovery/`.
+Full native, disabled-cost, resource, platform and release gates remain open.
+
 ### Source-identity outlining — rejected, 2026-10-18
 
 Revisited executor extraction before changing runtime code: the prior Lua-frame
