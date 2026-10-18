@@ -16,6 +16,8 @@ fn run<'gc>(
     super::run_vm(
         ctx,
         LuaFrame {
+            #[cfg(feature = "jit")]
+            callback_scratch: None,
             #[cfg(all(
                 feature = "jit",
                 not(miri),

@@ -85,6 +85,7 @@ fn builtin_normal_call_admission_preserves_refused_state_and_exact_fuel() {
                 let original_mt = table.metatable();
                 let (used, hits) = scoped(true, || {
                     LuaFrame {
+                        callback_scratch: None,
                         #[cfg(all(
                             not(miri),
                             target_os = "linux",
@@ -189,6 +190,7 @@ fn builtin_tail_returns_preserve_caller_shape_and_boundary_fuel() {
                 let mut fuel = Fuel::with(available);
                 let (used, hits) = scoped(true, || {
                     LuaFrame {
+                        callback_scratch: None,
                         #[cfg(all(
                             not(miri),
                             target_os = "linux",

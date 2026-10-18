@@ -104,7 +104,7 @@ impl<'gc> Thread<'gc> {
                 #[cfg(all(test, feature = "jit"))]
                 scratch_private: std::cell::Cell::new(true),
                 #[cfg(all(test, feature = "jit"))]
-                callback_scratch: crate::jit::callback_scratch::Scratch::default(),
+                callback_scratch_counts: (0, 0),
             }),
         );
         ctx.finalizers().register_thread(&ctx, p);
@@ -474,7 +474,7 @@ pub struct ThreadState<'gc> {
     #[cfg(all(test, feature = "jit"))]
     pub(super) scratch_private: std::cell::Cell<bool>,
     #[cfg(all(test, feature = "jit"))]
-    pub(super) callback_scratch: crate::jit::callback_scratch::Scratch,
+    pub(super) callback_scratch_counts: (u64, u64),
     pub(super) frames: vec::Vec<Frame<'gc>, MetricsAlloc<'gc>>,
     pub(super) stack: Gc<'gc, RefLock<StackVec<'gc>>>,
     pub(super) open_upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
@@ -858,6 +858,8 @@ type FrameStack<'gc, 'a> = RefMut<'a, StackVec<'gc>>;
 type FrameStack<'gc, 'a> = &'a mut StackVec<'gc>;
 
 pub(super) struct LuaFrame<'gc, 'a> {
+    #[cfg(all(test, feature = "jit"))]
+    pub(super) callback_scratch: Option<&'a mut crate::jit::callback_scratch::Scratch>,
     #[cfg(all(
         feature = "jit",
         not(miri),
@@ -992,7 +994,9 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                     #[cfg(all(test, feature = "jit"))]
                     scratch_private: Some(&self.state.scratch_private),
                     #[cfg(all(test, feature = "jit"))]
-                    callback_scratch: Some(&mut self.state.callback_scratch),
+                    callback_scratch: self.callback_scratch.as_deref_mut(),
+                    #[cfg(all(test, feature = "jit"))]
+                    callback_scratch_counts: Some(&mut self.state.callback_scratch_counts),
                     pc,
                     stack_frame,
                     upper_stack,
@@ -1468,6 +1472,8 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
     pub(crate) scratch_private: Option<&'a std::cell::Cell<bool>>,
     #[cfg(all(test, feature = "jit"))]
     pub(crate) callback_scratch: Option<&'a mut crate::jit::callback_scratch::Scratch>,
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) callback_scratch_counts: Option<&'a mut (u64, u64)>,
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
     upper_stack: &'a mut [Value<'gc>],
@@ -1584,6 +1590,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             upper_stack: &mut [],
             scratch_private: None,
             callback_scratch: None,
+            callback_scratch_counts: None,
             base: 0,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
@@ -1817,6 +1824,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             upper_stack,
             scratch_private: None,
             callback_scratch: None,
+            callback_scratch_counts: None,
             base,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,

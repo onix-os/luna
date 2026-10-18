@@ -287,7 +287,8 @@ impl<'gc> Executor<'gc> {
     pub fn step(self, ctx: Context<'gc>, fuel: &mut Fuel) -> Result<bool, BadThreadMode> {
         let mut state = self.0.borrow_mut(&ctx);
         #[cfg(all(test, feature = "jit"))]
-        let scratch_epoch = ctx.jit().callback_scratch_epoch();
+        let mut callback_scratch =
+            crate::jit::callback_scratch::Scratch::new(ctx.jit().callback_scratch_enabled());
         Ok(loop {
             let mut top_thread = state.thread_stack.last().copied().unwrap();
             let mut res_thread = None;
@@ -425,8 +426,7 @@ impl<'gc> Executor<'gc> {
                     let frame = top_state.frames.pop();
                     #[cfg(all(test, feature = "jit"))]
                     {
-                        let scratch = &mut top_state.callback_scratch;
-                        scratch.begin(scratch_epoch);
+                        let scratch = &mut callback_scratch;
                         match &frame {
                             Some(Frame::Lua { .. }) => scratch.vm_boundary(),
                             Some(Frame::Callback { bottom, .. }) => {
@@ -475,7 +475,7 @@ impl<'gc> Executor<'gc> {
                             Ok(CallbackReturn::Return) => {
                                 top_state.return_to(&mut top_stack, bottom);
                                 #[cfg(all(test, feature = "jit"))]
-                                top_state.callback_scratch.returned();
+                                callback_scratch.returned();
                             }
                             Ok(CallbackReturn::Sequence(sequence)) => {
                                 top_state.frames.push(Frame::Sequence {
@@ -659,6 +659,8 @@ impl<'gc> Executor<'gc> {
                         #[cfg(feature = "jit")]
                         let mut frame_stack = frame_stack;
                         let lua_frame = LuaFrame {
+                            #[cfg(all(test, feature = "jit"))]
+                            callback_scratch: Some(&mut callback_scratch),
                             #[cfg(all(
                                 feature = "jit",
                                 not(miri),
@@ -697,6 +699,8 @@ impl<'gc> Executor<'gc> {
                             #[cfg(feature = "jit")]
                             let mut frame_stack = frame_stack;
                             let lua_frame = LuaFrame {
+                                #[cfg(all(test, feature = "jit"))]
+                                callback_scratch: Some(&mut callback_scratch),
                                 #[cfg(all(
                                     feature = "jit",
                                     not(miri),
@@ -732,6 +736,9 @@ impl<'gc> Executor<'gc> {
                                     &mut lua_frame,
                                     Self::VM_GRANULARITY,
                                 ) {
+                                if let Some(scratch) = lua_frame.callback_scratch.as_deref_mut() {
+                                    scratch.invalidate();
+                                }
                                 let mut stats = ctx.jit().interpreter_stats();
                                 stats.dispatches = 1;
                                 let result = lua_frame
@@ -754,6 +761,8 @@ impl<'gc> Executor<'gc> {
                             let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
                             result
                         };
+                        #[cfg(all(test, feature = "jit"))]
+                        let mut ordinary = ordinary;
                         #[cfg(all(
                             feature = "jit",
                             any(
@@ -774,6 +783,10 @@ impl<'gc> Executor<'gc> {
                                     stack.borrow_mut(&ctx),
                                     fuel,
                                 );
+                                #[cfg(all(test, feature = "jit"))]
+                                {
+                                    host.callback_scratch = Some(&mut callback_scratch);
+                                }
                                 host.run(
                                     ctx,
                                     limit.get(),
@@ -986,10 +999,7 @@ impl<'gc> Executor<'gc> {
     pub(crate) fn callback_scratch_counts(self) -> (u64, u64) {
         let state = self.0.borrow();
         let thread = state.thread_stack[0].into_inner().borrow();
-        (
-            thread.callback_scratch.reused,
-            thread.callback_scratch.imported,
-        )
+        thread.callback_scratch_counts
     }
 
     /// Take the foreign future this executor is waiting on, if any.

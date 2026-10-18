@@ -205,6 +205,7 @@ pub(super) fn resume_vm<'gc>(
     run_vm_slice(
         ctx,
         LuaFrame {
+            callback_scratch: lua_frame.callback_scratch,
             pair_handoff: Some(scope),
             state: lua_frame.state,
             stack: lua_frame.stack,

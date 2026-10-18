@@ -690,8 +690,6 @@ pub(crate) struct Manager {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     clock: u64,
-    #[cfg(test)]
-    callback_epoch: u64,
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -778,8 +776,6 @@ impl Default for Manager {
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
             clock: 0,
-            #[cfg(test)]
-            callback_epoch: 0,
         }
     }
 }

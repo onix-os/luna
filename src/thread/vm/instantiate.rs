@@ -57,6 +57,8 @@ mod tests {
         let mut fuel = Fuel::with(7);
         fuel.interrupt();
         test(&mut LuaFrame {
+            #[cfg(feature = "jit")]
+            callback_scratch: None,
             #[cfg(all(
                 feature = "jit",
                 not(miri),

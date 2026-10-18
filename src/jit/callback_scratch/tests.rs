@@ -3,8 +3,7 @@ use super::*;
 #[test]
 fn callback_scratch_requires_matching_callback_and_normal_return() {
     for bottom in [0, 4, 5, 6, usize::MAX] {
-        let mut scratch = Scratch::default();
-        scratch.begin(1);
+        let mut scratch = Scratch::new(true);
         scratch.key = (17, 2);
         scratch.tail = 3;
         scratch.phase = Phase::Pending;
@@ -18,19 +17,24 @@ fn callback_scratch_requires_matching_callback_and_normal_return() {
 }
 
 #[test]
-fn callback_scratch_epochs_and_non_callback_work_discard_pending_state() {
+fn callback_scratch_new_scopes_and_non_callback_work_discard_pending_state() {
     for phase in [Phase::Empty, Phase::Pending, Phase::Active, Phase::Ready] {
-        for next in [0, 1, 2, u64::MAX] {
-            let mut scratch = Scratch::default();
-            scratch.epoch = 1;
+        for enabled in [false, true] {
+            let mut scratch = Scratch::new(enabled);
             scratch.phase = phase;
-            scratch.begin(next);
-            assert!(scratch.phase == if next == 1 { phase } else { Phase::Empty });
+            let fresh = Scratch::new(enabled);
+            assert!(fresh.phase == Phase::Empty);
+            assert_eq!(fresh.enabled, enabled);
+            assert_eq!(
+                (fresh.closure, fresh.key, fresh.count, fresh.pc, fresh.tail),
+                (0, (0, 0), 0, 0, 0)
+            );
+            assert!(scratch.phase == phase);
             scratch.invalidate();
             scratch.returned();
             assert!(scratch.phase == Phase::Empty);
         }
-        let mut scratch = Scratch::default();
+        let mut scratch = Scratch::new(true);
         scratch.phase = phase;
         scratch.vm_boundary();
         assert!(
@@ -112,6 +116,24 @@ mod native {
                         Ok(CallbackReturn::Return)
                     }),
                 );
+            } else if case == 4 {
+                let nested = Closure::load(
+                    ctx,
+                    None,
+                    &b"local n=0 for i=1,10 do n=n+i end return n"[..],
+                )
+                .unwrap();
+                ctx.set_global(
+                    "host",
+                    Callback::from_fn_with(&ctx, nested, |nested, ctx, _, mut args| {
+                        let _: i64 = args.consume(ctx)?;
+                        let executor = Executor::start(ctx, (*nested).into(), ());
+                        let mut fuel = crate::Fuel::with(i32::MAX);
+                        assert!(executor.step(ctx, &mut fuel).unwrap());
+                        assert_eq!(executor.take_result::<i64>(ctx).unwrap().unwrap(), 55);
+                        Ok(CallbackReturn::Return)
+                    }),
+                );
             } else {
                 ctx.set_global(
                     "host",
@@ -152,7 +174,7 @@ mod native {
 
     #[test]
     fn callback_scratch_preserves_escaped_aliases_closed_captures_and_relocation() {
-        for (case, expected) in [(0, 3240), (1, 9340), (2, 9720), (3, 3240)] {
+        for (case, expected) in [(0, 3240), (1, 9340), (2, 9720), (3, 3240), (4, 3240)] {
             let reference = run(false, case);
             let candidate = run(true, case);
             assert_eq!(reference.0, expected, "case={case}");
@@ -170,21 +192,91 @@ mod native {
     }
 
     #[test]
-    fn callback_scratch_epoch_exhaustion_disables_reuse() {
-        let mut lua = Lua::empty();
-        lua.set_jit_config(JitConfig {
-            mode: JitMode::Auto,
-            ..Default::default()
-        })
-        .unwrap();
-        lua.enter(|ctx| {
-            let mut manager = ctx.jit().0.borrow_mut();
-            manager.memory_failure = super::super::super::backend::Failure::PreferCallbackScratch;
-            manager.callback_epoch = u64::MAX - 1;
-            drop(manager);
-            assert_eq!(ctx.jit().callback_scratch_epoch(), u64::MAX);
-            assert_eq!(ctx.jit().callback_scratch_epoch(), 0);
-            assert_eq!(ctx.jit().callback_scratch_epoch(), 0);
-        });
+    fn callback_scratch_reuses_only_within_the_current_executor_step() {
+        for split in [false, true] {
+            let mut counts = Vec::new();
+            let mut stats = Vec::new();
+            for selected in [false, true] {
+                let mut lua = Lua::core();
+                lua.set_jit_config(JitConfig {
+                    mode: JitMode::Auto,
+                    hot_threshold: 1,
+                    ..Default::default()
+                })
+                .unwrap();
+                let calls = std::rc::Rc::new(std::cell::Cell::new(0u32));
+                let executor = lua.enter(|ctx| {
+                    ctx.jit().0.borrow_mut().memory_failure = if selected {
+                        super::super::super::backend::Failure::PreferCallbackScratch
+                    } else {
+                        super::super::super::backend::Failure::None
+                    };
+                    let calls = calls.clone();
+                    ctx.set_global(
+                        "host",
+                        Callback::from_fn(&ctx, move |_, _, mut args| {
+                            calls.set(calls.get() + 1);
+                            args.clear();
+                            Ok(CallbackReturn::Return)
+                        }),
+                    );
+                    let closure =
+                        Closure::load(ctx, None, &b"local n=1 host() n=n+1 return n"[..]).unwrap();
+                    ctx.stash(Executor::start(ctx, closure.into(), ()))
+                });
+                lua.prepare_jit().unwrap();
+                if split {
+                    lua.enter(|ctx| {
+                        for _ in 0..8 {
+                            let mut fuel = crate::Fuel::with(8);
+                            assert!(!ctx.fetch(&executor).step(ctx, &mut fuel).unwrap());
+                            if calls.get() == 1 {
+                                break;
+                            }
+                        }
+                        assert_eq!(calls.get(), 1);
+                        assert_eq!(ctx.fetch(&executor).mode(), crate::ExecutorMode::Normal);
+                    });
+                    lua.gc_collect();
+                }
+                assert_eq!(lua.execute::<i64>(&executor).unwrap(), 2);
+                lua.enter(|ctx| {
+                    assert_eq!(calls.get(), 1);
+                    counts.push(ctx.fetch(&executor).callback_scratch_counts());
+                });
+                let actual = lua.jit_stats();
+                assert_eq!(actual.native_entries, 2);
+                stats.push(super::super::super::payload_runtime_tests::counters(actual));
+            }
+            assert_eq!(stats[0], stats[1]);
+            assert_eq!(counts[0], (0, 0));
+            assert_eq!(counts[1].0, u64::from(!split));
+            assert!(counts[1].1 > 0);
+        }
+    }
+
+    #[test]
+    fn callback_scratch_selection_requires_auto_and_explicit_probe() {
+        for mode in [JitMode::Off, JitMode::Auto] {
+            for selected in [false, true] {
+                let mut lua = Lua::empty();
+                lua.set_jit_config(JitConfig {
+                    mode,
+                    ..Default::default()
+                })
+                .unwrap();
+                lua.enter(|ctx| {
+                    ctx.jit().0.borrow_mut().memory_failure = if selected {
+                        super::super::super::backend::Failure::PreferCallbackScratch
+                    } else {
+                        super::super::super::backend::Failure::None
+                    };
+                    assert_eq!(
+                        ctx.jit().callback_scratch_enabled(),
+                        selected && mode == JitMode::Auto
+                    );
+                });
+            }
+        }
     }
 }

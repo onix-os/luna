@@ -24,6 +24,8 @@ mod call_tests;
 pub(crate) mod atomic_call;
 
 pub(crate) struct ActivationHost<'gc, 'a> {
+    #[cfg(test)]
+    pub(super) callback_scratch: Option<&'a mut crate::jit::callback_scratch::Scratch>,
     #[cfg(all(
         not(miri),
         target_os = "linux",
@@ -79,6 +81,8 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         fuel: &'a mut Fuel,
     ) -> Self {
         Self {
+            #[cfg(test)]
+            callback_scratch: None,
             state,
             stack,
             fuel,
@@ -106,6 +110,8 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 
     fn with_frame<R>(&mut self, f: impl for<'frame> FnOnce(LuaFrame<'gc, 'frame>) -> R) -> R {
         f(LuaFrame {
+            #[cfg(test)]
+            callback_scratch: self.callback_scratch.as_deref_mut(),
             #[cfg(all(
                 not(miri),
                 target_os = "linux",
@@ -116,6 +122,13 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             stack: &mut self.stack,
             fuel: self.fuel,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invalidate_callback_scratch(&mut self) {
+        if let Some(scratch) = self.callback_scratch.as_deref_mut() {
+            scratch.invalidate();
+        }
     }
 
     #[cfg(any(
@@ -554,6 +567,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         assert!(self.pair.handoff.is_none());
         self.select_pairs = false;
         let frame = LuaFrame {
+            callback_scratch: self.callback_scratch.as_deref_mut(),
             pair_handoff: scope,
             state: self.state,
             stack: &mut self.stack,
@@ -594,6 +608,8 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         }
         self.select_pairs = false;
         let frame = LuaFrame {
+            #[cfg(test)]
+            callback_scratch: self.callback_scratch.as_deref_mut(),
             pair_handoff: scope,
             state: self.state,
             stack: &mut self.stack,
@@ -684,6 +700,8 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 let prefix = result.expect("pair handoff with VM error");
                 assert!(prefix < budget);
                 self.select_pairs = false;
+                #[cfg(test)]
+                self.invalidate_callback_scratch();
                 let outcome = pair.invoke(ctx, self, budget, prefix);
                 self.pair.cache = Some(pair);
                 if let Some(outcome) = outcome {

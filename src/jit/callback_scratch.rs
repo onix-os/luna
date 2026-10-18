@@ -10,10 +10,8 @@ enum Phase {
     Ready,
 }
 
-#[derive(ottavino_gc_arena::Collect)]
-#[collect(require_static)]
 pub(crate) struct Scratch {
-    epoch: u64,
+    enabled: bool,
     phase: Phase,
     closure: usize,
     key: (usize, usize),
@@ -21,14 +19,12 @@ pub(crate) struct Scratch {
     pc: usize,
     tail: usize,
     slots: [Slot; 8],
-    pub(crate) reused: u64,
-    pub(crate) imported: u64,
 }
 
-impl Default for Scratch {
-    fn default() -> Self {
+impl Scratch {
+    pub(crate) fn new(enabled: bool) -> Self {
         Self {
-            epoch: 0,
+            enabled,
             phase: Phase::Empty,
             closure: 0,
             key: (0, 0),
@@ -36,8 +32,6 @@ impl Default for Scratch {
             pc: 0,
             tail: 0,
             slots: [Slot::canonical(); 8],
-            reused: 0,
-            imported: 0,
         }
     }
 }
@@ -45,13 +39,6 @@ impl Default for Scratch {
 impl Scratch {
     pub(crate) fn invalidate(&mut self) {
         self.phase = Phase::Empty;
-    }
-
-    pub(crate) fn begin(&mut self, epoch: u64) {
-        if self.epoch != epoch || epoch == 0 {
-            self.invalidate();
-        }
-        self.epoch = epoch;
     }
 
     pub(crate) fn vm_boundary(&mut self) {
@@ -126,7 +113,7 @@ impl Scratch {
         use ottavino_gc_arena::Gc;
 
         let count = N;
-        if self.epoch == 0
+        if !self.enabled
             || !code.callback_calls
             || !registers
                 .scratch_private
@@ -155,8 +142,9 @@ impl Scratch {
         {
             *slot = Slot::from_value(value);
         }
-        self.reused = self.reused.saturating_add(u64::from(reuse));
-        self.imported = self.imported.saturating_add((count - from) as u64);
+        let counts = registers.callback_scratch_counts.as_deref_mut().unwrap();
+        counts.0 = counts.0.saturating_add(u64::from(reuse));
+        counts.1 = counts.1.saturating_add((count - from) as u64);
         let completed = runtime.invoke_frame::<N, false, false>(
             code,
             ctx,
@@ -199,23 +187,22 @@ impl Scratch {
 }
 
 impl super::Runtime {
-    pub(crate) fn callback_scratch_epoch(&self) -> u64 {
+    pub(crate) fn callback_scratch_enabled(&self) -> bool {
         #[cfg(all(
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
-            let mut manager = self.0.borrow_mut();
-            if manager.config.mode == super::JitMode::Auto
-                && manager.memory_failure == super::backend::Failure::PreferCallbackScratch
-            {
-                if let Some(next) = manager.callback_epoch.checked_add(1) {
-                    manager.callback_epoch = next;
-                    return next;
-                }
-            }
+            let manager = self.0.borrow();
+            return manager.config.mode == super::JitMode::Auto
+                && manager.memory_failure == super::backend::Failure::PreferCallbackScratch;
         }
-        0
+        #[cfg(not(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )))]
+        false
     }
 }

@@ -11,6 +11,28 @@
 
 ### Private callback scratch reuse — diagnostic only, 2026-10-18
 
+**Current follow-up: step-local ownership, still test-only.** Scratch now lives
+inside each `Executor::step`, passed by scoped mutable reference through
+`LuaFrame` and `ActivationHost`, instead of residing in `ThreadState` with a
+manager epoch. Per-thread diagnostic counts and irreversible alias exclusion
+remain. Alternate scalar, paired and native-region execution invalidate scratch;
+canonical writeback and callback-suffix imports are unchanged. This removes
+persistent scratch storage and epoch bookkeeping, but is not yet a measured
+performance improvement.
+
+Formatting/check-all and eight callback-scratch checks pass, including the
+24-script/eight-fuel corpus, nested executors, escaped aliases, closed captures,
+stack relocation, and reuse within—but never across—executor steps with GC
+between them. The boundary test initially assumed fuel 8 reached the callback;
+it now advances bounded slices until the callback actually runs and checks
+subsequent native arithmetic. Activation, in-place call/return, call-pair,
+native-region and hook-resumption Make targets also pass. These adjacent tests
+do not establish every combination with the scratch selector enabled.
+Logs are `callback-scratch/local-scopes-{full,adjacent}.log` under the evidence
+directory below. New Miri, optimized profiling, elapsed measurements and an
+unchanged-production baseline remain pending. Earlier measurements below apply
+to their historical candidates, not this refactor; no acceptance gate is closed.
+
 `a8e0edb` adds a test-only candidate for ordinary Rust callback returns. It
 retains scalar descriptors, not managed references, and still writes canonical
 registers before every callback. Only a matching normal return in the same

@@ -92,6 +92,8 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                     let mut decline_unchanged = true;
                     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let mut frame = LuaFrame {
+                            #[cfg(feature = "jit")]
+                            callback_scratch: None,
                             #[cfg(all(
                                 feature = "jit",
                                 not(miri),

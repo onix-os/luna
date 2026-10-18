@@ -130,6 +130,8 @@ impl Region {
             unsafe { std::slice::from_raw_parts_mut(root_storage.as_mut_ptr().cast(), width) }
         });
         let identity = host.frame_identity();
+        #[cfg(test)]
+        host.invalidate_callback_scratch();
         let mut frame = scoped_helpers::Frame::new(ctx, host);
         let pc = caller.prepare(&mut frame, slots)?;
         let admitted = super::canonical::admission::Admitted::new(
