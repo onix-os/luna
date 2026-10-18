@@ -39,8 +39,26 @@ Its full all-feature Force suite now passes **2,034 executions across 90
 summaries**, with zero failures and 23 ignored diagnostics. Corrected i686
 validation passes 27 executions across six summaries. Production image builds,
 configuration/environment/source/image provenance and preflight audit fixtures
-pass. The repeated 144-command timing campaign is running without overlapping
-owned builds/tests/profilers; no corrected timing result is available yet.
+pass. Two 144-command timing campaigns now complete on the same frozen images,
+without overlapping owned builds/tests/profilers. Each retains 14,256 native
+executions and 285,120 cost iterations, zero counter/resource mismatches,
+provenance verification and valid/13-corruption audit fixtures.
+
+Speed-profile callback control/candidate median ratios are 1.0340/1.0242 on
+CPUs 0/16 initially and 1.0549/1.0442 on repeat. However, CPU 16 speed Oslo
+compiled-Off ratios are 0.9681 then 0.9742, slower in all six rounds of both
+campaigns; shipping native metamethod Auto ratios are 0.9561 then 0.9735,
+slower in six then five rounds. Ratios above one favor the candidate. Full
+distributions and same-image placebos remain in both audits; contention is
+not removed by repetition. Passing within-image gates does not excuse these
+cross-revision losses. The composition is not promoted.
+
+The next diagnostic isolates native-only callback setup from the table hint
+against the current baseline. This is a component ablation, not a new design
+or acceptance of the historical withdrawn `adaad1c` trial. The corrected hint
+removes only 30,000 callback helper self instructions, while the setup group
+accounts for substantially more saved work. Neither observation establishes
+which component causes the elapsed gains or losses.
 These results do not establish full `jit-verify`, all-platform or release
 acceptance. Original `673218c` artifacts and
 failures remain intact and must not be substituted for corrected evidence.
