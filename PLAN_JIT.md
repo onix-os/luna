@@ -9,6 +9,46 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Branch-history attribution — no promotion, 2026-10-18
+
+The 36-process short full-suite branch-history campaign finishes on the same
+frozen speed images, with six balanced A/candidate/B rounds per CPU (0/16).
+Its first auditor fails correctly: with branch stacks present, default
+`perf report` reports branch-history event units rather than summed sampled
+cycle periods. The first capture contains 695 samples, 22,233 branch-report
+units and 685,480,542 cycle-period units. These quantities are not interchangeable.
+
+Reanalysis uses `perf report --no-branch-stack` on a separate copy. The original
+captures, reports, collection tools and failing audit are preserved. Every file
+except the regenerated `report.log` files compares byte-for-byte between the
+original and analysis copies; the original tool manifest verifies. The unchanged
+auditor now accounts for **30,663 samples**, **27,416,904,758 cycle-period units**
+and **980,944 overlapping branch-history entries**, including **132,368 VM
+entries**, with zero reported sample loss. Sample identity, executable mappings,
+source/image identity and corresponding execution/resource counters verify.
+The reanalysis fixture suite accepts two valid copies and rejects all nineteen
+targeted corruptions, including branch flags, sample identity and address bounds.
+The 26 status-0 and ten status-1 processes retain ten failed workload gates
+(eight callback, two metamethod); profiling is not performance acceptance.
+
+At VM-relative offset `0xd66`, the packed opcode indirect jump, CPU16 baseline
+histories contain 57 marked misses / 6,214 entries across twelve processes;
+candidate histories contain 11 / 3,101 across six. Median per-process marked
+miss fractions are 0.750% and 0.900% for controls A/B versus 0.374% candidate.
+CPU0 corresponding counts are 5 / 3,968 and 2 / 2,053. Unknown prediction flags
+are absent in the VM histories. These overlapping records are not unbiased
+retired-branch totals, and raw counts cannot be compared without denominators.
+
+This instrumented campaign does **not** reproduce the earlier CPU16 float-Off
+loss: the six-round median control/candidate ratio is 0.999890, with same-image
+placebo 0.999740. Consequently it neither explains nor disproves that regression.
+In particular, it does not justify a dispatch rewrite or a claim that code
+alignment caused the loss. Trial `b8a77bf` remains unpromoted; original
+uninstrumented regressions and all acceptance thresholds remain in force.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/`
+`callback-setup-ablation/{native-branches*,branch-reanalysis*,branch-comparison*}`.
+
 ### Short full-suite cycle sampling — attribution, 2026-10-18
 
 The original speed native executables now complete 36 sampled **full-suite**
