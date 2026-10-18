@@ -15,10 +15,17 @@ fn test_sizes() {
     assert_eq!(mem::size_of::<Callback>(), ptr_size);
     assert_eq!(mem::size_of::<Thread>(), ptr_size);
     assert_eq!(mem::size_of::<UserData>(), ptr_size);
-    let tagged_payload = mem::size_of::<(usize, i64)>();
     for (name, size) in [
         ("Function", mem::size_of::<Function>()),
         ("Option<Function>", mem::size_of::<Option<Function>>()),
+    ] {
+        assert!(
+            size <= 2 * ptr_size,
+            "{name}: {size} bytes exceeds two pointers"
+        );
+    }
+    let tagged_payload = mem::size_of::<(usize, i64)>();
+    for (name, size) in [
         ("Value", mem::size_of::<Value>()),
         ("Constant<String>", mem::size_of::<Constant<String>>()),
         ("Option<Value>", mem::size_of::<Option<Value>>()),
