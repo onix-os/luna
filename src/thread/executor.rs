@@ -26,19 +26,6 @@ enum ActiveSequence<'gc> {
     Close(boxed::Box<CloseSequence<'gc>, MetricsAlloc<'gc>>),
 }
 
-#[cfg(feature = "jit")]
-fn take_ready_callback<'gc>(state: &mut ThreadState<'gc>) -> Option<(usize, crate::Callback<'gc>)> {
-    if state.running || state.deferred_error {
-        return None;
-    }
-    let Some(Frame::Callback { bottom, callback }) = state.frames.last() else {
-        return None;
-    };
-    let ready = (*bottom, *callback);
-    state.frames.pop();
-    Some(ready)
-}
-
 impl<'gc> ActiveSequence<'gc> {
     fn unpack(frame: Frame<'gc>) -> (usize, Self, Option<Error<'gc>>) {
         match frame {
@@ -299,20 +286,10 @@ impl<'gc> Executor<'gc> {
     /// delivered through a separate channel than normal results and cannot be caught by Lua.
     pub fn step(self, ctx: Context<'gc>, fuel: &mut Fuel) -> Result<bool, BadThreadMode> {
         let mut state = self.0.borrow_mut(&ctx);
-        #[cfg(feature = "jit")]
-        let mut ready_callback = None;
         Ok(loop {
             let mut top_thread = state.thread_stack.last().copied().unwrap();
             let mut res_thread = None;
-            #[cfg(feature = "jit")]
-            let mode = if ready_callback.is_some() {
-                ThreadMode::Normal
-            } else {
-                top_thread.mode()
-            };
-            #[cfg(not(feature = "jit"))]
-            let mode = top_thread.mode();
-            match mode {
+            match top_thread.mode() {
                 ThreadMode::Normal => {}
                 ThreadMode::Running => {
                     panic!("`Executor` thread already running")
@@ -382,11 +359,7 @@ impl<'gc> Executor<'gc> {
                 )
             ))]
             let mut step_charged = false;
-            #[cfg(feature = "jit")]
-            let normal = ready_callback.is_some() || top_thread.mode() == ThreadMode::Normal;
-            #[cfg(not(feature = "jit"))]
-            let normal = top_thread.mode() == ThreadMode::Normal;
-            if normal {
+            if top_thread.mode() == ThreadMode::Normal {
                 fn do_yield<'gc>(
                     ctx: Context<'gc>,
                     thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
@@ -445,12 +418,6 @@ impl<'gc> Executor<'gc> {
 
                 // Popped under a short borrow. A native frame has to run with its thread
                 // *unborrowed*, so nothing may hold the thread's state across the call.
-                #[cfg(feature = "jit")]
-                let frame = match ready_callback.take() {
-                    Some((bottom, callback)) => Some(Frame::Callback { bottom, callback }),
-                    None => top_thread.into_inner().borrow_mut(&ctx).frames.pop(),
-                };
-                #[cfg(not(feature = "jit"))]
                 let frame = top_thread.into_inner().borrow_mut(&ctx).frames.pop();
                 match frame {
                     Some(Frame::Callback { bottom, callback }) => {
@@ -935,13 +902,6 @@ impl<'gc> Executor<'gc> {
 
             if !fuel.should_continue() {
                 break false;
-            }
-            #[cfg(feature = "jit")]
-            {
-                let next = state.thread_stack.last().unwrap().into_inner();
-                if let Ok(mut next) = next.try_borrow_mut(&ctx) {
-                    ready_callback = take_ready_callback(&mut next);
-                }
             }
         })
     }
@@ -1707,7 +1667,7 @@ mod activation_tests {
 mod mode_tests;
 
 #[cfg(test)]
-mod callback_handoff_tests;
+mod callback_chain_tests;
 
 #[cfg(all(
     test,

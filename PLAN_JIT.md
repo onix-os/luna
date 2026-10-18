@@ -9,9 +9,9 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Queued callback handoff — unaccepted trial, 2026-10-18
+### Queued callback handoff — measured and withdrawn, 2026-10-18
 
-The feature-JIT executor now trials carrying one already-queued callback between
+Trial `cb720ba` carried one already-queued callback between feature-JIT executor
 iterations. Extraction happens only after the original step fuel charge and
 continuation check; exhausted/interrupted steps leave the frame canonical.
 Running/deferred-error threads, other frame kinds and unavailable borrows retain
@@ -30,9 +30,45 @@ callback-visible frames/borrows, exact fuel, queued frames at interruption,
 minimum progress and results. The eligibility fixture checks all running,
 deferred-error, error-taken and queued/not-queued combinations.
 
-Next gates are the isolated optimized image, full-workload instruction profiles,
-Miri and unchanged production elapsed/cost checks if the trial merits them.
-Evidence is under `target/jit-evidence/hook-resume-recovery/callback-handoff/`.
+The isolated optimized build takes3m18s and executes both new fixtures, rather
+than merely recording source hashes beside an unchecked executable. Fourteen
+full-workload profiles compare the unchanged scratch-free `2e0c44c` image;
+all25 execution counters and code/metadata/snapshot fields match. All thirteen
+exclusive event totals verify. Callback instructions increase **10594582 →
+10634040 (+0.3724%)** in both rounds; generated callback work stays730160.
+Integer/float work increases7338 instructions each; array, upvalue, metamethod
+and allocation totals also increase in both rounds, with their variable amounts
+retained. Miri passes the two handoff fixtures and four existing mode fixtures
+under both Stacked seed90 and Tree seed91 (39 warnings per invocation).
+
+Four42-window diagnostic timing screens retain **3528 executions**, both CPUs
+and reversed-order repeats, balanced control/candidate/control orders, complete
+counter parity and contention telemetry. No owned build/test/profiler overlaps
+timing. Control/candidate callback medians are1.023506/1.002701 initially on
+CPUs0/16, then0.996010/1.034319 in reverse CPU order; corresponding placebos
+are1.023057/1.002577/0.995167/1.003392. Thus CPU16 has no repeatable callback
+gain. Its allocation ratios are **0.976582/0.984899**, with placebos
+0.999993/1.000069. Integer ratios are0.991082/0.989175. The repeated CPU0 float
+ratio is0.959458, with placebo1.002333. The first CPU0 numeric windows have
+large placebo dispersion and remain in the report, not accepted as causal gains.
+
+The runtime trial is withdrawn: it does not establish a sufficiently broad
+benefit to justify production selection. These library-test timings are not
+production speed/shipping acceptance. The independent44-case chained-callback
+fixture remains in both feature modes through `make vm-callback-chains`; the
+implementation-specific eligibility fixture is archived with the trial.
+Restored formatting/check-all and30 focused executions pass. Production runtime
+code returns to `34ea043`; only the test-module declaration differs in the
+executor. Original performance/resource/platform/release gates remain open.
+
+The timing driver initially omitted the per-screen audit before aggregation;
+a follow-up incorrectly redirected auditor stdout into its own JSON output.
+Only derived reports were affected. Both failed logs and invalid derived files
+are retained; the corrected audit regenerates valid reports from unchanged raw
+measurements and exits0. No timing rerun or sample removal was needed.
+Evidence is under `target/jit-evidence/hook-resume-recovery/callback-handoff/`,
+including frozen source/image, `profile-audit.json`, `time-summary.json`, all
+four `time-*` screens, Miri/restoration logs and `withdrawn.patch`.
 
 ### Thread-local prepared bucket hint — withdrawn, 2026-10-18
 

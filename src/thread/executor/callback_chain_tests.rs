@@ -1,59 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg(feature = "jit")]
-fn queued_callback_requires_normal_nonrunning_state_and_preserves_prefix() {
-    crate::Lua::empty().enter(|ctx| {
-        let callback = crate::Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return));
-        let thread = Thread::new(ctx);
-        for running in [false, true] {
-            for deferred in [false, true] {
-                for taken in [false, true] {
-                    for queued in [false, true] {
-                        let mut state = thread.into_inner().borrow_mut(&ctx);
-                        state.frames.clear();
-                        state.frames.push(Frame::Start(callback.into()));
-                        state.frames.push(if queued {
-                            Frame::Callback {
-                                bottom: 37,
-                                callback,
-                            }
-                        } else {
-                            Frame::Result { bottom: 37 }
-                        });
-                        state.running = running;
-                        state.deferred_error = deferred;
-                        state.error_taken = taken;
-                        let expected = queued && !running && !deferred;
-                        let actual = take_ready_callback(&mut state);
-                        assert_eq!(actual.is_some(), expected);
-                        if let Some((bottom, found)) = actual {
-                            assert_eq!(bottom, 37);
-                            assert_eq!(found, callback);
-                            assert_eq!(state.frames.len(), 1);
-                            assert!(take_ready_callback(&mut state).is_none());
-                        } else {
-                            assert_eq!(state.frames.len(), 2);
-                        }
-                        assert!(matches!(state.frames[0], Frame::Start(_)));
-                        assert_eq!(
-                            (state.running, state.deferred_error, state.error_taken),
-                            (running, deferred, taken)
-                        );
-                    }
-                }
-            }
-        }
-        let mut state = thread.into_inner().borrow_mut(&ctx);
-        state.frames.clear();
-        state.running = false;
-        state.deferred_error = false;
-        state.error_taken = false;
-        assert!(take_ready_callback(&mut state).is_none());
-    });
-}
-
-#[test]
 fn chained_callbacks_preserve_fuel_boundaries_and_callback_visible_state() {
     use std::{cell::Cell, rc::Rc};
     for budget in [i32::MIN, -1, 0, 1, 11, 12, 13, 23, 24, 25, i32::MAX] {
