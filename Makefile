@@ -1547,7 +1547,7 @@ jit-strided-profile-build:
 	@test "$$(wc -l < '$(STRIDED_DIR)/binary-path')" -eq 1
 	@cp "$$(cat '$(STRIDED_DIR)/binary-path')" '$(STRIDED_DIR)/test-binary'
 	@sha256sum '$(STRIDED_DIR)/test-binary' > '$(STRIDED_DIR)/binary.sha256'
-	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(STRIDED_DIR)/source.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs examples/jit_support/resource_workloads.rs; } | sort -z | xargs -0 sha256sum > '$(STRIDED_DIR)/source.sha256'
 	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\ncalls=100000\nscope=synthetic transport only\n'; } > '$(STRIDED_DIR)/configuration'
 
 jit-strided-profile-run: jit-profile-cpu-check
@@ -2158,6 +2158,42 @@ numeric-conversions:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) constant::tests
 	@for mode in off auto force; do \
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
+	done
+
+.PHONY: jit-callback-scratch jit-callback-scratch-miri
+jit-callback-scratch:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) callback_scratch $(ARGS)
+
+jit-callback-scratch-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::callback_scratch::tests:: -- --test-threads=1
+
+CALLBACK_SCRATCH_DIR ?= target/jit-evidence/hook-resume-recovery/callback-scratch/timing-image
+CALLBACK_SCRATCH_TIMING_DIR ?= target/jit-evidence/hook-resume-recovery/callback-scratch/timing
+.PHONY: jit-callback-scratch-time-run jit-callback-scratch-time-audit
+jit-callback-scratch-time-run: jit-profile-cpu-check
+	@bash examples/jit_support/strided_timing.sh '$(CALLBACK_SCRATCH_DIR)' '$(CALLBACK_SCRATCH_TIMING_DIR)' '$(PROFILE_CPU)' '$(STRIDED_TIMING_WINDOWS)' callback_scratch
+
+jit-callback-scratch-time-audit:
+	@perl examples/jit_support/strided_timing_audit.pl '$(CALLBACK_SCRATCH_TIMING_DIR)'
+
+.PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks vm-return-spans
+vm-return-spans:
+	@for checked in true false; do \
+		CARGO_PROFILE_DEV_OVERFLOW_CHECKS=$$checked $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests::return_spans_preserve_bounds_fuel_and_capture_closing -- --exact || exit $$?; \
+		CARGO_PROFILE_DEV_OVERFLOW_CHECKS=$$checked $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests::return_spans_preserve_bounds_fuel_and_capture_closing -- --exact || exit $$?; \
+	done
+
+stack-bounds:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::bounds_tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) stack::bounds_tests $(ARGS)
+
+stack-bounds-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' stack::bounds_tests -- --test-threads=1
+
+stack-bounds-callbacks:
+	@$(CARGO) test --locked -p luna --no-default-features --test callback $(TARGET_ARG) callback_stack_overflow_preserves_caller
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test callback $(TARGET_ARG) callback_stack_overflow_preserves_caller || exit $$?; \
 	done
 
 .PHONY: stack-replace stack-replace-miri

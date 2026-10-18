@@ -12,6 +12,8 @@ use crate::{
 };
 
 #[cfg(test)]
+mod bounds_tests;
+#[cfg(test)]
 mod consume_tests;
 #[cfg(test)]
 mod replace_tests;
@@ -86,16 +88,19 @@ impl<'gc, 'a> Stack<'gc, 'a> {
         Stack {
             ctx: self.ctx,
             values: self.values,
-            bottom: self.bottom + bottom,
+            bottom: self
+                .bottom
+                .checked_add(bottom)
+                .expect("stack index overflow"),
             _marker: PhantomData,
         }
     }
 
     pub fn get(&self, i: usize) -> Value<'gc> {
-        self.read()
-            .get(self.bottom + i)
-            .copied()
-            .unwrap_or_default()
+        let Some(index) = self.bottom.checked_add(i) else {
+            return Value::Nil;
+        };
+        self.read().get(index).copied().unwrap_or_default()
     }
 
     /// Overwrite the value at `i`.
@@ -106,8 +111,8 @@ impl<'gc, 'a> Stack<'gc, 'a> {
     ///
     /// If `i` is out of bounds, as indexing did.
     pub fn set(&mut self, i: usize, value: Value<'gc>) {
-        let bottom = self.bottom;
-        self.write()[bottom + i] = value;
+        let index = self.bottom.checked_add(i).expect("stack index overflow");
+        self.write()[index] = value;
     }
 
     /// Copy this stack's values out into a `Vec`.
@@ -153,7 +158,7 @@ impl<'gc, 'a> Stack<'gc, 'a> {
     }
 
     pub fn remove(&mut self, i: usize) -> Option<Value<'gc>> {
-        let index = self.bottom + i;
+        let index = self.bottom.checked_add(i)?;
         let mut values = self.write();
         if index < values.len() {
             Some(values.remove(index))
@@ -176,7 +181,10 @@ impl<'gc, 'a> Stack<'gc, 'a> {
     }
 
     pub fn resize(&mut self, size: usize) {
-        let len = self.bottom + size;
+        let len = self
+            .bottom
+            .checked_add(size)
+            .expect("stack length overflow");
         self.write().resize(len, Value::Nil);
     }
 
@@ -193,15 +201,16 @@ impl<'gc, 'a> Stack<'gc, 'a> {
     /// The returned iterator holds the stack lock for as long as it lives, so it must not outlive a
     /// re-entrant call into Lua. Every use in the tree consumes it immediately.
     pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Drain<'gc, '_> {
+        let offset = |r: usize| self.bottom.checked_add(r).expect("drain range overflow");
         let start = match range.start_bound().cloned() {
-            Bound::Included(r) => self.bottom + r,
-            Bound::Excluded(r) => self.bottom + r + 1,
+            Bound::Included(r) => offset(r),
+            Bound::Excluded(r) => offset(r).checked_add(1).expect("drain range overflow"),
             Bound::Unbounded => self.bottom,
         };
         let values = self.write();
         let end = match range.end_bound().cloned() {
-            Bound::Included(r) => self.bottom + r + 1,
-            Bound::Excluded(r) => self.bottom + r,
+            Bound::Included(r) => offset(r).checked_add(1).expect("drain range overflow"),
+            Bound::Excluded(r) => offset(r),
             Bound::Unbounded => values.len(),
         };
         assert!(

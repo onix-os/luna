@@ -9,6 +9,154 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Private callback scratch reuse — diagnostic only, 2026-10-18
+
+`a8e0edb` adds a test-only candidate for ordinary Rust callback returns. It
+retains scalar descriptors, not managed references, and still writes canonical
+registers before every callback. Only a matching normal return in the same
+executor-step epoch can reuse the unaffected prefix. The callback's entire
+argument/result suffix is reimported. Public stack exposure or any open-upvalue
+creation permanently disables reuse for that thread; closing a capture does
+not revoke an already copied OpenUpValue handle. Interpreted execution, other
+frame transitions, mismatched identity/PC and epoch exhaustion discard reuse.
+Production selection, native ABI and source execution coverage are unchanged.
+
+Formatting/check-all and six focused tests pass. The shared contract compares
+24 scripts at eight initial fuel budgets against Off and ordinary Auto, checking
+step outcomes, fuel, all 25 counters, collection and array execution. Explicit
+stack-escape, closed-capture and callback-stack-relocation cases pass. Removing
+the escape guard makes its result 3240 instead of 9340; independently removing
+the capture guard makes its result 3240 instead of 9720. Both mutations preserve
+native counters, so counter parity alone would miss the wrong result. Both
+guards were restored and the complete six-test filter passed again. Two pure
+phase/epoch tests pass in each Miri borrow model (Stacked seed 84, Tree seed 85;
+48/42 retained warnings). Miri does not execute the generated native path.
+
+The optimized single-image diagnostic completed 28 Callgrind captures: seven
+frozen workloads, two reversed-order rounds, ordinary Auto versus selected
+candidate. All result/counter checks and exclusive 13-event sums pass. Callback
+reuse occurs 4970 times, reducing imported descriptors from the ordinary
+5001 × 7 = 35007 to 10157. Whole callback instructions nevertheless fall only
+**11230400 → 11217150 (0.118%)** in both rounds; reads increase 105098, writes
+decrease 29609, and conditional branches increase 55311. Generated native work
+is exactly **730160 instructions** in all four callback captures. Native bodies
+match except the two prepared-string-hash immediate words; a first raw-byte
+audit correctly rejected their process-randomized differences. The corrected
+audit validates the precise x86-64 instruction sequence and excludes only those
+eight immediate bytes, retaining both hashes and the original failed audit.
+
+Integer/float instructions increase 0.117%/0.113%; upvalues increase 0.217%.
+Metamethod, array and allocation observations vary, including adverse results.
+This same-image control also contains disabled experimental tracking hooks:
+it is not an unchanged-production baseline. Reduced imports therefore establish
+neither production benefit nor elapsed-time acceptance. The candidate remains
+test-only; no performance gate is closed. Next inspect the measured scratch
+entry overhead before any promotion or hardware acceptance campaign. Raw logs,
+hashes, native disassembly and audits are in
+`target/jit-evidence/hook-resume-recovery/callback-scratch/`; Make targets are
+`jit-callback-scratch`, `jit-callback-scratch-miri` and the existing universal
+memory-profile targets with `MEMORY_KIND=callback_scratch`.
+
+An outlined-width follow-up keeps the same safety logic and all six tests pass
+again. A second independently frozen 28-capture matrix also passes every result,
+counter, native-body and exclusive-event audit. Callback control/candidate
+instructions are **11190392 → 11147075 (0.387%)**, identical across both rounds;
+the selected candidate is 70075 instructions below the initial candidate, but
+the disabled control also changes by 40008. Import counts and native instruction
+counts stay unchanged. The seven-register path is now a distinct function and
+no longer calls the separately outlined Code::invoke_raw. This is not evidence
+of elapsed improvement: simulated instruction-cache and branch-miss behavior
+also changes substantially, and non-callback instruction regressions remain.
+Both frozen images and all adverse results are retained in `profile/` and
+`outlined/`. The experiment remains test-only, not production acceptance.
+
+The warmed elapsed screen added by `561ed70` uses the same outlined-width
+candidate, with two warmups and one timed execution per process. It asserts
+actual callback reuse, expected results, unchanged compilation requests and
+native execution outside the timed interval. Its controller rotates all seven
+workloads and all six orders of candidate/two duplicate controls. Forty-two
+windows balance both rotations. The audit checks every result record, 25
+counters, run order, telemetry and source/image/tool hashes; 39 malformed
+synthetic screens are refused and all three experiment selectors pass their
+runner checks. Formatting/check-all and nine focused Rust test executions pass.
+The synthetic runner exposed a pre-existing relative-Perl shebang failure on
+this host; resolving the executable to an absolute PATH entry fixes it, and
+runner failures now print their temporary logs before cleanup.
+
+Two sequential CPU0/CPU16 screens and a repeat in reversed CPU order complete
+**3528 checked timing samples**. No owned build, test or profiler overlaps the
+measurements; other workloads and contention are left running. The combined
+audit verifies counter equality across all four screens. Callback results:
+
+| Screen | Control / candidate median | Duplicate-control median |
+| --- | ---: | ---: |
+| CPU0 first | 1.035434 | 1.002947 |
+| CPU16 first | 1.024718 | 0.997899 |
+| CPU16 repeat | 1.028823 | 1.001039 |
+| CPU0 repeat | 1.041613 | 1.000462 |
+
+These are approximately **2.4–4.0% lower callback elapsed times against this
+instrumented same-image control**, not an unchanged-production speedup. Retain
+the adverse cases: CPU16 closure/upvalue medians are 0.994629 and 0.990670
+(roughly 0.5% and 0.9% slower), while several other workload/placebo distributions
+are noisy or mixed. The experiment is not promoted, and shipping/compiled-Off,
+cold/consumer, platform, resource and full performance gates remain open.
+Next isolate unnecessary tracking/admission work on ineligible frames, then
+compare against an unchanged production baseline before considering activation.
+`timing-image/`, `timing{,-repeat}-cpu{0,16}/` and `timing-summary.json` retain
+the complete evidence. The generic image manifest now also hashes the two
+example workload modules imported into library tests. Reproduction uses
+`jit-callback-scratch-time-run` and `jit-callback-scratch-time-audit` with
+`STRIDED_TIMING_WINDOWS=42` and explicit distinct output directories.
+
+### Callback stack offset overflow — corrected, 2026-10-18
+
+Investigation of cross-callback import reuse found that callback stack suffix
+isolation was not valid for all public indices. Six new regressions fail on the
+unchanged runtime with arithmetic overflow checks disabled: relative additions
+in get, set, remove, sub_stack and resize wrap into the caller prefix, and drain
+endpoint arithmetic admits an invalid wrapped range. This is a runtime boundary
+defect, not evidence that register caching is ready to enable.
+
+`9a36800` uses checked additions without changing the Value representation,
+canonical stack type, native ABI or public raw-stack handles. Overflowing get
+and remove return Nil/None; set, sub_stack, resize and drain reject overflow
+before mutation. Seven unit tests cover prefix preservation, normal suffix-vector
+behavior and **847 drain-bound combinations** against independent u128 arithmetic.
+An integrated callback test preserves caller scalar/table locals through repeated
+calls, caught errors, native reentry and collection between executions.
+
+- Formatting/check-all and **46 focused executions / 12 summaries** pass with
+  overflow checks disabled, including no-feature/Off/Auto/Force callback runs
+  and existing drain/consume/replace contracts.
+- Optimized release (`opt-level=s`, LTO) passes **14 bounds executions**, seven
+  without JIT and seven with JIT.
+- Stacked seed 82 and Tree seed 83 each pass seven no-feature bounds tests in
+  Miri, with 18 warnings each. Miri does not execute generated native code.
+- The normal-profile no-feature workspace/all-target/doc suite plus JIT heap
+  and upvalue suites pass **500 executions / 90 summaries**. The full sequence
+  also passes **500 / 90** with arithmetic overflow checks disabled after the
+  independent test-oracle correction below. The retained-public-stack-alias
+  regression passes in both, preserving its required native reentry.
+
+The first broad wrapping-arithmetic run exposed an unrelated return-span oracle
+assumption: `debug_assertions` was treated as the arithmetic-overflow setting.
+An isolated unchanged `bed263d` checkout reproduces the identical fuel mismatch
+(-5 versus -4). Production return handling eagerly evaluates `len - start` in
+`unwrap_or`; whether that panics is controlled by overflow checks, not the debug
+assertion flag. Test-only `563d5fe` probes arithmetic behavior instead. Its four
+explicit no-feature/JIT × checked/wrapping lanes pass. No production fuel or
+return-order change is made; both original failed logs remain retained.
+
+This is a correctness repair, **not a performance improvement or full native
+release acceptance**. No elapsed campaign or platform/resource acceptance is
+claimed for the fix. Future import reuse must still account for retained public
+stack handles and OpenUpValue handles, even after a thread's current open-upvalue
+list becomes empty. Internal-write-only versioning remains insufficient.
+Evidence and the unchanged baseline worktree are under
+`target/jit-evidence/hook-resume-recovery/stack-bounds/`; reproduction targets are
+`stack-bounds`, `stack-bounds-miri`, `stack-bounds-callbacks` and `vm-return-spans`.
+
 ### Warmed hardware-cycle attribution — 2026-10-18
 
 `933a9c9` adds a separate `jit_cycles` diagnostic example without changing the

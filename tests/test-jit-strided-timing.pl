@@ -1,8 +1,12 @@
 use strict;
 use warnings;
 use File::Temp qw(tempdir);
+use File::Spec;
 use JSON::PP;
 
+my ($perl) = File::Spec->file_name_is_absolute($^X) ? ($^X)
+    : grep { -f $_ && -x $_ } map { File::Spec->rel2abs(File::Spec->catfile($_, $^X)) } File::Spec->path;
+defined $perl or die "cannot resolve Perl interpreter\n";
 my $root = tempdir(CLEANUP => 1);
 my @cases = qw(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc);
 my @orders = ([qw(a candidate b)], [qw(candidate b a)], [qw(b a candidate)],
@@ -16,7 +20,8 @@ sub fixture {
     my ($name, $experiment, $windows) = @_;
     $windows //= 3;
     my @selected = defined $experiment && $experiment eq 'preferred_entry' ? ('rust_callbacks') : @cases;
-    my $field = defined $experiment && $experiment eq 'preferred_entry' ? 'preferred' : 'strided';
+    my $field = !defined $experiment || $experiment eq 'strided' ? 'strided'
+        : $experiment eq 'preferred_entry' ? 'preferred' : 'scratch';
     my $dir = "$root/$name";
     mkdir $dir or die $!;
     write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=$windows\n" . (defined $experiment ? "experiment=$experiment\n" : ''));
@@ -47,7 +52,7 @@ sub audit {
     if (!$pid) {
         open STDOUT, '>', "$dir/audit.stdout" or die $!;
         open STDERR, '>', "$dir/audit.stderr" or die $!;
-        exec $^X, 'examples/jit_support/strided_timing_audit.pl', $dir;
+        exec $perl, 'examples/jit_support/strided_timing_audit.pl', $dir;
         die $!;
     }
     waitpid($pid, 0);
@@ -63,13 +68,13 @@ for my $case (@{$report->{reports}}) {
     die 'wrong ratios' unless $case->{ratio}{median} == 2 && $case->{placebo}{median} == 1;
     die 'wrong sample count' unless $case->{ordinary_ns}{count} == 6 && $case->{candidate_ns}{count} == 3;
 }
-for my $experiment (qw(strided preferred_entry)) {
+for my $experiment (qw(strided preferred_entry callback_scratch)) {
     my $good = fixture("good-$experiment", $experiment, 6);
     die "valid $experiment screen refused" unless audit($good);
     open my $json, '<', "$good/audit.json" or die $!;
     my $report = decode_json(do { local $/; <$json> });
     die 'wrong experiment' unless $report->{experiment} eq $experiment;
-    die 'wrong case count' unless @{$report->{reports}} == ($experiment eq 'strided' ? 7 : 1);
+    die 'wrong case count' unless @{$report->{reports}} == ($experiment eq 'preferred_entry' ? 1 : 7);
     die 'incorrect acceptance claim' if $report->{performance_acceptance};
     for my $case (@{$report->{reports}}) {
         die 'wrong ratios or counts' unless $case->{ratio}{median} == 2 && $case->{placebo}{median} == 1
@@ -77,7 +82,7 @@ for my $experiment (qw(strided preferred_entry)) {
     }
     for my $fault (qw(missing duplicate zero signed mode counters native failed order telemetry incomplete experiment field)) {
         my $dir = fixture("$experiment-$fault", $experiment, 6);
-        my $shape = $experiment eq 'strided' ? 'integer_loop' : 'rust_callbacks';
+        my $shape = $experiment eq 'preferred_entry' ? 'rust_callbacks' : 'integer_loop';
         my $path = "$dir/0-$shape-candidate.log";
         open my $file, '<', $path or die $!;
         my $log = do { local $/; <$file> };
@@ -92,7 +97,7 @@ for my $experiment (qw(strided preferred_entry)) {
             elsif ($fault eq 'zero') { $log =~ s/elapsed_ns=500/elapsed_ns=0/; }
             elsif ($fault eq 'signed') { $log =~ s/elapsed_ns=500/elapsed_ns=-500/; }
             elsif ($fault eq 'mode') { $log =~ s/=true/=false/; }
-            elsif ($fault eq 'field') { $log =~ s/(strided|preferred)=/unknown=/; }
+            elsif ($fault eq 'field') { $log =~ s/(strided|preferred|scratch)=/unknown=/; }
             elsif ($fault eq 'counters') { $log =~ s/counters=\[1/counters=[2/; }
             elsif ($fault eq 'native') { $log =~ s/code_bytes=4096/code_bytes=0/; }
             elsif ($fault eq 'failed') { $log =~ s/0 failed/1 failed/; }
@@ -102,13 +107,13 @@ for my $experiment (qw(strided preferred_entry)) {
         die "wrote success artifact for $fault" if -e "$dir/audit.json";
     }
 }
-print "Timing audit: legacy and both six-order experiments; 26 malformed screens refused\n";
+print "Timing audit: legacy and three six-order experiments; 39 malformed screens refused\n";
 
 my $image = "$root/runner-image";
 my $bin = "$root/runner-bin";
 mkdir $image or die $!;
 mkdir $bin or die $!;
-write_file("$bin/taskset", "#!$^X\n" . <<'TASKSET');
+write_file("$bin/taskset", "#!$perl\n" . <<'TASKSET');
 use strict;
 use warnings;
 die 'affinity option' unless shift(@ARGV) eq '-c';
@@ -116,16 +121,18 @@ die 'affinity CPU' unless shift(@ARGV) =~ /^\d+$/;
 exec @ARGV;
 die $!;
 TASKSET
-write_file("$image/test-binary", "#!$^X\n" . <<'BINARY');
+write_file("$image/test-binary", "#!$perl\n" . <<'BINARY');
 use strict;
 use warnings;
 my $preferred = exists $ENV{LUNA_PREFERRED_ENTRY};
-my $case = $ENV{$preferred ? 'LUNA_PREFERRED_CASE' : 'LUNA_STRIDED_CASE'};
-my $mode = $ENV{$preferred ? 'LUNA_PREFERRED_ENTRY' : 'LUNA_STRIDED'};
-my $test = $preferred ? 'preferred_entry::timing::time_preferred_runtime' : 'strided_profile::timing::time_strided_runtime';
+my $scratch = exists $ENV{LUNA_MEMORY_SELECTED};
+my $case = $ENV{$scratch ? 'LUNA_MEMORY_CASE' : $preferred ? 'LUNA_PREFERRED_CASE' : 'LUNA_STRIDED_CASE'};
+my $mode = $ENV{$scratch ? 'LUNA_MEMORY_SELECTED' : $preferred ? 'LUNA_PREFERRED_ENTRY' : 'LUNA_STRIDED'};
+my $test = $scratch ? 'strided_profile::timing::time_callback_scratch_runtime'
+    : $preferred ? 'preferred_entry::timing::time_preferred_runtime' : 'strided_profile::timing::time_strided_runtime';
 die 'test selection' unless $ARGV[0] eq "jit::payload_runtime_tests::$test";
 die 'case and mode required' unless defined $case && defined $mode && $mode =~ /^[01]$/;
-my $field = $preferred ? 'preferred' : 'strided';
+my $field = $scratch ? 'scratch' : $preferred ? 'preferred' : 'strided';
 my $selected = $mode ? 'true' : 'false';
 my $ns = $mode ? 500 : 1000;
 my $counters = join ', ', (1) x 25;
@@ -138,20 +145,26 @@ my $manifest = do { local $/; <$checksums> };
 close $checksums or die 'checksum failure';
 write_file("$image/binary.sha256", $manifest);
 write_file("$image/source.sha256", $manifest);
-for my $experiment (qw(strided preferred_entry)) {
+for my $experiment (qw(strided preferred_entry callback_scratch)) {
     my $out = "$root/runner-$experiment";
     my $pid = fork();
     die $! unless defined $pid;
     if (!$pid) {
         local $ENV{PATH} = "$bin:$ENV{PATH}";
-        delete @ENV{qw(LUNA_STRIDED_CASE LUNA_STRIDED LUNA_PREFERRED_CASE LUNA_PREFERRED_ENTRY)};
+        delete @ENV{qw(LUNA_STRIDED_CASE LUNA_STRIDED LUNA_PREFERRED_CASE LUNA_PREFERRED_ENTRY LUNA_MEMORY_CASE LUNA_MEMORY_SELECTED)};
         open STDOUT, '>', "$root/runner-$experiment.stdout" or die $!;
         open STDERR, '>', "$root/runner-$experiment.stderr" or die $!;
         exec 'bash', 'examples/jit_support/strided_timing.sh', $image, $out, 0, 3, $experiment;
         die $!;
     }
     waitpid($pid, 0);
-    die "runner failed $experiment; inspect $root" unless $? == 0;
+    unless ($? == 0) {
+        for my $stream (qw(stdout stderr)) {
+            open my $log, '<', "$root/runner-$experiment.$stream" or die $!;
+            print STDERR do { local $/; <$log> };
+        }
+        die "runner failed $experiment";
+    }
     die "runner output audit failed $experiment" unless audit($out);
 }
-print "Timing runner: both experiment selectors, telemetry and record checks passed with synthetic workers\n";
+print "Timing runner: three experiment selectors, telemetry and record checks passed with synthetic workers\n";

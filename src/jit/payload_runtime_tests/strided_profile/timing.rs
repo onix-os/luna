@@ -6,12 +6,7 @@ struct Sample {
     stats: JitStats,
 }
 
-fn measure(workload: &workloads::Workload, strided: bool) -> Sample {
-    let failure = if strided {
-        backend::Failure::RequireStrided
-    } else {
-        backend::Failure::None
-    };
+fn measure(workload: &workloads::Workload, failure: backend::Failure) -> Sample {
     let mut lua = configured(failure);
     let closure = lua
         .enter(|ctx| ctx.stash(Closure::load(ctx, Some(workload.name), workload.source).unwrap()));
@@ -31,7 +26,11 @@ fn measure(workload: &workloads::Workload, strided: bool) -> Sample {
     assert_eq!(after.compilation_failures, 0);
     assert_eq!(after.compilation_requests, before.compilation_requests);
     assert!(after.native_instructions > before.native_instructions);
-    let expected = if strided {
+    if failure == backend::Failure::PreferCallbackScratch && workload.name == "rust_callbacks" {
+        let counts = lua.enter(|ctx| ctx.fetch(&executor).callback_scratch_counts());
+        assert!(counts.0 > 0, "no callback scratch reuse: {counts:?}");
+    }
+    let expected = if failure == backend::Failure::RequireStrided {
         backend::EntryKind::Strided
     } else {
         backend::EntryKind::Ordinary
@@ -57,8 +56,8 @@ fn measure(workload: &workloads::Workload, strided: bool) -> Sample {
 #[test]
 fn strided_timing_checks_all_frozen_results_and_counter_parity() {
     for workload in workloads::WORKLOADS {
-        let ordinary = measure(workload, false);
-        let strided = measure(workload, true);
+        let ordinary = measure(workload, backend::Failure::None);
+        let strided = measure(workload, backend::Failure::RequireStrided);
         assert_eq!(ordinary.counters, strided.counters, "{}", workload.name);
         assert!(ordinary.stats.code_bytes > 0 && strided.stats.code_bytes > 0);
     }
@@ -77,9 +76,58 @@ fn time_strided_runtime() {
         .iter()
         .find(|workload| workload.name == name)
         .unwrap();
-    let sample = measure(workload, strided);
+    let sample = measure(
+        workload,
+        if strided {
+            backend::Failure::RequireStrided
+        } else {
+            backend::Failure::None
+        },
+    );
     println!(
         "\nTIMING_V1 case={name} strided={strided} elapsed_ns={} counters={:?} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}",
+        sample.elapsed_ns,
+        sample.counters,
+        sample.stats.code_bytes,
+        sample.stats.metadata_bytes,
+        sample.stats.metadata_peak_bytes,
+        sample.stats.snapshot_peak_bytes,
+    );
+}
+
+#[test]
+fn callback_scratch_timing_checks_results_reuse_and_counters() {
+    for workload in workloads::WORKLOADS {
+        let ordinary = measure(workload, backend::Failure::None);
+        let candidate = measure(workload, backend::Failure::PreferCallbackScratch);
+        assert_eq!(ordinary.counters, candidate.counters, "{}", workload.name);
+        assert_eq!(ordinary.stats.code_bytes, candidate.stats.code_bytes);
+    }
+}
+
+#[test]
+#[ignore]
+fn time_callback_scratch_runtime() {
+    let name = std::env::var("LUNA_MEMORY_CASE").unwrap();
+    let scratch = match std::env::var("LUNA_MEMORY_SELECTED").unwrap().as_str() {
+        "0" => false,
+        "1" => true,
+        _ => panic!("invalid scratch selection"),
+    };
+    let workload = workloads::WORKLOADS
+        .iter()
+        .find(|workload| workload.name == name)
+        .unwrap();
+    let sample = measure(
+        workload,
+        if scratch {
+            backend::Failure::PreferCallbackScratch
+        } else {
+            backend::Failure::None
+        },
+    );
+    println!(
+        "\nTIMING_V1 case={name} scratch={scratch} elapsed_ns={} counters={:?} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}",
         sample.elapsed_ns,
         sample.counters,
         sample.stats.code_bytes,

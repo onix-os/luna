@@ -129,6 +129,9 @@ fn direct_capture_matches_register_projection_without_mutation() {
 
 #[test]
 fn return_spans_preserve_bounds_fuel_and_capture_closing() {
+    let overflow_panics =
+        std::panic::catch_unwind(|| std::hint::black_box(0usize) - std::hint::black_box(1usize))
+            .is_err();
     for bottom in [0, 2, 6, 7] {
         for start in [0, 4, 5] {
             for count in [0, 1, 3] {
@@ -182,7 +185,7 @@ fn return_spans_preserve_bounds_fuel_and_capture_closing() {
                         let count = usize::from(count);
                         let valid = start + count <= 6 && bottom + count <= 6;
                         assert_eq!(result.is_ok(), valid);
-                        let charged_items = if cfg!(debug_assertions) && start > 6 {
+                        let charged_items = if overflow_panics && start > 6 {
                             0
                         } else {
                             count as i32
