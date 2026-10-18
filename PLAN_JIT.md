@@ -9,6 +9,43 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared VM slice policy — rejected, 2026-10-18
+
+Trial `d957621` reads Auto activity and call-pair admission under one temporary
+manager borrow at VM slice entry. It reuses those booleans for source lookup,
+hook-exit accounting and pair observation, without persistent policy state,
+allocation, ownership changes or new unsafe code. Each new slice reads current
+policy; no borrow crosses a hook, callback or native entry. Other executor
+callers retain their original policy methods.
+
+Test-first commit `22c321b` checks forty observations across pair toggles,
+Off/Auto transitions and cloned owners, including unchanged whole statistics and
+released manager borrows. It passes before the runtime edit. The candidate
+passes formatting/check-all, **106 focused executions / eleven summaries**,
+the new model under Miri (39 warnings) and its real i686-musl execution.
+
+Two alternating matched rounds produce **48 checked instruction profiles** for
+callbacks/upvalues/float, Off/Auto and both feature images. Worker/native counts
+match and all thirteen exclusive event totals verify. Float Off grows
+**20,060,895 -> 20,673,480** in both rounds; float Auto grows
+**5,859,342 -> 5,893,731**. Callback Auto grows **47,185,639 -> 47,348,439** and
+**47,185,720 -> 47,337,727**; callback Off grows **38,915,025 -> 39,190,090**.
+Upvalue Off grows in both rounds; Auto varies in both directions. All no-feature
+instruction counts match; no-feature `.text` is byte-identical, but the whole
+ELF differs and is not represented as identical.
+
+Reject this form at diagnostic screening. No elapsed speedup or slowdown is
+claimed, and no new timing campaign is spent on it. The live-policy regression
+is retained against the original queries; the runtime change is withdrawn.
+Restoration `aee8d13` passes formatting/check-all and the same **106 focused
+executions / eleven summaries**. Both rebuilt speed diagnostic images are
+byte-identical to the original split-hook controls. The test module is appended
+after runtime definitions, preserving their existing source-line metadata.
+Initial fixture/check failures are preserved: Force is a test-runner policy,
+not a public `JitMode`, and executor callers still require `call_pairs_enabled`.
+Evidence: `target/jit-evidence/hook-resume-recovery/slice-policy*`.
+Full performance, resource/platform and release acceptance remain open.
+
 ### Seeded address-hash cache — rejected, 2026-10-18
 
 Rejected trial `8495f75` remembers two source-address hashes in the GC-owned
