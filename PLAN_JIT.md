@@ -9,6 +9,70 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Direct numeric Add — forwarding hazard removed, not promoted, 2026-10-18
+
+The new actual-VM model covers **384 combinations** of sixteen numeric,
+coercion and error pairs, four register/constant operand forms, three destination
+aliases and low/high register windows including register 255. Constant arithmetic
+supplies expected values; canonical operators supply expected error variants.
+PC, fuel, untouched registers and stack size are checked. Both feature choices
+pass on unchanged main runtime before optimization. Test commit `1548cda` is
+retained on main as `a32aa73`; an initial fixture-only integer-mask inference
+error and its correction remain in the evidence.
+
+Trial `84cc957` on `trial/jit-numeric-add` dispatches the four numeric pairs
+directly after ordinary operand loading, with canonical coercion/metamethod
+fallback outlined. It is not the earlier constant-RHS specialization. Formatting,
+check-all and focused model/constant/numeric/hook validation pass **137 executions
+/ 22 summaries**. Fourteen profiles preserve all execution/resource fields, and
+strict audit plus nine corruptions pass. Integer/float Off instructions fall
+2.1194%/1.4797%, but metamethod Off/Auto work grows about 0.93%.
+
+The initial elapsed screen now covers all seven workloads: **252 commands /
+25,704 measured executions**, unchanged thresholds, six balanced A/candidate/B
+orders on CPUs 0/16, strict identities/counters and nine corruption checks.
+CPU0 integer/float Off ratios are **0.785486 / 0.949764**, placebo
+1.003148 / 0.998346, both six adverse rounds. This candidate is rejected.
+
+Exact executed-instruction maps expose new 16-byte register reloads and stack
+staging after producers' separate 8-byte tag/payload stores. A CPU0 hardware
+capture (**36 commands / 36,000 measured executions**, all 144 events at 100%)
+reproduces cycle ratios **0.787785 / 0.949922**. The first integer pair records
+**18,285 versus 32,473,375** `ld_blocks.store_forward` events. Median
+control/candidate forwarding ratios are 0.000583 / 0.001673 for integer/float.
+Logical/resource counters match; valid/restored fixtures and thirteen deliberate
+corruptions pass. These are whole-process events, not exact per-instruction latency.
+
+Refinement `4e43bee` on `trial/jit-numeric-add-borrowed` borrows register operands
+through the match and passes references to the canonical fallback. Constants
+still use ordinary conversion; borrows end before destination writes or deferred
+metamethod scheduling. The same **137 / 22** focused checks pass. Exact maps now
+show scalar operand loads rather than the staged wide reloads. Another 36-command
+hardware capture has forwarding counts between **11,077 and 22,851 across all
+control and candidate captures**, instead of the first candidate's millions.
+All 144 events run at 100%; strict counter/identity auditing and thirteen
+corruption checks pass. Its duration/cycle ratios are severely contended
+(integer per-round time ratios 0.647–1.738); the favorable aggregate must not
+be presented as a speedup or used to discard the elapsed results below.
+
+The borrowed refinement's actual VM model also passes both pinned Miri models
+and feature configurations (**four test executions**, each covering the 384
+combinations); real i686-musl model/constant/GC integration passes **twelve
+executions / eight summaries**. This does not establish native execution under
+Miri or replace a full Force suite, which was not run for these negative trials.
+
+Two complete seven-workload elapsed campaigns for the refinement total
+**504 commands / 51,408 measured executions**. CPU0 integer Off ratios are
+**0.865431 / 0.872083** initially/repeated, and float Off **0.882192 / 0.873944**.
+CPU16 float Off is **0.956603 / 0.964873**, and metamethod Off
+**0.980887 / 0.977906**. Full per-round placebo variation remains in the reports;
+no owned tests/builds/profilers overlap elapsed collection. Instruction savings
+and removal of the new forwarding hazard do not establish a net improvement.
+**Do not promote either runtime change.** Main retains only the baseline-valid
+test foundation. Shipping/feature-cost/full-release acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/numeric-add/` and
+`numeric-add-borrowed/`, including each `store-forward/` and `hot-map/` directory.
+
 ### Mixed numeric-loop outlining — rejected, 2026-10-18
 
 Exact-image instruction mapping of the preceding single-tail trial validates
