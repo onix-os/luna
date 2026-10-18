@@ -182,7 +182,7 @@ mod tests {
 #[collect(no_drop)]
 pub(crate) struct Registrations<'gc> {
     entries: MetadataMap<usize, Registration<'gc>>,
-    address_hashes: Cell<[(usize, u64); 2]>,
+    address_hashes: [Cell<(usize, u64)>; 2],
     compactor: Compactor,
     #[cfg(test)]
     set_metatable: Option<GcWeak<'gc, crate::callback::CallbackInner<'gc>>>,
@@ -194,7 +194,7 @@ impl<'gc> Registrations<'gc> {
     pub fn new(allocator: BudgetAllocator) -> Self {
         Self {
             entries: metadata_map(allocator),
-            address_hashes: Cell::new([(0, 0); 2]),
+            address_hashes: [Cell::new((0, 0)), Cell::new((0, 0))],
             compactor: Compactor::default(),
             #[cfg(test)]
             set_metatable: None,
@@ -219,7 +219,8 @@ impl<'gc> Registrations<'gc> {
 
     pub fn reset(&mut self, ctx: Context<'gc>) {
         let allocator = ctx.jit().0.borrow().metadata.clone();
-        self.address_hashes.set([(0, 0); 2]);
+        self.address_hashes[0].set((0, 0));
+        self.address_hashes[1].set((0, 0));
         self.entries = metadata_map(allocator);
         self.compactor = Compactor::default();
         ctx.jit().0.borrow_mut().clear_registrations();
@@ -266,15 +267,18 @@ impl<'gc> Registrations<'gc> {
         prototype: Gc<'gc, FunctionPrototype<'gc>>,
     ) -> Option<u64> {
         let address = Gc::as_ptr(prototype) as usize;
-        let cached = self.address_hashes.get();
-        let hash = if cached[0].0 == address {
-            cached[0].1
-        } else if cached[1].0 == address {
-            cached[1].1
+        let first = self.address_hashes[0].get();
+        let hash = if first.0 == address {
+            first.1
+        } else if self.address_hashes[1].get().0 == address {
+            self.address_hashes[1].get().1
         } else {
             let mut hasher = self.entries.hasher().build_hasher();
             address.hash(&mut hasher);
-            hasher.finish()
+            let hash = hasher.finish();
+            self.address_hashes[1].set(first);
+            self.address_hashes[0].set((address, hash));
+            hash
         };
         let (_, entry) = self
             .entries
@@ -283,9 +287,6 @@ impl<'gc> Registrations<'gc> {
         let live = entry.prototype.upgrade(&ctx)?;
         if !Gc::ptr_eq(live, prototype) {
             return None;
-        }
-        if cached[0].0 != address && cached[1].0 != address {
-            self.address_hashes.set([(address, hash), cached[0]]);
         }
         Some(entry.id)
     }

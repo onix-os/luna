@@ -9,11 +9,14 @@ fn cached_hashes_revalidate_entries_and_reset_with_the_seed() {
         let mut registry = ctx.jit_registry().borrow_mut(&ctx);
         let id = registry.identity(ctx, first).unwrap();
         let other_id = registry.identity(ctx, second).unwrap();
-        let cached = registry.address_hashes.get();
+        let cached = registry.address_hashes.each_ref().map(|slot| slot.get());
         for _ in 0..32 {
             assert_eq!(registry.identity(ctx, first), Some(id));
             assert_eq!(registry.identity(ctx, second), Some(other_id));
-            assert_eq!(registry.address_hashes.get(), cached);
+            assert_eq!(
+                registry.address_hashes.each_ref().map(|slot| slot.get()),
+                cached
+            );
         }
         registry.entries.try_reserve(128).unwrap();
         assert_eq!(registry.identity(ctx, first), Some(id));
@@ -25,9 +28,13 @@ fn cached_hashes_revalidate_entries_and_reset_with_the_seed() {
         assert_eq!(registry.identity(ctx, first), Some(u64::MAX));
         registry.entries.get_mut(&address).unwrap().id = id;
         registry.reset(ctx);
-        assert_eq!(registry.address_hashes.get(), [(0, 0); 2]);
+        assert_eq!(
+            registry.address_hashes.each_ref().map(|slot| slot.get()),
+            [(0, 0); 2]
+        );
         assert_eq!(registry.identity(ctx, first), None);
-        assert_eq!(registry.address_hashes.get(), [(0, 0); 2]);
+        assert_eq!(registry.address_hashes[0].get().0, address);
+        assert_eq!(registry.identity(ctx, first), None);
         registry.register(ctx, first);
         assert_ne!(registry.identity(ctx, first), Some(id));
         assert!(registry.identity(ctx, first).is_some());
