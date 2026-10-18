@@ -396,6 +396,7 @@ pub(super) enum Failure {
     RequireFieldMemory,
     RequirePreferredEntry,
     RequireBoundEntry(u32),
+    RequireBoundBudget(u32, u32),
     DisablePreferredEntry,
     PreferBoundPayload,
     RequireSparsePayload,
@@ -819,6 +820,7 @@ fn compile_selected_rooted(
         Failure::RequireFieldMemory
             | Failure::RequirePreferredEntry
             | Failure::RequireBoundEntry(_)
+            | Failure::RequireBoundBudget(_, _)
             | Failure::PreferReadEffects
             | Failure::CompactIntegerPairs
     ) {
@@ -833,7 +835,10 @@ fn compile_selected_rooted(
             return Err(JitError::Compilation(
                 if failure == Failure::RequirePreferredEntry {
                     "preferred entry requires ordinary lowering"
-                } else if matches!(failure, Failure::RequireBoundEntry(_)) {
+                } else if matches!(
+                    failure,
+                    Failure::RequireBoundEntry(_) | Failure::RequireBoundBudget(_, _)
+                ) {
                     "bound entry requires ordinary lowering"
                 } else if failure == Failure::PreferReadEffects {
                     "read effects require ordinary lowering"
@@ -991,6 +996,7 @@ fn compile_selected_rooted(
                     | Failure::CompactIntegerPairs
                     | Failure::RequirePreferredEntry
                     | Failure::RequireBoundEntry(_)
+                    | Failure::RequireBoundBudget(_, _)
                     | Failure::DisablePreferredEntry
             ))
         && !selection.leaf
@@ -1534,6 +1540,7 @@ fn compile_selected_rooted(
             | Failure::CompactIntegerPairs
             | Failure::RequirePreferredEntry
             | Failure::RequireBoundEntry(_)
+            | Failure::RequireBoundBudget(_, _)
             | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
@@ -1833,11 +1840,17 @@ fn compile_selected_rooted(
         (instructions, block_count)
     };
     #[cfg(test)]
-    if let Failure::RequireBoundEntry(pc) = failure {
+    if let Failure::RequireBoundEntry(pc) | Failure::RequireBoundBudget(pc, _) = failure {
         let original = context.func.clone();
         let rewrite =
             super::entry_flow::bound::Rewrite::apply(pc, &mut context.func, &paths, fallback)?;
         rewrite.verify(&original, &context.func)?;
+        if let Failure::RequireBoundBudget(_, budget) = failure {
+            let before_budget = context.func.clone();
+            let rewrite =
+                super::entry_flow::bound::Rewrite::budget(budget, &mut context.func, fallback)?;
+            rewrite.verify(&before_budget, &context.func)?;
+        }
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
         expansion.verify_actual(

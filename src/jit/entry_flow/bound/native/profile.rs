@@ -54,12 +54,14 @@ fn repeated_resumption_matches_control_counts_and_results() {
     let snapshot = source();
     let ordinary = compile(&snapshot, Failure::None);
     let resumed = compile(&snapshot, Failure::RequireBoundEntry(3));
+    let budget = compile(&snapshot, Failure::RequireBoundBudget(3, 64));
     let expected = run(&ordinary, &ordinary);
     assert_eq!(expected[0], 81);
     assert_eq!(expected[2], 80);
     assert_eq!(expected[3], 3320);
     for _ in 0..16 {
         assert_eq!(run(&ordinary, &resumed), expected);
+        assert_eq!(run(&ordinary, &budget), expected);
     }
 }
 
@@ -67,11 +69,16 @@ fn repeated_resumption_matches_control_counts_and_results() {
 #[ignore]
 fn profile_bound_resumption() {
     let selected = std::env::var("LUNA_BOUND_ENTRY").unwrap();
-    assert!(matches!(selected.as_str(), "0" | "1"));
+    assert!(matches!(selected.as_str(), "0" | "1" | "2"));
     let snapshot = source();
     let ordinary = compile(&snapshot, Failure::None);
     let bound = compile(&snapshot, Failure::RequireBoundEntry(3));
-    let resumed = if selected == "1" { &bound } else { &ordinary };
+    let budget = compile(&snapshot, Failure::RequireBoundBudget(3, 64));
+    let resumed = match selected.as_str() {
+        "0" => &ordinary,
+        "1" => &bound,
+        _ => &budget,
+    };
     let expected = run(&ordinary, &ordinary);
     for _ in 0..2 {
         assert_eq!(run(&ordinary, resumed), expected);
@@ -80,7 +87,11 @@ fn profile_bound_resumption() {
     assert_eq!(totals, expected.map(|count| count * 1000));
     let directory = std::path::PathBuf::from(std::env::var_os("LUNA_JIT_DIAGNOSTIC_DIR").unwrap());
     std::fs::create_dir_all(&directory).unwrap();
-    for (name, code) in [("ordinary", &ordinary), ("bound", &bound)] {
+    for (name, code) in [
+        ("ordinary", &ordinary),
+        ("bound", &bound),
+        ("budget", &budget),
+    ] {
         let metadata = code.dump_finalized(&directory.join(format!("{name}.bin")));
         std::fs::write(directory.join(format!("{name}.metadata")), metadata).unwrap();
     }

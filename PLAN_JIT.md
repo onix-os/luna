@@ -9,6 +9,33 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### PC-and-budget binding prototype — not promoted, 2026-10-18
+
+Test-only `RequireBoundBudget(pc, budget)` composes the PC specialization with
+an exact32-bit budget guard and substitutes that budget into the admitted
+body. Both guards must pass; other inputs decline through the original
+Interpreter exit without changing slots or charging source instructions.
+Bindings0..64 are supported; larger bindings are rejected. The public native
+adapter still clamps supplied budgets to64. A raw-entry fixture separately
+verifies rejection of unclamped65/high-bit/maximum inputs, so adapter clamping
+cannot hide an incorrect machine-code guard. Production selection is unchanged.
+
+The guarded-constant transform is shared by the two bindings. Each transform
+passes its inverse preservation oracle; structural and expansion checks run
+after composition. This retains the earlier test-only, uncharged clone/string
+workspace limitation. All ordinary integer-loop and prepared-helper passes
+remain enabled. No binding is installed into the runtime cache.
+
+`make jit-bound-entry` passes11 fixtures/1 ignored:56,784 scalar admitted
+comparisons and2,129,400 PC/budget mismatch refusals, nineteen IR corruption
+cases, bound-budget resource rejection, raw ABI checks, optimized loop sources,
+live helper frames and repeated resumption. The helper fixture compares ordinary,
+PC-only and matching PC/budget code across980 cases, including weak modes,
+rebinding and panic exits. Formatting and `check-all` pass. The profiling driver
+now compares ordinary, PC-only and PC/budget64 with identical component counts
+in two rounds. Results, elapsed/runtime validation, bounded compiler accounting,
+ownership/lifecycle integration and all original acceptance gates remain open.
+
 ### PC-bound entry compiler prototype — not promoted, 2026-10-18
 
 The test-only `RequireBoundEntry(pc)` compiler mode specializes a complete

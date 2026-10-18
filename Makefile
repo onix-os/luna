@@ -1304,7 +1304,7 @@ jit-entry-flow-backend:
 
 .PHONY: jit-bound-entry
 jit-bound-entry:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::bound:: -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::bound:: -- --test-threads=1 | awk '/^test result: ok[.] 11 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 BOUND_ENTRY_DIR ?= target/jit-evidence/bound-entry
 .PHONY: jit-bound-entry-profile-build jit-bound-entry-profile-run
@@ -1316,14 +1316,14 @@ jit-bound-entry-profile-build:
 	@test "$$(wc -l < '$(BOUND_ENTRY_DIR)/binary-path')" -eq 1
 	@cp "$$(cat '$(BOUND_ENTRY_DIR)/binary-path')" '$(BOUND_ENTRY_DIR)/test-binary'
 	@sha256sum '$(BOUND_ENTRY_DIR)/test-binary' > '$(BOUND_ENTRY_DIR)/binary.sha256'
-	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(BOUND_ENTRY_DIR)/source.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/callgrind_exclusive.awk; } | sort -z | xargs -0 sha256sum > '$(BOUND_ENTRY_DIR)/source.sha256'
 	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nscope=native-component-only\nwarmups=2\nmeasured_repetitions=1000\n'; } > '$(BOUND_ENTRY_DIR)/configuration'
-	@set -o pipefail; '$(BOUND_ENTRY_DIR)/test-binary' jit::entry_flow::bound:: --test-threads=1 | tee '$(BOUND_ENTRY_DIR)/contracts.log' | awk '/^test result: ok[.] 8 passed; 0 failed; 1 ignored;/ { valid=1 } END { exit !valid }'
+	@set -o pipefail; '$(BOUND_ENTRY_DIR)/test-binary' jit::entry_flow::bound:: --test-threads=1 | tee '$(BOUND_ENTRY_DIR)/contracts.log' | awk '/^test result: ok[.] 11 passed; 0 failed; 1 ignored;/ { valid=1 } END { exit !valid }'
 
 jit-bound-entry-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(BOUND_ENTRY_DIR)/binary.sha256' '$(BOUND_ENTRY_DIR)/source.sha256' > '$(BOUND_ENTRY_DIR)/verification-before.log'
 	@valgrind --version > '$(BOUND_ENTRY_DIR)/profiler.log'
-	@set -e; for round in 0 1; do for bound in 0 1; do \
+	@set -e; for round in 0 1; do for bound in 0 1 2; do \
 		out='$(BOUND_ENTRY_DIR)/'$$round-$$bound; test ! -e "$$out.callgrind"; \
 		LUNA_BOUND_ENTRY=$$bound LUNA_JIT_DIAGNOSTIC_DIR="$$out-native" taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*bound::native::profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
 			'$(BOUND_ENTRY_DIR)/test-binary' jit::entry_flow::bound::native::profile::profile_bound_resumption --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
@@ -1337,6 +1337,8 @@ jit-bound-entry-profile-run: jit-profile-cpu-check
 		sed -n 's/.*totals=\(\[[^]]*\]\).*/\1/p' '$(BOUND_ENTRY_DIR)/'$$round-1.log > '$(BOUND_ENTRY_DIR)/'$$round-1.counts; \
 		test "$$(wc -l < '$(BOUND_ENTRY_DIR)/'$$round-0.counts)" -eq 1; \
 		cmp '$(BOUND_ENTRY_DIR)/'$$round-0.counts '$(BOUND_ENTRY_DIR)/'$$round-1.counts; \
+		sed -n 's/.*totals=\(\[[^]]*\]\).*/\1/p' '$(BOUND_ENTRY_DIR)/'$$round-2.log > '$(BOUND_ENTRY_DIR)/'$$round-2.counts; \
+		cmp '$(BOUND_ENTRY_DIR)/'$$round-0.counts '$(BOUND_ENTRY_DIR)/'$$round-2.counts; \
 	done
 	@sha256sum -c '$(BOUND_ENTRY_DIR)/binary.sha256' '$(BOUND_ENTRY_DIR)/source.sha256' > '$(BOUND_ENTRY_DIR)/verification-after.log'
 
