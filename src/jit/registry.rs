@@ -257,7 +257,14 @@ impl<'gc> Registrations<'gc> {
         ctx: Context<'gc>,
         prototype: Gc<'gc, FunctionPrototype<'gc>>,
     ) -> Option<u64> {
-        let entry = self.entries.get(&(Gc::as_ptr(prototype) as usize))?;
+        let address = Gc::as_ptr(prototype) as usize;
+        let entry = if self.entries.capacity() <= 7 {
+            self.entries
+                .iter()
+                .find_map(|(&stored, entry)| (stored == address).then_some(entry))
+        } else {
+            self.entries.get(&address)
+        }?;
         let live = entry.prototype.upgrade(&ctx)?;
         Gc::ptr_eq(live, prototype).then_some(entry.id)
     }
