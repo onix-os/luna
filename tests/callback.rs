@@ -413,4 +413,58 @@ fn nested_callback_outcomes_preserve_payloads_and_single_drops() -> Result<(), E
     Ok(())
 }
 
+#[test]
+fn callback_stack_overflow_preserves_caller() -> Result<(), ExternError> {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let mut lua = common::core();
+    lua.enter(|ctx| {
+        let boundary = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let Value::Integer(input) = stack.get(0) else {
+                panic!("expected integer argument");
+            };
+            assert!(stack.get(usize::MAX).is_nil());
+            assert!(stack.remove(usize::MAX).is_none());
+            for operation in 0..4 {
+                let result = catch_unwind(AssertUnwindSafe(|| match operation {
+                    0 => stack.set(usize::MAX, Value::Nil),
+                    1 => stack.resize(usize::MAX),
+                    2 => stack.sub_stack(usize::MAX).clear(),
+                    3 => drop(stack.drain(usize::MAX..)),
+                    _ => unreachable!(),
+                }));
+                assert!(result.is_err());
+                assert_eq!(stack.len(), 1);
+                assert!(matches!(stack.get(0), Value::Integer(value) if value == input));
+            }
+            stack.replace(ctx, input);
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("boundary", boundary);
+    });
+    let closure = lua.try_enter(|ctx| {
+        let source = b"local guard=12345 local root={n=42} local sum=0 for i=1,80 do sum=sum+boundary(i) end return guard,root.n,sum";
+        Ok(ctx.stash(Closure::load(ctx, Some("callback-stack-bounds"), source)?))
+    })?;
+    for _ in 0..3 {
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+        assert_eq!(
+            lua.execute::<(i64, i64, i64)>(&executor)?,
+            (12345, 42, 3240)
+        );
+        lua.gc_collect();
+    }
+    #[cfg(feature = "jit")]
+    if lua.jit_capabilities().supported_target
+        && matches!(
+            std::env::var("LUNA_TEST_JIT_MODE").as_deref(),
+            Ok("auto" | "force")
+        )
+    {
+        assert!(lua.jit_stats().native_entries > 0);
+    }
+    Ok(())
+}
+
 mod common;

@@ -2160,6 +2160,20 @@ numeric-conversions:
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
 	done
 
+.PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks
+stack-bounds:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::bounds_tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) stack::bounds_tests $(ARGS)
+
+stack-bounds-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' stack::bounds_tests -- --test-threads=1
+
+stack-bounds-callbacks:
+	@$(CARGO) test --locked -p luna --no-default-features --test callback $(TARGET_ARG) callback_stack_overflow_preserves_caller
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test callback $(TARGET_ARG) callback_stack_overflow_preserves_caller || exit $$?; \
+	done
+
 .PHONY: stack-replace stack-replace-miri
 stack-replace:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::replace_tests
