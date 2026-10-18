@@ -9,6 +9,28 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Borrowed prepared-key comparator — no improvement, 2026-10-18
+
+Isolated trial `ce0fe04`, based on `1203cd4`, changes the private
+`Key::eq_string` receiver from a copied key to a borrowed key. The hypothesis
+was that avoiding aggregate transport might reduce prepared table-lookup cost.
+Baseline and candidate were built sequentially at the same source and Cargo
+target paths, with a release-package clean between them and a root-launched
+Nix environment. Frozen baseline sources preserve source-manifest verification.
+
+The opt-level-3 `jit_bench` executable is byte-for-byte identical in both builds
+(SHA-256 `d645acc8aeec0d6072f20ed8f37eaeca7e2b0c312035923013b5355e94ab9c10`).
+The `.text` and `.rodata` sections also match. The prepared helper remains
+1,531 bytes at the same address. This source change provides no generated-code
+improvement in this image; it does not establish equivalence for other profiles
+or architectures. No elapsed campaign is warranted for these identical images.
+
+The baseline passes 54 focused tests; the candidate passes 70, including table
+access with and without JIT. Formatting and all-feature checks pass. No new
+full-suite, Miri, shipping-profile or elapsed validation is claimed. The trial
+remains unmerged. All owned jobs have terminated; full performance acceptance
+remains open. Evidence: `target/jit-evidence/hook-resume-recovery/borrow-prepared-key/`.
+
 ### Matched-path rebuild attribution — completed, 2026-10-18
 
 The resolution-hint trial's no-feature files differ from controls even though
