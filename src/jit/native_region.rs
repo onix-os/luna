@@ -404,7 +404,6 @@ impl Session<'_, '_, '_, '_> {
         let Some(progress) = self.region.inline.as_ref().unwrap().run(
             ctx,
             self.frame.host,
-            self.admitted.prototypes(),
             self.limit - self.outcome.slices,
             self.budget,
             view.exit.instructions,

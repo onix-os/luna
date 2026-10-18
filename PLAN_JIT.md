@@ -9,6 +9,110 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Prepared-key classification split — rejected, 2026-10-18
+
+Hardware samples and actual helper disassembly identify combined strong/weak
+string-key classification inside `call_prehashed`. Trial `1f5a73c` separates
+the ordinary strong-string case from a non-inlined weak-key comparator. Both
+paths preserve identity shortcuts and content equality; all non-string and
+dead keys still refuse. No hash, representation, GC ownership, native ABI,
+coverage, counter or resource-policy change is introduced.
+
+Commit `209c6d9` first adds an independent comparator fixture covering every
+stored key variant, strong/weak forms, distinct equal strings, hash collisions
+and a dead key with the query's address. The unchanged implementation passes
+all six prepared-key model tests before the trial. Both Make model gates now
+require six tests. The candidate passes **54 focused executions**, formatting,
+all-feature checking, **11 selected Miri executions**, and **2,438 full test
+executions / 177 summaries**, with zero failures and 20 ignored diagnostics.
+An initial compile refusal for independently branded helper lifetimes is fixed
+by giving the stored key and query the same arena lifetime; its log is retained.
+
+Two matched rounds complete **48 instruction profiles**, with verified exclusive
+event sums, source/image identities and equal worker/native-work records.
+Callback Auto instructions fall **47,185,720 -> 47,086,376 (0.21%)** in both
+rounds. The complete 99,344-instruction reduction is in `call_prehashed`, whose
+self count falls **4,197,284 -> 4,097,940**. Callback, float and upvalue Off
+counts remain unchanged; float Auto is unchanged. Upvalue Auto varies in both
+images and is not presented as an improvement. All three no-feature diagnostic/
+timing images match their respective frozen controls byte-for-byte.
+
+Two 21-sample campaigns and a third with **201 native samples** complete
+**52,488 native executions and 544,320 cost iterations**, with zero counter/
+resource mismatches. All nine workloads, original thresholds, alternating pairs,
+CPU0/16, rotated A/trial/B controls, identical launch paths, hashes and contention
+telemetry remain intact. No owned build/test/profiler overlaps elapsed timing.
+The longer campaign retains 21 paired samples for each disabled-cost comparison.
+
+The change is **rejected**. CPU0 native metamethod control/trial time ratios are
+**0.9932 / 0.9888** in the repeat and **0.9827 / 0.9892** with 201 samples;
+the longer campaign's A/B controls are **1.0006 / 0.9965**. Callback gains are
+not consistent across CPU types: CPU16 initially gives **0.9862 / 0.9856**,
+then **1.0037 / 1.0116**, and finally **1.1610 / 0.9974**. The apparent 1.1610
+gain has an A/B ratio of **1.3544**, not stable evidence of an optimization.
+CPU0's first campaign also has a severely disturbed window, including a 2.2481
+callback A/B ratio and large disabled-cost losses. Every adverse observation is
+retained; no hardware cause is asserted. Callback native gates fail **10/12**,
+metamethod native gates **6/12**, and shipping upvalue cost **12/12**.
+
+Commit `4851161` restores the original runtime exactly and retains the new
+comparator test and stronger Make counts. Restoration formatting/all-feature
+checks and all **54 focused executions** pass. Both rebuilt speed diagnostic
+images are byte-identical to their original split-hook controls. The first long-campaign launcher
+refused a missing driver filename before measuring any workload; its artifacts
+are separate from the corrected complete campaign. Evidence prefix:
+`hook-resume-recovery/key-classification*`. This trial yields no accepted runtime
+performance improvement and does not close resource/platform/release acceptance.
+
+The hardware-profile auditor also accepts a valid fixture and refuses eight
+independent corruptions: wrong native work, lost samples, wrong sample count,
+changed weighted period, malformed sample, incorrect mapping bias, missing run
+and extra run. These validate the diagnostic audit, not the performance gates.
+
+### Callback hardware-cycle attribution — 2026-10-18
+
+Eighty completed profiles cover twenty alternating Off/Auto rounds on each of
+CPUs 0 and 16, with 1,000 verified callback iterations per process. The independent
+audit checks exact run identities, worker protocols, native instruction counts,
+source/driver/image hashes, capture counts, report totals and executable mappings.
+All **33,435 samples** reconcile with their weighted event totals; all reports
+have zero lost samples. Auto reports 20,046,354 native logical instructions per
+worker; Off reports zero. The symbol-bearing speed image is byte-identical to
+the restored split-hook diagnostic control, not asserted to be the exact-link
+companion of the stripped acceptance image.
+
+| Whole-process sampled user-cycle self share | CPU0 | CPU16 |
+| --- | ---: | ---: |
+| VM, Auto | 20.06% | 21.18% |
+| Executor, Auto | 19.88% | 19.58% |
+| Prepared-key helper, Auto | 11.66% | 12.88% |
+| Seven-slot native entry, Auto | 10.47% | 11.06% |
+| Named generated code, Auto | 4.97% | 5.00% |
+| VM, Off | 23.84% | 25.80% |
+| Executor, Off | 22.98% | 23.08% |
+
+Unknown symbols are retained, not classified as native work: 0.0205%/0.0130%
+for Auto and 0.0086%/0.0252% for Off. Generated-map filenames are normalized only
+for aggregation; original sample records remain unchanged. Every entry/helper
+sample address is checked against the actual per-process executable mapping and
+ELF segment bias. Native scalar import occupies 3.03%/2.63% of whole-process
+samples; counter publication 2.02%/2.93%; normal frame/call setup 1.15%/2.05%.
+The remainder is retained without pretending these selected address ranges
+classify the whole entry. Sampling skid prevents exact instruction-latency claims.
+
+This is whole-process diagnostic sampling, including startup, compilation and
+cleanup, not Executor-only collection or uninstrumented timing acceptance. The
+original performance gates remain failed. Earlier integer-first writeback and
+projection-specialization trials already exist and are not repeated. Fresh
+helper disassembly instead exposes combined strong/weak-key classification in
+the prepared comparator as a further candidate; no gain is established yet.
+
+The first launcher requested an unsupported iteration count and failed. A second
+launcher accidentally generated an empty round loop and ran zero profiles; its
+completion marker is invalid and excluded. Only the corrected v3 campaign is
+counted. Evidence: `hook-resume-recovery/callback-cycles-v3/`, with its separate
+`callback-cycles-audit.{mk,pl}` driver and `audit/validated.json` report.
+
 ### Known inline-source validation diagnostic — 2026-10-18
 
 `backend::inline_loop::Code::run` previously rediscovered caller and callee
@@ -31,12 +135,47 @@ generations: refusal preserves PC, fuel and native entry counts. The owner
 Make gate now requires four tests rather than three to include the new fixture.
 
 Formatting/all-feature checking and **135 focused executions / nine summaries**
-pass; all **13 registry Miri executions** pass. The rebuilt speed no-feature
-diagnostic image is byte-identical to the control. Three repeated matched-image
-profile rounds and full validation are running; this is not a claimed speedup
-or acceptance. The repeated profiles retain same-image hash-dependent work
-variation instead of treating a single small difference as causal evidence.
-Evidence prefix: `hook-resume-recovery/known-sources*`.
+pass; all **13 registry Miri executions** pass. Full validation passes **2,437
+executions, zero failures, 20 ignored across 177 summaries**. The rebuilt speed
+no-feature diagnostic image and both no-feature timing images are byte-identical
+to their respective controls.
+
+Three repeated matched-image rounds complete **72 profiles** with verified
+exclusive-event sums, image/source hashes and all 36 paired result/native-work
+records equal. Speed Auto upvalue instruction totals are:
+
+| Round | Control | Known-source trial |
+| --- | ---: | ---: |
+| 0 | 26,007,076 | 26,160,309 |
+| 1 | 26,522,479 | 26,119,573 |
+| 2 | 25,852,975 | 26,081,881 |
+
+All six report 298,423 native logical instructions. Float Off/Auto and callback
+Off instruction totals are unchanged; callback Auto differs by at most 81.
+The smaller observed upvalue spread does not establish a speedup or remove
+the remaining canonical admission scan. In particular, the favorable single
+round is not selected as the performance result.
+
+Two all-nine-case elapsed campaigns verify **9,072 native executions and 362,880
+cost iterations**, zero counter/resource mismatches and unchanged thresholds.
+No owned tests/builds/profilers overlap timing. External contention and control
+drift remain in the reports. The trial is **rejected**: native Auto upvalue
+control/trial ratios are below one in seven of eight windows, including all four
+repeat windows (**0.9929 / 0.9973** on CPU0, **0.9894 / 0.9894** on CPU16).
+The favorable first-campaign CPU0 round-one ratio has severe A/B drift and is
+not credible evidence of a gain. CPU0 speed JIT-Off float consistently slows:
+**0.9753 / 0.9665** initially, **0.9733 / 0.9734** in the repeat; corresponding
+repeat A/B controls are **1.0002 / 1.0092** and no-feature images are unchanged.
+Native callback gates still fail **7/8**, shipping upvalue cost **7/8**, speed
+upvalue cost **6/8**; remaining failures are retained in the audit JSON.
+
+Commit `2082815` restores the original runtime and keeps the independent registry
+oracle plus retained-image/reset-generation regression. The native fixture now
+uses the original entry API, and the Make gate continues to require all four
+ownership tests. Restoration formatting/all-feature checks and all **135 focused
+executions** pass. Both rebuilt speed diagnostic images exactly match the original
+controls. No native performance improvement is claimed. Evidence prefix:
+`hook-resume-recovery/known-sources*`.
 
 ### Frame-mode classification diagnostic — 2026-10-18
 

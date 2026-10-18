@@ -228,6 +228,50 @@ fn prepared_hash_does_not_keep_weak_values_alive() {
 }
 
 #[test]
+fn prepared_comparator_distinguishes_every_stored_key_variant() {
+    use crate::string::key_hash_tests::collision_string;
+
+    crate::Lua::empty().enter(|ctx| {
+        let query = collision_string(&ctx, b"query", 7);
+        let equal = collision_string(&ctx, b"query", 7);
+        let collision = collision_string(&ctx, b"other", 7);
+        assert!(!Gc::ptr_eq(query.into_inner(), equal.into_inner()));
+        let keys = [
+            (CanonicalKey::Boolean(false), false),
+            (CanonicalKey::Boolean(true), false),
+            (CanonicalKey::Integer(7), false),
+            (CanonicalKey::Number(0.5f64.to_bits()), false),
+            (CanonicalKey::String(query), true),
+            (CanonicalKey::String(equal), true),
+            (CanonicalKey::String(collision), false),
+            (CanonicalKey::Table(Table::new(&ctx)), false),
+            (
+                CanonicalKey::Closure(Closure::load(ctx, None, b"return 1").unwrap()),
+                false,
+            ),
+            (
+                CanonicalKey::Callback(Callback::from_fn(&ctx, |_, _, _| {
+                    Ok(crate::CallbackReturn::Return)
+                })),
+                false,
+            ),
+            (CanonicalKey::Thread(Thread::new(ctx)), false),
+            (CanonicalKey::UserData(UserData::new_static(&ctx, 7)), false),
+        ];
+        for (key, expected) in keys {
+            for stored in [Key::Live(key), Key::Weak(weaken(key), 7)] {
+                for query in [query, equal] {
+                    assert_eq!(stored.eq_string(query), expected, "{stored:?}");
+                }
+            }
+        }
+        let dead = Key::Dead(Gc::as_ptr(query.into_inner()).cast(), 7);
+        assert!(!dead.eq_string(query));
+        assert!(!dead.eq_string(equal));
+    });
+}
+
+#[test]
 fn prepared_stored_hash_collisions_preserve_content_equality() {
     use crate::string::key_hash_tests::collision_string;
 

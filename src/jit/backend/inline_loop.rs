@@ -11,8 +11,7 @@ use crate::jit::{
     resources::LedgerRef,
     work::Limits,
 };
-use crate::{thread::activation::ActivationHost, Context, FunctionPrototype};
-use ottavino_gc_arena::Gc;
+use crate::{thread::activation::ActivationHost, Context};
 
 type InlineEntry = unsafe extern "C" fn(*mut State);
 
@@ -131,10 +130,6 @@ impl Code {
         &self,
         ctx: Context<'gc>,
         host: &mut ActivationHost<'gc, '_>,
-        sources: (
-            Gc<'gc, FunctionPrototype<'gc>>,
-            Gc<'gc, FunctionPrototype<'gc>>,
-        ),
         limit: usize,
         budget: u32,
         prefix: u32,
@@ -144,12 +139,11 @@ impl Code {
         }
         let binding = {
             let registry = ctx.jit_registry().borrow();
-            if registry.identity(ctx, sources.0) != Some(self.key.caller)
-                || registry.identity(ctx, sources.1) != Some(self.key.callee)
-            {
-                return None;
-            }
-            Binding::bind(self.descriptor, sources.0, sources.1)?
+            Binding::bind(
+                self.descriptor,
+                registry.resolve(ctx, self.key.caller)?,
+                registry.resolve(ctx, self.key.callee)?,
+            )?
         };
         let mut exit = None;
         let progress = binding.run(ctx, host, limit, budget, prefix, |state| {
