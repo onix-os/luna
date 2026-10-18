@@ -9,6 +9,41 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Validated registry-resolution hints — isolated trial, 2026-10-18
+
+Trial `dcddc83` on `trial/jit-resolution-cache` targets repeated ID-resolution
+scans in inline execution and admission, rather than changing executor dispatch.
+Two fixed ID/address hints consult the existing address map and recheck the ID
+and weak-reference liveness on every hit. A stale address is only an integer map
+key, never a pointer to dereference; misses retain the original scan. Reset
+clears hints. No GC root, native lease or successful policy result is cached.
+The GC-owned registry grows by32 bytes on64-bit hosts; there is no new metadata
+allocation. Cold execution and size costs still require measurement.
+
+Three independent scan-oracle tests pass on the original implementation and are
+retained on main in `edcfea8`: growth/sparse storage, removal/replacement, and
+collection/reset generations. The trial additionally checks both retained hints,
+poisoned addresses and IDs, growth, reset and unchanged metadata accounting.
+Two focused campaigns pass215 test executions, covering registry, inline ownership,
+native regions, heap, suspension and resources, with formatting/all-feature
+checking. Main's18 registry tests also pass after the oracle integration.
+Miri and elapsed acceptance are pending; the trial is not promoted.
+
+The first production instruction screen covers all seven warmed Off/Auto
+workloads:28 captures,308 measured executions, exact non-timing record matches
+and verified source/image hashes. Two additional fresh-process upvalue comparisons
+reverse image order. All three upvalue Auto totals increase:0.83013%,2.11807%
+and0.51260%. Callback Auto changes by+0.00066% in the full screen. The hint
+therefore does not demonstrate a net instruction reduction on these workloads.
+These are not elapsed-time results: the separate compiled-Off and native timing
+screen must determine whether removing scans helps hardware execution at all.
+Original workload thresholds remain unchanged; no result is selected away.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/resolution-cache/`, including
+`warm-audit.json`, `repeat{1,2}/audit.json` and focused validation logs. Baseline
+images are preserved from `a13b8c5`, with every source hash checked against a
+restored detached checkout. Candidate builds use their own Cargo target directory.
+
 ### Isolated executor mode selection — rejected, 2026-10-18
 
 Trial `40f1f43` on `trial/jit-mode-isolation` separates the executor's
