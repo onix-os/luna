@@ -60,8 +60,13 @@ inventing an experimental selector or rewriting result records. Its five synthet
 runners pass,69 malformed screens are refused, and four invalid cross-image
 inputs are refused before sampling. The default benchmark thresholds are unchanged.
 
-Production speed/shipping no-feature and feature images are being built from
-separate frozen source roots with independent Cargo targets. Their results,
+Production speed/shipping no-feature and feature images have now built from
+separate frozen source roots with independent Cargo targets. All four native Auto
+proofs and artifact/source verifications pass; all nine non-timing proof records
+match between candidate/control in each profile. Proof timings overlapped builds
+and are not performance evidence. No-feature section totals match but executable
+bytes differ. Feature section totals change by+4084 bytes for speed and-12 for
+shipping; these totals do not establish resource acceptance. Production timing,
 compiled-Off/cold costs, original native gates, platform/resource gates and broader
 acceptance remain pending. Do not promote this trial based on the diagnostic
 callback gain. Evidence is under `target/jit-evidence/hook-resume-recovery/prepared-tls/`,
