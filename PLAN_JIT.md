@@ -9,6 +9,66 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Prepared-key classification split — rejected, 2026-10-18
+
+Hardware samples and actual helper disassembly identify combined strong/weak
+string-key classification inside `call_prehashed`. Trial `1f5a73c` separates
+the ordinary strong-string case from a non-inlined weak-key comparator. Both
+paths preserve identity shortcuts and content equality; all non-string and
+dead keys still refuse. No hash, representation, GC ownership, native ABI,
+coverage, counter or resource-policy change is introduced.
+
+Commit `209c6d9` first adds an independent comparator fixture covering every
+stored key variant, strong/weak forms, distinct equal strings, hash collisions
+and a dead key with the query's address. The unchanged implementation passes
+all six prepared-key model tests before the trial. Both Make model gates now
+require six tests. The candidate passes **54 focused executions**, formatting,
+all-feature checking, **11 selected Miri executions**, and **2,438 full test
+executions / 177 summaries**, with zero failures and 20 ignored diagnostics.
+An initial compile refusal for independently branded helper lifetimes is fixed
+by giving the stored key and query the same arena lifetime; its log is retained.
+
+Two matched rounds complete **48 instruction profiles**, with verified exclusive
+event sums, source/image identities and equal worker/native-work records.
+Callback Auto instructions fall **47,185,720 -> 47,086,376 (0.21%)** in both
+rounds. The complete 99,344-instruction reduction is in `call_prehashed`, whose
+self count falls **4,197,284 -> 4,097,940**. Callback, float and upvalue Off
+counts remain unchanged; float Auto is unchanged. Upvalue Auto varies in both
+images and is not presented as an improvement. All three no-feature diagnostic/
+timing images match their respective frozen controls byte-for-byte.
+
+Two 21-sample campaigns and a third with **201 native samples** complete
+**52,488 native executions and 544,320 cost iterations**, with zero counter/
+resource mismatches. All nine workloads, original thresholds, alternating pairs,
+CPU0/16, rotated A/trial/B controls, identical launch paths, hashes and contention
+telemetry remain intact. No owned build/test/profiler overlaps elapsed timing.
+The longer campaign retains 21 paired samples for each disabled-cost comparison.
+
+The change is **rejected**. CPU0 native metamethod control/trial time ratios are
+**0.9932 / 0.9888** in the repeat and **0.9827 / 0.9892** with 201 samples;
+the longer campaign's A/B controls are **1.0006 / 0.9965**. Callback gains are
+not consistent across CPU types: CPU16 initially gives **0.9862 / 0.9856**,
+then **1.0037 / 1.0116**, and finally **1.1610 / 0.9974**. The apparent 1.1610
+gain has an A/B ratio of **1.3544**, not stable evidence of an optimization.
+CPU0's first campaign also has a severely disturbed window, including a 2.2481
+callback A/B ratio and large disabled-cost losses. Every adverse observation is
+retained; no hardware cause is asserted. Callback native gates fail **10/12**,
+metamethod native gates **6/12**, and shipping upvalue cost **12/12**.
+
+Commit `4851161` restores the original runtime exactly and retains the new
+comparator test and stronger Make counts. Restoration formatting/all-feature
+checks and all **54 focused executions** pass. Both rebuilt speed diagnostic
+images are byte-identical to their original split-hook controls. The first long-campaign launcher
+refused a missing driver filename before measuring any workload; its artifacts
+are separate from the corrected complete campaign. Evidence prefix:
+`hook-resume-recovery/key-classification*`. This trial yields no accepted runtime
+performance improvement and does not close resource/platform/release acceptance.
+
+The hardware-profile auditor also accepts a valid fixture and refuses eight
+independent corruptions: wrong native work, lost samples, wrong sample count,
+changed weighted period, malformed sample, incorrect mapping bias, missing run
+and extra run. These validate the diagnostic audit, not the performance gates.
+
 ### Callback hardware-cycle attribution — 2026-10-18
 
 Eighty completed profiles cover twenty alternating Off/Auto rounds on each of
