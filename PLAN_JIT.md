@@ -9,6 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Callback stack offset overflow — corrected, 2026-10-18
+
+Investigation of cross-callback import reuse found that callback stack suffix
+isolation was not valid for all public indices. Six new regressions fail on the
+unchanged runtime with arithmetic overflow checks disabled: relative additions
+in get, set, remove, sub_stack and resize wrap into the caller prefix, and drain
+endpoint arithmetic admits an invalid wrapped range. This is a runtime boundary
+defect, not evidence that register caching is ready to enable.
+
+`9a36800` uses checked additions without changing the Value representation,
+canonical stack type, native ABI or public raw-stack handles. Overflowing get
+and remove return Nil/None; set, sub_stack, resize and drain reject overflow
+before mutation. Seven unit tests cover prefix preservation, normal suffix-vector
+behavior and **847 drain-bound combinations** against independent u128 arithmetic.
+An integrated callback test preserves caller scalar/table locals through repeated
+calls, caught errors, native reentry and collection between executions.
+
+- Formatting/check-all and **46 focused executions / 12 summaries** pass with
+  overflow checks disabled, including no-feature/Off/Auto/Force callback runs
+  and existing drain/consume/replace contracts.
+- Optimized release (`opt-level=s`, LTO) passes **14 bounds executions**, seven
+  without JIT and seven with JIT.
+- Stacked seed 82 and Tree seed 83 each pass seven no-feature bounds tests in
+  Miri, with 18 warnings each. Miri does not execute generated native code.
+- The normal-profile no-feature workspace/all-target/doc suite plus JIT heap
+  and upvalue suites pass **500 executions / 90 summaries**. The full sequence
+  also passes **500 / 90** with arithmetic overflow checks disabled after the
+  independent test-oracle correction below. The retained-public-stack-alias
+  regression passes in both, preserving its required native reentry.
+
+The first broad wrapping-arithmetic run exposed an unrelated return-span oracle
+assumption: `debug_assertions` was treated as the arithmetic-overflow setting.
+An isolated unchanged `bed263d` checkout reproduces the identical fuel mismatch
+(-5 versus -4). Production return handling eagerly evaluates `len - start` in
+`unwrap_or`; whether that panics is controlled by overflow checks, not the debug
+assertion flag. Test-only `563d5fe` probes arithmetic behavior instead. Its four
+explicit no-feature/JIT × checked/wrapping lanes pass. No production fuel or
+return-order change is made; both original failed logs remain retained.
+
+This is a correctness repair, **not a performance improvement or full native
+release acceptance**. No elapsed campaign or platform/resource acceptance is
+claimed for the fix. Future import reuse must still account for retained public
+stack handles and OpenUpValue handles, even after a thread's current open-upvalue
+list becomes empty. Internal-write-only versioning remains insufficient.
+Evidence and the unchanged baseline worktree are under
+`target/jit-evidence/hook-resume-recovery/stack-bounds/`; reproduction targets are
+`stack-bounds`, `stack-bounds-miri`, `stack-bounds-callbacks` and `vm-return-spans`.
+
 ### Warmed hardware-cycle attribution — 2026-10-18
 
 `933a9c9` adds a separate `jit_cycles` diagnostic example without changing the
