@@ -133,10 +133,10 @@ table-access-miri:
 .PHONY: jit-prehash-model jit-prehash-model-miri jit-prehash-profile-build jit-prehash-profile-run
 PREHASH_DIR ?= target/jit-evidence/short-slice-performance/prehashed-lookup
 jit-prehash-model:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 8 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prehash-model-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prehash-profile-build:
 	@mkdir -p '$(PREHASH_DIR)'
@@ -2170,6 +2170,10 @@ jit-callback-scratch-time-audit:
 	@perl examples/jit_support/strided_timing_audit.pl '$(CALLBACK_SCRATCH_TIMING_DIR)'
 
 CALLBACK_BASELINE_DIR ?= target/jit-evidence/hook-resume-recovery/callback-scratch/scratch-free-image
+.PHONY: jit-ordinary-baseline-time-run
+jit-ordinary-baseline-time-run: jit-profile-cpu-check
+	@bash examples/jit_support/strided_timing.sh '$(STRIDED_RUNTIME_DIR)' '$(STRIDED_TIMING_DIR)' '$(PROFILE_CPU)' '$(STRIDED_TIMING_WINDOWS)' ordinary_baseline '$(CALLBACK_BASELINE_DIR)'
+
 .PHONY: jit-callback-baseline-time-run
 jit-callback-baseline-time-run: jit-profile-cpu-check
 	@bash examples/jit_support/strided_timing.sh '$(CALLBACK_SCRATCH_DIR)' '$(CALLBACK_SCRATCH_TIMING_DIR)' '$(PROFILE_CPU)' '$(STRIDED_TIMING_WINDOWS)' callback_scratch_baseline '$(CALLBACK_BASELINE_DIR)'

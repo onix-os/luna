@@ -27,7 +27,7 @@ sub fixture {
     my $dir = "$root/$name";
     mkdir $dir or die $!;
     write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=$windows\n" . (defined $experiment ? "experiment=$experiment\n" : ''));
-    my $cross_image = defined $experiment && $experiment eq 'callback_scratch_baseline';
+    my $cross_image = defined $experiment && ($experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline');
     if ($cross_image) {
         write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=$windows\nexperiment=$experiment\nimage=/candidate\nbaseline=/baseline\n");
         write_file("$dir/binary.sha256", ('a' x 64) . "  /candidate/test-binary\n" . ('b' x 64) . "  /baseline/test-binary\n");
@@ -41,10 +41,10 @@ sub fixture {
             my $case = $selected[($position + $window) % @selected];
             for my $label (@{$orders[$window % @orders]}) {
                 $order .= "$window $case $label\n";
-                my $mode = $label eq 'candidate' ? 'true' : 'false';
+                my $mode = $label eq 'candidate' && (!defined $experiment || $experiment ne 'ordinary_baseline') ? 'true' : 'false';
                 my $ns = $label eq 'candidate' ? 500 : 1000;
                 my $counters = join ', ', (1) x 25;
-                my $worker_field = $cross_image && $label ne 'candidate' ? 'strided' : $field;
+                my $worker_field = $cross_image && ($label ne 'candidate' || $experiment eq 'ordinary_baseline') ? 'strided' : $field;
                 write_file("$dir/$window-$case-$label.log",
                     "TIMING_V1 case=$case $worker_field=$mode elapsed_ns=$ns counters=[$counters] code_bytes=4096 metadata_bytes=16 metadata_peak_bytes=32 snapshot_peak_bytes=64\ntest result: ok. 1 passed; 0 failed;\n");
             }
@@ -76,7 +76,7 @@ for my $case (@{$report->{reports}}) {
     die 'wrong ratios' unless $case->{ratio}{median} == 2 && $case->{placebo}{median} == 1;
     die 'wrong sample count' unless $case->{ordinary_ns}{count} == 6 && $case->{candidate_ns}{count} == 3;
 }
-for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch_baseline)) {
+for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch_baseline ordinary_baseline)) {
     my $good = fixture("good-$experiment", $experiment, 6);
     die "valid $experiment screen refused" unless audit($good);
     open my $json, '<', "$good/audit.json" or die $!;
@@ -105,7 +105,7 @@ for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch
             if ($fault eq 'duplicate') { $log .= $log; }
             elsif ($fault eq 'zero') { $log =~ s/elapsed_ns=500/elapsed_ns=0/; }
             elsif ($fault eq 'signed') { $log =~ s/elapsed_ns=500/elapsed_ns=-500/; }
-            elsif ($fault eq 'mode') { $log =~ s/=true/=false/; }
+            elsif ($fault eq 'mode') { $log =~ s/=(true|false) /'=' . ($1 eq 'true' ? 'false' : 'true') . ' '/e; }
             elsif ($fault eq 'field') { $log =~ s/(strided|preferred|scratch)=/unknown=/; }
             elsif ($fault eq 'counters') { $log =~ s/counters=\[1/counters=[2/; }
             elsif ($fault eq 'native') { $log =~ s/code_bytes=4096/code_bytes=0/; }
@@ -134,7 +134,7 @@ for my $fault (qw(control_field control_mode baseline_identity image_manifest)) 
     die "accepted $fault" if audit($dir);
     die "wrote success artifact for $fault" if -e "$dir/audit.json";
 }
-print "Timing audit: legacy and four six-order experiments; 56 malformed screens refused\n";
+print "Timing audit: legacy and five six-order experiments; 69 malformed screens refused\n";
 
 my $image = "$root/runner-image";
 my $bin = "$root/runner-bin";
@@ -184,7 +184,7 @@ close $baseline_checksums or die 'checksum failure';
 write_file("$baseline/binary.sha256", $baseline_manifest);
 write_file("$baseline/source.sha256", $baseline_manifest);
 write_file("$baseline/source-root", getcwd() . "\n");
-for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch_baseline)) {
+for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch_baseline ordinary_baseline)) {
     my $out = "$root/runner-$experiment";
     my $pid = fork();
     die $! unless defined $pid;
@@ -194,7 +194,7 @@ for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch
         open STDOUT, '>', "$root/runner-$experiment.stdout" or die $!;
         open STDERR, '>', "$root/runner-$experiment.stderr" or die $!;
         exec 'bash', 'examples/jit_support/strided_timing.sh', $image, $out, 0, 3, $experiment,
-            ($experiment eq 'callback_scratch_baseline' ? ($baseline) : ());
+            ($experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline' ? ($baseline) : ());
         die $!;
     }
     waitpid($pid, 0);
@@ -207,7 +207,7 @@ for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch
     }
     die "runner output audit failed $experiment" unless audit($out);
 }
-print "Timing runner: four experiment selectors, telemetry and record checks passed with synthetic workers\n";
+print "Timing runner: five experiment selectors, telemetry and record checks passed with synthetic workers\n";
 for my $fault (qw(missing_root bad_source wrong_binary same_image)) {
     my $out = "$root/rejected-$fault";
     unlink "$baseline/source-root" or die $! if $fault eq 'missing_root';

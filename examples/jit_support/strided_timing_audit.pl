@@ -30,10 +30,10 @@ die "invalid configuration\n" unless defined $cpu && defined $windows && $window
 die "missing final verification\n" unless slurp("$directory/verification-after.log") =~ /: OK\n/;
 my ($experiment) = $config =~ /^experiment=(.*)$/m;
 $experiment //= 'strided';
-my %fields = (strided => 'strided', preferred_entry => 'preferred', callback_scratch => 'scratch', callback_scratch_baseline => 'scratch');
+my %fields = (strided => 'strided', preferred_entry => 'preferred', callback_scratch => 'scratch', callback_scratch_baseline => 'scratch', ordinary_baseline => 'strided');
 die "unknown timing experiment\n" unless exists $fields{$experiment};
 my $field = $fields{$experiment};
-my $cross_image = $experiment eq 'callback_scratch_baseline';
+my $cross_image = $experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline';
 if ($cross_image) {
     my ($image) = $config =~ /^image=(.+)$/m;
     my ($baseline) = $config =~ /^baseline=(.+)$/m;
@@ -70,7 +70,7 @@ for my $case (@cases) {
             die "failed test $path\n" unless $log =~ /test result: ok\. 1 passed; 0 failed;/;
             my @lines = $log =~ /^(TIMING_V1 .*)$/mg;
             die "invalid record count $path\n" unless @lines == 1;
-            my $mode = $label eq 'candidate' ? 'true' : 'false';
+            my $mode = $label eq 'candidate' && $experiment ne 'ordinary_baseline' ? 'true' : 'false';
             my $worker_field = $cross_image && $label ne 'candidate' ? 'strided' : $field;
             $lines[0] =~ /^TIMING_V1 case=\Q$case\E \Q$worker_field\E=$mode elapsed_ns=([1-9]\d*) counters=\[([\d, ]+)\] code_bytes=(\d+) metadata_bytes=(\d+) metadata_peak_bytes=(\d+) snapshot_peak_bytes=(\d+)$/
                 or die "invalid record $path\n";

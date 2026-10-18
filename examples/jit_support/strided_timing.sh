@@ -8,7 +8,7 @@ windows=$4
 experiment=${5:-strided}
 baseline=
 case $experiment in
-    strided)
+    strided|ordinary_baseline)
         cases=(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
         case_variable=LUNA_STRIDED_CASE
         mode_variable=LUNA_STRIDED
@@ -31,7 +31,7 @@ case $experiment in
         ;;
     *) echo 'unknown timing experiment' >&2; exit 2;;
 esac
-if [[ $experiment == callback_scratch_baseline ]]; then
+if [[ $experiment == callback_scratch_baseline || $experiment == ordinary_baseline ]]; then
     (( $# == 6 ))
     baseline=$(realpath "$6")
     test "$image" != "$baseline"
@@ -92,6 +92,7 @@ for (( window=0; window<windows; window++ )); do
         for label in "${order[@]}"; do
             mode=0
             test "$label" != candidate || mode=1
+            if [[ $experiment == ordinary_baseline ]]; then mode=0; fi
             worker_image=$image
             worker_case=$case_variable
             worker_mode=$mode_variable
