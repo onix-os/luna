@@ -9,6 +9,32 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Canonical Add outline — aggregate staging regression, 2026-10-18
+
+Trial `203065a` keeps the original VM caller and value representations, nests
+canonical Add's numeric matches and outlines only its existing nonnumeric
+fallback without a cold hint. Focused checks pass **137 executions / 22
+summaries**. Fourteen profiles retain logical/resource fields; strict auditing
+passes nine corruptions and exact maps pass four.
+
+The VM body shrinks **0xd906 → 0xd20c**, but integer/float Off instructions grow
+**3.1792% / 3.9458%**. Numeric tag normalization remains, with new 16-byte operand
+reloads and aggregate result staging/copies on the numeric path. The fallback
+helper is **0x618 bytes**. These are exact instruction observations, not new PMU
+forwarding measurements or proof that a smaller VM runs faster.
+
+The seven-case elapsed screen completes **252 commands / 25,704 measured
+executions**, six balanced orders on CPUs 0/16, unchanged gates and zero counter
+mismatches; its strict auditor passes nine corruptions. CPU0 integer/float Off
+control/candidate ratios are **0.475912 / 0.678681**, placebos **1.001718 /
+1.000845**, both six adverse. CPU16 ratios are **0.720332 / 0.956106**, also six
+adverse. Reject the outline; it is not promoted. No full Force, Miri, fallback
+platform or shipping acceptance was run for this negative candidate.
+
+A separate scalar-guard probe restores the original inlinable fallback rather
+than inheriting the aggregate-returning outline. Evidence for this rejection:
+`target/jit-evidence/hook-resume-recovery/canonical-add-nested`.
+
 ### Bounded callable niches — hypothesis disproved, 2026-10-18
 
 Trial `d0fdcb9` uses Function `repr(usize)` discriminants 9 and
