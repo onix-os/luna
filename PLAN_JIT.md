@@ -9,6 +9,48 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Short full-suite cycle sampling — attribution, 2026-10-18
+
+The original speed native executables now complete 36 sampled **full-suite**
+processes: six balanced control/candidate/same-image-placebo rounds on CPUs
+0/16, all nine workloads, eleven paired samples, original checked thresholds
+and a shared hardlink launch path. Actual image/source/map/tool identity,
+MMAP2 relocation, exact capture counts and period sums verify; zero lost
+samples are reported. The auditor accepts two valid fixtures and rejects 15
+targeted corruptions. All corresponding execution/resource counters match.
+No owned build or test overlaps collection.
+
+The first collector attempt preserves a wrapper bug: the benchmark's direct
+Rust error exits **1**, whereas Make reports its failed recipe as **2**.
+The corrected collector retains status 0/1 and verifies the exact printed
+gate/error count rather than treating performance failures as collection
+failures. The completed campaign contains five status-0 and 31 status-1 runs;
+40 individual workload gates fail. The prior isolated paired screens contain
+only status-0 runs, so their results are not invalidated, but their unused
+failed-gate path must not be copied into future direct-perf collectors.
+
+All **30,190 samples** and **27,055,368,179 period units** are accounted for.
+Median whole-process VM shares are 12.450%/11.964% baseline/candidate on CPU 0
+and 12.872%/12.151% on CPU 16. Compilation and other workloads remain in the
+denominator: these are not float-Off-specific shares. A leading common VM
+sample offset, 0xd63, decodes to the address addition immediately preceding
+the packed-opcode indirect jump. Non-precise IPs do not prove that instruction
+is the stall source, and the existing packed dispatch is already fused.
+This evidence does not justify repeating rejected opcode-decoder, numeric
+constant-materialization or blind alignment variants.
+
+A separate CPU 16 capability probe successfully captures hardware branch
+histories on the unchanged candidate with the original short full suite.
+Its 1,029 samples include predicted/mispredicted branch flags. This is only
+capability evidence, not a comparative branch attribution or speedup. Next
+compare exact-address VM branch histories under the same balanced context;
+history entries must not be reported as unbiased retired-branch totals.
+Main runtime is unchanged, no candidate is promoted, and full acceptance
+remains open. Evidence:
+`target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/native-suite*`
+and `native-lbr*`; the failed first collector and its tool snapshots are kept
+as `native-suite-status-error*`.
+
 ### Callback ablation exact-image counters — attribution, 2026-10-18
 
 A 36-process hardware-counter screen uses the original speed `native-bench`
