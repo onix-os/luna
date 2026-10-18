@@ -9,6 +9,60 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Canonical PC preservation — fewer instructions, elapsed refusal, 2026-10-18
+
+Trial `4fde210` on `trial/jit-canonical-pc` omits the narrow canonical helper's
+redundant completion PC write only without a projection. Canonical lookup,
+upvalue reads and destination stores cannot mutate that PC or invoke users;
+the initial advance remains before effects. Projection completion still restores
+PC after refresh, while decline rollback, panic materialization and other helper
+families retain their contracts. A bridge oracle deliberately changes PC during
+flush and injects flush/refresh failures, comparing narrow and unchanged
+six-argument entries at low and high representable PCs. The initial test's
+ambiguous-integer compile failure and corrected result are retained separately.
+
+Formatting/all-feature checks and **1,444 passing executions / eight summaries**
+complete, zero failures and 23 ignored: 45 focused executions plus 1,399 full
+JIT/native/heap executions (including 1,361 JIT unit tests). Pinned Miri passes
+five selected tests/model, ten total. Real i686-musl checks pass 33 executions,
+one ignored. Both incremental trial commits are pushed; main runtime is unchanged.
+
+Fourteen new instruction profiles compare against the frozen `6c69b95` image
+from the same build path. All non-timing execution/resource counters match.
+Partition sums, source/image/tool provenance, the unchanged strict auditor,
+its valid fixture and nine corruption refusals pass. Callback Auto falls
+**9,288,782 -> 9,258,782 instructions/execution (-0.323%)**; all 30,000 saved
+instructions are in the helper, whose 5,000 calls now execute **135 rather than
+141 self instructions each** (the earlier six-argument helper used 137).
+Metamethod Auto falls 0.124%; integer/float both modes are unchanged. Upvalue
+Auto instead rises **0.646%**. No unfavorable profile is discarded.
+
+A focused elapsed screen completes **72 commands / 7,344 measured executions**:
+six balanced A/candidate/B orders on CPUs 0/16, callbacks and upvalues, 51
+alternating Off/Auto samples, identical hardlink launch paths and same-image
+A/B controls. Image/source/tool hashes, order, native coverage, counter equality
+and telemetry verify; the audit's valid fixture and nine corruptions pass.
+No owned build/test/profiler overlaps timing. These are opt-level-3 unstripped
+diagnostic images, not shipping or full release acceptance.
+
+- Callback Auto median control/candidate ratios are **1.00267 / 0.99325** on
+  CPUs 0/16; placebos are **1.00164 / 1.00054**. The CPU16 candidate is adverse
+  in all six rounds. Its original callback gate fails four of twelve windows.
+- Upvalue Auto ratios are **0.97414 / 0.97043**, adverse in all six rounds on
+  both CPUs; placebos are **0.98771 / 0.99462**, with notable control drift.
+  Passing all twelve upvalue Off/Auto gates does not erase the cross-revision loss.
+
+This form is **not accepted or promoted**. A named-function diagnostic attributes
+the third measured upvalue execution's extra work to `Admitted::new`
+(63,019 -> 79,195) and `Session::complete_inline` (1,388,607 -> 1,404,075).
+VM/Executor self work matches. These paths inline registry ID-resolution scans;
+the previously documented same-image scan variation remains relevant, but does
+not justify subtracting this loss or claiming a new causal explanation without
+instruction-level attribution. Investigate registry resolution/admission before
+another broad timing campaign. Prepared-path injected signature-refusal coverage
+and full production/platform/resource/release acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/pc-preservation/`.
+
 ### Helper signature reuse — allocation regression removed, 2026-10-18
 
 Trial `6c69b95` on `trial/jit-signature-reuse` reuses the existing six-parameter
