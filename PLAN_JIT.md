@@ -9,6 +9,47 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### VM scalar Add guards — numeric gains, cross-workload acceptance open, 2026-10-18
+
+Integer-only trial `6f08d28` adds a direct-store integer-pair VM path to the
+unpromoted canonical guards. Exact maps show two physical-tag checks against 4,
+without integer Add normalization or wide operand reloads. Integer Off work
+falls **3.7088%**, but float Off grows **2.4664%**. Its first balanced screen
+has favorable integer results but CPU16 float Off **0.953860** (six adverse)
+and CPU0 GC Off/Auto **0.857941 / 0.844615** (four/five adverse). Large CPU0
+integer gains despite nearly unchanged Auto instruction work are not a causal
+speedup claim. This predecessor is not promoted.
+
+Trial `78bcda0` adds a same-kind Number/Number VM store. It retains scalar loads
+and normalizes only the left operand; right tags are checked directly against
+4 or 5. Integer/float Off instruction work falls **2.6493% / 6.9051%**, upvalue
+Auto **1.8069%**. Both variants pass **137 focused executions / 22 summaries**,
+fourteen strict profiles with unchanged logical/resource fields, nine profile
+auditor corruptions and four exact-map corruptions.
+
+Two seven-case screens for `78bcda0` complete **504 commands / 51,408 measured
+executions**, six balanced orders on CPUs 0/16 per screen, unchanged gates and
+zero counter mismatches; each elapsed auditor passes nine corruptions. These
+are control-time/candidate-time medians, initial / repeat:
+
+| Case | CPU | Ratio |
+| --- | --- | --- |
+| Integer Off | 0 | 1.025393 / 1.026629 |
+| Float Off | 0 | 1.056733 / 1.054694 |
+| Integer Off | 16 | 1.069011 / 1.066688 |
+| Float Off | 16 | 1.069626 / 1.090845 |
+| Upvalue Off | 0 | 0.996812 / 0.989947 |
+| Metamethod Auto | 0 | 0.992507 / 0.991970 |
+| Metamethod Off | 16 | 0.983436 / 0.986914 |
+
+The repeated CPU0 upvalue Off and metamethod Auto screens each have six adverse
+rounds; CPU16 metamethod Off has six/five. Numeric gains therefore do not prove
+cross-workload acceptance. Neither runtime is promoted; no Miri, full Force,
+fallback or stripped shipping acceptance is claimed. A separate VM-only probe
+restores the original canonical operator to remove the now-unneeded inherited
+rewrite. Evidence: `target/jit-evidence/hook-resume-recovery/add-integer-guard`
+and `add-scalar-guards`, including the latter's `elapsed-repeat`.
+
 ### Canonical Add scalar guards — mixed first screen, 2026-10-18
 
 Trial `bce1f0b` starts from the original runtime, replacing canonical Add's tuple
