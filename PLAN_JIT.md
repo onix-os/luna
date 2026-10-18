@@ -71,6 +71,45 @@ Earlier placement trials remain relevant and must not be blindly repeated.
 Evidence: `target/jit-evidence/hook-resume-recovery/registry-pair-scan/`, including
 `warm-audit.json`, `elapsed-audit.json` and both `timing*/production-audit.json`.
 
+#### Exact-image follow-up on the pair-scan disabled cost
+
+A separate unstripped rebuild is **not** an exact companion: the baseline
+executable segment grows 16 bytes and writable segment geometry changes. The
+strict companion check refuses it; those images are excluded from attribution.
+Rebuilding with original strip flags and an added linker-map output instead
+produces **whole-file byte-identical copies of both benchmarked speed-cost
+executables**. Original source witnesses, maps and artifact hashes verify.
+
+In these exact images, VM starts move **0x5caee0 -> 0x5caf10 (+48 bytes)** while
+size remains **0xd7ea**. All 11,115 normalized instruction lines match; 286
+external direct-branch references resolve to matching symbol names. Normalization
+does not verify indirect targets or referenced data, so this is not a blanket
+whole-program equivalence proof or causal placement proof.
+
+A new **72-command / 72,000-iteration** diagnostic runs the unchanged stripped
+Off workers, integer/float, CPUs 0/16, six balanced A/candidate/B orders and a
+common hardlink path. Four grouped user-mode hardware events use the appropriate
+core/atom PMU. All 288 event records report 100% running; worker results are
+verified, native work is zero, provenance/telemetry/order checks pass, and the
+independent auditor rejects twelve corrupt fixtures. No owned build/test overlaps.
+
+- CPU0 integer control/candidate medians: worker elapsed **0.94446**, user
+  cycles **0.94216**, instructions **1.00000545**, branch misses **1.00116**.
+  Corresponding elapsed/cycle placebos are **1.03027 / 1.03041**; contention and
+  opposite-direction rounds remain in the evidence.
+- Across all integer/float instruction ratios, maximum distance from one is
+  **0.00194%**. Extra executed interpreter instructions are not supported as
+  the explanation for the observed disabled-cost gap.
+- CPU16 float elapsed and cycle ratios differ (**0.92502 / 1.02494**), reinforcing
+  that whole-process user counters and worker wall time have different scopes.
+  Counters include startup/two warmups; worker timing excludes them. This is
+  diagnostic evidence, not a replacement for the original acceptance screen.
+
+Placement/front-end behavior remains a hypothesis requiring stronger attribution;
+no new alignment policy, offset search or runtime change is selected. The pair
+trial remains unpromoted. Evidence: the trial's `attribution/`, especially
+`*-map/identity`, `vm-structure.diff`, `direct-targets.json` and `counter-audit.json`.
+
 ### Registry ID index — correctness passes, performance refusal, 2026-10-18
 
 Trial `fd2b0a7` on `trial/jit-registry-id-index` replaces ID resolution's
