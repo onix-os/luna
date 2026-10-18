@@ -1816,12 +1816,36 @@ impl Runtime {
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
         budget: u32,
     ) -> u32 {
+        #[cfg(not(miri))]
+        if code.array_kernels.is_none() {
+            return self
+                .invoke_selected::<CAPACITY, EXACT, false>(code, ctx, closure, registers, budget);
+        }
+        self.invoke_selected::<CAPACITY, EXACT, true>(code, ctx, closure, registers, budget)
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[inline(always)]
+    fn invoke_selected<'gc, const CAPACITY: usize, const EXACT: bool, const ARRAYS: bool>(
+        &self,
+        code: &backend::Code,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        budget: u32,
+    ) -> u32 {
         #[cfg(all(test, not(miri)))]
         if code.entry_kind.needs_canonical_frame() {
-            return self
-                .invoke_transport::<CAPACITY, EXACT, true>(code, ctx, closure, registers, budget);
+            return self.invoke_transport::<CAPACITY, EXACT, true, ARRAYS>(
+                code, ctx, closure, registers, budget,
+            );
         }
-        self.invoke_transport::<CAPACITY, EXACT, false>(code, ctx, closure, registers, budget)
+        self.invoke_transport::<CAPACITY, EXACT, false, ARRAYS>(
+            code, ctx, closure, registers, budget,
+        )
     }
 
     #[cfg(all(
@@ -1829,7 +1853,13 @@ impl Runtime {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     #[inline(never)]
-    fn invoke_transport<'gc, const CAPACITY: usize, const EXACT: bool, const CANONICAL: bool>(
+    fn invoke_transport<
+        'gc,
+        const CAPACITY: usize,
+        const EXACT: bool,
+        const CANONICAL: bool,
+        const ARRAYS: bool,
+    >(
         &self,
         code: &backend::Code,
         ctx: crate::Context<'gc>,
@@ -1840,7 +1870,7 @@ impl Runtime {
         let register_count = if EXACT { CAPACITY } else { code.registers };
         #[cfg(all(test, not(miri)))]
         if CANONICAL && code.array_kernels.is_none() {
-            return self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL>(
+            return self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL, ARRAYS>(
                 code,
                 ctx,
                 closure,
@@ -1886,7 +1916,7 @@ impl Runtime {
                 closure.upvalues(),
                 slots,
                 |registers, pointer, projection| {
-                    self.invoke_frame_transport::<CAPACITY, true, false, CANONICAL>(
+                    self.invoke_frame_transport::<CAPACITY, true, false, CANONICAL, ARRAYS>(
                         code,
                         ctx,
                         closure,
@@ -1897,7 +1927,7 @@ impl Runtime {
                 },
             )
         } else {
-            self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL>(
+            self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL, ARRAYS>(
                 code,
                 ctx,
                 closure,
@@ -1980,11 +2010,11 @@ impl Runtime {
     ) -> u32 {
         #[cfg(not(miri))]
         if code.entry_kind.needs_canonical_frame() {
-            return self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, true>(
+            return self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, true, true>(
                 code, ctx, closure, registers, binding, budget,
             );
         }
-        self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, false>(
+        self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, false, true>(
             code, ctx, closure, registers, binding, budget,
         )
     }
@@ -2000,6 +2030,7 @@ impl Runtime {
         const PROJECTED: bool,
         const DEFER: bool,
         const CANONICAL: bool,
+        const ARRAYS: bool,
     >(
         &self,
         code: &backend::Code,
@@ -2026,7 +2057,7 @@ impl Runtime {
             projection,
         };
         #[cfg(not(miri))]
-        let array_prefix = if !PROJECTED && !DEFER {
+        let array_prefix = if ARRAYS && !PROJECTED && !DEFER {
             code.array_kernels.as_ref().and_then(|kernels| {
                 let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
                 kernels.invoke(
@@ -3517,3 +3548,11 @@ mod scheduled_import_tests;
 
 #[cfg(test)]
 mod slice_policy_tests;
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod array_presence_tests;
