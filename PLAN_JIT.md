@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Stripped scalar-guard production comparison — not accepted, 2026-10-19
+
+Both matched profiles for `79631fe` and trial `6b5e5c7` are built: 12 images
+covering speed/shipping, no-feature/JIT-Off cost workers and native benchmarks.
+Source/configuration/environment/image witnesses pass. Two balanced production
+campaigns finish **288 commands**, **28,512 native measured executions** and
+**570,240 feature-cost workload iterations**. Each preserves all nine workloads,
+two CPUs, six A/candidate/B orders and every failed gate. Both auditors report
+zero execution/resource-counter mismatches; valid/restored fixtures and all
+13 corruption checks pass for each. No owned builds/tests/profilers overlapped
+measurement. Evidence: `vm-scalar-guards/timing{,-repeat}/` under the existing
+hook-resume recovery evidence directory.
+
+Speed-profile numeric gains persist in the production cost workers. Initial /
+repeat CPU0 JIT-Off control/candidate ratios are **1.03933 / 1.03848** for
+integer and **1.07328 / 1.07602** for float; CPU16 gives **1.03249 / 1.03429**
+and **1.10333 / 1.10434**. However, shipping-profile regressions also repeat:
+CPU0 integer JIT-Off **0.96761 / 0.96590** (all six adverse in each campaign),
+CPU16 metamethod JIT-Off **0.97278 / 0.97188** (six/five adverse), and CPU16
+no-feature array **0.98464 / 0.98802** and GC **0.97927 / 0.98057** (six each).
+These are candidate/main comparisons, not replacements for the original gates.
+
+Original gates remain unmet too. Speed native callbacks fail all six rounds on
+both CPUs in both campaigns; CPU0 metamethod fails four/five rounds. CPU16
+speed compiled-Off upvalue and callback controls fail six rounds in both
+campaigns, with corresponding baseline failures also present. Repeat Oslo
+compiled-Off cost fails six rounds on both CPUs, despite native Oslo remaining
+observational. Do not confuse an unscored native gate with an exemption from
+the compiled-disabled gate. Small source changes do not establish a complete
+JIT fix, and this runtime candidate remains unpromoted. Exact stripped shipping
+images are the next counter-diagnosis target; no opt-level policy is changed.
+
 ### VM-only guards and corrected gate auditing — validation expanded, 2026-10-18
 
 Trial `6b5e5c7` restores the canonical operator exactly to main, leaving only
