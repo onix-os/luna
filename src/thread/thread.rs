@@ -16,6 +16,8 @@ mod tests;
 #[cfg(all(test, feature = "jit"))]
 pub(super) mod builtin;
 #[cfg(test)]
+mod call_layout;
+#[cfg(test)]
 mod callback_setup;
 
 use crate::{

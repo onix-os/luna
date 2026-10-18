@@ -9,7 +9,206 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### VM-produced normal successors — isolated timing candidate, 2026-10-18
+### Shared numeric stores — rejected instruction trial, 2026-10-18
+
+Trial `3fc3ece` on `trial/jit-numeric-loop-store` consolidates the three
+numeric arms' index/PC/visible-index writes after computing the next Value
+and past-end flag. It builds on `a7182e5`, preserves conversion failures
+before writes and the original write order, and is not promoted to main.
+Sixty-four focused executions, all-feature/format checks and two focused
+default-Miri loop executions pass.
+
+The intended write reduction occurs, but other work increases: integer VM
+writes fall from baseline 428,859 to 408,857, while reads rise from 1,017,720
+to 1,098,355 and instructions rise from 3,662,572 to 3,683,828. Whole integer
+Off instructions grow 0.563%, float Off 0.524%. Thirteen of fourteen cases
+increase; only closure/upvalue Auto improves (0.351%). All execution/resource
+counters and the valid/nine-corruption profile audit agree. This is not an
+elapsed improvement and does not justify another production timing campaign
+for this form. Source-level consolidation did not reduce total work.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/borrowed-loop/shared-store/`
+(`warm-audit.json`, `candidate/`, `focused-tests.log`, `miri.log`).
+
+### Bounded numeric operands — instruction screening, 2026-10-18
+
+Two isolated successors to the separate-reference experiment retain the
+original numeric arithmetic, conversions, overflow/direction checks and write
+order. Both first validate a three-slot operand slice. `a7182e5` matches
+references into that slice; `2717a7a` matches copied Values instead. They are
+committed separately on `trial/jit-bounded-for-loop` and
+`trial/jit-numeric-loop-span`; neither is promoted to main.
+
+Against `066905e`, whole-execution instruction counts change as follows:
+
+| Workload/mode | Bounded references | Bounded Values |
+| --- | ---: | ---: |
+| Integer loop Off | -2.633% | -2.103% |
+| Float loop Off | -2.450% | -1.957% |
+| Array table Off | -1.218% | -0.940% |
+| Closure/upvalue Auto | +0.177% | -1.175% |
+
+Bounded references improve four of fourteen cases and increase ten; bounded
+Values improve five and increase nine. Execution/resource counters match in
+all cases, and valid/nine-corruption profile fixtures pass. Integer VM self
+instructions fall from 3,662,572 to 3,563,203 with references, but reads and
+writes increase. The Value-copy variant performs another 40,002 writes. This
+does not demonstrate removal of all copies or an elapsed-time improvement.
+
+Both variants pass 64 focused executions and all-feature/format checks, plus
+the integer-loop overflow/direction test under default Miri in both feature
+modes. Bounded references also pass 42 i686-musl numeric executions (21 per
+feature mode). These are focused results, not full release acceptance.
+
+`a7182e5` is selected for the first production timing screen because of its
+larger numeric instruction reduction and lower write count than `2717a7a`.
+The same balanced, repeated, two-CPU/two-profile protocol measures no-feature,
+compiled-Off and native execution without relaxing the original gates. Its
+production campaign has now completed: 144 commands, 14,256 measured native
+executions and 285,120 measured cost iterations, with zero counter/resource
+mismatches. Source/image/configuration/environment verification passes before
+and after; two valid audit fixtures and 13 corrupted fixtures pass/refuse as
+expected. No owned builds, tests or profilers overlap elapsed collection.
+
+Results are mixed, not acceptance. CPU16 speed compiled-Off integer/float
+control/candidate medians are 1.03252/1.05301, improving in all six rounds.
+But CPU16 speed compiled-Off arrays regress in all six rounds (0.97097,
+placebo 0.99844). CPU0 shipping compiled-Off integer/float medians are
+0.97578/0.98167, worse in five rounds each, with placebo medians
+0.98514/0.99101. Some native comparisons have substantial placebo movement;
+those noisy observations are not clean causal speedup estimates.
+
+The candidate still fails compiled-Off upvalue gates in all 12 windows per
+profile, native callback gates in 11/12 speed and 12/12 shipping windows,
+and native array gates in 9/12 speed and 8/12 shipping windows. Shipping
+native thresholds remain diagnostic. The candidate is not promoted, and
+these results do not establish a fix for the original performance gaps.
+Complete ratios, all gates and raw records remain in
+`bounded/timing/production-audit.json` and `bounded/timing/production-screen/`.
+
+The earlier broad default-Miri run completed with 19 passes and two failures:
+`string_coercion_keeps_the_integer_subtype` and
+`two_to_the_sixty_three_is_out_of_integer_range`. Both failing assertions
+reproduce on unchanged `066905e`. A baseline-only diagnostic with
+`-Zmiri-no-extra-rounding-error` passes both; this does not replace or waive
+the default gate. The original feature-enabled broad run was not reached.
+The focused loop Miri results above use default flags, not that diagnostic.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/borrowed-loop/`
+(`bounded/`, `span-values/`, `baseline-miri*` and `miri.log`).
+
+### Exact numeric attribution and borrowed operands, 2026-10-18
+
+Ordinary unstripped rebuilds do not preserve the shipping images: the baseline
+VM text section moves96 bytes and grows640 bytes. Their symbol addresses are
+not used for attribution. Instead, a rustc wrapper requests only a linker map
+for the original stripped cost example. Both resulting executables match their
+frozen baseline/candidate files **byte-for-byte**.
+
+The maps place `run_vm_slice` at0x39b306 in the baseline and0x39b32c in the
+rotation candidate, size0xa478 in both. `push_call` grows from0x4dc to0x502
+bytes, shifting VM/executor placement38 bytes. This does not prove alignment
+caused the slowdown.
+
+A72-process exact-image sampling campaign retains69687 user-cycle samples:
+six balanced A/candidate/B rounds, CPUs0/16, both numeric workloads,1000
+iterations per worker. Captured counts, summed periods, executable mappings
+and zero lost samples verify; two valid audit fixtures and ten corruptions
+pass/refuse as expected. CPU0 VM median shares rise from91.83%/92.15%
+(integer/float) to92.97%/93.65%. Non-precise sampled PCs are not causal stall
+attribution. Perf's rounded `1K` header is not used as an exact count; the
+initial parser refusal and corrected capture/script-count audit are retained.
+
+The sampled regions include numeric-loop operand handling, whose assembly
+copies whole Values through stack slots. Separate trial **`e927bf4`** borrows
+the three operands and copies integer payloads before writing. It starts from
+`066905e`, not the rejected rotation guard, and changes no arithmetic,
+conversion, overflow, direction, PC or fuel rules. It is committed/pushed on
+`trial/jit-borrowed-for-loop`, not main. Sixty-four focused executions across
+seven summaries and workspace all-feature/format checks pass.
+
+This first borrowed form **does not remove the measured work**: integer Off
+VM instructions grow3662572 to3702574, with identical read/write counts. Full
+execution grows1.060% integer Off and0.986% float Off; ten of fourteen cases
+increase and four are unchanged. Complete counters/resources match, and the
+profile auditor's valid/nine-corruption fixtures pass. No elapsed improvement
+or acceptance is claimed; Miri validation was still running when recorded.
+Do not promote this form or infer that source-level borrowing eliminated
+copies. Further work must demonstrate an actual reduction, with the original
+correctness and performance gates intact.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/timing/`
+(`*-linkmap`, `attribution-audit.json`) and its sibling `borrowed-loop/`.
+
+### Identity argument rotations — timing regressions, 2026-10-18
+
+Main `066905e` adds an independent closure-argument layout oracle and Make
+targets. Isolated `b6d267d` skips only zero/full rotations in `push_call`, after
+the original slice bounds check. Excess arguments retain their existing layout
+even for non-vararg prototypes. The runtime change is pushed on
+`trial/jit-argument-rotation`, **not promoted to main**.
+
+The candidate passes209 focused test executions:8 host layout checks across
+both feature and overflow settings,193 call/return/activation checks, and8
+i686-musl layout checks. Four Miri executions and workspace all-feature/format
+checks pass. These are focused checks, not full-suite or release acceptance.
+
+Full-execute instruction profiles improve8/14 workload/mode cases, with6
+unchanged and matching execution/resource counters. Closure/upvalue Off drops
+1.985%, Auto0.651%; metamethod Off/Auto drop0.489%/0.491%; callback Off/Auto
+drop0.064%/0.053%. Array changes are below0.002%. Numeric and allocation
+instruction counts are unchanged. Upvalue Off `push_call` self instructions
+fall950000 to820000; its190000-instruction rotation entry disappears. Valid
+profile fixtures and nine targeted corruption refusals pass.
+
+Matched production builds use one source/target path, sequential package
+cleanup, and identical speed/shipping configurations. Unlike prior JIT-only
+trials, this common-VM change intentionally changes no-feature binaries too.
+Verification pins the exact source patch and all source/image hashes; build
+environments match except tool-call identity and temporary Nix directories.
+Both no-feature costs remain measured, not assumed unchanged.
+
+The144-command timing campaign completes six balanced A/candidate/B orders on
+CPUs0/16, both profiles and nine workloads:14256 measured native executions,
+285120 measured cost iterations, zero counter/resource mismatches. All raw
+cost medians are recomputed; native medians remain worker summaries. Before/
+after provenance passes, as do two valid audit fixtures and13 corrupt refusals.
+No owned builds/tests/profilers overlap elapsed collection.
+
+Upvalue Off improves in all six rounds on both CPUs and both profiles, but
+**shipping CPU0 compiled-Off numeric costs regress in all six rounds**:
+control/candidate ratios are0.9011126092 for integers and0.8952442570 for floats
+(10.97%/11.70% longer elapsed time). Same-image placebo ratios are1.0016407206
+and1.0001793014. Additional repeated losses include speed CPU0 no-feature
+integers/floats and compiled-Off integers. Original native callback gates fail
+12/12 windows in both profiles; compiled-Off upvalue gates fail7/12 speed and
+12/12 shipping. Shipping native thresholds remain diagnostic.
+
+Passing an individual compiled-disabled overhead gate does not erase a
+cross-revision slowdown. The measured runtime is not accepted; main remains
+unchanged. Instruction equality does not establish a layout or hardware cause.
+
+An exact-image hardware follow-up completes72 grouped user-space counter runs,
+six balanced A/candidate/B rounds for both numeric workloads on CPUs0/16,
+1000 iterations per worker. All four counters run without multiplexing. CPU0
+cycle control/candidate medians are0.8997995116 for integers and0.9029902457
+for floats:10.7–11.1% more candidate cycles, in every round. Their instruction
+and branch-count medians differ by less than0.001%; branch-miss counts do not
+show a comparable increase. The cycle penalty does not reproduce in CPU16
+medians. These counters cover the whole worker, including startup/warmups,
+not just the VM. Source/image/tool verification and two valid audit fixtures
+plus ten corrupt refusals pass. The initial missing-PATH-perf failure is
+retained; the completed run uses the explicitly identified Nix perf binary.
+Results are in `timing/hardware-audit.json` and `timing/hardware/`.
+
+Investigate the numeric cycle penalty before another runtime variant; do not
+assume branch prediction or alignment is its cause, or rerun a broad
+correctness suite merely to accumulate passes for this build.
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/`, especially
+`warm-audit.json`, `timing/production-audit.json` and `timing/production-screen/`.
+Full performance/resource/platform/release acceptance remains open.
+
+### VM-produced normal successors — measured and rejected, 2026-10-18
 
 Main `2346ff8` adds an independent interpreter/native step-trace oracle across
 eight scripts and eight fuel budgets. Runtime experiments remain isolated;
@@ -27,7 +226,7 @@ instruction-count APIs and the full `u32` range are preserved.
 the numeric overhead: callback Auto instructions fall0.954%, but numeric Auto
 grows0.65–0.67% and upvalue Off grows1.178%. This is not the selected timing trial.
 
-Selected **`679e3a1`** additionally emits the fact at existing compiled/interpreted
+Timing trial **`679e3a1`** additionally emits the fact at existing compiled/interpreted
 budget-exhaustion exits and ordinary interpreted calls. These exits retain a Lua
 frame or a caller below a newly queued frame, including a depth-refusal Error.
 Other exits retain general dispatch. Production instruction profiles cover the
@@ -49,7 +248,7 @@ auditor accepts the valid fixture and rejects nine targeted corruptions.
 **These are instruction counts, not elapsed speedups.** The two small increases
 also require timing rather than being declared hardware regressions.
 
-The selected source passes133 focused tests, all-feature/format checks and five
+The timing source passes133 focused tests, all-feature/format checks and five
 fallback Miri tests. Its enabled/disabled shortcut oracle covers96 paired step
 schedules, including instruction-budget boundaries, callbacks, hooks, close
 handlers and coroutines. Tests require actual shortcut hits for both interpreted
@@ -64,15 +263,53 @@ Off instruction work grows2.858% for integers,2.661% for floats and1.494% for
 upvalues. The integer VM alone adds119409 instructions per measured execution
 relative to `679e3a1`; executor work is unchanged. This does not establish a
 hardware cause. The rejected source and its expanded metamethod tests remain
-on `trial/jit-vm-successor`, separate from selected
+on `trial/jit-vm-successor`, separate from
 `trial/jit-vm-budget-successor`.
 
-Matched speed/shipping image preparation and full `make jit-verify` for the
-selected source have started. Elapsed collection has **not** started and must
-not overlap owned validation/build work. Remaining gates include source/image
-and no-feature control verification, balanced repeated production timing,
-independent auditing and the original performance/resource/platform/release
-requirements. Evidence and exact job checkpoints are under
+**Production timing also rejects `679e3a1`.** Sequential package-cleaned builds
+use the same source/target paths and identical root-launched Nix/linker settings.
+No-feature binaries are not byte-identical: both profiles differ at106 Rust
+source-line/column records. An ELF comparison validates those records against
+the frozen source files and proves every other byte, including executable code
+and layout, identical. Exact controls and metadata-only controls pass; seven
+targeted corruptions are refused. The original strict binary-comparison failure
+is retained, not reported as a pass. This explicit metadata-only check runs
+before/after timing and its implementation is hashed with the campaign tools.
+
+The144-command campaign completes six balanced A/trial/B orders on CPUs0/16,
+speed/shipping profiles, all nine workloads and both native/compiled-disabled
+comparisons: **14256 measured native executions and285120 measured cost iterations**, with zero
+counter/resource mismatches. No owned build, test or profiler overlaps elapsed
+collection. All raw cost medians are recomputed; native medians remain worker
+summaries. The independent auditor accepts two valid screens and rejects13
+malformed variants. Original performance thresholds are unchanged.
+
+Representative repeated losses below use control/candidate time ratios; lower
+than1 means a slower candidate. Every listed loss occurs in all six rounds.
+
+| CPU/profile | Workload/mode | Control/candidate | Longer elapsed | A/B placebo median |
+|---|---|---:|---:|---:|
+| 0/speed | Callbacks, Auto | 0.972413 | 2.84% | 0.996863 |
+| 16/speed | Callbacks, Auto | 0.982112 | 1.82% | 0.993039 |
+| 16/shipping | Float, compiled-Off | 0.936644 | 6.76% | 0.999495 |
+| 16/shipping | Callbacks, compiled-Off | 0.915915 | 9.18% | 1.002082 |
+
+Shipping CPU16 no-feature float control/candidate is1.001313, with placebo
+1.000621; the corresponding compiled-Off loss is not mirrored by its no-feature
+control. The complete report retains other wins, losses and placebo dispersion,
+including the CPU0 shipping Auto callback ratio1.047405. These wins do not
+establish a broad improvement. Original native callback gates fail12/12 times
+in both profiles (shipping native thresholds are diagnostic); compiled-Off
+upvalue gates fail12/12 in speed and10/12 in
+shipping. Neither successor runtime variant is promoted to main.
+
+The two-thread full `make jit-verify` run was intentionally interrupted after
+confirming its owned test process was using only two CPUs on the24-CPU host.
+Its partial log and SIGTERM exit remain; it is **not** a full-suite pass. Timing
+ran after every owned build/test process was terminal. The proposed eight-thread
+full rerun is not needed for this now-rejected runtime and has not been started.
+Full performance/resource/platform/release acceptance remains open; main keeps
+the independent oracle, not these runtime changes. Evidence is under
 `target/jit-evidence/hook-resume-recovery/vm-successor/`, especially
 `all-slices/STATUS.md`, `meta-slices/STATUS.md` and `timing/STATUS.md`.
 
