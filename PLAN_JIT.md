@@ -95,9 +95,13 @@ in five of six rounds, placebo **1.004342**; speed cold JIT-Off is **0.987219**,
 adverse in all six, placebo **0.997473**. Original repeat gates fail **14 of 96**
 scored speed native windows and **62 of 216** feature-cost windows across both
 profiles. Oslo native remains observational, not silently counted as a pass.
-The candidate is not promoted. Exact-revision expanded Miri, real i686 and
-all-feature Force validation is running; previous-parent results do not count
-as this revision's results. Evidence: `vm-jit-add-result/{timing,timing-repeat}`.
+The candidate is not promoted. Exact-revision validation completes four pinned
+Miri model executions (both features under both borrowing models), **106 real
+i686 executions / 16 summaries**, and all-feature Force **2,036 passes / 90
+summaries**, **23 ignored**, zero failures. Miri warnings remain recorded;
+generated machine code is not Miri-covered. Source manifests verify before the
+builder moves to the next trial. Evidence: `vm-jit-add-result/`, including
+`{timing,timing-repeat}/production-audit.json` and expanded validation logs.
 
 Follow-up `0102f37` on `trial/jit-add-callback` composes the JIT-only Add change
 with the exact native callback setup component from `b8a77bf`. The latter
@@ -105,8 +109,9 @@ previously reduced callback work and repeatedly improved elapsed callbacks,
 but regressed Off float. The new numeric path targets that trade-off without
 changing ordinary interpreter callback routing. This is a measured-composition
 hypothesis, not permission to multiply independent speedups or overlook losses.
-The isolated trial is committed/pushed; its validation and production comparison
-are next under `vm-add-callback/`. The remaining native callback gates are not fixed
+The isolated trial is committed/pushed; its focused/full Force validation and
+six-image production build are running under `vm-add-callback/`. Its performance
+has not yet been measured. The remaining native callback gates are not fixed
 by declaring the paths separate.
 
 ### Stripped scalar-guard production comparison — not accepted, 2026-10-19
