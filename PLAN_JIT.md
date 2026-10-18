@@ -9,9 +9,9 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Seeded address-hash cache — candidate, 2026-10-18
+### Seeded address-hash cache — rejected, 2026-10-18
 
-Current trial `8495f75` remembers two source-address hashes in the GC-owned
+Rejected trial `8495f75` remembers two source-address hashes in the GC-owned
 registry. It caches neither identity nor eligibility: every query still probes
 the map, upgrades the weak entry, compares the live prototype and reads its
 current registration ID. Reset clears both pairs before changing hash seeds;
@@ -46,15 +46,47 @@ Off run is **40,640,025**, versus control **38,915,025**; the other three match.
 All process variation remains. These are diagnostic instructions, not elapsed
 speedups. All three no-feature diagnostic images match their frozen control.
 
-The current candidate passes **164 focused/host-memory executions across
+The candidate passes **164 focused/host-memory executions across
 nineteen summaries** and **16 fresh registry Miri tests** (39 warnings).
-Full `make jit-verify` is still running: its initial verification portion has
-completed **2,441 passing executions / 177 summaries**, but subsequent JIT-mode,
-documentation and fuzz stages are not yet accepted. The five immutable timing
-images are being built; no elapsed campaign has started. Original all-nine-case
-native and disabled-cost gates, resource/platform and release acceptance remain
-open. Evidence and exact source manifests are under `address-hash*` in
-`target/jit-evidence/hook-resume-recovery/`. This candidate is **not accepted**.
+Full `make jit-verify` completes **10,288 passing executions / 536 summaries**,
+including documentation and fuzz, on the frozen pre-portability-fix source.
+Separate test-only fixes `66e87b0` and `88f0f43` retain the portable strided tests:
+gate the native-only layout assertion, bound fixture PCs by representable
+successors, and corrupt both hash words so the wrong-hash fixture misses with
+32-bit as well as 64-bit hashbrown tags. Full i686 `make jit-fallback` passes
+**2,997 executions / 355 summaries**; its isolated source tree matches the
+integrated tree exactly. Native follow-up checking and **23 focused tests**
+pass. All five rebuilt production images are byte-identical before/after these
+test-only fixes. Failed intermediate fallback logs remain preserved.
+
+Two elapsed campaigns then run without owned tests/builds/profilers, retaining
+external contention. Each uses CPU0/16, two rotated A/trial/B rounds, 21 samples,
+all nine workloads and unchanged gates. Together they retain **9,072 native
+executions, 362,880 feature-cost iterations and 432 native proof records**;
+all 27 native counter/resource fields agree. Auditor validation passes one
+historical positive fixture and thirteen deliberately invalid cases; that
+validation is separate from the new elapsed evidence.
+
+Across eight direct comparisons, native float Off is slower **8/8** (median
+control/trial **0.954168**), shipping float Off is slower **8/8** (**0.941624**),
+and shipping integer Off is slower **8/8** (**0.913128**). Callback Auto improves
+only **5/8**, with median control/trial **1.003319** and range **0.991311–1.009935**.
+Native callback gates fail **6/8**, metamethod gates **4/8**; shipping upvalue
+disabled-cost gates fail **8/8**, speed-profile upvalues **7/8**. No favorable
+instruction count overrides these elapsed results. Identical-image placebo
+variation, including severe speed-profile disturbance, remains in the data;
+these are contended observations, not a causal speedup claim.
+
+Restoration `9a2f58e` removes the runtime cache and its cache-specific test; the
+independent wide-key hash oracle and both portability fixes remain. The restored
+source passes formatting/check-all, **197 focused executions / 23 summaries**
+and full i686 fallback (**2,994 executions / 355 summaries**). All five rebuilt
+shipping/speed/native images are byte-identical to the original pre-cache
+control. This is separate restoration evidence, not a claim that the candidate's
+full native verification ran on restored source. Original native, disabled-cost,
+resource/platform and release acceptance remain open. Evidence, failed runs and
+source manifests are under `address-hash*` in
+`target/jit-evidence/hook-resume-recovery/`.
 
 ### Scoped VM lease classification — rejected, 2026-10-18
 
