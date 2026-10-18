@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Matched-path rebuild attribution — in progress, 2026-10-18
+### Matched-path rebuild attribution — completed, 2026-10-18
 
 The resolution-hint trial's no-feature files differ from controls even though
 the production edit is JIT-gated. Exact ELF inspection now establishes that both
@@ -29,9 +29,40 @@ share Cargo outputs between different source worktrees. The pre-timing gate
 requires identical no-feature files and identical compiler/profile configuration.
 The original144-command timing protocol and thresholds remain unchanged.
 
-The earlier negative artifact comparisons and rejection remain valid recorded
-observations; neither a new performance result nor promotion follows from build
-normalization. Builds and validation are still running. Evidence:
+The matched builds complete with15 baseline and19 trial registry tests passing.
+Both profiles' no-feature files are now byte-identical between control and trial,
+and also reproduce the earlier root-built no-feature controls. Compiler/profile
+configuration and all frozen source/image checks pass. Main commit `09babdc`
+adds linker/path provenance to `make environment`, records native-build context,
+and tests absent, spaced and special-character values plus the actual capture
+recipe. The recorded Cargo target reflects the recipe's override, not an unused
+inherited setting. This is a benchmark-reporting fix, not a runtime optimization.
+
+The completed144-command screen retains14,256 native executions and285,120 cost
+iterations with zero counter/resource mismatches. Six balanced orders, both CPUs,
+both profiles, original workloads and thresholds are unchanged. No owned build,
+test or profiler overlaps elapsed collection. Independent audit and two valid/
+13 malformed-screen checks pass. Cost raw medians are recomputed; native medians
+remain worker-reported summaries.
+
+CPU16 Auto upvalue ratios remain adverse in all six rounds of each profile:
+control/trial0.99098(speed) and0.97604(shipping), approximately0.91% and2.45%
+longer elapsed time, versus placebos1.00589 and0.99844. CPU0 speed is adverse
+in5/6 rounds, median0.98341; shipping favors the candidate at1.01129. CPU0
+outliers, including a2.14402 upvalue placebo, remain in the report.
+
+The earlier shipping compiled-Off float loss does **not** reproduce in this
+matched-build campaign: ratios are1.02905(CPU0) and1.00145(CPU16). Do not
+present the older artifact's loss as a demonstrated source-level float defect.
+However, CPU0 speed compiled-Off integer is adverse in5/6 rounds, median0.93790
+and placebo0.99993. All12 speed callback native gates and all12 shipping callback
+diagnostics still fail; shipping disabled-upvalue fails12/12. Normalization has
+not established a performance fix. The resolution-hint trial remains rejected.
+
+Future comparisons must retain build/linker context and verify their no-feature
+controls rather than treating file-size differences as extra instructions.
+The earlier negative artifact comparisons remain recorded without being promoted
+to causal hardware explanations. Full performance acceptance stays open. Evidence:
 `target/jit-evidence/hook-resume-recovery/same-path-resolution/`, particularly
 `old-sections/`, `build.sh`, `build.log` and `checks.mk`.
 
