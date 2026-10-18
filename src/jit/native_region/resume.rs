@@ -496,33 +496,6 @@ mod tests {
     }
 
     #[test]
-    fn vm_lookup_marks_every_lease_inside_a_scope() {
-        fixture_source(SOURCE, |ctx, closure, region, _| {
-            with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
-                let (code, scoped) = ctx.jit().lookup_vm(region.source).unwrap();
-                assert!(!scoped);
-                let scope = state(closure, host, region.source, &code);
-                with_scope(ctx.jit(), scope, || {
-                    for _ in 0..2 {
-                        let (selected, scoped) = ctx.jit().lookup_vm(region.source).unwrap();
-                        assert!(scoped);
-                        assert!(Shared::ptr_eq(&code.code, &selected.code));
-                    }
-                    ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
-                    assert!(ctx.jit().lookup_vm(region.source).is_none());
-                    ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                    assert!(ctx.jit().lookup_vm(region.source).unwrap().1);
-                });
-                assert!(!ctx.jit().lookup_vm(region.source).unwrap().1);
-                ctx.jit().0.borrow_mut().resume_scope = Some(state(closure, host, u64::MAX, &code));
-                assert!(ctx.jit().lookup_vm(region.source).unwrap().1);
-                ctx.jit().0.borrow_mut().resume_scope = None;
-                assert!(!ctx.jit().lookup_vm(region.source).unwrap().1);
-            });
-        });
-    }
-
-    #[test]
     fn scope_skips_only_exact_owner_closure_stack_and_pc_once() {
         fixture_source(SOURCE, |ctx, closure, region, _| {
             let other = Closure::load(ctx, None, b"return 9").unwrap();

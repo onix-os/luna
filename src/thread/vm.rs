@@ -326,7 +326,6 @@ fn run_vm_slice<'gc>(
             ctx.jit()
                 .resume_lease(resume.source, resume.code.take().unwrap())
                 .filter(|_| !hook_enabled)
-                .map(|code| (code, true))
         }
         #[cfg(not(all(
             target_os = "linux",
@@ -337,10 +336,10 @@ fn run_vm_slice<'gc>(
             None
         }
     } else {
-        native_id.and_then(|id| ctx.jit().lookup_vm(id))
+        native_id.and_then(|id| ctx.jit().lookup(id))
     };
     #[cfg(all(not(test), feature = "jit"))]
-    let native_code = native_id.and_then(|id| ctx.jit().lookup_vm(id));
+    let native_code = native_id.and_then(|id| ctx.jit().lookup(id));
     #[cfg(feature = "jit")]
     let native_dispatch = dispatch::Dispatch::new(native_id, native_code, hook_enabled);
     #[cfg(not(feature = "jit"))]
@@ -417,24 +416,14 @@ fn run_vm_slice<'gc>(
         }
         match &native_dispatch {
             #[cfg(feature = "jit")]
-            dispatch::Dispatch::Compiled(code) | dispatch::Dispatch::Scoped(code) if run_native => {
-                let completed = if matches!(&native_dispatch, dispatch::Dispatch::Scoped(_)) {
-                    ctx.jit().run(
-                        code,
-                        ctx,
-                        current_function,
-                        &mut registers,
-                        max_instructions - instructions_run,
-                    )
-                } else {
-                    ctx.jit().run_without_resume(
-                        code,
-                        ctx,
-                        current_function,
-                        &mut registers,
-                        max_instructions - instructions_run,
-                    )
-                };
+            dispatch::Dispatch::Compiled(code) if run_native => {
+                let completed = ctx.jit().run(
+                    code,
+                    ctx,
+                    current_function,
+                    &mut registers,
+                    max_instructions - instructions_run,
+                );
                 instructions_run += completed;
                 native_instructions += completed;
                 if instructions_run >= max_instructions {

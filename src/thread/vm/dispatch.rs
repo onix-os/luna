@@ -8,8 +8,6 @@ pub(super) enum Dispatch {
     Observing(u64),
     #[cfg(feature = "jit")]
     Compiled(Prepared),
-    #[cfg(feature = "jit")]
-    Scoped(Prepared),
 }
 
 pub(super) fn hook_due(resume: bool, instructions: u32) -> bool {
@@ -26,17 +24,12 @@ impl Dispatch {
     }
 
     #[cfg(feature = "jit")]
-    pub(super) fn new(
-        source: Option<u64>,
-        code: Option<(Prepared, bool)>,
-        hook_enabled: bool,
-    ) -> Self {
+    pub(super) fn new(source: Option<u64>, code: Option<Prepared>, hook_enabled: bool) -> Self {
         if hook_enabled {
             return Self::Hooked;
         }
         match (code, source) {
-            (Some((code, false)), _) => Self::Compiled(code),
-            (Some((code, true)), _) => Self::Scoped(code),
+            (Some(code), _) => Self::Compiled(code),
             (None, Some(source)) => Self::Observing(source),
             (None, None) => Self::interpreted(false),
         }
@@ -109,8 +102,7 @@ mod tests {
     fn compiled_state_keeps_one_owner_through_retirement_and_gc() {
         use crate::{Closure, JitConfig, JitMode, Lua};
 
-        for source_choice in 0..6 {
-            let scoped = source_choice >= 3;
+        for source_choice in 0..3 {
             let mut lua = Lua::empty();
             lua.set_jit_config(JitConfig {
                 mode: JitMode::Auto,
@@ -133,14 +125,13 @@ mod tests {
                 (source, ctx.jit().lookup(source).unwrap())
             });
             let before = lua.jit_stats();
-            let source = match source_choice % 3 {
+            let source = match source_choice {
                 0 => None,
                 1 => Some(source),
                 _ => Some(u64::MAX),
             };
-            let dispatch = Dispatch::new(source, Some((code, scoped)), false);
-            assert_eq!(matches!(&dispatch, Dispatch::Scoped(_)), scoped);
-            assert_eq!(matches!(&dispatch, Dispatch::Compiled(_)), !scoped);
+            let dispatch = Dispatch::new(source, Some(code), false);
+            assert!(matches!(&dispatch, Dispatch::Compiled(_)));
             let after = lua.jit_stats();
             assert_eq!(
                 (
