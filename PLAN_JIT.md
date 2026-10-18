@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Cold helper panic recovery — isolated trial, 2026-10-18
+### Cold helper panic recovery — measured and rejected, 2026-10-18
 
 Main commit `2a2e371` adds an independent panic-writeback oracle for ordinary
 and prepared helpers. It checks all scratch-capacity tiers, including zero and
@@ -43,11 +43,46 @@ match; each auditor run also accepts its valid fixture and rejects nine corrupti
 
 The prepared helper shrinks from 1,531 to 1,245 bytes and reserves 136 rather than
 152 stack bytes; its separate recovery method occupies 322 bytes. These figures
-do not establish a whole-image size reduction. Both runtime variants remain
-isolated/unmerged. No elapsed, shipping-profile, compiled-Off cost or full-suite
-acceptance is claimed for them; all owned jobs are terminal. Evidence and frozen
-sources: `target/jit-evidence/hook-resume-recovery/cold-helper-panic/`, including
-`repeat/`, `broad-source/` and `refined/`. Full JIT acceptance remains open.
+do not establish a whole-image size reduction.
+
+The ensuing production screen compares prepared-only `82eb90c` with its
+oracle-only parent `0c09d33`. Both revisions pass 44 focused tests again. Speed
+and shipping artifacts are built sequentially at the same source/target paths,
+package-cleaning between phases/profiles. Environment/configuration and frozen
+source/image checks pass. Both profiles have byte-identical no-feature controls,
+also matching the previous matched-path campaign's controls.
+
+All 144 commands complete: six balanced control/candidate/placebo orders on
+CPUs 0/16, both profiles, original nine workloads, 11 samples and 20 cost
+iterations. There are 14,256 measured native executions, 285,120 cost iterations
+and zero counter/resource mismatches. Raw cost medians are independently
+recomputed; native medians remain worker-reported summaries. The auditor accepts
+two valid screens and refuses 13 mutations. No owned build/test/profiler overlaps
+elapsed collection; external contention and every outlier remain in the records.
+
+On CPU16, speed Auto upvalue is adverse in all six rounds, control/trial median
+0.98232 (about 1.80% longer elapsed time), versus placebo 1.00726. Shipping Auto
+metamethod is adverse 6/6, median 0.98371 (1.66% longer), and shipping callbacks
+are adverse 5/6, median 0.97810 (2.24% longer). Their placebos are 1.00351 and
+1.01077. Shipping upvalues instead improve 6/6, median 1.01832; speed callback
+median 1.00541 has three favorable and three adverse rounds. Those results do
+not establish a general benefit.
+
+CPU0 shipping compiled-Off integer/float are adverse 5/6 each: medians
+0.88733/0.92140 (12.70%/8.53% longer) versus placebos 1.00436/0.99974. Their
+large first-round placebos, about 1.87, are retained. CPU0 speed callback's
+apparently favorable 1.30805 median accompanies a 1.28108 placebo; do not claim
+that as a causal speedup. These are artifact comparisons, not proof of a
+particular machine-instruction or layout cause.
+
+Candidate speed native callback gates fail 12/12; shipping callback diagnostics
+fail 11/12. Compiled-Off upvalue cost gates fail 12/12 in both profiles. Reject
+prepared-only recovery as well as the broader variant: neither runtime change
+is merged. Main retains the independent oracle only. All owned jobs are terminal;
+no new full-suite or release acceptance is claimed. Evidence and frozen sources:
+`target/jit-evidence/hook-resume-recovery/cold-helper-panic/`, including `repeat/`,
+`broad-source/`, `refined/` and the completed `timing/production-audit.json`.
+Full performance/resource/platform/release acceptance remains open.
 
 ### Borrowed prepared-key comparator — no improvement, 2026-10-18
 
