@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Validated registry-resolution hints — isolated trial, 2026-10-18
+### Validated registry-resolution hints — rejected, 2026-10-18
 
 Trial `dcddc83` on `trial/jit-resolution-cache` targets repeated ID-resolution
 scans in inline execution and admission, rather than changing executor dispatch.
@@ -27,7 +27,9 @@ poisoned addresses and IDs, growth, reset and unchanged metadata accounting.
 Two focused campaigns pass215 test executions, covering registry, inline ownership,
 native regions, heap, suspension and resources, with formatting/all-feature
 checking. Main's18 registry tests also pass after the oracle integration.
-Miri and elapsed acceptance are pending; the trial is not promoted.
+All19 registry tests also pass under Miri, including poisoned hints and weak
+source retirement;40 existing warnings remain. These are focused results, not a
+full candidate-suite or release pass.
 
 The first production instruction screen covers all seven warmed Off/Auto
 workloads:28 captures,308 measured executions, exact non-timing record matches
@@ -35,9 +37,31 @@ and verified source/image hashes. Two additional fresh-process upvalue compariso
 reverse image order. All three upvalue Auto totals increase:0.83013%,2.11807%
 and0.51260%. Callback Auto changes by+0.00066% in the full screen. The hint
 therefore does not demonstrate a net instruction reduction on these workloads.
-These are not elapsed-time results: the separate compiled-Off and native timing
-screen must determine whether removing scans helps hardware execution at all.
-Original workload thresholds remain unchanged; no result is selected away.
+These are not elapsed-time results. Original workload thresholds remain unchanged;
+no result is selected away.
+
+The subsequent elapsed screen completes144 commands,14,256 native executions and
+285,120 cost iterations across both profiles and CPUs0/16, with six balanced
+A/trial/B orders. All non-timing fields, source/image hashes and resource records
+verify; the auditor accepts two valid screens and rejects13 malformed variants.
+No owned build, test or profiler overlaps timing. External contention is retained.
+The candidate's no-feature images differ from the controls, so both are measured;
+identical-code or causal code-layout attribution is not assumed.
+
+CPU16 Auto upvalue control/trial medians are0.97906(speed) and0.98136(shipping),
+adverse in all six rounds each: approximately2.14% and1.90% longer elapsed time.
+Same-image placebo medians are1.01705 and1.00158. Shipping compiled-Off float is
+also adverse in all six CPU16 rounds: ratio0.97304, placebo1.00357 and no-feature
+ratio1.00028. CPU0 upvalue medians favor the candidate, but same-image placebo
+ratios range0.44902–1.91706(speed) and0.87498–1.83380(shipping); those excursions
+are not discarded or interpreted as a reliable win.
+
+Native callback gates still fail10/12 speed cases and12/12 shipping diagnostics;
+shipping compiled-Off upvalue gates fail12/12. Both controls also retain gate
+failures. These original-gate failures are separate from the direct historical
+comparisons above. Decision: reject production promotion. Retain the isolated
+trial and baseline-validated tests; the fixed hint has not earned its extra work
+or memory on the measured workloads. Full performance acceptance remains open.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/resolution-cache/`, including
 `warm-audit.json`, `repeat{1,2}/audit.json` and focused validation logs. Baseline
