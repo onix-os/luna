@@ -34,8 +34,12 @@ outlier; a single process's probe count is not a causal code-change estimate.
 These are software instruction observations, not elapsed acceptance.
 
 Both no-feature production images reproduce the baseline byte-for-byte.
-Full Force validation and production preparation are running; no elapsed
-acceptance or promotion is claimed. Evidence:
+Production builds and source/image/configuration/environment provenance pass.
+The full all-feature Force suite passes **2,031 executions / 90 summaries**,
+zero failures and 23 ignored diagnostics. The same 144-command balanced
+production timing protocol is now running, with all owned builds, tests and
+profilers terminal before collection. No elapsed acceptance or promotion is
+claimed. Evidence:
 `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/`.
 
 ### Hash-checked callback composition — validation, 2026-10-18
