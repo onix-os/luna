@@ -9,6 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Private callback scratch reuse — diagnostic only, 2026-10-18
+
+`a8e0edb` adds a test-only candidate for ordinary Rust callback returns. It
+retains scalar descriptors, not managed references, and still writes canonical
+registers before every callback. Only a matching normal return in the same
+executor-step epoch can reuse the unaffected prefix. The callback's entire
+argument/result suffix is reimported. Public stack exposure or any open-upvalue
+creation permanently disables reuse for that thread; closing a capture does
+not revoke an already copied OpenUpValue handle. Interpreted execution, other
+frame transitions, mismatched identity/PC and epoch exhaustion discard reuse.
+Production selection, native ABI and source execution coverage are unchanged.
+
+Formatting/check-all and six focused tests pass. The shared contract compares
+24 scripts at eight initial fuel budgets against Off and ordinary Auto, checking
+step outcomes, fuel, all 25 counters, collection and array execution. Explicit
+stack-escape, closed-capture and callback-stack-relocation cases pass. Removing
+the escape guard makes its result 3240 instead of 9340; independently removing
+the capture guard makes its result 3240 instead of 9720. Both mutations preserve
+native counters, so counter parity alone would miss the wrong result. Both
+guards were restored and the complete six-test filter passed again. Two pure
+phase/epoch tests pass in each Miri borrow model (Stacked seed 84, Tree seed 85;
+48/42 retained warnings). Miri does not execute the generated native path.
+
+The optimized single-image diagnostic completed 28 Callgrind captures: seven
+frozen workloads, two reversed-order rounds, ordinary Auto versus selected
+candidate. All result/counter checks and exclusive 13-event sums pass. Callback
+reuse occurs 4970 times, reducing imported descriptors from the ordinary
+5001 × 7 = 35007 to 10157. Whole callback instructions nevertheless fall only
+**11230400 → 11217150 (0.118%)** in both rounds; reads increase 105098, writes
+decrease 29609, and conditional branches increase 55311. Generated native work
+is exactly **730160 instructions** in all four callback captures. Native bodies
+match except the two prepared-string-hash immediate words; a first raw-byte
+audit correctly rejected their process-randomized differences. The corrected
+audit validates the precise x86-64 instruction sequence and excludes only those
+eight immediate bytes, retaining both hashes and the original failed audit.
+
+Integer/float instructions increase 0.117%/0.113%; upvalues increase 0.217%.
+Metamethod, array and allocation observations vary, including adverse results.
+This same-image control also contains disabled experimental tracking hooks:
+it is not an unchanged-production baseline. Reduced imports therefore establish
+neither production benefit nor elapsed-time acceptance. The candidate remains
+test-only; no performance gate is closed. Next inspect the measured scratch
+entry overhead before any promotion or hardware acceptance campaign. Raw logs,
+hashes, native disassembly and audits are in
+`target/jit-evidence/hook-resume-recovery/callback-scratch/`; Make targets are
+`jit-callback-scratch`, `jit-callback-scratch-miri` and the existing universal
+memory-profile targets with `MEMORY_KIND=callback_scratch`.
+
 ### Callback stack offset overflow — corrected, 2026-10-18
 
 Investigation of cross-callback import reuse found that callback stack suffix
