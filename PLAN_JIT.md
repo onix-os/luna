@@ -28,15 +28,24 @@ before specialization; a test-only inverse-rewrite oracle verifies preservation
 of the original function, followed by structural and actual expansion checks.
 Its uncharged clone/string oracle is not production compiler-memory accounting.
 
-`make jit-bound-entry` passes six fixtures: 28,392 bound-PC differential cases,
+`make jit-bound-entry` passes eight fixtures (one profiling fixture is ignored):
+28,392 bound-PC differential cases,
 283,920 mismatched-PC refusals, twelve IR corruption cases, invalid-PC/resource
 refusal cleanup, and compiled helper/integer-loop source checks. Full-width PCs,
 scalar tag combinations and zero/short/maximum budgets are included. Formatting
-and `check-all` pass. The callback sample's resume image shrinks from2,160 to1,463
+and `check-all` pass. A further171 focused executions pass, including the original
+entry/region/source-binding/helper/exit verifier suites. A live-helper fixture
+compares980 cases with rebinding, weak modes, reference identity, fallback and
+borrow-panic exits. Repeated scalar callback resumption preserves exact native
+entry/instruction/callback/result counters. The callback sample's resume image shrinks from2,160 to1,463
 bytes; the helper-resume sample from2,096 to1,352. These are native image sizes,
 not elapsed speedups or total memory savings: retaining ordinary plus specialized
-images would increase aggregate code ownership. Live helper frames, repeated
-native component profiles, runtime integration, lifecycle/resource accounting
+images would increase aggregate code ownership. `jit-bound-entry-profile-build`
+freezes and verifies an optimized test image; `jit-bound-entry-profile-run`
+collects two paired1,000-repetition native-component profiles with hashes,
+exclusive-event accounting and exact counter checks. These exclude real
+executor dispatch and callback execution. Native component profile results,
+runtime integration, lifecycle/resource accounting
 and all original production performance/release gates remain open.
 
 ### Queued callback handoff — measured and withdrawn, 2026-10-18

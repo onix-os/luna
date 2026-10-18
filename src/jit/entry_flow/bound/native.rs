@@ -253,3 +253,6 @@ fn prepared_helper_and_integer_loop_sources_keep_ordinary_lowering() {
         }
     });
 }
+
+mod frames;
+mod profile;
