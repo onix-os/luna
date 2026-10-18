@@ -1,6 +1,43 @@
 use crate::{Closure, Lua};
 
 #[test]
+fn identity_matches_hash_lookup_at_dense_and_sparse_capacities() {
+    Lua::empty().enter(|ctx| {
+        let sources: Vec<_> = (0..64)
+            .map(|_| Closure::load(ctx, None, b"return 7").unwrap().prototype())
+            .collect();
+        let mut registry = ctx.jit_registry().borrow_mut(&ctx);
+        for count in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 32, 64] {
+            registry.reset(ctx);
+            for &prototype in &sources[..count] {
+                registry.register(ctx, prototype);
+            }
+            assert_eq!(registry.entries.len(), count);
+            assert_eq!(registry.entries.raw_table().buckets() <= 8, count <= 7);
+            for sparse in [false, true] {
+                if sparse {
+                    registry.entries.try_reserve(128).unwrap();
+                    assert!(registry.entries.raw_table().buckets() > 8);
+                }
+                let before = ctx.jit().0.borrow().metadata.0.current();
+                for &prototype in &sources {
+                    let expected = registry
+                        .entries
+                        .get(&(ottavino_gc_arena::Gc::as_ptr(prototype) as usize))
+                        .and_then(|entry| {
+                            entry.prototype.upgrade(&ctx).and_then(|live| {
+                                ottavino_gc_arena::Gc::ptr_eq(live, prototype).then_some(entry.id)
+                            })
+                        });
+                    assert_eq!(registry.identity(ctx, prototype), expected);
+                }
+                assert_eq!(ctx.jit().0.borrow().metadata.0.current(), before);
+            }
+        }
+    });
+}
+
+#[test]
 fn known_prototypes_match_id_resolution_across_growth_and_reset() {
     Lua::empty().enter(|ctx| {
         let mut sources = Vec::new();

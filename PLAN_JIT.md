@@ -9,6 +9,114 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Source-identity outlining — rejected, 2026-10-18
+
+Revisited executor extraction before changing runtime code: the prior Lua-frame
+peek and guard-carrying selector trials already remove shared work and fail
+the original native/cost gates. Those mechanisms were not reimplemented.
+
+Trial `c2d505b` instead adds only `#[inline(never)]` to registry identity lookup.
+The seeded hash, fresh weak upgrade, pointer check, ownership and accounting
+remain unchanged. The hypothesis was reduced pressure in the large VM, not
+elimination of identity work. Formatting/check-all and **117 focused executions
+/ eleven summaries** pass. The matched opt3 no-feature image is byte-identical
+to the split-hook control; the JIT image has a separate 272-byte lookup symbol.
+
+Four alternating baseline/trial rounds produce **96 checked instruction
+profiles**, covering callback/upvalue/float, Off/Auto and both feature images.
+All worker/native counters and thirteen exclusive event totals verify. Callback
+Auto instructions increase **0.726–0.749% in all four rounds**, to 47,539,061;
+Off increases **0.965%**, from 38,915,025 to 39,290,435. Moving work out of the
+VM does not remove it: in round zero VM self work falls 1,297,299 instructions,
+but the new identity function executes 1,650,330. Upvalue Auto varies between
+**-1.641% and +2.116%**, with one favorable round retained rather than selected.
+
+Float Off repeatedly grows **20,060,895 -> 20,964,290 (4.503%)**. Address-level
+decoding of all four paired float profiles finds **903,285** extra VM
+instructions and 110 extra executor instructions. VM data reads/writes rise
+**400,075 / 400,080**; the explicit `%rsp` memory operands account for all of
+those respective increases. Such instructions rise **3,657,520 -> 4,457,675**.
+Every nonzero VM self-cost row maps to a decoded instruction in its own image,
+and the totals agree with independent Callgrind annotation. Eight valid profile
+checks and three refusal checks pass: missing assembly, wrong-image assembly
+and wrong expected instruction total. This measures extra generated stack
+traffic, not hardware cache misses or a causal elapsed-time regression.
+
+The VM's stack reservation actually shrinks **0x648 -> 0x638** while its symbol
+grows **55,274 -> 56,205 bytes**. Smaller stack reservation is therefore not
+evidence of less executed stack traffic. An initial exact-symbol selector used
+the wrong demangled spelling and failed; the corrected selector matches
+`<luna::jit::registry::Registrations>::identity` before attribution.
+
+Reject the annotation rather than proceed to a broad timing campaign with
+uniformly higher callback work and repeated Off-float work growth. `afe21c0`
+restores the original source exactly; formatting/check-all and the same 117
+focused executions pass again. Both rebuilt diagnostic images are byte-identical
+to their frozen split-hook controls. No new elapsed, Miri, full-suite or platform
+acceptance is claimed. All profiles, counter audits, exact assemblies, address
+checks and the rejected patch remain under `identity-outline*` in
+`target/jit-evidence/hook-resume-recovery/`. Full acceptance remains open.
+
+### Bounded tiny-registry lookup — rejected, 2026-10-18
+
+A further audit of all eighty callback hardware profiles resolves VM/executor
+sample addresses against their verified symbol bounds and per-process mappings.
+The VM's source-identity hash/probe range accounts for **7.40% / 8.91%** of
+whole-process Auto weighted cycle samples on CPUs 0/16, and zero Off samples.
+The first range accidentally included the nearby inactive-mode fallback; the
+corrected range ends before `0x5cb1c6`, and both reports are retained. Executor
+mode dispatch accounts for **3.34% / 3.25%**, and its frame-pop/match path for
+**6.36% / 3.75%**. These selected ranges are diagnostic sampled shares, not
+exact instruction latencies or a complete partition of execution cost.
+
+Trial `7128a13`, revised by `6d3c063`, scans only registrations in tables with
+at most **eight physical buckets** and retains seeded hash lookup for larger
+tables. Every lookup still upgrades the weak registration and compares the live
+prototype; no positive ID, miss, owner, lease or GC pointer is cached. Registry
+reset/retirement, generation uniqueness, accounting and native work remain intact.
+The pinned hashbrown's public capacity is `items + growth_left`, not a direct
+physical scan bound. The guard therefore uses its safe `raw_table().buckets()`
+accessor. The initial capacity-based build is archived and was not timed.
+
+Test commit `5aafaa6` adds an independent always-hashed oracle: 64 queries at
+thirteen registry sizes, both dense and reserved-sparse maps, unchanged metadata
+charges, hits and misses after reset/re-registration. All fourteen registry
+tests pass against the original implementation before the trial. The revised
+candidate passes **117 focused executions / eleven summaries**, formatting,
+all-feature checking and **14 registry Miri executions** (39 warnings retained).
+There is no claim of a new full-suite or full-platform pass for this trial.
+
+Six alternating matched rounds produce **144 checked instruction profiles**,
+with equal worker/native-work records and verified exclusive event totals.
+Callback Auto control counts are 47,185,720 (one round 47,185,639); candidate
+counts are **47,964,146 / 48,264,206 / 47,063,966 / 47,363,945 / 47,063,966 /
+48,264,125**. A favorable single process is not a general improvement. Upvalue
+Auto rises in all six paired rounds, with both images showing process variation.
+JIT-Off float instructions consistently increase **20,060,895 -> 20,964,290**;
+the no-feature diagnostic image remains byte-identical to its control.
+
+A focused, uninstrumented callback screen then completes **144 verified workers /
+144,000 measured iterations**, twelve A/trial/B windows on each CPU, alternating
+Off/Auto order, common hardlink launch paths, frozen source/image/driver hashes
+and contention telemetry. No owned build/test/profiler overlaps this screen.
+Results and native counters match exactly. This uses the unchanged real callback
+workload, but is **not** an all-nine-case or stripped-image acceptance campaign.
+
+The candidate is **rejected**: Auto control/trial median time ratios are
+**0.97548 / 0.98551** on CPUs 0/16, with A/B medians **1.00640 / 0.99768**.
+It is slower in **10/12 and 11/12** windows. The severe CPU0 final-window
+disturbance and all other outliers remain in the data. Off also has adverse
+windows, so a reduced count of relative Auto failures on CPU0 is not called a
+speedup. The unchanged callback threshold fails in **19/24** trial windows.
+This rejection does not infer an elapsed float slowdown from instruction counts.
+
+Commit `40d121a` restores the original hash lookup exactly; the dense/sparse
+regression remains. Restoration formatting/all-feature checks and all **117
+focused executions** pass. Both rebuilt speed diagnostic images are byte-identical
+to the original split-hook controls. Evidence: `hook-resume-recovery/tiny-registry*`
+and `callback-dispatch-audit/`. Full native performance, resource, platform and
+release acceptance remain open; this trial supplies no retained runtime speedup.
+
 ### Prepared-key classification split — rejected, 2026-10-18
 
 Hardware samples and actual helper disassembly identify combined strong/weak
