@@ -35,8 +35,14 @@ The prepared helper's callback self work is now 815,000 instructions versus
 These remain instruction observations, not elapsed acceptance.
 
 The corrected candidate stays isolated on `trial/jit-callback-composition`.
-Its full all-feature Force suite and production image rebuild are running;
-no corrected timing result is available yet. Original `673218c` artifacts and
+Its full all-feature Force suite now passes **2,034 executions across 90
+summaries**, with zero failures and 23 ignored diagnostics. Corrected i686
+validation passes 27 executions across six summaries. Production image builds,
+configuration/environment/source/image provenance and preflight audit fixtures
+pass. The repeated 144-command timing campaign is running without overlapping
+owned builds/tests/profilers; no corrected timing result is available yet.
+These results do not establish full `jit-verify`, all-platform or release
+acceptance. Original `673218c` artifacts and
 failures remain intact and must not be substituted for corrected evidence.
 Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-composition/hash-checked/`
 and the parent `hash-red.log`, `hash-green.log`, `main-hash-oracle.log`.
