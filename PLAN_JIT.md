@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Helper signature reuse — allocation regression removed, 2026-10-18
+
+Trial `6c69b95` on `trial/jit-signature-reuse` reuses the existing six-parameter
+compiler signature template for the four-parameter prepared declaration, then
+restores it before other declarations. It removes two temporary vectors and
+their extra five-element reservation; the existing six-parameter bound still
+covers declaration/import clones. Native ABI, helper implementation, independent
+verification, panic/GC behavior and resource limits are unchanged. The capacity
+check refuses insufficient storage before mutation rather than allocating more.
+
+Formatting/all-feature checks and **1,429 test executions / eight summaries**
+pass, zero failed and 22 ignored, including all **1,360 JIT unit tests**. A new
+test checks stable allocation addresses/capacities, narrow/wide restoration,
+independent declaration clones and refusal without mutation. Pinned Miri passes
+the new storage test and existing signature-layout test under both borrowing
+models: four executions. The trial commit is pushed; main runtime is unchanged.
+
+The candidate completes fourteen full-execution instruction profiles, built at
+the same source/target path as the frozen `84a2c07` and `9515e33` controls. Those
+control profiles are reused, not freshly interleaved elapsed measurements.
+Source/image/tool hashes and exclusive partition sums verify. Relative to the
+narrow parent, the only non-timing counter changes are snapshot peaks:
+
+- Metamethod Auto: **16,205 -> 16,145 bytes**, now 32 below the six-argument control.
+- Callback Auto: **10,781 -> 10,721 bytes**, now 16 below the six-argument control.
+
+Both drop exactly 60 bytes. The unchanged strict equal-counter auditor still
+refuses the differing resource records; the separate analysis preserves that
+failure and does not grant acceptance. Callback instructions remain **9,288,782**
+per execution. Integer/float Off/Auto also match the narrow parent. Other
+instruction changes are mixed (including upvalue Auto +0.389%); no speedup is
+attributed to allocation reuse from those observations. No hardware elapsed
+acceptance, fresh full Force/platform/release completion or promotion is claimed.
+
+An instruction-address join of the parent callback profiles confirms 5,000
+helper calls and **137 -> 141 self instructions per call**. The four extras are
+an entry operand copy, an additional instruction saving PC+1, its completion
+reload, and an intermediate destination-register copy. The table-lookup path
+itself does not gain another probe. This explains the observed callee instruction
+increase, not hardware latency or all inputs; the current change does not fix it.
+
+Coverage follow-up: the test-only prepared-helper selector excludes
+`RequireSignatures`/`RefuseSignatures`. Existing injected lifetime fixtures cover
+ordinary signatures, not the prepared switch under those failures. Direct
+prepared-path resource-refusal coverage remains necessary before promotion.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/signature-reuse/`.
+
 ### Narrow canonical helper ABI — correctness validated, 2026-10-18
 
 Separate trial `84a2c07` on `trial/jit-canonical-narrow` removes the two unused
