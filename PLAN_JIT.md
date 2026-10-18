@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Hash-checked callback composition — validation, 2026-10-18
+
+Correction `38c7880` verifies the current key's canonical prepared hash before
+taking a bucket hit. A mismatch uses ordinary lookup, preserving its behavior
+instead of forcing nil or returning the cached bucket. No new fields,
+allocations or pointer-lifetime assumptions are added by the correction.
+
+The raw-table regression fails on `673218c` and passes after correction.
+Twenty-eight focused executions across five summaries pass, including both
+previously failing prepared-transition tests, table access and prepared-key
+coverage, with formatting/all-feature checking. The raw hash oracle and
+integrated Rust transition oracle pass under both Stacked and Tree Borrows:
+four focused Miri executions, not a complete Miri suite. The independent
+supplied-hash oracle is also retained on main in `2bd3fb8`; unchanged-runtime
+table-access validation passes 17 executions across both feature modes.
+
+Rebuilt fourteen-case profiling preserves all execution/resource counters and
+passes valid/nine-corruption audit fixtures. Callback Auto instructions fall
+**3.284%**, not the incorrect revision's 4.397%. Array Auto falls 0.191%,
+metamethod Auto 0.106%; numeric Off/Auto and callback Off remain unchanged.
+Four cases improve, six are unchanged and four increase (largest 0.086%).
+The prepared helper's callback self work is now 815,000 instructions versus
+845,000 baseline; hash validation consumes most of the initial lookup saving.
+These remain instruction observations, not elapsed acceptance.
+
+The corrected candidate stays isolated on `trial/jit-callback-composition`.
+Its full all-feature Force suite and production image rebuild are running;
+no corrected timing result is available yet. Original `673218c` artifacts and
+failures remain intact and must not be substituted for corrected evidence.
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-composition/hash-checked/`
+and the parent `hash-red.log`, `hash-green.log`, `main-hash-oracle.log`.
+
 ### Native callback composition — hash regression found, 2026-10-18
 
 **`673218c` is not correct and must not be promoted or timed.** The subsequent
