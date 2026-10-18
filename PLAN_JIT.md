@@ -9,6 +9,73 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### VM-produced normal successors — isolated timing candidate, 2026-10-18
+
+Main `2346ff8` adds an independent interpreter/native step-trace oracle across
+eight scripts and eight fuel budgets. Runtime experiments remain isolated;
+neither performance acceptance nor a production regression fix is established.
+
+`e706e64` returns a private instruction-count/normal-successor pair from the VM
+after a compiled ordinary call. The executor consumes the boolean exactly once,
+before its next iteration, avoiding two redundant mode classifications. Original
+frame popping, fuel charges, interruption checks and callback handling remain.
+The hint is discarded when `step` returns; no frame, stack borrow, pointer or code
+lease crosses a callback. Running/deferred-error guards remain. Existing scalar
+instruction-count APIs and the full `u32` range are preserved.
+
+`7197813` moves result extraction out of the ordinary closure. It does not remove
+the numeric overhead: callback Auto instructions fall0.954%, but numeric Auto
+grows0.65–0.67% and upvalue Off grows1.178%. This is not the selected timing trial.
+
+Selected **`679e3a1`** additionally emits the fact at existing compiled/interpreted
+budget-exhaustion exits and ordinary interpreted calls. These exits retain a Lua
+frame or a caller below a newly queued frame, including a depth-refusal Error.
+Other exits retain general dispatch. Production instruction profiles cover the
+full outer `Lua::execute<i64>` boundary, excluding two warmups and retaining eleven
+executions per workload/mode. Compared with `2346ff8`:
+
+| Workload | Off instruction change | Auto instruction change |
+|---|---:|---:|
+| Integer loop | -0.305% | -1.071% |
+| Float loop | -0.284% | -1.034% |
+| Array/table | -0.194% | -0.260% |
+| Closure/upvalue | -0.677% | -0.052% |
+| Polymorphic metamethod | +0.367% | +0.331% |
+| Rust callbacks | -1.153% | -0.954% |
+| Allocation/GC | -0.125% | -0.144% |
+
+All execution counters and code/metadata/snapshot fields match. The profile
+auditor accepts the valid fixture and rejects nine targeted corruptions.
+**These are instruction counts, not elapsed speedups.** The two small increases
+also require timing rather than being declared hardware regressions.
+
+The selected source passes133 focused tests, all-feature/format checks and five
+fallback Miri tests. Its enabled/disabled shortcut oracle covers96 paired step
+schedules, including instruction-budget boundaries, callbacks, hooks, close
+handlers and coroutines. Tests require actual shortcut hits for both interpreted
+and native execution. Small Miri fixtures exercise the interpreted exhaustion
+and depth-refusal shortcuts; they do not execute native code. A deliberate
+persistent-read mutation in place of `mem::take` fails two fixtures; restoration
+passes. Initial formatting-only failures and the negative mutation log remain.
+
+The later **`53dd423` metamethod extension is rejected**: although134 focused
+tests, six fallback Miri tests and19 focused i686-musl tests pass, production
+Off instruction work grows2.858% for integers,2.661% for floats and1.494% for
+upvalues. The integer VM alone adds119409 instructions per measured execution
+relative to `679e3a1`; executor work is unchanged. This does not establish a
+hardware cause. The rejected source and its expanded metamethod tests remain
+on `trial/jit-vm-successor`, separate from selected
+`trial/jit-vm-budget-successor`.
+
+Matched speed/shipping image preparation and full `make jit-verify` for the
+selected source have started. Elapsed collection has **not** started and must
+not overlap owned validation/build work. Remaining gates include source/image
+and no-feature control verification, balanced repeated production timing,
+independent auditing and the original performance/resource/platform/release
+requirements. Evidence and exact job checkpoints are under
+`target/jit-evidence/hook-resume-recovery/vm-successor/`, especially
+`all-slices/STATUS.md`, `meta-slices/STATUS.md` and `timing/STATUS.md`.
+
 ### Cold helper panic recovery — measured and rejected, 2026-10-18
 
 Main commit `2a2e371` adds an independent panic-writeback oracle for ordinary
