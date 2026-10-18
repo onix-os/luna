@@ -9,6 +9,32 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Matched-path rebuild attribution — in progress, 2026-10-18
+
+The resolution-hint trial's no-feature files differ from controls even though
+the production edit is JIT-gated. Exact ELF inspection now establishes that both
+profiles have byte-identical `.text` and `.rodata` sections, but `.text` starts64
+bytes later in each trial image. GNU `size`'s65-byte text-category increase is
+therefore not65 extra machine-code bytes. The RUNPATH embeds a different
+checkout directory: Nix's development shell exports a launch-directory-specific
+`out` and adds its `outputs/out/lib` to `NIX_LDFLAGS`. This identifies a build
+difference, not the hardware cause of any timing loss.
+
+A new comparison rebuilds unchanged baseline `a13b8c5` and trial `dcddc83`
+sequentially at one dedicated source path and Cargo target path within one shell
+environment. Luna release-package outputs are cleaned between phases/profiles;
+dependency-generated paths remain fixed. Separate immutable source copies verify
+the captured hashes after the active worktree changes revisions. This does not
+share Cargo outputs between different source worktrees. The pre-timing gate
+requires identical no-feature files and identical compiler/profile configuration.
+The original144-command timing protocol and thresholds remain unchanged.
+
+The earlier negative artifact comparisons and rejection remain valid recorded
+observations; neither a new performance result nor promotion follows from build
+normalization. Builds and validation are still running. Evidence:
+`target/jit-evidence/hook-resume-recovery/same-path-resolution/`, particularly
+`old-sections/`, `build.sh`, `build.log` and `checks.mk`.
+
 ### Validated registry-resolution hints — rejected, 2026-10-18
 
 Trial `dcddc83` on `trial/jit-resolution-cache` targets repeated ID-resolution
