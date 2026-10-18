@@ -9,6 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded numeric operands — instruction screening, 2026-10-18
+
+Two isolated successors to the separate-reference experiment retain the
+original numeric arithmetic, conversions, overflow/direction checks and write
+order. Both first validate a three-slot operand slice. `a7182e5` matches
+references into that slice; `2717a7a` matches copied Values instead. They are
+committed separately on `trial/jit-bounded-for-loop` and
+`trial/jit-numeric-loop-span`; neither is promoted to main.
+
+Against `066905e`, whole-execution instruction counts change as follows:
+
+| Workload/mode | Bounded references | Bounded Values |
+| --- | ---: | ---: |
+| Integer loop Off | -2.633% | -2.103% |
+| Float loop Off | -2.450% | -1.957% |
+| Array table Off | -1.218% | -0.940% |
+| Closure/upvalue Auto | +0.177% | -1.175% |
+
+Bounded references improve four of fourteen cases and increase ten; bounded
+Values improve five and increase nine. Execution/resource counters match in
+all cases, and valid/nine-corruption profile fixtures pass. Integer VM self
+instructions fall from 3,662,572 to 3,563,203 with references, but reads and
+writes increase. The Value-copy variant performs another 40,002 writes. This
+does not demonstrate removal of all copies or an elapsed-time improvement.
+
+Both variants pass 64 focused executions and all-feature/format checks, plus
+the integer-loop overflow/direction test under default Miri in both feature
+modes. Bounded references also pass 42 i686-musl numeric executions (21 per
+feature mode). These are focused results, not full release acceptance.
+
+`a7182e5` is selected for the first production timing screen because of its
+larger numeric instruction reduction and lower write count than `2717a7a`.
+The same balanced, repeated, two-CPU/two-profile protocol measures no-feature,
+compiled-Off and native execution without relaxing the original gates. Its
+production images are still building at this checkpoint; no elapsed result
+is claimed.
+
+The earlier broad default-Miri run completed with 19 passes and two failures:
+`string_coercion_keeps_the_integer_subtype` and
+`two_to_the_sixty_three_is_out_of_integer_range`. Both failing assertions
+reproduce on unchanged `066905e`. A baseline-only diagnostic with
+`-Zmiri-no-extra-rounding-error` passes both; this does not replace or waive
+the default gate. The original feature-enabled broad run was not reached.
+The focused loop Miri results above use default flags, not that diagnostic.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/borrowed-loop/`
+(`bounded/`, `span-values/`, `baseline-miri*` and `miri.log`).
+
 ### Exact numeric attribution and borrowed operands, 2026-10-18
 
 Ordinary unstripped rebuilds do not preserve the shipping images: the baseline
