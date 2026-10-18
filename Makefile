@@ -2176,6 +2176,11 @@ jit-callback-scratch-time-run: jit-profile-cpu-check
 jit-callback-scratch-time-audit:
 	@perl examples/jit_support/strided_timing_audit.pl '$(CALLBACK_SCRATCH_TIMING_DIR)'
 
+CALLBACK_BASELINE_DIR ?= target/jit-evidence/hook-resume-recovery/callback-scratch/scratch-free-image
+.PHONY: jit-callback-baseline-time-run
+jit-callback-baseline-time-run: jit-profile-cpu-check
+	@bash examples/jit_support/strided_timing.sh '$(CALLBACK_SCRATCH_DIR)' '$(CALLBACK_SCRATCH_TIMING_DIR)' '$(PROFILE_CPU)' '$(STRIDED_TIMING_WINDOWS)' callback_scratch_baseline '$(CALLBACK_BASELINE_DIR)'
+
 .PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks vm-return-spans
 vm-return-spans:
 	@for checked in true false; do \
