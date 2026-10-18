@@ -109,6 +109,39 @@ example workload modules imported into library tests. Reproduction uses
 `jit-callback-scratch-time-run` and `jit-callback-scratch-time-audit` with
 `STRIDED_TIMING_WINDOWS=42` and explicit distinct output directories.
 
+Early-rejection trial `598ae69` moved the admission checks before width dispatch.
+Seven focused tests, all-feature checks, 28 profiles and another 3528 elapsed
+samples pass their correctness/counter/hash audits. It removes most of the
+selected-mode upvalue instruction excess (control/candidate **32266836 →
+32267458**, a difference of 622), but does not fix the measured regression.
+Callback instructions instead become **11055365 → 11267191**; selected
+seven-register entry self work increases from 1836754 to 1936866 against the
+preceding outlined image. Callback control/candidate timing medians are
+CPU0 **0.956144 / 0.947397** and CPU16 **0.992545 / 0.990268** in first/repeat
+screens. CPU16 upvalue medians also remain adverse at 0.994432 / 0.996046.
+Keep the complete mixed and adverse vectors; neither the smaller upvalue
+instruction difference nor source-level check hoisting establishes a benefit.
+
+A bounded follow-up restores the frame-length check inside the outlined
+function. Seven focused tests pass, but four checked callback-only profiles
+report **11040362 → 11292167**. All 25 counters, 4970 reuse events, 10157 imports,
+generated-native work and 13-event exclusive sums match their required controls;
+the follow-up does not recover the lost whole-workload instruction efficiency.
+No elapsed screen is claimed for this follow-up. Its patch/image and the early
+trial's full failed campaign remain under `early-bounds/` and `early/`, with
+`early-time*` holding the latter's timings.
+
+Both admission changes are withdrawn. Source is restored exactly to the
+previous outlined candidate (`f6d4322` source), and formatting/check-all plus
+seven focused restoration tests pass. The prior timing-image source/image
+manifests verify again. No new performance fix or production promotion is
+accepted. Next investigate the lifetime/storage bookkeeping itself rather than
+another guard-order variant: descriptors are already invalidated between steps,
+so bounded step-local storage may avoid persistent per-thread scratch and the
+manager epoch. This is an investigation direction, not an implemented design;
+alias/capture guards, callback transitions, counters, compiled-Off cost and
+resource accounting still require full proof and an unchanged-production test.
+
 ### Callback stack offset overflow — corrected, 2026-10-18
 
 Investigation of cross-callback import reuse found that callback stack suffix
