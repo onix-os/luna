@@ -9,6 +9,60 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Canonical string lookup — isolated runtime trial, 2026-10-18
+
+Trial `c7a165b` separates canonical string lookup from the existing supplied-hash
+API. The new private lookup caches only a numeric bucket index, checks current
+bounds/occupancy/live String identity before reading the current weak-aware slot,
+and computes the canonical hash on misses. The old prepared lookup and helper
+keep arbitrary supplied-hash behavior unchanged. The new `luna_get_up_table_c1`
+helper uses the canonical lookup, with existing packed operands, snapshot
+accounting and compiler checks. Its two hash words are unused; the old prepared
+and wide helper symbols retain their original contracts. Ordinary interpreter
+calls and callback setup are unchanged. No GC pointer or value is cached.
+
+GNU formatting/all-feature checks and **1,463 executions / twelve summaries**
+pass, zero failed and 23 ignored, including the full JIT unit suite. Independent
+generic/prepared/canonical helper comparisons cover values, environments,
+metamethod decline and borrow-panic transport; additional tests cover invalid
+operands, cache bounds, mutation, growth, weak modes and supplied-hash independence.
+Pinned Miri passes four selected tests under each borrowing model.
+
+The first real i686 check catches a footprint regression: `u32` fits 64-bit
+padding but grows 32-bit RawTable from **56 to 60 bytes**. That failure is retained.
+Correction `9515e33` uses a `u32` bucket index on 64-bit targets and `u16` otherwise,
+with checked conversion and uncached fallback outside its range. The unchanged
+layout/GC-charge assertion now passes on i686; corrected GNU and i686 focused
+checks each pass 32 executions / three summaries, one ignored. Both trial commits
+are pushed; neither is merged into the retained runtime.
+
+The original `c7a165b` image completes fourteen full-execution instruction
+profiles. All corresponding non-timing counters match; partition accounting,
+source/image identity and the valid/nine-corrupt fixture checks pass. Callback
+Auto instructions fall **9,438,782 -> 9,278,782 (-1.695%)**, while Off remains
+7,807,066. Actual new-helper execution is visible: `call::<11>` consumes 685,000
+self instructions versus 845,000 in the old prepared helper. Upvalue and
+metamethod Auto totals fall about 0.51%/0.49%. Integer Auto instead grows
+**0.738%**, entirely matching an extra 7,512 VM self instructions per sampled
+execution; that negative result is retained. These are not elapsed speedups.
+
+The corrected revision completes another fourteen profiles with the same strict
+counter/accounting and corruption checks. Callback Auto retains the 160,000
+instruction saving; integer/float Auto and Off now match the control exactly.
+Upvalue Auto falls 1.737% and metamethod Auto 0.470%; allocation Auto grows
+0.059%, allocation Off 0.055% and metamethod Off 0.086%. Both rebuilt images and
+both datasets remain: the 64-bit images are not byte-identical, so the disappearance
+of the initial integer increase is not attributed causally to the narrower-target
+layout fix. Refreshed Miri passes the same four tests per borrowing model.
+
+The full all-feature Force gate is still running. Production speed/shipping,
+compiled-Off/no-feature, repeated elapsed and broader release acceptance remain
+open. Instruction savings and focused correctness are not runtime promotion.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/`, including
+the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
+`warm-audit.json`, `corrected/` and validation logs.
+
 ### Branch-history attribution — no promotion, 2026-10-18
 
 The 36-process short full-suite branch-history campaign finishes on the same
