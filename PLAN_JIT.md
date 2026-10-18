@@ -31,12 +31,47 @@ generations: refusal preserves PC, fuel and native entry counts. The owner
 Make gate now requires four tests rather than three to include the new fixture.
 
 Formatting/all-feature checking and **135 focused executions / nine summaries**
-pass; all **13 registry Miri executions** pass. The rebuilt speed no-feature
-diagnostic image is byte-identical to the control. Three repeated matched-image
-profile rounds and full validation are running; this is not a claimed speedup
-or acceptance. The repeated profiles retain same-image hash-dependent work
-variation instead of treating a single small difference as causal evidence.
-Evidence prefix: `hook-resume-recovery/known-sources*`.
+pass; all **13 registry Miri executions** pass. Full validation passes **2,437
+executions, zero failures, 20 ignored across 177 summaries**. The rebuilt speed
+no-feature diagnostic image and both no-feature timing images are byte-identical
+to their respective controls.
+
+Three repeated matched-image rounds complete **72 profiles** with verified
+exclusive-event sums, image/source hashes and all 36 paired result/native-work
+records equal. Speed Auto upvalue instruction totals are:
+
+| Round | Control | Known-source trial |
+| --- | ---: | ---: |
+| 0 | 26,007,076 | 26,160,309 |
+| 1 | 26,522,479 | 26,119,573 |
+| 2 | 25,852,975 | 26,081,881 |
+
+All six report 298,423 native logical instructions. Float Off/Auto and callback
+Off instruction totals are unchanged; callback Auto differs by at most 81.
+The smaller observed upvalue spread does not establish a speedup or remove
+the remaining canonical admission scan. In particular, the favorable single
+round is not selected as the performance result.
+
+Two all-nine-case elapsed campaigns verify **9,072 native executions and 362,880
+cost iterations**, zero counter/resource mismatches and unchanged thresholds.
+No owned tests/builds/profilers overlap timing. External contention and control
+drift remain in the reports. The trial is **rejected**: native Auto upvalue
+control/trial ratios are below one in seven of eight windows, including all four
+repeat windows (**0.9929 / 0.9973** on CPU0, **0.9894 / 0.9894** on CPU16).
+The favorable first-campaign CPU0 round-one ratio has severe A/B drift and is
+not credible evidence of a gain. CPU0 speed JIT-Off float consistently slows:
+**0.9753 / 0.9665** initially, **0.9733 / 0.9734** in the repeat; corresponding
+repeat A/B controls are **1.0002 / 1.0092** and no-feature images are unchanged.
+Native callback gates still fail **7/8**, shipping upvalue cost **7/8**, speed
+upvalue cost **6/8**; remaining failures are retained in the audit JSON.
+
+Commit `2082815` restores the original runtime and keeps the independent registry
+oracle plus retained-image/reset-generation regression. The native fixture now
+uses the original entry API, and the Make gate continues to require all four
+ownership tests. Restoration formatting/all-feature checks and all **135 focused
+executions** pass. Both rebuilt speed diagnostic images exactly match the original
+controls. No native performance improvement is claimed. Evidence prefix:
+`hook-resume-recovery/known-sources*`.
 
 ### Frame-mode classification diagnostic — 2026-10-18
 
