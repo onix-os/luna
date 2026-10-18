@@ -9,6 +9,49 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Exact numeric attribution and borrowed operands, 2026-10-18
+
+Ordinary unstripped rebuilds do not preserve the shipping images: the baseline
+VM text section moves96 bytes and grows640 bytes. Their symbol addresses are
+not used for attribution. Instead, a rustc wrapper requests only a linker map
+for the original stripped cost example. Both resulting executables match their
+frozen baseline/candidate files **byte-for-byte**.
+
+The maps place `run_vm_slice` at0x39b306 in the baseline and0x39b32c in the
+rotation candidate, size0xa478 in both. `push_call` grows from0x4dc to0x502
+bytes, shifting VM/executor placement38 bytes. This does not prove alignment
+caused the slowdown.
+
+A72-process exact-image sampling campaign retains69687 user-cycle samples:
+six balanced A/candidate/B rounds, CPUs0/16, both numeric workloads,1000
+iterations per worker. Captured counts, summed periods, executable mappings
+and zero lost samples verify; two valid audit fixtures and ten corruptions
+pass/refuse as expected. CPU0 VM median shares rise from91.83%/92.15%
+(integer/float) to92.97%/93.65%. Non-precise sampled PCs are not causal stall
+attribution. Perf's rounded `1K` header is not used as an exact count; the
+initial parser refusal and corrected capture/script-count audit are retained.
+
+The sampled regions include numeric-loop operand handling, whose assembly
+copies whole Values through stack slots. Separate trial **`e927bf4`** borrows
+the three operands and copies integer payloads before writing. It starts from
+`066905e`, not the rejected rotation guard, and changes no arithmetic,
+conversion, overflow, direction, PC or fuel rules. It is committed/pushed on
+`trial/jit-borrowed-for-loop`, not main. Sixty-four focused executions across
+seven summaries and workspace all-feature/format checks pass.
+
+This first borrowed form **does not remove the measured work**: integer Off
+VM instructions grow3662572 to3702574, with identical read/write counts. Full
+execution grows1.060% integer Off and0.986% float Off; ten of fourteen cases
+increase and four are unchanged. Complete counters/resources match, and the
+profile auditor's valid/nine-corruption fixtures pass. No elapsed improvement
+or acceptance is claimed; Miri validation was still running when recorded.
+Do not promote this form or infer that source-level borrowing eliminated
+copies. Further work must demonstrate an actual reduction, with the original
+correctness and performance gates intact.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/timing/`
+(`*-linkmap`, `attribution-audit.json`) and its sibling `borrowed-loop/`.
+
 ### Identity argument rotations — timing regressions, 2026-10-18
 
 Main `066905e` adds an independent closure-argument layout oracle and Make
