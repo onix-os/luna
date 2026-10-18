@@ -404,6 +404,8 @@ pub(super) enum Failure {
     AuditPayloadReads,
     AuditPackedLowering,
     RequireReadCache,
+    PreferReadEffects,
+    CompactIntegerPairs,
     BranchLoopDirection,
     WidePrepared(Option<super::helper_flow::Fault>),
     RequireWriteback,
@@ -813,7 +815,10 @@ fn compile_selected_rooted(
     #[cfg(test)]
     if matches!(
         failure,
-        Failure::RequireFieldMemory | Failure::RequirePreferredEntry
+        Failure::RequireFieldMemory
+            | Failure::RequirePreferredEntry
+            | Failure::PreferReadEffects
+            | Failure::CompactIntegerPairs
     ) {
         let incompatible = rooted_moves
             || selection.projected
@@ -826,6 +831,10 @@ fn compile_selected_rooted(
             return Err(JitError::Compilation(
                 if failure == Failure::RequirePreferredEntry {
                     "preferred entry requires ordinary lowering"
+                } else if failure == Failure::PreferReadEffects {
+                    "read effects require ordinary lowering"
+                } else if failure == Failure::CompactIntegerPairs {
+                    "compact integer pairs require ordinary lowering"
                 } else {
                     "field memory requires ordinary lowering"
                 }
@@ -901,6 +910,10 @@ fn compile_selected_rooted(
         None
     };
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
+    #[cfg(test)]
+    {
+        stores.compact_integer_pairs = failure == Failure::CompactIntegerPairs;
+    }
     if rooted_moves {
         stores.helper_calls = super::helper_flow::Calls::rooted(snapshot)?;
         stores.rooted_moves = true;
@@ -970,6 +983,8 @@ fn compile_selected_rooted(
                     | Failure::RequireStrided
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
+                    | Failure::PreferReadEffects
+                    | Failure::CompactIntegerPairs
                     | Failure::RequirePreferredEntry
                     | Failure::DisablePreferredEntry
             ))
@@ -1510,6 +1525,8 @@ fn compile_selected_rooted(
         Failure::None
             | Failure::RequireUniversalMemory
             | Failure::RequireFieldMemory
+            | Failure::PreferReadEffects
+            | Failure::CompactIntegerPairs
             | Failure::RequirePreferredEntry
             | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop
@@ -1614,20 +1631,32 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let instructions = if matches!(
         failure,
-        Failure::RequireReadCache | Failure::RequireWriteback
+        Failure::RequireReadCache | Failure::RequireWriteback | Failure::PreferReadEffects
     ) {
-        let promote = if failure == Failure::RequireWriteback {
-            read_cache::promote_writeback
+        let applied = if failure == Failure::PreferReadEffects {
+            read_cache::promote_preserving(
+                &mut context.func,
+                parameters[0],
+                parameters[3],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+                |inst| stores.helper_calls.read_cache_clobbers(snapshot, inst),
+            )?
         } else {
-            read_cache::promote
+            let promote = if failure == Failure::RequireWriteback {
+                read_cache::promote_writeback
+            } else {
+                read_cache::promote
+            };
+            promote(
+                &mut context.func,
+                parameters[0],
+                parameters[3],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+            )?
         };
-        if !promote(
-            &mut context.func,
-            parameters[0],
-            parameters[3],
-            snapshot.registers,
-            snapshot.operations.allocator().clone(),
-        )? {
+        if !applied && failure != Failure::PreferReadEffects {
             return Err(JitError::Compilation(
                 "scalar read cache was not applied".into(),
             ));
@@ -2924,6 +2953,13 @@ impl Emitter<'_, '_> {
             let li = self.tag_is(lt, abi::INTEGER);
             let ri = self.tag_is(rt, abi::INTEGER);
             let both = self.builder.ins().band(li, ri);
+            #[cfg(test)]
+            let both = if self.stores.compact_integer_pairs {
+                let combined = self.builder.ins().bor(lt, rt);
+                self.tag_is(combined, abi::INTEGER)
+            } else {
+                both
+            };
             self.builder.ins().brif(both, integer, &[], float, &[]);
             self.builder.switch_to_block(integer);
             let bits = match op {

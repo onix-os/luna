@@ -1,4 +1,14 @@
 use super::*;
+
+#[test]
+fn read_effects_runtime_helper_panic_materializes_scalars_and_recovers() {
+    panic_contract(backend::Failure::PreferReadEffects);
+}
+
+#[test]
+fn read_effects_runtime_retained_alias_and_relocated_stack_match_every_step() {
+    alias_contract(backend::Failure::PreferReadEffects);
+}
 use crate::{Callback, CallbackReturn, Table, Thread, Value};
 
 #[test]

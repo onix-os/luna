@@ -230,7 +230,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
                         };
                     }
                     cached.code.entry_kind == match failure {
-                        backend::Failure::RequireUniversalMemory | backend::Failure::RequireFieldMemory => backend::EntryKind::Ordinary,
+                        backend::Failure::RequireUniversalMemory | backend::Failure::RequireFieldMemory | backend::Failure::PreferReadEffects | backend::Failure::CompactIntegerPairs => backend::EntryKind::Ordinary,
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
                         backend::Failure::RequireStrided => backend::EntryKind::Strided,
                         backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload | backend::Failure::RequireWriteBoundPayload => backend::EntryKind::FrameBound,

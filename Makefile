@@ -347,6 +347,33 @@ jit-metrics-tests:
 jit-bench-paired:
 	@$(MAKE) --no-print-directory jit-bench ARGS='--mode paired --samples 11 $(ARGS)'
 
+PERF ?= perf
+CYCLES_DIR ?= target/jit-evidence/warmed-cycles
+CYCLES_IMAGE ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_cycles
+CYCLES_CASE ?= rust_callbacks
+CYCLES_MODE ?= auto
+CYCLES_ITERATIONS ?= 1000
+CYCLES_EVENT ?= cycles:u
+.PHONY: jit-cycles-tests jit-cycles-build jit-cycles-run
+jit-cycles-tests:
+	@$(CARGO) test --locked -p luna --features jit --example jit_cycles $(TARGET_ARG) $(ARGS)
+
+jit-cycles-build:
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) build --locked -p luna --features jit --release --example jit_cycles $(TARGET_ARG)
+
+jit-cycles-run: jit-profile-cpu-check
+	@test -x '$(CYCLES_IMAGE)'
+	@mkdir '$(CYCLES_DIR)'
+	@set -e; ctl='$(CYCLES_DIR)/control'; ack='$(CYCLES_DIR)/ack'; \
+		mkfifo "$$ctl" "$$ack"; trap 'rm -f "$$ctl" "$$ack"' EXIT; \
+		timeout 180s taskset -c '$(PROFILE_CPU)' '$(PERF)' record -D -1 -e '$(CYCLES_EVENT)' -F 997 \
+			--control="fifo:$$ctl,$$ack" -o '$(CYCLES_DIR)/perf.data' -- \
+			'$(CYCLES_IMAGE)' '$(CYCLES_MODE)' '$(CYCLES_CASE)' '$(CYCLES_ITERATIONS)' "$$ctl" "$$ack" \
+			> '$(CYCLES_DIR)/run.log' 2> '$(CYCLES_DIR)/perf.log'
+	@$(PERF) report --stdio --no-children --percent-limit 0 --sort symbol,dso -i '$(CYCLES_DIR)/perf.data' > '$(CYCLES_DIR)/report.log'
+	@$(PERF) script -F ip,sym,dso,period -i '$(CYCLES_DIR)/perf.data' > '$(CYCLES_DIR)/samples.log'
+	@grep -F 'cycles_protocol=1 mode=$(CYCLES_MODE) case=$(CYCLES_CASE) warmups=2 iterations=$(CYCLES_ITERATIONS) verified=1 compilation_delta=0' '$(CYCLES_DIR)/run.log'
+
 jit-performance:
 	@$(MAKE) --no-print-directory jit-bench JIT_BENCH_OPT=3 ARGS='--mode paired --samples 11 --check $(ARGS)'
 
@@ -1174,6 +1201,22 @@ jit-read-cache:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_scalar_regions_match_the_boundary_model
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_helpers_match_canonical_execution_at_every_boundary
 
+.PHONY: jit-read-effects
+.PHONY: jit-compact-integer-pairs
+.PHONY: jit-compact-integer-pairs-miri
+jit-compact-integer-pairs-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::tags::tests::compact_integer_pairs_ -- --test-threads=1
+
+jit-compact-integer-pairs:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) compact_integer_pairs -- --nocapture
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests::
+	@$(MAKE) --no-print-directory jit-arithmetic
+
+jit-read-effects: jit-read-cache
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_flow::read_effect_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::effect_cached_
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) read_effects_runtime_
+
 jit-input:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) numeric_guards
 	@$(MAKE) --no-print-directory jit-float-input
@@ -1368,6 +1411,7 @@ MEMORY_RUNTIME_DIR ?= target/jit-evidence/short-slice-performance/universal-memo
 FIELD_RUNTIME_DIR ?= target/jit-evidence/short-slice-performance/field-memory-runtime
 MEMORY_KIND ?= universal
 MEMORY_CASES ?= integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc
+MEMORY_DUMP ?= 0
 .PHONY: jit-field-memory jit-field-memory-miri jit-field-memory-profile-build jit-field-memory-profile-run
 jit-field-memory:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) field_memory -- --test-threads=1
@@ -1396,7 +1440,7 @@ jit-universal-memory-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(MEMORY_RUNTIME_DIR)/binary.sha256' '$(MEMORY_RUNTIME_DIR)/source.sha256' > '$(MEMORY_RUNTIME_DIR)/verification-before.log'
 	@set -e; for round in 0 1; do order='0 1'; if [ $$round = 1 ]; then order='1 0'; fi; for shape in $(MEMORY_CASES); do for selected in $$order; do \
 		out='$(MEMORY_RUNTIME_DIR)'/$$round-$$shape-$$selected; test ! -e "$$out.callgrind"; \
-		LUNA_MEMORY_CASE=$$shape LUNA_MEMORY_SELECTED=$$selected taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+		$(if $(filter 1,$(MEMORY_DUMP)),LUNA_JIT_DIAGNOSTIC_DIR="$$out-native",) LUNA_MEMORY_CASE=$$shape LUNA_MEMORY_SELECTED=$$selected taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
 			'$(MEMORY_RUNTIME_DIR)/test-binary' jit::payload_runtime_tests::strided_profile::profile_$(MEMORY_KIND)_memory_runtime --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
 		grep -Fq "case=$$shape $(MEMORY_KIND)_memory=$$([ $$selected = 1 ] && echo true || echo false) validated=true" "$$out.log"; \
 		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \

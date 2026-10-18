@@ -293,6 +293,47 @@ mod tests {
     }
 
     #[test]
+    fn effect_cached_scalar_regions_match_the_boundary_model() {
+        boundary_model(Some(super::super::backend::Failure::PreferReadEffects));
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn effect_cached_getter_free_loops_keep_original_kernels() {
+        use super::super::{backend, resources, work, JitConfig};
+        let directory =
+            std::env::temp_dir().join(format!("luna-read-effects-{}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        for program in [
+            &b"local s=0 for i=1,20000 do s=s+i end return s"[..],
+            &b"local s=0.0 for i=1,20000 do s=s+0.5 end return s"[..],
+        ] {
+            let source = snapshot(program);
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let images =
+                [backend::Failure::None, backend::Failure::PreferReadEffects].map(|failure| {
+                    let code = backend::compile_in(
+                        &source,
+                        memory.clone(),
+                        8 * 1024 * 1024,
+                        resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                        work::Limits::from(&JitConfig::default()),
+                        failure,
+                    )
+                    .unwrap();
+                    let path = directory.join("kernel.bin");
+                    code.dump_finalized(&path);
+                    let bytes = std::fs::read(&path).unwrap();
+                    std::fs::remove_file(path).unwrap();
+                    bytes
+                });
+            assert_eq!(images[0], images[1]);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+        }
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
     fn writeback_scalar_regions_match_the_boundary_model() {
         boundary_model(Some(super::super::backend::Failure::RequireWriteback));
     }
@@ -611,18 +652,22 @@ mod tests {
             .unwrap();
             let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
             let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
-            let codes =
-                [backend::Failure::None, backend::Failure::RequireWriteback].map(|failure| {
-                    backend::compile_in(
-                        &snapshot,
-                        memory.clone(),
-                        8 * 1024 * 1024,
-                        resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
-                        work::Limits::from(&super::super::JitConfig::default()),
-                        failure,
-                    )
-                    .unwrap()
-                });
+            let codes = [
+                backend::Failure::None,
+                backend::Failure::RequireWriteback,
+                backend::Failure::PreferReadEffects,
+            ]
+            .map(|failure| {
+                backend::compile_in(
+                    &snapshot,
+                    memory.clone(),
+                    8 * 1024 * 1024,
+                    resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                    work::Limits::from(&super::super::JitConfig::default()),
+                    failure,
+                )
+                .unwrap()
+            });
             let mut completed = 0;
             let mut declined = 0;
             for pc in 0..snapshot.operations.len() {
@@ -697,6 +742,7 @@ mod tests {
                             )
                         });
                         assert_eq!(results[0], results[1], "pc={pc} budget={budget}");
+                        assert_eq!(results[0], results[2], "effects pc={pc} budget={budget}");
                     }
                 }
             }
@@ -784,6 +830,94 @@ mod tests {
 
     #[test]
     fn mixed_numeric_arithmetic_matches_at_every_entry_budget_and_alias() {
+        arithmetic_boundary_matrix(None);
+    }
+
+    #[test]
+    fn compact_integer_pairs_match_every_entry_budget_and_alias() {
+        arithmetic_boundary_matrix(Some(super::super::backend::Failure::CompactIntegerPairs));
+    }
+
+    #[test]
+    fn compact_integer_pairs_reject_malformed_tags_at_every_budget() {
+        use super::super::{backend, resources, work, JitConfig};
+        use crate::types::{RegisterIndex as R, VarCount};
+        let source = Snapshot {
+            prepared_keys: None,
+            operations: resources::owned(&[
+                Operation::Add {
+                    dest: R(0),
+                    left: R(0).into(),
+                    right: R(1).into(),
+                },
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(1),
+                },
+            ]),
+            constants: resources::owned(&[]),
+            registers: 2,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+        let code = backend::compile_in(
+            &source,
+            memory.clone(),
+            8 * 1024 * 1024,
+            resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+            work::Limits::from(&JitConfig::default()),
+            backend::Failure::CompactIntegerPairs,
+        )
+        .unwrap();
+        let tags = [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            255,
+            1 << 32,
+            1 << 63,
+            (1 << 32) | 2,
+            (1 << 63) | 2,
+            (1 << 63) | 3,
+            u64::MAX,
+        ];
+        for left in tags {
+            for right in tags {
+                for pc in 0..=1 {
+                    for budget in [0, 1, 2, 64] {
+                        let mut expected = [
+                            Slot { tag: left, bits: 7 },
+                            Slot {
+                                tag: right,
+                                bits: 9,
+                            },
+                        ];
+                        let mut actual = expected;
+                        let wanted = run(&source, &mut expected, pc, budget);
+                        let got = code.invoke(&mut actual, pc, budget);
+                        assert_eq!(
+                            (got.pc, got.instructions, got.reason),
+                            (wanted.pc, wanted.instructions, wanted.reason)
+                        );
+                        assert_eq!(
+                            actual.map(|s| (s.tag, s.bits)),
+                            expected.map(|s| (s.tag, s.bits))
+                        );
+                    }
+                }
+            }
+        }
+        drop(code);
+        assert_eq!(memory.load(Ordering::Relaxed), 0);
+    }
+
+    fn arithmetic_boundary_matrix(failure: Option<super::super::backend::Failure>) {
         use crate::types::{ConstantIndex8 as C, RegisterIndex as R, VarCount};
         let values = [
             Constant::Integer(i64::MIN),
@@ -849,9 +983,17 @@ mod tests {
                     snapshot.verify().unwrap();
                     let memory =
                         MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
-                    let code =
-                        super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024)
-                            .unwrap();
+                    let code = super::super::backend::compile_in(
+                        &snapshot,
+                        memory.clone(),
+                        8 * 1024 * 1024,
+                        super::super::resources::BudgetAllocator(
+                            super::super::resources::Ledger::new(2 * 1024 * 1024),
+                        ),
+                        super::super::work::Limits::from(&super::super::JitConfig::default()),
+                        failure.unwrap_or(super::super::backend::Failure::None),
+                    )
+                    .unwrap();
                     for a in values {
                         for b in values {
                             for pc in 0..2 {

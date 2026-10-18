@@ -172,3 +172,76 @@ fn profile_memory_runtime(candidate: backend::Failure, label: &str) {
     println!("case={name} {label}={selected} validated=true counters={delta:?} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}",
         stats.code_bytes, stats.metadata_bytes, stats.metadata_peak_bytes, stats.snapshot_peak_bytes);
 }
+
+#[test]
+fn read_effects_runtime_frozen_workloads_preserve_results_and_coverage() {
+    for workload in workloads::WORKLOADS {
+        let (expected, _) = run(workload, backend::Failure::None, false);
+        let (actual, _) = run(workload, backend::Failure::PreferReadEffects, false);
+        assert_eq!(actual, expected, "{}", workload.name);
+    }
+}
+
+#[test]
+#[ignore]
+fn profile_effect_memory_runtime() {
+    profile_memory_runtime(backend::Failure::PreferReadEffects, "effect_memory");
+}
+
+#[test]
+fn compact_integer_pairs_frozen_workloads_preserve_results_and_coverage() {
+    for workload in workloads::WORKLOADS {
+        let (expected, _) = run(workload, backend::Failure::None, false);
+        let (actual, _) = run(workload, backend::Failure::CompactIntegerPairs, false);
+        assert_eq!(actual, expected, "{}", workload.name);
+    }
+}
+
+#[test]
+fn compact_integer_pairs_steps_callbacks_upvalues_gc_and_arrays() {
+    payload_runtime_contract(backend::Failure::CompactIntegerPairs);
+}
+
+#[test]
+#[ignore]
+fn profile_integer_pair_memory_runtime() {
+    profile_memory_runtime(backend::Failure::CompactIntegerPairs, "integer_pair_memory");
+}
+
+#[test]
+fn read_effects_runtime_steps_callbacks_upvalues_gc_and_arrays() {
+    payload_runtime_contract(backend::Failure::PreferReadEffects);
+}
+
+#[test]
+fn read_effects_runtime_current_frame_alias_keeps_dynamic_clobbers() {
+    let workload = workloads::Workload {
+        name: "current_frame_alias",
+        source: br#"
+            local alias=0
+            local function join(f,read)
+                for i=1,10 do
+                    local name,value=debug.getupvalue(f,i)
+                    if name and value==0 then
+                        debug.upvaluejoin(f,i,read,1)
+                        return
+                    end
+                end
+                error('missing alias')
+            end
+            local f
+            f=function()
+                local x=0
+                local read=function() return x end
+                join(f,read)
+                x=1 x=x+40 alias=alias+1 x=x+1 return x
+            end
+            return f()
+        "#,
+        expected: 43,
+    };
+    let (expected, _) = run(&workload, backend::Failure::None, false);
+    let (actual, stats) = run(&workload, backend::Failure::PreferReadEffects, false);
+    assert_eq!(actual, expected);
+    assert!(stats.native_upvalue_writes > 0);
+}

@@ -9,6 +9,139 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Warmed hardware-cycle attribution — 2026-10-18
+
+`933a9c9` adds a separate `jit_cycles` diagnostic example without changing the
+runtime or frozen benchmark gates. Sampling starts disabled; the worker loads
+the workload and completes two warmups, then brackets repeated execution with
+acknowledged perf enable/disable commands. The measured window includes executor
+creation, execution, result checks and collection during that lifecycle, plus
+bounded control-command overhead. It is not an Executor-only or elapsed-time
+acceptance measurement. Compilation requests and code-byte totals must remain
+unchanged across the window; all results and 25 execution counters are checked.
+
+Formatting/all-feature checks and six control-protocol tests pass. The first
+native probe exposed a trailing NUL in perf's `ack\n\0` messages. A syscall trace
+confirmed the framing; the corrected reader accepts newline-only and optionally
+NUL-terminated acknowledgements across multiple windows, while rejecting leading
+or repeated NULs, malformed/truncated replies and write failures. Workload errors
+still send disable. Failed initial captures remain excluded from results.
+
+All seven frozen workloads pass Off/Auto smoke runs with no compilation during
+collection. The callback campaign then completes **16 captures**, four alternating
+Off/Auto rounds on each of CPUs 0 and 16, with **10,000 verified executions** per
+capture. The audit reconciles **69,708 samples**, exact capture counts, rounded
+report headers, weighted event totals, zero lost samples and host/native address
+ranges. Each of 25 counters equals 10,000 times its independent single-execution
+control; Auto executes **200,070,000 native logical instructions** per capture,
+versus zero Off. No compiler symbols appear in the warmed samples. Source and
+image manifests verify before/after; no owned build, test or second profiler
+overlaps a capture. External contention and all per-run observations are retained.
+
+| Auto user-cycle self share | CPU 0 | CPU 16 |
+| --- | ---: | ---: |
+| VM slice | 18.86% | 20.47% |
+| Executor | 19.50% | 20.34% |
+| Seven-slot native entry | 11.70% | 10.57% |
+| Prepared-key helper | 11.02% | 13.16% |
+| Named generated code | 5.54% | 5.91% |
+
+The original whole-process attribution is no longer the only evidence for
+prioritizing entry/helper costs over tiny arithmetic-guard rewrites. All sampled
+addresses in the four selected host functions also match decoded instruction
+starts in the exact image; annotated weighted distributions are retained.
+Sampling skid prevents interpreting an individual address as instruction latency.
+These shares do not prove a speedup, identify a causal hardware bottleneck, or
+close any original performance/resource/platform/release gate. This separately
+linked diagnostic image is not asserted byte-identical to a shipping benchmark.
+
+Reproduction uses `make jit-cycles-tests`, `make jit-cycles-build`, and
+`make jit-cycles-run` with an unused `CYCLES_DIR`, `PERF`, `PROFILE_CPU`,
+`CYCLES_EVENT`, `CYCLES_MODE`, `CYCLES_CASE` and `CYCLES_ITERATIONS` overrides.
+Captures have a 180-second timeout. Evidence, protocol trace, local campaign and
+independent audit are under `target/jit-evidence/hook-resume-recovery/warmed-cycles/`.
+
+### Compact integer-pair guard — test-only investigation, 2026-10-18
+
+`2572c06` tests `(left_tag | right_tag) == Integer` after both existing Numeric
+guards, replacing the two materialized Integer comparisons only in test-selected
+ordinary arithmetic lowering. Without both Numeric guards, Nil/Integer would
+be wrongly admitted. Prepared-key and integer-loop passes remain enabled;
+production selection, loop emission, fuel and helper boundaries are unchanged.
+The test-only verifier recognizes direct OR conflicts within its existing
+traversal budget. Missing guards, wrong operands and both predicate polarities
+are covered; this does not restore the rejected combined numeric-loop guard.
+
+Formatting/all-feature checks and **214 focused executions / 29 summaries**
+pass, including **185,856 arithmetic comparisons**, **1,800 malformed-tag
+comparisons**, the shared 24-script/eight-fuel contract and source corruption
+refusals. Both Miri borrow models pass the pure 16-case admission fixture
+(45 Stacked / 39 Tree warnings). Miri does not execute generated native code.
+
+The frozen optimized image completes **28 profiles** across seven workloads
+and two alternating rounds. All 25 paired execution counters and thirteen
+exclusive event sums verify. Callback instructions remain **10,594,582** in
+both modes and rounds; data reads increase by **10,000**. Captured native
+address attribution independently matches function self totals: **730,160**
+instructions in all four callback runs, with a **2,160-byte** body and `0x40`
+stack reservation. Removing 10,000 SETEs, 5,000 comparisons and 5,000 tests is
+offset by 5,000 ORs and 15,000 additional moves; branch totals are unchanged.
+
+Integer instructions fall by 1,311 (0.119%); float grows by 116 (0.010%).
+Upvalue decreases in both rounds, but by different amounts; array, metamethod
+and allocation increase in both rounds with variable magnitudes. These whole
+profile differences are retained, not assigned solely to guard lowering.
+There is no material callback instruction reduction to justify promotion.
+No elapsed campaign was run: instruction neutrality does not establish elapsed
+neutrality, improvement or regression. The experiment remains test-only; full
+performance, resource, platform and release acceptance remain open. Evidence:
+`target/jit-evidence/hook-resume-recovery/integer-pair-guard/`.
+
+### Getter-preserving scalar cache — test-only investigation, 2026-10-18
+
+`f6b3a65` adds a test-selected native payload-cache experiment, not a production
+optimization. After existing helper/source verification, GetTable, GetUpTable
+and GetUpValue invalidate only their destination's two scratch words. Every
+other helper and unknown call remains a full barrier, particularly SetUpValue:
+its runtime cell can alias any current-frame register. Every scratch store and
+tag load remains intact. Only ordinary unprojected lowering is admitted; the
+existing two-payload/16-register/workspace bounds remain. Getter-free functions
+are unchanged by the cache pass rather than repeating the scalar-only trial.
+
+Formatting/all-feature checks and **43 focused executions / nine summaries**
+pass on the initial test-only revision. Coverage includes source-helper
+corruption refusals, every-entry scalar and helper comparisons, all seven frozen
+workloads, 24 scripts/eight initial fuel budgets, GC, retained/relocated stack
+aliases and helper panic recovery. A wrong SetUpValue preservation mask makes
+the final current-frame alias fixture return **42 instead of 43**. Restoring
+the mask restores the expected result. Earlier larger fixtures passed that
+mutation and did not establish optimizer coverage; those logs are preserved.
+
+The first 28-profile instruction matrix exposed a diagnostic selection mistake:
+the new test mode omitted existing prepared-key helpers and integer-loop
+augmentation. Those measurements are retained as unmatched-pipeline evidence,
+not attributed solely to cache effects. Follow-up `a55a855` restores both existing
+passes and adds byte-identical emitted integer/float kernel controls. Formatting/
+all-feature checks and **44 focused executions / nine summaries** pass.
+
+The matched optimized image completes **28 profiles**, two alternating rounds
+of all seven workloads. All 25 execution counters agree within each pair;
+all thirteen exclusive event totals, source/image hashes and native captures
+verify. Integer and float instruction totals are exactly unchanged. Callback
+instructions are **10,594,582 -> 10,594,583** in both rounds despite **10,001
+fewer data reads**. Its generated body grows **2,160 -> 2,192 bytes**, with the
+same `0x40` stack reservation and 4,096 mapped bytes. Upvalue totals grow by
+163 instructions in both rounds. Metamethod instructions grow **0.52–0.62%**,
+allocation grows **0.086–0.095%**, and array results vary in both directions.
+There is no material instruction-count gain to justify production promotion.
+Keep this as test-only evidence; no elapsed campaign was run, and no elapsed
+speedup/slowdown or shipping acceptance is inferred from these profiles.
+
+This prototype still lacks an independent translation proof and full resource/
+platform/release acceptance. Source verification plus differential tests does
+not replace that proof. Evidence and failed fixture drafts are under
+`target/jit-evidence/hook-resume-recovery/read-effects/`.
+
 ### No-array native entry specialization — rejected, 2026-10-18
 
 Trial `0d134de` selects an array-capable or no-array native transport from the
