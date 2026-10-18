@@ -47,13 +47,6 @@ fn run(
     };
     assert_eq!(actual, workload.expected);
     let after = lua.jit_stats();
-    if failure == backend::Failure::PreferCallbackScratch && workload.name == "rust_callbacks" {
-        let counts = lua.enter(|ctx| ctx.fetch(&executor).callback_scratch_counts());
-        assert!(counts.0 > 0, "no callback scratch reuse: {counts:?}");
-        if profile {
-            println!("callback_scratch_reused={} imported={}", counts.0, counts.1);
-        }
-    }
     assert_eq!(after.compilation_failures, 0);
     assert_eq!(after.compilation_requests, before.compilation_requests);
     assert!(after.native_instructions > before.native_instructions);
@@ -202,29 +195,6 @@ fn compact_integer_pairs_frozen_workloads_preserve_results_and_coverage() {
         let (actual, _) = run(workload, backend::Failure::CompactIntegerPairs, false);
         assert_eq!(actual, expected, "{}", workload.name);
     }
-}
-
-#[test]
-fn callback_scratch_frozen_workloads_preserve_results_and_coverage() {
-    for workload in workloads::WORKLOADS {
-        let (expected, _) = run(workload, backend::Failure::None, false);
-        let (actual, _) = run(workload, backend::Failure::PreferCallbackScratch, false);
-        assert_eq!(actual, expected, "{}", workload.name);
-    }
-}
-
-#[test]
-fn callback_scratch_steps_callbacks_upvalues_gc_and_arrays() {
-    payload_runtime_contract(backend::Failure::PreferCallbackScratch);
-}
-
-#[test]
-#[ignore]
-fn profile_callback_scratch_memory_runtime() {
-    profile_memory_runtime(
-        backend::Failure::PreferCallbackScratch,
-        "callback_scratch_memory",
-    );
 }
 
 #[test]

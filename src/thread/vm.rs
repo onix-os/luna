@@ -519,10 +519,6 @@ fn run_vm_slice<'gc>(
             _ => {}
         }
 
-        #[cfg(all(test, feature = "jit"))]
-        if let Some(scratch) = registers.callback_scratch.as_deref_mut() {
-            scratch.invalidate();
-        }
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {

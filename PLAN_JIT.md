@@ -9,7 +9,193 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Private callback scratch reuse — diagnostic only, 2026-10-18
+### Thread-local prepared bucket hint — unaccepted trial, 2026-10-18
+
+`7159218` trials a single constant-initialized TLS `usize` in JIT-only prepared
+string lookup. It retains no pointer, key, value or GC root. Each hit checks the
+current table's bucket bounds, occupancy and key equality under its shared
+borrow, then reads/upgrades the current slot. Misses use the existing hash lookup.
+Unlike the three previously rejected per-Code bucket-hint variants, this changes
+neither Code/Frame/table layouts nor their allocations, and does not instrument
+ordinary interpreter lookup. The fixed per-thread TLS storage and binary effects
+still require compiled-Off/resource acceptance.
+
+Formatting/check-all, eight prepared-table tests, nine prepared-key tests,
+twenty integrated heap tests and the seven-workload timing contract pass. Tests
+cover arbitrary indices, stale/foreign hints, separate threads/Lua instances,
+mutation, clear/growth, weak values, collisions, callbacks, metatables and GC.
+Assigning Nil can retain an occupied string-key slot for iteration order; the
+new test was corrected to require a semantic Nil result, not a nonexistent
+physical removal. Miri passes eight model and five helper tests in each borrow
+model (Stacked seed88, Tree seed89; retained warnings45/39/39/39). This is Rust-side
+evidence, not generated-code execution under Miri.
+
+An initial shared-target run silently used the old six-test executable; the
+explicit eight-test gate rejected it. A later shared release build also returned
+an old image without the two new tests, despite newly captured source hashes.
+That `prepared-tls/image/` is marked **INVALID**, not measured evidence. A fresh
+candidate-specific Cargo target rebuild took3m13s; both new test names and eight
+passing frozen-image tests verify that `image-fresh/` contains the trial. Future
+comparisons must not share Cargo targets across source checkouts or treat a
+successful build plus separately captured source hashes as sufficient proof.
+
+Fourteen fresh ordinary-image profiles are compared against the unchanged,
+scratch-free `2e0c44c` image. All25 counters and code/metadata/snapshot sizes match;
+the13-event exclusive-sum audits pass. Callback instructions fall **10594582 → 10554582 (-0.378%)**
+in both rounds, with generated callback work remaining730160. Integer/float
+counts are unchanged; metamethod instructions fall by8016. Other small or
+variable differences remain in the complete report.
+
+Four balanced42-window screens complete **3528 timing samples**, CPUs0/16 and
+reversed-order repeats, with source/image/tool hashes, results, counter parity
+and external-contention telemetry retained. No owned build/test/profiler overlaps
+these measurements. Control/candidate callback medians are **1.046225,1.012739,
+1.013202,1.037058**; corresponding placebos are0.994716,1.001719,1.002619,0.998395.
+Metamethod medians are1.014352,1.020935,1.020638,1.018004. CPU16 allocation medians
+are adverse at **0.985734/0.990573**; preserve them rather than reporting only gains.
+These are library-test images, not production release acceptance.
+
+The timing harness now supports ordinary-versus-ordinary frozen images without
+inventing an experimental selector or rewriting result records. Its five synthetic
+runners pass,69 malformed screens are refused, and four invalid cross-image
+inputs are refused before sampling. The default benchmark thresholds are unchanged.
+
+Production speed/shipping no-feature and feature images have now built from
+separate frozen source roots with independent Cargo targets. All four native Auto
+proofs and artifact/source verifications pass; all nine non-timing proof records
+match between candidate/control in each profile. Proof timings overlapped builds
+and are not performance evidence. No-feature section totals match but executable
+bytes differ. Feature section totals change by+4084 bytes for speed and-12 for
+shipping; these totals do not establish resource acceptance. Production timing,
+compiled-Off/cold costs, original native gates, platform/resource gates and broader
+acceptance remain pending. Do not promote this trial based on the diagnostic
+callback gain. Evidence is under `target/jit-evidence/hook-resume-recovery/prepared-tls/`,
+including `image-fresh/`, `profile-audit.json`, `time-summary.json`, all four
+`time-*` screens and the rejected/stale build logs.
+
+### Private callback scratch reuse — rejected, 2026-10-18
+
+**Outcome: both variants lose against a scratch-free control.** The earlier
+same-image improvements were relative to a control that still paid experimental
+tracking costs. They did not establish a useful optimization.
+
+A detached, unmodified `2e0c44c` source checkout supplies the scratch-free
+library-test baseline. Its existing ordinary timing/profile workers use the same
+seven workloads, compiler, opt-level 3, two warmups and measured execution scope.
+Source and symbol scans confirm the absence of scratch tracking; workload and
+Cargo inputs match. This is a library-test comparison, not a production release
+benchmark. The baseline's generic build configuration names synthetic transport;
+the separate `experiment` record identifies the actual full-workload workers.
+
+Fourteen new baseline profiles pass result, counter and exclusive-event checks.
+Callback instructions are **10594582 baseline versus 11182426 step-local
+candidate (+5.548%)**, identical across rounds. Integer/float instruction costs
+also rise; upvalue and metamethod results remain adverse. Callback generated work
+is 730160 instructions with matching mnemonic counts. Cross-image callback body
+comparison validates two prepared-hash immediates and three RIP-relative helper
+relocations against exact instruction patterns and ELF symbols; all remaining
+bytes match. The first audit, which allowed only one helper relocation, rejected
+the other two correctly. Its failed log is retained, and the corrected audit
+checks all three targets with a consistent image load bias.
+
+The step-local and earlier outlined candidates each complete four balanced
+42-window/seven-workload/two-control screens: **7056 timing samples total**.
+Both include CPUs0/16 and reversed-order repeats, verified source/image/tool
+manifests, all25 counter comparisons and external-contention telemetry. No owned
+build/test/profiler overlaps elapsed measurement. Callback control/candidate
+ratios (less than one means the candidate is slower):
+
+| Screen | Step-local | Its placebo | Earlier outlined | Its placebo |
+| --- | ---: | ---: | ---: | ---: |
+| CPU0 first | 0.933022 | 0.993587 | 0.922333 | 1.000551 |
+| CPU16 first | 0.910687 | 0.999985 | 0.934119 | 1.000058 |
+| CPU16 repeat | 0.907699 | 0.998631 | 0.934076 | 0.998033 |
+| CPU0 repeat | 0.936159 | 0.998736 | 0.921068 | 1.003204 |
+
+The local candidate is approximately **6.8–10.2% slower on callbacks**, and the
+earlier outlined candidate **7.1–8.6% slower**, against this scratch-free baseline.
+Integer and closure/upvalue medians are also adverse in every screen for both
+candidates. Favorable/mixed array and allocation observations do not offset these
+losses; complete vectors remain in the evidence.
+
+The entire test-only scratch experiment is withdrawn rather than restoring the
+earlier misleading same-image winner. Runtime and test source is restored to
+`2e0c44c`, including the already accepted stack-overflow repair. Experiment-only
+test targets are removed so an empty test filter cannot masquerade as a pass.
+Historical commits and frozen images retain the trial tests and implementation.
+After withdrawal, formatting/all-feature checks and the strided runtime/timing,
+activation, in-place call/return, call-pair, native-region, hook-resumption and
+callback stack-overflow targets pass. Runtime/test source equality against
+`2e0c44c` is verified independently of those tests.
+The cross-image timing controller remains, with56 malformed-screen refusals,
+four synthetic experiment runners and four pre-sampling manifest/input refusals.
+This removes a rejected experiment; it does **not** fix the original production
+JIT regressions or close performance/resource/platform/release acceptance.
+
+Evidence: `callback-scratch/{scratch-free-source,scratch-free-image,local-view,
+outlined-view}/`, `baseline-audit.json`, `baseline-time*`,
+`outlined-baseline-time*` and `baseline-restored.log/status`. The views reference
+their own frozen source roots, not the changing main checkout. Source and image
+verification therefore remains reproducible after withdrawal. Reproduction uses
+`jit-callback-baseline-time-run` plus `jit-callback-scratch-time-audit`, explicit
+candidate/control directories and `STRIDED_TIMING_WINDOWS=42`.
+
+#### Historical trial records
+
+**Step-local trial (`92a0d54`), test-only.** Scratch lived
+inside each `Executor::step`, passed by scoped mutable reference through
+`LuaFrame` and `ActivationHost`, instead of residing in `ThreadState` with a
+manager epoch. Per-thread diagnostic counts and irreversible alias exclusion
+remain. Alternate scalar, paired and native-region execution invalidate scratch;
+canonical writeback and callback-suffix imports are unchanged. This removes
+persistent scratch storage and epoch bookkeeping, but is not yet a measured
+performance improvement.
+
+Formatting/check-all and eight callback-scratch checks pass, including the
+24-script/eight-fuel corpus, nested executors, escaped aliases, closed captures,
+stack relocation, and reuse within—but never across—executor steps with GC
+between them. The boundary test initially assumed fuel 8 reached the callback;
+it now advances bounded slices until the callback actually runs and checks
+subsequent native arithmetic. Activation, in-place call/return, call-pair,
+native-region and hook-resumption Make targets also pass. These adjacent tests
+do not establish every combination with the scratch selector enabled.
+Logs are `callback-scratch/local-scopes-{full,adjacent}.log` under the evidence
+directory below. The two pure scratch-state tests also pass under Miri Stacked
+seed 86 and Tree seed 87, with 43 retained warnings in each run. These tests do
+not execute generated native code or prove all integrated borrowing paths.
+
+The independently frozen opt-level-3 image completes 28 profiles and all
+result/counter, native-body and exclusive 13-event audits. Callback instructions
+are **11255842 → 11182426 (-0.652%)** in both rounds; reuse/import counts remain
+4970/10157 and generated native instructions remain 730160 in all four callback
+captures. The selected callback total is nevertheless 35351 instructions above
+the previous outlined candidate, and the control also changed: this does not
+prove the ownership refactor itself is faster. Integer/float instruction counts
+increase by 1285; closure/upvalue counts increase by 80498/206498 across rounds.
+
+Four sequential, balanced CPU0/CPU16 screens, repeated in reversed CPU order,
+complete **3528 timing samples**. All results, 25 counters and manifests verify;
+no owned build/test/profiler overlaps elapsed measurement. External contention
+is retained. Control/candidate medians (greater than one favors the candidate):
+
+| Screen | Callback | Callback placebo | Closure/upvalue |
+| --- | ---: | ---: | ---: |
+| CPU0 first | 1.003459 | 0.999895 | 0.997263 |
+| CPU16 first | 1.018541 | 0.997463 | 0.989797 |
+| CPU16 repeat | 1.023995 | 0.991355 | 0.994576 |
+| CPU0 repeat | 1.011792 | 0.994949 | 0.996711 |
+
+The callback signal is small and variable, while closure/upvalue medians remain
+adverse in all four screens. Array and metamethod vectors are mixed; all samples
+and placebos are retained, not only favorable medians. This is still an
+instrumented same-image comparison, **not an unchanged-production speedup**.
+Do not promote this trial or treat the regressions as fixed. Before further
+scratch tuning, establish its cost against a scratch-free baseline and then the
+actual production runtime, including compiled-Off/cold/resource costs. Full
+performance, platform and release gates remain open. Evidence is in
+`callback-scratch/local-image/`, `local-audit.json`, `local-time*/`,
+`local-time-summary.json` and `local-{build,miri,profile,time}.log/status`.
+Earlier measurements below apply to their historical candidates.
 
 `a8e0edb` adds a test-only candidate for ordinary Rust callback returns. It
 retains scalar descriptors, not managed references, and still writes canonical
@@ -108,6 +294,39 @@ the complete evidence. The generic image manifest now also hashes the two
 example workload modules imported into library tests. Reproduction uses
 `jit-callback-scratch-time-run` and `jit-callback-scratch-time-audit` with
 `STRIDED_TIMING_WINDOWS=42` and explicit distinct output directories.
+
+Early-rejection trial `598ae69` moved the admission checks before width dispatch.
+Seven focused tests, all-feature checks, 28 profiles and another 3528 elapsed
+samples pass their correctness/counter/hash audits. It removes most of the
+selected-mode upvalue instruction excess (control/candidate **32266836 →
+32267458**, a difference of 622), but does not fix the measured regression.
+Callback instructions instead become **11055365 → 11267191**; selected
+seven-register entry self work increases from 1836754 to 1936866 against the
+preceding outlined image. Callback control/candidate timing medians are
+CPU0 **0.956144 / 0.947397** and CPU16 **0.992545 / 0.990268** in first/repeat
+screens. CPU16 upvalue medians also remain adverse at 0.994432 / 0.996046.
+Keep the complete mixed and adverse vectors; neither the smaller upvalue
+instruction difference nor source-level check hoisting establishes a benefit.
+
+A bounded follow-up restores the frame-length check inside the outlined
+function. Seven focused tests pass, but four checked callback-only profiles
+report **11040362 → 11292167**. All 25 counters, 4970 reuse events, 10157 imports,
+generated-native work and 13-event exclusive sums match their required controls;
+the follow-up does not recover the lost whole-workload instruction efficiency.
+No elapsed screen is claimed for this follow-up. Its patch/image and the early
+trial's full failed campaign remain under `early-bounds/` and `early/`, with
+`early-time*` holding the latter's timings.
+
+Both admission changes are withdrawn. Source is restored exactly to the
+previous outlined candidate (`f6d4322` source), and formatting/check-all plus
+seven focused restoration tests pass. The prior timing-image source/image
+manifests verify again. No new performance fix or production promotion is
+accepted. Next investigate the lifetime/storage bookkeeping itself rather than
+another guard-order variant: descriptors are already invalidated between steps,
+so bounded step-local storage may avoid persistent per-thread scratch and the
+manager epoch. This is an investigation direction, not an implemented design;
+alias/capture guards, callback transitions, counters, compiled-Off cost and
+resource accounting still require full proof and an unchanged-production test.
 
 ### Callback stack offset overflow — corrected, 2026-10-18
 

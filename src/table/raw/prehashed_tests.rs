@@ -1,6 +1,78 @@
 use super::*;
 use std::hint::black_box;
 
+#[test]
+fn prepared_bucket_hint_revalidates_bounds_occupancy_and_key() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut table = RawTable::new(&ctx);
+        let key = ctx.intern(b"target");
+        let other = ctx.intern(b"other");
+        let hash = PreparedHash::new(key);
+        for index in [0, 1, usize::MAX] {
+            PREPARED_BUCKET.with(|hint| hint.set(index));
+            compare(&table, &ctx, key, hash);
+            assert_eq!(PREPARED_BUCKET.with(|hint| hint.get()), usize::MAX);
+        }
+        table.set(&ctx, key.into(), Value::Integer(17)).unwrap();
+        table.set(&ctx, other.into(), Value::Integer(99)).unwrap();
+        for index in 0..=table.map.raw_table().buckets() {
+            PREPARED_BUCKET.with(|hint| hint.set(index));
+            compare(&table, &ctx, key, hash);
+            let selected = PREPARED_BUCKET.with(|hint| hint.get());
+            assert!(selected < table.map.raw_table().buckets());
+            table.set(&ctx, key.into(), Value::Integer(18)).unwrap();
+            compare(&table, &ctx, key, hash);
+            assert_eq!(PREPARED_BUCKET.with(|hint| hint.get()), selected);
+        }
+        table.set(&ctx, key.into(), Value::Nil).unwrap();
+        compare(&table, &ctx, key, hash);
+        table.clear();
+        compare(&table, &ctx, key, hash);
+        assert_eq!(PREPARED_BUCKET.with(|hint| hint.get()), usize::MAX);
+        table.set(&ctx, key.into(), Value::Integer(19)).unwrap();
+        compare(&table, &ctx, key, hash);
+        let index = PREPARED_BUCKET.with(|hint| hint.get());
+        let mut replacement = RawTable::new(&ctx);
+        replacement
+            .set(&ctx, other.into(), Value::Integer(101))
+            .unwrap();
+        PREPARED_BUCKET.with(|hint| hint.set(index));
+        compare(&replacement, &ctx, key, hash);
+        replacement
+            .set(&ctx, key.into(), Value::Integer(20))
+            .unwrap();
+        PREPARED_BUCKET.with(|hint| hint.set(index));
+        compare(&replacement, &ctx, key, hash);
+        replacement.reserve_map(1024);
+        compare(&replacement, &ctx, key, hash);
+        replacement.clear();
+        compare(&replacement, &ctx, key, hash);
+    });
+}
+
+#[test]
+fn prepared_bucket_hint_is_thread_local_and_contains_no_roots() {
+    PREPARED_BUCKET.with(|hint| hint.set(41));
+    std::thread::spawn(|| {
+        assert_eq!(PREPARED_BUCKET.with(|hint| hint.get()), usize::MAX);
+        crate::Lua::empty().enter(|ctx| {
+            let mut table = RawTable::new(&ctx);
+            let key = ctx.intern(b"thread-key");
+            table.set(&ctx, key.into(), Value::Integer(7)).unwrap();
+            compare(&table, &ctx, key, PreparedHash::new(key));
+        });
+        crate::Lua::empty().enter(|ctx| {
+            let table = RawTable::new(&ctx);
+            let key = ctx.intern(b"thread-key");
+            compare(&table, &ctx, key, PreparedHash::new(key));
+        });
+    })
+    .join()
+    .unwrap();
+    assert_eq!(PREPARED_BUCKET.with(|hint| hint.get()), 41);
+    PREPARED_BUCKET.with(|hint| hint.set(usize::MAX));
+}
+
 #[derive(Clone, Copy)]
 struct PreparedHash(u64);
 

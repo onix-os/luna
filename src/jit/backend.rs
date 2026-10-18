@@ -228,8 +228,6 @@ pub(super) struct Code {
     pub(super) preferred_entry: bool,
     pub(super) relocations: usize,
     pub registers: usize,
-    #[cfg(test)]
-    pub callback_calls: bool,
     pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
     #[cfg(test)]
@@ -408,7 +406,6 @@ pub(super) enum Failure {
     RequireReadCache,
     PreferReadEffects,
     CompactIntegerPairs,
-    PreferCallbackScratch,
     BranchLoopDirection,
     WidePrepared(Option<super::helper_flow::Fault>),
     RequireWriteback,
@@ -796,9 +793,7 @@ fn compile_selected_rooted(
     rooted_moves: bool,
 ) -> Result<Code, JitError> {
     #[cfg(test)]
-    let failure = if selection.failure == Failure::PreferCallbackScratch {
-        Failure::None
-    } else if selection.failure == Failure::PreferBoundPayload {
+    let failure = if selection.failure == Failure::PreferBoundPayload {
         let ordinary = rooted_moves
             || selection.projected
             || selection.leaf
@@ -2244,11 +2239,6 @@ fn compile_selected_rooted(
         preferred_entry: preferred_entry.is_some(),
         relocations,
         registers: snapshot.registers,
-        #[cfg(test)]
-        callback_calls: snapshot
-            .operations
-            .iter()
-            .any(|op| matches!(op, Operation::Call { .. })),
         entries,
         projected_upvalues: selection.projected && projection_count != 0,
         #[cfg(test)]

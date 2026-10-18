@@ -82,6 +82,11 @@ fn hasher() -> &'static ahash::random_state::RandomState {
 pub(crate) struct PreparedStringHash(u64);
 
 #[cfg(feature = "jit")]
+std::thread_local! {
+    static PREPARED_BUCKET: std::cell::Cell<usize> = const { std::cell::Cell::new(usize::MAX) };
+}
+
+#[cfg(feature = "jit")]
 impl PreparedStringHash {
     pub(crate) fn new(key: String<'_>) -> Self {
         Self(hasher().hash_one(CanonicalKey::String(key)))
@@ -221,10 +226,34 @@ impl<'gc> RawTable<'gc> {
         key: String<'gc>,
         hash: PreparedStringHash,
     ) -> Value<'gc> {
-        self.map
-            .raw_entry()
-            .from_hash(hash.0, |stored| stored.eq_string(key))
-            .map_or(Value::Nil, |(_, slot)| slot.0.get(mc))
+        PREPARED_BUCKET.with(|hint| {
+            let table = self.map.raw_table();
+            let index = hint.get();
+            if index < table.buckets() {
+                // Only occupied buckets within this borrowed table are read.
+                unsafe {
+                    if table.is_bucket_full(index) {
+                        let (stored, slot) = table.bucket(index).as_ref();
+                        if stored.eq_string(key) {
+                            return slot.0.get(mc);
+                        }
+                    }
+                }
+            }
+            match table.find(hash.0, |(stored, _)| stored.eq_string(key)) {
+                Some(bucket) => {
+                    // The found bucket belongs to the current shared table borrow.
+                    unsafe {
+                        hint.set(table.bucket_index(&bucket));
+                        bucket.as_ref().1 .0.get(mc)
+                    }
+                }
+                None => {
+                    hint.set(usize::MAX);
+                    Value::Nil
+                }
+            }
+        })
     }
 
     /// Hold this key the way this table holds keys.

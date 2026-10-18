@@ -286,8 +286,6 @@ impl<'gc> Executor<'gc> {
     /// delivered through a separate channel than normal results and cannot be caught by Lua.
     pub fn step(self, ctx: Context<'gc>, fuel: &mut Fuel) -> Result<bool, BadThreadMode> {
         let mut state = self.0.borrow_mut(&ctx);
-        #[cfg(all(test, feature = "jit"))]
-        let scratch_epoch = ctx.jit().callback_scratch_epoch();
         Ok(loop {
             let mut top_thread = state.thread_stack.last().copied().unwrap();
             let mut res_thread = None;
@@ -420,23 +418,7 @@ impl<'gc> Executor<'gc> {
 
                 // Popped under a short borrow. A native frame has to run with its thread
                 // *unborrowed*, so nothing may hold the thread's state across the call.
-                let frame = {
-                    let mut top_state = top_thread.into_inner().borrow_mut(&ctx);
-                    let frame = top_state.frames.pop();
-                    #[cfg(all(test, feature = "jit"))]
-                    {
-                        let scratch = &mut top_state.callback_scratch;
-                        scratch.begin(scratch_epoch);
-                        match &frame {
-                            Some(Frame::Lua { .. }) => scratch.vm_boundary(),
-                            Some(Frame::Callback { bottom, .. }) => {
-                                scratch.callback_boundary(*bottom)
-                            }
-                            _ => scratch.invalidate(),
-                        }
-                    }
-                    frame
-                };
+                let frame = top_thread.into_inner().borrow_mut(&ctx).frames.pop();
                 match frame {
                     Some(Frame::Callback { bottom, callback }) => {
                         fuel.consume(Self::FUEL_PER_CALLBACK);
@@ -474,8 +456,6 @@ impl<'gc> Executor<'gc> {
                         match result {
                             Ok(CallbackReturn::Return) => {
                                 top_state.return_to(&mut top_stack, bottom);
-                                #[cfg(all(test, feature = "jit"))]
-                                top_state.callback_scratch.returned();
                             }
                             Ok(CallbackReturn::Sequence(sequence)) => {
                                 top_state.frames.push(Frame::Sequence {
@@ -980,16 +960,6 @@ impl<'gc> Executor<'gc> {
         let mut state = self.0.borrow_mut(mc);
         state.thread_stack.truncate(1);
         state.thread_stack[0].reset(mc).unwrap();
-    }
-
-    #[cfg(all(test, feature = "jit"))]
-    pub(crate) fn callback_scratch_counts(self) -> (u64, u64) {
-        let state = self.0.borrow();
-        let thread = state.thread_stack[0].into_inner().borrow();
-        (
-            thread.callback_scratch.reused,
-            thread.callback_scratch.imported,
-        )
     }
 
     /// Take the foreign future this executor is waiting on, if any.

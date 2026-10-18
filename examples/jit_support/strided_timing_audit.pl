@@ -30,9 +30,17 @@ die "invalid configuration\n" unless defined $cpu && defined $windows && $window
 die "missing final verification\n" unless slurp("$directory/verification-after.log") =~ /: OK\n/;
 my ($experiment) = $config =~ /^experiment=(.*)$/m;
 $experiment //= 'strided';
-my %fields = (strided => 'strided', preferred_entry => 'preferred', callback_scratch => 'scratch');
+my %fields = (strided => 'strided', preferred_entry => 'preferred', callback_scratch => 'scratch', callback_scratch_baseline => 'scratch', ordinary_baseline => 'strided');
 die "unknown timing experiment\n" unless exists $fields{$experiment};
 my $field = $fields{$experiment};
+my $cross_image = $experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline';
+if ($cross_image) {
+    my ($image) = $config =~ /^image=(.+)$/m;
+    my ($baseline) = $config =~ /^baseline=(.+)$/m;
+    die "missing distinct image identities\n" unless defined $image && defined $baseline && $image ne $baseline;
+    my @images = slurp("$directory/binary.sha256") =~ /^([a-f0-9]{64})  (.+)$/mg;
+    die "invalid image manifests\n" unless @images == 4 && $images[1] eq "$image/test-binary" && $images[3] eq "$baseline/test-binary";
+}
 my @cases = $experiment ne 'preferred_entry'
     ? qw(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
     : ('rust_callbacks');
@@ -62,8 +70,9 @@ for my $case (@cases) {
             die "failed test $path\n" unless $log =~ /test result: ok\. 1 passed; 0 failed;/;
             my @lines = $log =~ /^(TIMING_V1 .*)$/mg;
             die "invalid record count $path\n" unless @lines == 1;
-            my $mode = $label eq 'candidate' ? 'true' : 'false';
-            $lines[0] =~ /^TIMING_V1 case=\Q$case\E \Q$field\E=$mode elapsed_ns=([1-9]\d*) counters=\[([\d, ]+)\] code_bytes=(\d+) metadata_bytes=(\d+) metadata_peak_bytes=(\d+) snapshot_peak_bytes=(\d+)$/
+            my $mode = $label eq 'candidate' && $experiment ne 'ordinary_baseline' ? 'true' : 'false';
+            my $worker_field = $cross_image && $label ne 'candidate' ? 'strided' : $field;
+            $lines[0] =~ /^TIMING_V1 case=\Q$case\E \Q$worker_field\E=$mode elapsed_ns=([1-9]\d*) counters=\[([\d, ]+)\] code_bytes=(\d+) metadata_bytes=(\d+) metadata_peak_bytes=(\d+) snapshot_peak_bytes=(\d+)$/
                 or die "invalid record $path\n";
             my ($ns, $raw, $code, $metadata, $peak, $snapshot) = ($1, $2, $3, $4, $5, $6);
             my @counters = split /,\s*/, $raw;
@@ -94,5 +103,6 @@ for my $case (@cases) {
 open my $output, '>', "$directory/audit.json" or die "$!\n";
 print $output JSON::PP->new->canonical->pretty->encode({ cpu => 0 + $cpu, windows => 0 + $windows,
     experiment => $experiment,
-    scope => 'warm execution only; same test image; external contention retained',
+    scope => $cross_image ? 'warm execution only; scratch-free library-test baseline; not production acceptance; external contention retained'
+        : 'warm execution only; same test image; external contention retained',
     performance_acceptance => JSON::PP::false, reports => \@reports });
