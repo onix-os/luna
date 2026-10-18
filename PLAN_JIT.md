@@ -9,6 +9,94 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Known inline-source validation diagnostic — 2026-10-18
+
+`backend::inline_loop::Code::run` previously rediscovered caller and callee
+prototypes with two linear `Registry::resolve` scans on each entry. Its owning
+session already holds those prototypes in `Admitted`. Trial `a50469a` passes
+those existing roots to the entry boundary and checks both current registry
+identities against the code key before binding. The registry is still borrowed
+and checked on every invocation; root ownership, source generations, runtime
+provenance, hook/mode checks, frame binding and native accounting are unchanged.
+No positive result is cached across callbacks or resets, and no reverse index,
+new allocation, global state, unsafe code or register representation is added.
+The one-time canonical admission scan remains unchanged.
+
+Test commit `439cad3` independently compares known-prototype identity checks to
+ID resolution and pointer equality across growth, reset, re-registration, missing
+IDs and wrong prototypes, without increasing metadata charges. Its baseline
+registry suite passes 13 executions. The native ownership fixture additionally
+checks wrong source pairs and a retained image after registry reset and fresh
+generations: refusal preserves PC, fuel and native entry counts. The owner
+Make gate now requires four tests rather than three to include the new fixture.
+
+Formatting/all-feature checking and **135 focused executions / nine summaries**
+pass; all **13 registry Miri executions** pass. The rebuilt speed no-feature
+diagnostic image is byte-identical to the control. Three repeated matched-image
+profile rounds and full validation are running; this is not a claimed speedup
+or acceptance. The repeated profiles retain same-image hash-dependent work
+variation instead of treating a single small difference as causal evidence.
+Evidence prefix: `hook-resume-recovery/known-sources*`.
+
+### Frame-mode classification diagnostic — 2026-10-18
+
+Fresh shipping disabled-upvalue profiles attribute 3,800,290 instructions and
+200,015 indirect branches to `ThreadState::mode`. Read-only disassembly of the
+hashed split-hook image shows a jump table even for ordinary Lua frames.
+This is not the previously rejected executor mode-query elision: both existing
+queries, child-result rechecks, borrow scopes and execution boundaries remain.
+
+Test commit `c6e23d1` adds 132 classification combinations covering all ten frame
+variants plus empty stacks, three depths and both deferred-error/taken flags.
+The new fixture and existing handoff/fuel fixtures pass in both feature builds
+before changing runtime code. Trial `d8aadb7` keeps Normal-frame classification
+in the ordinary function and outlines the remaining frame mapping. Deferred
+errors retain precedence; sole versus nested error frames retain distinct modes.
+It adds no cached state, unsafe code, layout assumption or fuel/stat change.
+
+Formatting/all-feature checks and **32 focused executions / eight summaries**
+pass; all four mode fixtures also pass under Miri without JIT. Fresh shipping
+assembly confirms a bit test and direct return replace the normal-path indirect
+jump; uncommon states retain their separate mapping. All 48 matched profiles
+verify independent exclusive-event sums, images, results and native-work checks.
+Shipping Off upvalue work falls 88,577,253 to 88,377,293 instructions, with
+200,010 fewer indirect branches. Speed Off upvalue work instead rises 80,378,156
+to 80,578,551, despite 100,000 fewer indirect branches. Speed Off callbacks grow
+38,915,025 to 39,140,290. Branch structure, not instruction totals alone, motivated
+checking elapsed performance. Full validation passes **2,435 executions, zero
+failures, 20 ignored across 177 summaries**.
+
+Two complete elapsed campaigns verify **9,072 native executions and 362,880 cost
+iterations**, zero counter/resource mismatches, all original thresholds and all
+nine workloads. They retain substantial external-contention/control drift;
+no owned build, test or profiler overlaps timing. The trial is **rejected**.
+CPU0 round-one shipping JIT-Off integer control/trial ratios are
+**0.9443 / 0.9384**, float **0.9530 / 0.9505**, with near-unity same-image A/B
+controls. No-feature shipping float also slows (**0.9440 / 0.9475**). In the
+repeat's CPU16 round one, shipping JIT-Off float is **0.9117**, A/B **1.0030**.
+The first campaign's apparent speed callback gain does not repeat: CPU16
+JIT-Off callbacks are **0.9611 / 0.9628** in the repeat. Native callback gates
+and shipping upvalue cost gates fail **8/8** windows; all other failures and
+noisy windows remain in the audits rather than being discarded.
+
+Commit `07db1c1` restores the original runtime mapping. Restoration formatting,
+all-feature checks and **32 focused executions** pass. All four rebuilt diagnostic
+images (shipping/speed, no-feature/JIT-Off) are byte-identical to split-hook
+controls. The new classification test remains; no performance fix is claimed.
+Evidence prefix: `hook-resume-recovery/mode-classification*`.
+
+A separate attribution check also finds same-image Auto upvalue instruction
+variation: the unchanged speed control, SHA-256
+`db97466d7c33d8e275031367294bdca77083043cc3663a1447485e28da101fc8`,
+executes 26,332,319 instructions in the preceding import campaign versus
+25,756,887 here, with the same 298,423 native logical instructions. Of that
+difference, 533,652 self instructions are in `Session::complete_inline` and
+39,864 in `Admitted::new`. Current source inlines linear registry ID-resolution
+scans into those paths; prior instruction-level scan attribution is recorded
+below. This is a source-supported next investigation, not new causal proof or
+permission to subtract variability from measured totals. It argues against
+accepting small Auto upvalue instruction differences from single runs.
+
 ### Owned scalar-import diagnostic — 2026-10-18
 
 Fresh shipping/speed Off-versus-no-feature profiles for the split-hook source

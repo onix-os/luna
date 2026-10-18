@@ -22,6 +22,16 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         self.caller
     }
 
+    #[cfg(not(miri))]
+    pub(in crate::jit) fn prototypes(
+        &self,
+    ) -> (
+        Gc<'gc, FunctionPrototype<'gc>>,
+        Gc<'gc, FunctionPrototype<'gc>>,
+    ) {
+        (self.caller.prototype(), self.callee)
+    }
+
     pub(in crate::jit) fn new(
         program: &'program Program,
         ctx: Context<'gc>,

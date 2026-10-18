@@ -1,5 +1,49 @@
 use crate::{Closure, Lua};
 
+#[test]
+fn known_prototypes_match_id_resolution_across_growth_and_reset() {
+    Lua::empty().enter(|ctx| {
+        let mut sources = Vec::new();
+        let mut ids = vec![0, u64::MAX];
+        for _ in 0..32 {
+            let closure = Closure::load(ctx, None, b"return 7").unwrap();
+            let prototype = closure.prototype();
+            ids.push(
+                ctx.jit_registry()
+                    .borrow()
+                    .identity(ctx, prototype)
+                    .unwrap(),
+            );
+            sources.push(prototype);
+        }
+        for phase in 0..3 {
+            let registry = ctx.jit_registry().borrow();
+            let before = ctx.jit().0.borrow().metadata.0.current();
+            for &id in &ids {
+                for &prototype in &sources {
+                    let resolved = registry
+                        .resolve(ctx, id)
+                        .is_some_and(|found| ottavino_gc_arena::Gc::ptr_eq(found, prototype));
+                    assert_eq!(registry.identity(ctx, prototype) == Some(id), resolved);
+                }
+            }
+            assert_eq!(ctx.jit().0.borrow().metadata.0.current(), before);
+            drop(registry);
+            if phase == 0 {
+                ctx.jit_registry().borrow_mut(&ctx).reset(ctx);
+            } else if phase == 1 {
+                let mut registry = ctx.jit_registry().borrow_mut(&ctx);
+                for &prototype in sources.iter().step_by(2) {
+                    registry.register(ctx, prototype);
+                    let id = registry.identity(ctx, prototype).unwrap();
+                    assert!(!ids.contains(&id));
+                    ids.push(id);
+                }
+            }
+        }
+    });
+}
+
 #[path = "identity_memo.rs"]
 mod identity_memo;
 

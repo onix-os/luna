@@ -85,7 +85,19 @@ fn charged_image_executes_after_snapshot_release_until_final_lease_drop() {
             }
             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
             let before = ctx.jit().0.borrow().stats.native_entries;
-            let progress = lease.run(ctx, host, 16, 64, 0).unwrap();
+            let sources = (closure.prototype(), closure.prototype().prototypes[0]);
+            let fuel = host.fuel().remaining();
+            for wrong in [
+                (sources.1, sources.0),
+                (sources.0, sources.0),
+                (sources.1, sources.1),
+            ] {
+                assert!(lease.run(ctx, host, wrong, 16, 64, 0).is_none());
+                assert_eq!(host.fuel().remaining(), fuel);
+                assert_eq!(host.with_registers(|_, r| *r.pc), key.pc);
+                assert_eq!(ctx.jit().0.borrow().stats.native_entries, before);
+            }
+            let progress = lease.run(ctx, host, sources, 16, 64, 0).unwrap();
             assert!(progress.calls > 1);
             assert_eq!(ctx.jit().0.borrow().stats.native_entries, before + 1);
         });
@@ -155,6 +167,53 @@ fn code_workspace_mapping_and_protection_refusals_release_all_charges() {
             );
         });
     }
+}
+
+#[test]
+fn retained_image_rejects_reset_generations_before_effects() {
+    fixture(|ctx, closure, caller, callee, key| {
+        let manager = ctx.jit().0.borrow();
+        let code = Code::compile(
+            key,
+            &caller,
+            &callee,
+            manager.memory.clone(),
+            1 << 20,
+            manager.metadata.clone(),
+            Limits::from(&manager.config),
+            Failure::None,
+        )
+        .unwrap();
+        drop(manager);
+        let sources = (closure.prototype(), closure.prototype().prototypes[0]);
+        crate::thread::activation::with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            for _ in 0..64 {
+                if host.with_registers(|_, r| *r.pc) == key.pc {
+                    break;
+                }
+                host.run(ctx, 1, 1, 0).result.unwrap();
+            }
+            assert_eq!(host.with_registers(|_, r| *r.pc), key.pc);
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+            ctx.jit_registry().borrow_mut(&ctx).reset(ctx);
+            for registered in [false, true] {
+                if registered {
+                    let mut registry = ctx.jit_registry().borrow_mut(&ctx);
+                    registry.register(ctx, sources.0);
+                    registry.register(ctx, sources.1);
+                    assert_ne!(registry.identity(ctx, sources.0), Some(key.caller));
+                    assert_ne!(registry.identity(ctx, sources.1), Some(key.callee));
+                }
+                let fuel = host.fuel().remaining();
+                let entries = ctx.jit().0.borrow().stats.native_entries;
+                assert!(code.run(ctx, host, sources, 16, 64, 0).is_none());
+                assert_eq!(host.fuel().remaining(), fuel);
+                assert_eq!(host.with_registers(|_, r| *r.pc), key.pc);
+                assert_eq!(ctx.jit().0.borrow().stats.native_entries, entries);
+            }
+        });
+    });
 }
 
 #[test]

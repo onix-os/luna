@@ -34,6 +34,99 @@ fn completed_child<'gc>(ctx: Context<'gc>, error: bool) -> Thread<'gc> {
 }
 
 #[test]
+fn frame_modes_preserve_depth_and_deferred_error_precedence() {
+    Lua::empty().enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return 42").unwrap();
+        let callback = Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return));
+        for kind in 0..11 {
+            for depth in [0, 1, 3] {
+                for deferred_error in [false, true] {
+                    for error_taken in [false, true] {
+                        let thread = Thread::new(ctx);
+                        let mut state = thread.into_inner().borrow_mut(&ctx);
+                        if kind != 10 {
+                            for _ in 0..depth {
+                                state.frames.push(Frame::HookResume);
+                            }
+                        }
+                        let (frame, expected) = match kind {
+                            0 => (
+                                Some(Frame::Lua {
+                                    bottom: 0,
+                                    closure,
+                                    base: 0,
+                                    is_variable: false,
+                                    pc: 0,
+                                    stack_size: 0,
+                                    expected_return: None,
+                                }),
+                                ThreadMode::Normal,
+                            ),
+                            1 => (
+                                Some(Frame::Sequence {
+                                    bottom: 0,
+                                    sequence: BoxSequence::new(&ctx, ReturnSequence),
+                                    pending_error: None,
+                                }),
+                                ThreadMode::Normal,
+                            ),
+                            2 => (
+                                Some(Frame::close(ctx, 0, Vec::new(), None)),
+                                ThreadMode::Normal,
+                            ),
+                            3 => (Some(Frame::Start(closure.into())), ThreadMode::Suspended),
+                            4 => (
+                                Some(Frame::Callback {
+                                    bottom: 0,
+                                    callback,
+                                }),
+                                ThreadMode::Normal,
+                            ),
+                            5 => (Some(Frame::Yielded), ThreadMode::Suspended),
+                            6 => (Some(Frame::WaitThread), ThreadMode::Waiting),
+                            7 => (Some(Frame::Result { bottom: 0 }), ThreadMode::Result),
+                            8 => (
+                                Some(Frame::Error(
+                                    crate::RuntimeError::new(anyhow::anyhow!(
+                                        "mode classification"
+                                    ))
+                                    .into(),
+                                )),
+                                if depth == 0 {
+                                    ThreadMode::Result
+                                } else {
+                                    ThreadMode::Normal
+                                },
+                            ),
+                            9 => (Some(Frame::HookResume), ThreadMode::Normal),
+                            10 => (None, ThreadMode::Stopped),
+                            _ => unreachable!(),
+                        };
+                        if let Some(frame) = frame {
+                            state.frames.push(frame);
+                        }
+                        state.deferred_error = deferred_error;
+                        state.error_taken = error_taken;
+                        let expected = if deferred_error {
+                            if error_taken {
+                                ThreadMode::Stopped
+                            } else {
+                                ThreadMode::Result
+                            }
+                        } else {
+                            expected
+                        };
+                        assert_eq!(state.mode(), expected, "kind={kind} depth={depth}");
+                        drop(state);
+                        assert_eq!(thread.mode(), expected, "kind={kind} depth={depth}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn ordinary_callback_preserves_minimum_progress_interrupts_and_fuel() {
     Lua::empty().enter(|ctx| {
         for budget in [i32::MIN, -1, 0, 1, 12, 13, i32::MAX] {
