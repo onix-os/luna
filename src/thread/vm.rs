@@ -1356,3 +1356,6 @@ fn raw_subtract<'gc>(lhs: Value<'gc>, rhs: Value<'gc>) -> Option<Value<'gc>> {
 
 #[cfg(test)]
 mod for_controls;
+
+#[cfg(test)]
+mod numeric_add;
