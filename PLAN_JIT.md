@@ -70,9 +70,43 @@ canonical Add handler when JIT support is absent and restricts the single-store
 numeric tuning to JIT-enabled builds. Both paths retain identical language
 semantics and the same correctness requirements; no native coverage or gate is
 removed. This targets the explicit no-feature baseline-preservation contract,
-not a workload-specific exclusion. Its validation/builds are in progress under
-`vm-jit-add-result/`; source similarity does not establish binary identity or
-performance acceptance, and the remaining native callback gates are not fixed
+not a workload-specific exclusion. Its six stripped production images and
+137 focused test executions / 22 summaries complete. All six executable `.text`
+sections match their intended references: no-feature matches original baseline
+`79631fe`, while JIT-Off and native-bench match `f0a3406`. Section and segment
+geometry also match. Whole files differ; this is not whole-binary identity.
+
+Two production screens complete 288 commands / 28,512 native executions /
+570,240 feature-cost iterations, with zero execution/resource-counter mismatches
+and valid/restored plus 13 rejected corruption fixtures per screen. The initial
+screen has substantial nonstationarity, including apparent gains in unchanged
+no-feature machine code. Those observations remain recorded, not counted as
+causal improvements. Repeat JIT-Off control/candidate ratios are:
+
+| CPU | Profile | Integer | Float |
+| --- | --- | ---: | ---: |
+| 0 | speed | 1.018030 | 1.065036 |
+| 16 | speed | 1.020212 | 1.074568 |
+| 0 | shipping | 1.013394 | 1.008582 |
+| 16 | shipping | 1.060448 | 1.055720 |
+
+The repeat still shows CPU16 speed native callbacks at **0.980418**, adverse
+in five of six rounds, placebo **1.004342**; speed cold JIT-Off is **0.987219**,
+adverse in all six, placebo **0.997473**. Original repeat gates fail **14 of 96**
+scored speed native windows and **62 of 216** feature-cost windows across both
+profiles. Oslo native remains observational, not silently counted as a pass.
+The candidate is not promoted. Exact-revision expanded Miri, real i686 and
+all-feature Force validation is running; previous-parent results do not count
+as this revision's results. Evidence: `vm-jit-add-result/{timing,timing-repeat}`.
+
+Follow-up `0102f37` on `trial/jit-add-callback` composes the JIT-only Add change
+with the exact native callback setup component from `b8a77bf`. The latter
+previously reduced callback work and repeatedly improved elapsed callbacks,
+but regressed Off float. The new numeric path targets that trade-off without
+changing ordinary interpreter callback routing. This is a measured-composition
+hypothesis, not permission to multiply independent speedups or overlook losses.
+The isolated trial is committed/pushed; its validation and production comparison
+are next under `vm-add-callback/`. The remaining native callback gates are not fixed
 by declaring the paths separate.
 
 ### Stripped scalar-guard production comparison — not accepted, 2026-10-19
