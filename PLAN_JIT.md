@@ -9,6 +9,59 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Identity argument rotations — timing regressions, 2026-10-18
+
+Main `066905e` adds an independent closure-argument layout oracle and Make
+targets. Isolated `b6d267d` skips only zero/full rotations in `push_call`, after
+the original slice bounds check. Excess arguments retain their existing layout
+even for non-vararg prototypes. The runtime change is pushed on
+`trial/jit-argument-rotation`, **not promoted to main**.
+
+The candidate passes209 focused test executions:8 host layout checks across
+both feature and overflow settings,193 call/return/activation checks, and8
+i686-musl layout checks. Four Miri executions and workspace all-feature/format
+checks pass. These are focused checks, not full-suite or release acceptance.
+
+Full-execute instruction profiles improve8/14 workload/mode cases, with6
+unchanged and matching execution/resource counters. Closure/upvalue Off drops
+1.985%, Auto0.651%; metamethod Off/Auto drop0.489%/0.491%; callback Off/Auto
+drop0.064%/0.053%. Array changes are below0.002%. Numeric and allocation
+instruction counts are unchanged. Upvalue Off `push_call` self instructions
+fall950000 to820000; its190000-instruction rotation entry disappears. Valid
+profile fixtures and nine targeted corruption refusals pass.
+
+Matched production builds use one source/target path, sequential package
+cleanup, and identical speed/shipping configurations. Unlike prior JIT-only
+trials, this common-VM change intentionally changes no-feature binaries too.
+Verification pins the exact source patch and all source/image hashes; build
+environments match except tool-call identity and temporary Nix directories.
+Both no-feature costs remain measured, not assumed unchanged.
+
+The144-command timing campaign completes six balanced A/candidate/B orders on
+CPUs0/16, both profiles and nine workloads:14256 measured native executions,
+285120 measured cost iterations, zero counter/resource mismatches. All raw
+cost medians are recomputed; native medians remain worker summaries. Before/
+after provenance passes, as do two valid audit fixtures and13 corrupt refusals.
+No owned builds/tests/profilers overlap elapsed collection.
+
+Upvalue Off improves in all six rounds on both CPUs and both profiles, but
+**shipping CPU0 compiled-Off numeric costs regress in all six rounds**:
+control/candidate ratios are0.9011126092 for integers and0.8952442570 for floats
+(10.97%/11.70% longer elapsed time). Same-image placebo ratios are1.0016407206
+and1.0001793014. Additional repeated losses include speed CPU0 no-feature
+integers/floats and compiled-Off integers. Original native callback gates fail
+12/12 windows in both profiles; compiled-Off upvalue gates fail7/12 speed and
+12/12 shipping. Shipping native thresholds remain diagnostic.
+
+Passing an individual compiled-disabled overhead gate does not erase a
+cross-revision slowdown. The measured runtime is not accepted; main remains
+unchanged. Instruction equality does not establish a layout or hardware cause.
+Investigate exact-image numeric behavior before another runtime variant; do
+not rerun a broad correctness suite merely to accumulate passes for this build.
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/`, especially
+`warm-audit.json`, `timing/production-audit.json` and `timing/production-screen/`.
+Full performance/resource/platform/release acceptance remains open.
+
 ### VM-produced normal successors — measured and rejected, 2026-10-18
 
 Main `2346ff8` adds an independent interpreter/native step-trace oracle across
