@@ -28,6 +28,8 @@ mod atomic_stats;
 ))]
 mod backend;
 #[cfg(test)]
+pub(crate) mod callback_scratch;
+#[cfg(test)]
 mod caller_shadow;
 #[cfg(any(
     test,
@@ -688,6 +690,8 @@ pub(crate) struct Manager {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     clock: u64,
+    #[cfg(test)]
+    callback_epoch: u64,
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -774,6 +778,8 @@ impl Default for Manager {
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
             clock: 0,
+            #[cfg(test)]
+            callback_epoch: 0,
         }
     }
 }
@@ -1774,6 +1780,14 @@ impl Runtime {
             }
             if code.registers > 256 {
                 return 0;
+            }
+            #[cfg(all(test, not(miri)))]
+            if let Some(scratch) = registers.callback_scratch.take() {
+                let completed = scratch.invoke(self, code, ctx, closure, registers, budget);
+                registers.callback_scratch = Some(scratch);
+                if let Some(completed) = completed {
+                    return completed;
+                }
             }
             match code.registers {
                 0 => self.invoke::<8, false>(code, ctx, closure, registers, budget),

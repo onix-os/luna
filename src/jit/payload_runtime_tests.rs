@@ -34,7 +34,7 @@ fn source(lua: &mut Lua, script: &str) -> StashedExecutor {
     .unwrap()
 }
 
-fn counters(s: JitStats) -> [u64; 25] {
+pub(super) fn counters(s: JitStats) -> [u64; 25] {
     [
         s.total_dispatches,
         s.interpreted_slices,
@@ -230,7 +230,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
                         };
                     }
                     cached.code.entry_kind == match failure {
-                        backend::Failure::RequireUniversalMemory | backend::Failure::RequireFieldMemory | backend::Failure::PreferReadEffects | backend::Failure::CompactIntegerPairs => backend::EntryKind::Ordinary,
+                        backend::Failure::RequireUniversalMemory | backend::Failure::RequireFieldMemory | backend::Failure::PreferReadEffects | backend::Failure::CompactIntegerPairs | backend::Failure::PreferCallbackScratch => backend::EntryKind::Ordinary,
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
                         backend::Failure::RequireStrided => backend::EntryKind::Strided,
                         backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload | backend::Failure::RequireWriteBoundPayload => backend::EntryKind::FrameBound,

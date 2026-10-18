@@ -2160,6 +2160,13 @@ numeric-conversions:
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
 	done
 
+.PHONY: jit-callback-scratch jit-callback-scratch-miri
+jit-callback-scratch:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) callback_scratch $(ARGS)
+
+jit-callback-scratch-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::callback_scratch::tests:: -- --test-threads=1
+
 .PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks vm-return-spans
 vm-return-spans:
 	@for checked in true false; do \
