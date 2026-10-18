@@ -9,6 +9,35 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Callback setup component ablation — profiling, 2026-10-18
+
+Isolated trial `b8a77bf` applies only the native callback setup/routing portion
+of `38c7880` to baseline `066905e`. No table layout, prepared lookup or hint
+changes remain. This diagnostic repeats a historical withdrawn design on the
+current runtime to distinguish components, not to relabel it as accepted.
+Main runtime remains unchanged; the trial is committed/pushed separately.
+
+Focused host validation passes **142 executions / 20 summaries**, with format
+and all-feature checks. Real i686-musl callback/model/metamethod validation
+passes **98 / 14**. Fourteen instruction profiles preserve all reported
+execution/resource fields; valid/nine-corruption audit fixtures pass both
+against the baseline and against the corrected composition.
+
+Callback Auto instructions are **9,438,782 → 9,158,782**, a 2.966% reduction.
+The composition removes another 30,000 helper instructions, reaching 9,128,782.
+The first isolated callback Off profile increases 345,000 instructions (4.419%).
+Its entire increase is in map probing and key/string equality, not VM dispatch
+or callback setup. Six additional paired process runs retain identical images
+and unmodified randomized hashing: Off is 7,807,066 for both images in all six,
+and Auto repeats the 280,000-instruction reduction in all six. Keep the initial
+outlier; a single process's probe count is not a causal code-change estimate.
+These are software instruction observations, not elapsed acceptance.
+
+Both no-feature production images reproduce the baseline byte-for-byte.
+Full Force validation and production preparation are running; no elapsed
+acceptance or promotion is claimed. Evidence:
+`target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/`.
+
 ### Hash-checked callback composition — validation, 2026-10-18
 
 Correction `38c7880` verifies the current key's canonical prepared hash before
