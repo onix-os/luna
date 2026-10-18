@@ -56,6 +56,25 @@ Evidence: `vm-add-result/{timing,timing-repeat,speed-counters}` and
 `vm-scalar-guards/shipping-samples` under the hook-resume recovery directory.
 The trial is committed/pushed separately, not promoted to main.
 
+The longer speed-image counter capture completes **216 commands / 216,000
+iterations**, with all 864 events fully scheduled and valid/restored plus
+16 corruption checks passing. CPU16 no-feature array time/cycle ratios are
+**0.918050 / 0.920064**, with cycle placebo **1.002104**. Instruction and
+branch-miss ratios are **1.004209 / 1.003282**. The adverse production repeat
+therefore has supporting cycle evidence despite slightly fewer instructions;
+it is not dismissed as measurement noise. The unconditional trial stays out
+of main.
+
+Follow-up `522976f` on `trial/jit-feature-add-store` preserves the original
+canonical Add handler when JIT support is absent and restricts the single-store
+numeric tuning to JIT-enabled builds. Both paths retain identical language
+semantics and the same correctness requirements; no native coverage or gate is
+removed. This targets the explicit no-feature baseline-preservation contract,
+not a workload-specific exclusion. Its validation/builds are in progress under
+`vm-jit-add-result/`; source similarity does not establish binary identity or
+performance acceptance, and the remaining native callback gates are not fixed
+by declaring the paths separate.
+
 ### Stripped scalar-guard production comparison — not accepted, 2026-10-19
 
 Both matched profiles for `79631fe` and trial `6b5e5c7` are built: 12 images
