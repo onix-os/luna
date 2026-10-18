@@ -293,6 +293,11 @@ mod tests {
     }
 
     #[test]
+    fn effect_cached_scalar_regions_match_the_boundary_model() {
+        boundary_model(Some(super::super::backend::Failure::PreferReadEffects));
+    }
+
+    #[test]
     fn writeback_scalar_regions_match_the_boundary_model() {
         boundary_model(Some(super::super::backend::Failure::RequireWriteback));
     }
@@ -611,18 +616,22 @@ mod tests {
             .unwrap();
             let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
             let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
-            let codes =
-                [backend::Failure::None, backend::Failure::RequireWriteback].map(|failure| {
-                    backend::compile_in(
-                        &snapshot,
-                        memory.clone(),
-                        8 * 1024 * 1024,
-                        resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
-                        work::Limits::from(&super::super::JitConfig::default()),
-                        failure,
-                    )
-                    .unwrap()
-                });
+            let codes = [
+                backend::Failure::None,
+                backend::Failure::RequireWriteback,
+                backend::Failure::PreferReadEffects,
+            ]
+            .map(|failure| {
+                backend::compile_in(
+                    &snapshot,
+                    memory.clone(),
+                    8 * 1024 * 1024,
+                    resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                    work::Limits::from(&super::super::JitConfig::default()),
+                    failure,
+                )
+                .unwrap()
+            });
             let mut completed = 0;
             let mut declined = 0;
             for pc in 0..snapshot.operations.len() {
@@ -697,6 +706,7 @@ mod tests {
                             )
                         });
                         assert_eq!(results[0], results[1], "pc={pc} budget={budget}");
+                        assert_eq!(results[0], results[2], "effects pc={pc} budget={budget}");
                     }
                 }
             }

@@ -89,7 +89,9 @@ pub(super) fn promote(
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
 ) -> Result<bool, JitError> {
-    promote_mode(function, slots, exit, registers, allocator, false)
+    promote_mode(function, slots, exit, registers, allocator, false, |_| {
+        u32::MAX
+    })
 }
 
 pub(super) fn promote_writeback(
@@ -99,7 +101,28 @@ pub(super) fn promote_writeback(
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
 ) -> Result<bool, JitError> {
-    promote_mode(function, slots, exit, registers, allocator, true)
+    promote_mode(function, slots, exit, registers, allocator, true, |_| {
+        u32::MAX
+    })
+}
+
+pub(super) fn promote_preserving(
+    function: &mut Function,
+    slots: Value,
+    exit: Value,
+    registers: usize,
+    allocator: super::super::resources::BudgetAllocator,
+    clobbers: impl Fn(Inst) -> u32,
+) -> Result<bool, JitError> {
+    if !function.layout.blocks().any(|block| {
+        function
+            .layout
+            .block_insts(block)
+            .any(|inst| function.dfg.insts[inst].opcode().is_call() && clobbers(inst) != u32::MAX)
+    }) {
+        return Ok(false);
+    }
+    promote_mode(function, slots, exit, registers, allocator, false, clobbers)
 }
 
 fn promote_mode(
@@ -109,6 +132,7 @@ fn promote_mode(
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
     writeback: bool,
+    clobbers: impl Fn(Inst) -> u32,
 ) -> Result<bool, JitError> {
     use allocator_api2::vec::Vec;
     let words = registers.checked_mul(2).ok_or_else(invalid)?;
@@ -209,7 +233,7 @@ fn promote_mode(
                 if writeback {
                     state.uses |= selected & !state.defines;
                 }
-                state.defines = u32::MAX;
+                state.defines |= clobbers(inst);
             } else if writeback && function.dfg.insts[inst].opcode() == Opcode::Return {
                 state.uses |= selected & !state.defines;
             }
@@ -246,8 +270,12 @@ fn promote_mode(
         while let Some(inst) = next {
             next = function.layout.prev_inst(inst);
             if function.dfg.insts[inst].opcode().is_call() {
-                reloads.push((inst, live));
-                live = if writeback { selected } else { 0 };
+                reloads.push((inst, live & clobbers(inst)));
+                live = if writeback {
+                    selected
+                } else {
+                    live & !clobbers(inst)
+                };
             } else if writeback && function.dfg.insts[inst].opcode() == Opcode::Return {
                 live |= selected;
             }
@@ -355,7 +383,11 @@ fn promote_mode(
                     .binary_search_by_key(&inst.as_u32(), |(inst, _)| inst.as_u32())
                     .map_err(|_| invalid())?]
                 .1;
-                current.fill(None);
+                for (index, value) in current[..words].iter_mut().enumerate() {
+                    if clobbers(inst) & (1 << index) != 0 {
+                        *value = None;
+                    }
+                }
                 if mask != 0 {
                     let mut cursor = FuncCursor::new(function);
                     cursor.goto_inst(next_inst.ok_or_else(invalid)?);
@@ -554,6 +586,53 @@ mod tests {
             assert_eq!(ledger.current(), 0);
             assert_eq!(ledger.refusals(), 1);
             assert_eq!(function.display().to_string(), before);
+        }
+    }
+
+    #[test]
+    fn effect_read_cache_preserves_only_unclobbered_payloads() {
+        for clobbered in [0, 1, 2, 3] {
+            let (mut function, slots, exit, store, branch, _) = fixture(false);
+            let call = insert_call(&mut function, slots, branch);
+            assert!(
+                promote_preserving(&mut function, slots, exit, 1, allocator(), |inst| {
+                    if inst == call {
+                        clobbered
+                    } else {
+                        u32::MAX
+                    }
+                },)
+                .unwrap()
+            );
+            assert!(function.layout.inst_block(store).is_some());
+            let next = function.layout.next_inst(call).unwrap();
+            if clobbered & 2 == 0 {
+                assert_eq!(next, branch);
+            } else {
+                assert!(matches!(function.dfg.insts[next],
+                    InstructionData::Load { offset, .. } if i32::from(offset) == 8));
+            }
+            cranelift_codegen::verify_function(
+                &function,
+                &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn effect_read_cache_leaves_regions_without_getters_unchanged() {
+        for opaque in [false, true] {
+            let (mut function, slots, exit, _, branch, _) = fixture(false);
+            if opaque {
+                insert_call(&mut function, slots, branch);
+            }
+            let before = function.clone();
+            assert!(
+                !promote_preserving(&mut function, slots, exit, 1, allocator(), |_| u32::MAX,)
+                    .unwrap()
+            );
+            assert_eq!(function, before);
         }
     }
 

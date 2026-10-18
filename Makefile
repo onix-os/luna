@@ -1174,6 +1174,12 @@ jit-read-cache:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_scalar_regions_match_the_boundary_model
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_helpers_match_canonical_execution_at_every_boundary
 
+.PHONY: jit-read-effects
+jit-read-effects: jit-read-cache
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_flow::read_effect_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::effect_cached_scalar_regions_match_the_boundary_model
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) read_effects_runtime_
+
 jit-input:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) numeric_guards
 	@$(MAKE) --no-print-directory jit-float-input
@@ -1368,6 +1374,7 @@ MEMORY_RUNTIME_DIR ?= target/jit-evidence/short-slice-performance/universal-memo
 FIELD_RUNTIME_DIR ?= target/jit-evidence/short-slice-performance/field-memory-runtime
 MEMORY_KIND ?= universal
 MEMORY_CASES ?= integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc
+MEMORY_DUMP ?= 0
 .PHONY: jit-field-memory jit-field-memory-miri jit-field-memory-profile-build jit-field-memory-profile-run
 jit-field-memory:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) field_memory -- --test-threads=1
@@ -1396,7 +1403,7 @@ jit-universal-memory-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(MEMORY_RUNTIME_DIR)/binary.sha256' '$(MEMORY_RUNTIME_DIR)/source.sha256' > '$(MEMORY_RUNTIME_DIR)/verification-before.log'
 	@set -e; for round in 0 1; do order='0 1'; if [ $$round = 1 ]; then order='1 0'; fi; for shape in $(MEMORY_CASES); do for selected in $$order; do \
 		out='$(MEMORY_RUNTIME_DIR)'/$$round-$$shape-$$selected; test ! -e "$$out.callgrind"; \
-		LUNA_MEMORY_CASE=$$shape LUNA_MEMORY_SELECTED=$$selected taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+		$(if $(filter 1,$(MEMORY_DUMP)),LUNA_JIT_DIAGNOSTIC_DIR="$$out-native",) LUNA_MEMORY_CASE=$$shape LUNA_MEMORY_SELECTED=$$selected taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
 			'$(MEMORY_RUNTIME_DIR)/test-binary' jit::payload_runtime_tests::strided_profile::profile_$(MEMORY_KIND)_memory_runtime --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
 		grep -Fq "case=$$shape $(MEMORY_KIND)_memory=$$([ $$selected = 1 ] && echo true || echo false) validated=true" "$$out.log"; \
 		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \

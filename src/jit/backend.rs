@@ -404,6 +404,7 @@ pub(super) enum Failure {
     AuditPayloadReads,
     AuditPackedLowering,
     RequireReadCache,
+    PreferReadEffects,
     BranchLoopDirection,
     WidePrepared(Option<super::helper_flow::Fault>),
     RequireWriteback,
@@ -813,7 +814,7 @@ fn compile_selected_rooted(
     #[cfg(test)]
     if matches!(
         failure,
-        Failure::RequireFieldMemory | Failure::RequirePreferredEntry
+        Failure::RequireFieldMemory | Failure::RequirePreferredEntry | Failure::PreferReadEffects
     ) {
         let incompatible = rooted_moves
             || selection.projected
@@ -826,6 +827,8 @@ fn compile_selected_rooted(
             return Err(JitError::Compilation(
                 if failure == Failure::RequirePreferredEntry {
                     "preferred entry requires ordinary lowering"
+                } else if failure == Failure::PreferReadEffects {
+                    "read effects require ordinary lowering"
                 } else {
                     "field memory requires ordinary lowering"
                 }
@@ -1614,20 +1617,32 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let instructions = if matches!(
         failure,
-        Failure::RequireReadCache | Failure::RequireWriteback
+        Failure::RequireReadCache | Failure::RequireWriteback | Failure::PreferReadEffects
     ) {
-        let promote = if failure == Failure::RequireWriteback {
-            read_cache::promote_writeback
+        let applied = if failure == Failure::PreferReadEffects {
+            read_cache::promote_preserving(
+                &mut context.func,
+                parameters[0],
+                parameters[3],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+                |inst| stores.helper_calls.read_cache_clobbers(snapshot, inst),
+            )?
         } else {
-            read_cache::promote
+            let promote = if failure == Failure::RequireWriteback {
+                read_cache::promote_writeback
+            } else {
+                read_cache::promote
+            };
+            promote(
+                &mut context.func,
+                parameters[0],
+                parameters[3],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+            )?
         };
-        if !promote(
-            &mut context.func,
-            parameters[0],
-            parameters[3],
-            snapshot.registers,
-            snapshot.operations.allocator().clone(),
-        )? {
+        if !applied && failure != Failure::PreferReadEffects {
             return Err(JitError::Compilation(
                 "scalar read cache was not applied".into(),
             ));
