@@ -9,6 +9,46 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Cold helper panic recovery — isolated trial, 2026-10-18
+
+Main commit `2a2e371` adds an independent panic-writeback oracle for ordinary
+and prepared helpers. It checks all scratch-capacity tiers, including zero and
+256, scalar bit patterns, retained reference identity, untouched trailing
+registers, all eight counters, PC and panic-payload identity. The 13 helper tests
+pass normally and under Miri before changing runtime recovery. The first fixture
+draft's unsupported `Value` equality was corrected before the committed pass.
+
+Isolated `8118434` moves the shared helper panic-recovery branch into a cold,
+non-inlined method without changing its operations or publication boundary.
+It passes 44 focused tests, formatting/all-feature checks and the same 13 Miri
+tests. Sequential package-cleaned opt-level-3 builds use one source/target path
+and matching root-launched Nix/linker environments. Frozen source copies retain
+baseline and broad-candidate manifest verification.
+
+Two full Off/Auto instruction-profile comparisons cover all seven warm workloads
+(56 processes, each with two excluded warmups and eleven measured executions).
+Callback instructions fall exactly 103,826,602 -> 103,771,602 in both comparisons,
+only **0.05297%**. Allocation instructions instead grow by 37,804 and 44,000.
+Selected-part attribution finds additional work in ordinary GetTable and SetList
+helpers. Other workload variation remains in the reports. Do not promote this
+broad change as a general performance improvement.
+
+Refinement `82eb90c` outlines recovery only for prepared-key helpers, leaving the
+ordinary helper recovery inline. Another 44 focused tests, all-feature/format
+checks and 13 Miri tests pass. Fourteen additional profiles against the retained
+baseline preserve the same callback reduction; allocation is now 6,196
+instructions below baseline rather than above it. That small whole-profile
+difference is not a measured elapsed speedup. All reported non-timing fields
+match; each auditor run also accepts its valid fixture and rejects nine corruptions.
+
+The prepared helper shrinks from 1,531 to 1,245 bytes and reserves 136 rather than
+152 stack bytes; its separate recovery method occupies 322 bytes. These figures
+do not establish a whole-image size reduction. Both runtime variants remain
+isolated/unmerged. No elapsed, shipping-profile, compiled-Off cost or full-suite
+acceptance is claimed for them; all owned jobs are terminal. Evidence and frozen
+sources: `target/jit-evidence/hook-resume-recovery/cold-helper-panic/`, including
+`repeat/`, `broad-source/` and `refined/`. Full JIT acceptance remains open.
+
 ### Borrowed prepared-key comparator — no improvement, 2026-10-18
 
 Isolated trial `ce0fe04`, based on `1203cd4`, changes the private
