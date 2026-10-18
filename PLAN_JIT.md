@@ -9,7 +9,222 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Callback setup component ablation — profiling, 2026-10-18
+### Canonical string lookup — isolated runtime trial, 2026-10-18
+
+Trial `c7a165b` separates canonical string lookup from the existing supplied-hash
+API. The new private lookup caches only a numeric bucket index, checks current
+bounds/occupancy/live String identity before reading the current weak-aware slot,
+and computes the canonical hash on misses. The old prepared lookup and helper
+keep arbitrary supplied-hash behavior unchanged. The new `luna_get_up_table_c1`
+helper uses the canonical lookup, with existing packed operands, snapshot
+accounting and compiler checks. Its two hash words are unused; the old prepared
+and wide helper symbols retain their original contracts. Ordinary interpreter
+calls and callback setup are unchanged. No GC pointer or value is cached.
+
+GNU formatting/all-feature checks and **1,463 executions / twelve summaries**
+pass, zero failed and 23 ignored, including the full JIT unit suite. Independent
+generic/prepared/canonical helper comparisons cover values, environments,
+metamethod decline and borrow-panic transport; additional tests cover invalid
+operands, cache bounds, mutation, growth, weak modes and supplied-hash independence.
+Pinned Miri passes four selected tests under each borrowing model.
+
+The first real i686 check catches a footprint regression: `u32` fits 64-bit
+padding but grows 32-bit RawTable from **56 to 60 bytes**. That failure is retained.
+Correction `9515e33` uses a `u32` bucket index on 64-bit targets and `u16` otherwise,
+with checked conversion and uncached fallback outside its range. The unchanged
+layout/GC-charge assertion now passes on i686; corrected GNU and i686 focused
+checks each pass 32 executions / three summaries, one ignored. Both trial commits
+are pushed; neither is merged into the retained runtime.
+
+The original `c7a165b` image completes fourteen full-execution instruction
+profiles. All corresponding non-timing counters match; partition accounting,
+source/image identity and the valid/nine-corrupt fixture checks pass. Callback
+Auto instructions fall **9,438,782 -> 9,278,782 (-1.695%)**, while Off remains
+7,807,066. Actual new-helper execution is visible: `call::<11>` consumes 685,000
+self instructions versus 845,000 in the old prepared helper. Upvalue and
+metamethod Auto totals fall about 0.51%/0.49%. Integer Auto instead grows
+**0.738%**, entirely matching an extra 7,512 VM self instructions per sampled
+execution; that negative result is retained. These are not elapsed speedups.
+
+The corrected revision completes another fourteen profiles with the same strict
+counter/accounting and corruption checks. Callback Auto retains the 160,000
+instruction saving; integer/float Auto and Off now match the control exactly.
+Upvalue Auto falls 1.737% and metamethod Auto 0.470%; allocation Auto grows
+0.059%, allocation Off 0.055% and metamethod Off 0.086%. Both rebuilt images and
+both datasets remain: the 64-bit images are not byte-identical, so the disappearance
+of the initial integer increase is not attributed causally to the narrower-target
+layout fix. Refreshed Miri passes the same four tests per borrowing model.
+
+The corrected full all-feature Force gate passes **2,035 executions / ninety
+summaries**, zero failed and 23 ignored. Production speed/shipping native,
+compiled-Off and no-feature images finish at the original builder/target path.
+Environment and configuration comparisons pass. The no-feature binaries differ
+only in 28/30 source-location line words (speed/shipping): their entire executable
+code and every other byte match. A strict ELF/relocation check ties each changed
+word to the exact unchanged source line through the source diff; it accepts three
+valid fixtures and rejects nine corruptions per profile. The initial whole-file
+comparison failure is preserved, not reported as a build pass. Original runtime
+and overhead performance thresholds are unchanged.
+
+Two elapsed campaigns now finish, each covering 144 commands, 14,256 native
+executions and 285,120 feature-cost iterations across CPUs 0/16 and speed/shipping
+profiles. Six balanced control/candidate/control orders retain same-image
+placebos, matched launch paths, original thresholds and contention telemetry.
+No owned builds, tests or profilers overlap collection. Execution/resource
+comparisons report no mismatches; immutable artifacts and both audit-fixture
+suites verify. Successful collection is not a passing performance gate.
+
+Callback Auto control/candidate time ratios improve across all four CPU/profile
+combinations, with medians between **1.008 and 1.032** in both campaigns. However,
+CPU0 shipping compiled-Off integer ratios are **0.868459 / 0.876133** and float
+ratios **0.867875 / 0.872395**, approximately 14–15% longer candidate elapsed time.
+Corresponding same-image placebos and no-feature controls remain near one.
+CPU0 speed compiled-Off integer also regresses (**0.899840 / 0.906336**).
+CPU16 speed metamethod Auto and shipping allocation compiled-Off retain smaller
+repeatable losses. The trial is **not promoted**; callback gains do not offset
+these regressions or establish full-plan acceptance.
+
+An exact shipping link-map rebuild compares byte-for-byte with the timed image.
+The VM is 42,104 bytes in both variants, moving from `0x39b306` to `0x39b378`.
+All 8,614 normalized instruction lines match, including relative instruction
+offsets, internal branches and ordinary operands. External direct targets and
+RIP-relative displacements are masked: this comparison does not prove identical
+callees/data or establish code placement as the cause. Previously rejected
+hot-section and fixed-alignment trials are not repeated on that assumption.
+Broader performance/platform/resource/release acceptance remains open.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/`, including
+the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
+`warm-audit.json`, `corrected/` and validation logs.
+
+### Branch-history attribution — no promotion, 2026-10-18
+
+The 36-process short full-suite branch-history campaign finishes on the same
+frozen speed images, with six balanced A/candidate/B rounds per CPU (0/16).
+Its first auditor fails correctly: with branch stacks present, default
+`perf report` reports branch-history event units rather than summed sampled
+cycle periods. The first capture contains 695 samples, 22,233 branch-report
+units and 685,480,542 cycle-period units. These quantities are not interchangeable.
+
+Reanalysis uses `perf report --no-branch-stack` on a separate copy. The original
+captures, reports, collection tools and failing audit are preserved. Every file
+except the regenerated `report.log` files compares byte-for-byte between the
+original and analysis copies; the original tool manifest verifies. The unchanged
+auditor now accounts for **30,663 samples**, **27,416,904,758 cycle-period units**
+and **980,944 overlapping branch-history entries**, including **132,368 VM
+entries**, with zero reported sample loss. Sample identity, executable mappings,
+source/image identity and corresponding execution/resource counters verify.
+The reanalysis fixture suite accepts two valid copies and rejects all nineteen
+targeted corruptions, including branch flags, sample identity and address bounds.
+The 26 status-0 and ten status-1 processes retain ten failed workload gates
+(eight callback, two metamethod); profiling is not performance acceptance.
+
+At VM-relative offset `0xd66`, the packed opcode indirect jump, CPU16 baseline
+histories contain 57 marked misses / 6,214 entries across twelve processes;
+candidate histories contain 11 / 3,101 across six. Median per-process marked
+miss fractions are 0.750% and 0.900% for controls A/B versus 0.374% candidate.
+CPU0 corresponding counts are 5 / 3,968 and 2 / 2,053. Unknown prediction flags
+are absent in the VM histories. These overlapping records are not unbiased
+retired-branch totals, and raw counts cannot be compared without denominators.
+
+This instrumented campaign does **not** reproduce the earlier CPU16 float-Off
+loss: the six-round median control/candidate ratio is 0.999890, with same-image
+placebo 0.999740. Consequently it neither explains nor disproves that regression.
+In particular, it does not justify a dispatch rewrite or a claim that code
+alignment caused the loss. Trial `b8a77bf` remains unpromoted; original
+uninstrumented regressions and all acceptance thresholds remain in force.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/`
+`callback-setup-ablation/{native-branches*,branch-reanalysis*,branch-comparison*}`.
+
+### Short full-suite cycle sampling — attribution, 2026-10-18
+
+The original speed native executables now complete 36 sampled **full-suite**
+processes: six balanced control/candidate/same-image-placebo rounds on CPUs
+0/16, all nine workloads, eleven paired samples, original checked thresholds
+and a shared hardlink launch path. Actual image/source/map/tool identity,
+MMAP2 relocation, exact capture counts and period sums verify; zero lost
+samples are reported. The auditor accepts two valid fixtures and rejects 15
+targeted corruptions. All corresponding execution/resource counters match.
+No owned build or test overlaps collection.
+
+The first collector attempt preserves a wrapper bug: the benchmark's direct
+Rust error exits **1**, whereas Make reports its failed recipe as **2**.
+The corrected collector retains status 0/1 and verifies the exact printed
+gate/error count rather than treating performance failures as collection
+failures. The completed campaign contains five status-0 and 31 status-1 runs;
+40 individual workload gates fail. The prior isolated paired screens contain
+only status-0 runs, so their results are not invalidated, but their unused
+failed-gate path must not be copied into future direct-perf collectors.
+
+All **30,190 samples** and **27,055,368,179 period units** are accounted for.
+Median whole-process VM shares are 12.450%/11.964% baseline/candidate on CPU 0
+and 12.872%/12.151% on CPU 16. Compilation and other workloads remain in the
+denominator: these are not float-Off-specific shares. A leading common VM
+sample offset, 0xd63, decodes to the address addition immediately preceding
+the packed-opcode indirect jump. Non-precise IPs do not prove that instruction
+is the stall source, and the existing packed dispatch is already fused.
+This evidence does not justify repeating rejected opcode-decoder, numeric
+constant-materialization or blind alignment variants.
+
+A separate CPU 16 capability probe successfully captures hardware branch
+histories on the unchanged candidate with the original short full suite.
+Its 1,029 samples include predicted/mispredicted branch flags. This is only
+capability evidence, not a comparative branch attribution or speedup. Next
+compare exact-address VM branch histories under the same balanced context;
+history entries must not be reported as unbiased retired-branch totals.
+Main runtime is unchanged, no candidate is promoted, and full acceptance
+remains open. Evidence:
+`target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/native-suite*`
+and `native-lbr*`; the failed first collector and its tool snapshots are kept
+as `native-suite-status-error*`.
+
+### Callback ablation exact-image counters — attribution, 2026-10-18
+
+A 36-process hardware-counter screen uses the original speed `native-bench`
+images, not the cost worker or rebuilt symbol binaries: six balanced
+control/candidate/same-image-placebo rounds on CPUs 0/16, 1,000 float Off
+samples per process. Grouped user cycles, instructions, branches and misses
+are nonmultiplexed; source/image/tool hashes, logical execution/resource
+counters and two-valid/16-corruption audit fixtures pass. The first attempt
+never launches perf because the root Makefile's existing `PERF ?= perf`
+shadows the local default; a dedicated `NATIVE_PERF` variable fixes the recipe,
+and both failure and successful logs are retained.
+
+CPU 0 control/candidate cycle ratio is 1.1437, placebo 1.0019; hardware
+instructions and branches are effectively unchanged. CPU 16 cycle ratio is
+1.0103, placebo 0.9955; reported Off median ratio is 1.0012, placebo 0.9897.
+All individual rounds, including an adverse CPU 16 cycle outlier, remain in
+the audit. This isolated long-run screen does **not** reproduce the earlier
+short paired-suite loss and does not overturn it. Whole-process counters are
+not VM-exclusive attribution or full performance acceptance.
+
+The original acceptance workload alternates Off and Auto states and runs the
+complete suite; standalone Off changes that execution context. Two further
+36-process paired float screens complete at 1,000 and 11 samples. Each passes
+execution/resource parity, original float gate/status checks, provenance and
+two-valid/18-corruption audit fixtures. CPU 16 long paired Off ratio is 1.0015
+(placebo 0.9995); short paired Off is 0.9848 (placebo 1.0016), adverse in four
+of six rounds. Short paired whole-process branch-miss ratio is 0.9857, adverse
+in six of six rounds, but these counters include compilation and Auto work:
+they do not identify an Off VM branch as the cause. Hardware instruction and
+branch totals remain effectively unchanged. Neither isolated context replaces
+the original full-suite acceptance measurements or clears the regression.
+
+Original-strip, map-only rebuilds now reproduce **both complete measured
+executables byte-for-byte**. Verified linker ranges and disassembly put the
+baseline VM at 0x5c89f0 and candidate VM at 0x5c8e90, both 55,558 bytes; their
+entry offsets modulo 64 are 48 and 16. This establishes changed placement,
+not a causal alignment diagnosis or permission to retry blind padding variants.
+The builder is restored clean to `trial/jit-callback-setup-ablation`. All owned
+jobs are terminal; main runtime remains unchanged and no trial is promoted.
+Next sampling must retain the original short paired suite context and use
+these exact-image ranges/MMAP records rather than substitute a long steady
+worker or a different executable. Evidence:
+`target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/native-counters*`
+and `native-paired*`.
+
+### Callback setup component ablation — not promoted, 2026-10-18
 
 Isolated trial `b8a77bf` applies only the native callback setup/routing portion
 of `38c7880` to baseline `066905e`. No table layout, prepared lookup or hint
@@ -36,10 +251,32 @@ These are software instruction observations, not elapsed acceptance.
 Both no-feature production images reproduce the baseline byte-for-byte.
 Production builds and source/image/configuration/environment provenance pass.
 The full all-feature Force suite passes **2,031 executions / 90 summaries**,
-zero failures and 23 ignored diagnostics. The same 144-command balanced
-production timing protocol is now running, with all owned builds, tests and
-profilers terminal before collection. No elapsed acceptance or promotion is
-claimed. Evidence:
+zero failures and 23 ignored diagnostics. Two complete 144-command balanced
+production timing campaigns use the same frozen images. Each retains 14,256
+native executions and 285,120 cost iterations, zero counter/resource mismatches,
+before/after provenance and two-valid/13-corruption audit fixtures. No owned
+build, test or profiler overlaps elapsed collection.
+
+Speed callback control/candidate median ratios are 1.0443/1.0254 on CPUs 0/16
+initially and 1.0487/1.0274 on repeat. Speed CPU 16 compiled-Off float ratios
+are **0.9754 then 0.9713**, slower in five of six rounds in each campaign;
+corresponding same-image placebos are 1.0144 then 1.0004. Ratios above one
+favor the candidate. The first CPU 0 array and upvalue losses do not repeat
+at their initial magnitude; shipping float repeat placebo variation is large.
+Those observations are retained rather than treating every initial loss as
+causal. Shipping CPU 16 Oslo compiled-Off also remains slightly slower
+(0.9945 then 0.9916, six then five adverse rounds).
+
+The composition's larger Oslo/metamethod losses do not reproduce in this
+ablation, but the persistent float loss prevents promotion. Native speed
+callback gates pass only eight then six of twelve candidate windows, and
+both complete performance audits remain false. The component is therefore
+not accepted or merged; historical callback-setup rejections remain valid.
+Source-level work reduction does not isolate the cause of changed whole-image
+cycle costs. Next attribution must use the actual **speed native-bench float
+Off** image on CPU 16, not substitute the feature-cost worker or a mismatched
+unstripped binary. Full performance/resource/platform/release scope remains
+open. Evidence:
 `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/`.
 
 ### Hash-checked callback composition — validation, 2026-10-18
