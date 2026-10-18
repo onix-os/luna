@@ -79,7 +79,7 @@ before/after timing and its implementation is hashed with the campaign tools.
 
 The144-command campaign completes six balanced A/trial/B orders on CPUs0/16,
 speed/shipping profiles, all nine workloads and both native/compiled-disabled
-comparisons: **14256 native executions and285120 cost iterations**, with zero
+comparisons: **14256 measured native executions and285120 measured cost iterations**, with zero
 counter/resource mismatches. No owned build, test or profiler overlaps elapsed
 collection. All raw cost medians are recomputed; native medians remain worker
 summaries. The independent auditor accepts two valid screens and rejects13
@@ -100,7 +100,8 @@ Shipping CPU16 no-feature float control/candidate is1.001313, with placebo
 control. The complete report retains other wins, losses and placebo dispersion,
 including the CPU0 shipping Auto callback ratio1.047405. These wins do not
 establish a broad improvement. Original native callback gates fail12/12 times
-in both profiles; compiled-Off upvalue gates fail12/12 in speed and10/12 in
+in both profiles (shipping native thresholds are diagnostic); compiled-Off
+upvalue gates fail12/12 in speed and10/12 in
 shipping. Neither successor runtime variant is promoted to main.
 
 The two-thread full `make jit-verify` run was intentionally interrupted after
