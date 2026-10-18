@@ -816,6 +816,17 @@ vm-upvalue-returns:
 vm-upvalue-returns-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests -- --test-threads=1
 
+.PHONY: vm-call-layout vm-call-layout-miri
+vm-call-layout:
+	@for checked in true false; do \
+		CARGO_PROFILE_DEV_OVERFLOW_CHECKS=$$checked $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::call_layout $(ARGS) || exit $$?; \
+		CARGO_PROFILE_DEV_OVERFLOW_CHECKS=$$checked $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::call_layout $(ARGS) || exit $$?; \
+	done
+
+vm-call-layout-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::call_layout -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::call_layout -- --test-threads=1
+
 .PHONY: vm-call-resolution vm-callback-outcomes-miri vm-callback-setup
 vm-callback-setup:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::callback_setup:: $(ARGS)
