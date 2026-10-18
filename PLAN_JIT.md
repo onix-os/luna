@@ -39,9 +39,11 @@ CPU16 float Off's apparent gain is confounded by placebo drift, 1.03459 versus
 The same-image assembly shows the VM shrinks from 0xd906 to 0xd3b8 bytes, while
 its entry moves from 0x5c8900 to 0x5c88a0. Distinct control/visible pointers are
 spilled in the split version. These facts do not prove the hardware cause.
-A single-tail-slice variant is being tested against main, not merely against
-this regressed candidate. Full all-feature Force validation of `2e21a8e` is
-still running; broader shipping/cost/platform/release acceptance remains open.
+A single-tail-slice variant `bdd8571` is being tested against main, not merely
+against this regressed candidate. Full all-feature Force validation of
+`2e21a8e` passes **2,034 executions / 90 summaries**, zero failures and 23 ignored
+(including 1,483 JIT unit tests). Broader shipping/cost/platform/release
+acceptance remains open.
 Evidence: `target/jit-evidence/hook-resume-recovery/for-controls/`.
 
 ### Immutable opcode slice — measured, not promoted, 2026-10-18
