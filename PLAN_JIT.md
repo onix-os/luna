@@ -9,6 +9,180 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### VM scalar Add guards — numeric gains, cross-workload acceptance open, 2026-10-18
+
+Integer-only trial `6f08d28` adds a direct-store integer-pair VM path to the
+unpromoted canonical guards. Exact maps show two physical-tag checks against 4,
+without integer Add normalization or wide operand reloads. Integer Off work
+falls **3.7088%**, but float Off grows **2.4664%**. Its first balanced screen
+has favorable integer results but CPU16 float Off **0.953860** (six adverse)
+and CPU0 GC Off/Auto **0.857941 / 0.844615** (four/five adverse). Large CPU0
+integer gains despite nearly unchanged Auto instruction work are not a causal
+speedup claim. This predecessor is not promoted.
+
+Trial `78bcda0` adds a same-kind Number/Number VM store. It retains scalar loads
+and normalizes only the left operand; right tags are checked directly against
+4 or 5. Integer/float Off instruction work falls **2.6493% / 6.9051%**, upvalue
+Auto **1.8069%**. Both variants pass **137 focused executions / 22 summaries**,
+fourteen strict profiles with unchanged logical/resource fields, nine profile
+auditor corruptions and four exact-map corruptions.
+
+Two seven-case screens for `78bcda0` complete **504 commands / 51,408 measured
+executions**, six balanced orders on CPUs 0/16 per screen, unchanged gates and
+zero counter mismatches; each elapsed auditor passes nine corruptions. These
+are control-time/candidate-time medians, initial / repeat:
+
+| Case | CPU | Ratio |
+| --- | --- | --- |
+| Integer Off | 0 | 1.025393 / 1.026629 |
+| Float Off | 0 | 1.056733 / 1.054694 |
+| Integer Off | 16 | 1.069011 / 1.066688 |
+| Float Off | 16 | 1.069626 / 1.090845 |
+| Upvalue Off | 0 | 0.996812 / 0.989947 |
+| Metamethod Auto | 0 | 0.992507 / 0.991970 |
+| Metamethod Off | 16 | 0.983436 / 0.986914 |
+
+The repeated CPU0 upvalue Off and metamethod Auto screens each have six adverse
+rounds; CPU16 metamethod Off has six/five. Numeric gains therefore do not prove
+cross-workload acceptance. Neither runtime is promoted; no Miri, full Force,
+fallback or stripped shipping acceptance is claimed. A separate VM-only probe
+restores the original canonical operator to remove the now-unneeded inherited
+rewrite. Evidence: `target/jit-evidence/hook-resume-recovery/add-integer-guard`
+and `add-scalar-guards`, including the latter's `elapsed-repeat`.
+
+### Canonical Add scalar guards — mixed first screen, 2026-10-18
+
+Trial `bce1f0b` starts from the original runtime, replacing canonical Add's tuple
+match with four early-return numeric-pair guards and retaining the original
+inlinable fallback. It does not inherit the rejected outlined helper. Focused
+validation passes **137 executions / 22 summaries**; fourteen profiles retain
+logical/resource fields, with nine corruption checks and four exact-map checks.
+
+Scalar operand/result moves return, but numeric normalization remains. The
+compiler tests floats before integers: integer Off instructions **+2.6493%**,
+float Off **-1.4797%**. The first seven-case elapsed screen completes **252
+commands / 25,704 executions**, unchanged gates, zero counter mismatches and
+nine auditor corruption checks. CPU0 integer/float Off control/candidate ratios
+are **0.979718 / 1.009899**, placebos **0.998359 / 0.999220**, four/one adverse
+rounds. CPU16 ratios are **0.995114 / 1.019298**, three/one adverse rounds.
+
+This is mixed first-screen evidence, not an accepted speedup or full fix; a
+repeat is needed before treating the small timing deltas as stable. No Miri,
+full Force, fallback-platform or shipping acceptance is claimed. A separate
+integer-only VM guard tests whether direct integer dispatch can retain the
+float-path work reduction. Neither runtime is promoted. Evidence:
+`target/jit-evidence/hook-resume-recovery/canonical-add-guards`.
+
+### Canonical Add outline — aggregate staging regression, 2026-10-18
+
+Trial `203065a` keeps the original VM caller and value representations, nests
+canonical Add's numeric matches and outlines only its existing nonnumeric
+fallback without a cold hint. Focused checks pass **137 executions / 22
+summaries**. Fourteen profiles retain logical/resource fields; strict auditing
+passes nine corruptions and exact maps pass four.
+
+The VM body shrinks **0xd906 → 0xd20c**, but integer/float Off instructions grow
+**3.1792% / 3.9458%**. Numeric tag normalization remains, with new 16-byte operand
+reloads and aggregate result staging/copies on the numeric path. The fallback
+helper is **0x618 bytes**. These are exact instruction observations, not new PMU
+forwarding measurements or proof that a smaller VM runs faster.
+
+The seven-case elapsed screen completes **252 commands / 25,704 measured
+executions**, six balanced orders on CPUs 0/16, unchanged gates and zero counter
+mismatches; its strict auditor passes nine corruptions. CPU0 integer/float Off
+control/candidate ratios are **0.475912 / 0.678681**, placebos **1.001718 /
+1.000845**, both six adverse. CPU16 ratios are **0.720332 / 0.956106**, also six
+adverse. Reject the outline; it is not promoted. No full Force, Miri, fallback
+platform or shipping acceptance was run for this negative candidate.
+
+A separate scalar-guard probe restores the original inlinable fallback rather
+than inheriting the aggregate-returning outline. Evidence for this rejection:
+`target/jit-evidence/hook-resume-recovery/canonical-add-nested`.
+
+### Bounded callable niches — hypothesis disproved, 2026-10-18
+
+Trial `d0fdcb9` uses Function `repr(usize)` discriminants 9 and
+`usize::MAX - 1`, testing a bounded low interval with a spare value for
+Option compactness. It changes neither Value nor generated Slot/access code.
+The unchanged bounds pass **104 real i686 representation executions**, **137
+host focused executions**, and **44 layout/native/ABI executions**.
+
+Fourteen exact profiles preserve all logical/resource counters. Integer/float
+Off and Auto instruction totals are unchanged; upvalue Auto falls **1.7280%**,
+with small increases elsewhere. Exact maps show integer tag **0xc**, and Add
+still subtracts **0xa** before conditionally selecting semantic tag 6. The
+compiler did not assign the intended low scalar tags. Profile auditing passes
+nine corruptions; exact maps pass four. This disproves the stated lowering
+hypothesis, not a portable Rust layout rule.
+
+The runtime is not promoted, and no elapsed regression or speedup is inferred
+from instruction counts. No elapsed, Miri, full Force or shipping acceptance
+campaign was run for this variant. Stop callable tag experiments rather than
+sweeping arbitrary discriminants; investigate canonical numeric operator
+control flow with unchanged representations and VM operand loading instead.
+Evidence: `target/jit-evidence/hook-resume-recovery/function-low-niche`.
+
+### High callable tags — normalization remains, not promoted, 2026-10-18
+
+Trial `0ca3979` uses Function `repr(usize)` with the top two discriminants,
+leaving Value and generated Slot declarations untouched. Main `01381d4` retains
+only stronger Function/Option bounds of two pointer widths. Corrected baseline
+`6374d5a` and candidate each pass **104 real i686-musl representation executions**;
+the initial baseline formatting-only failure is preserved. The candidate also
+passes **137 host focused executions / 22 summaries** and **44 layout/native/ABI
+executions / 6 summaries**. This is not full Force or Miri acceptance.
+
+Fourteen exact warm profiles retain identical logical/resource fields. Integer
+Off instructions increase **0.5299%**, float Off **0.0002%**; upvalue Auto falls
+**1.5505%**. Actual maps restore full-word copies, but numeric Add still uses
+`lea 0xb(tag)`, a comparison against `0xfffffffffffffffe`, and a conditional
+selection of semantic tag 6. Integer stores use `0xfffffffffffffff7`. Moving
+both callable tags high relocated normalization instead of removing it. These
+are observations of the exact image, not portable Rust layout assumptions.
+
+The balanced seven-case screen completes **252 commands / 25,704 executions**,
+six orders on CPUs 0/16, zero counter mismatches and unchanged gates. CPU0 float
+Off control/candidate ratio is **0.943782**, placebo **1.004252**, all six adverse;
+CPU16 float Off is **0.988016**, also six adverse. CPU0 upvalue Auto is
+**0.971547**, five adverse, placebo **0.989240**. Favorable CPU0 callback Auto
+**1.113472** does not erase these losses. Both profile and elapsed auditors pass
+nine corruptions each; exact maps pass four. This runtime is rejected.
+
+Evidence is under `target/jit-evidence/hook-resume-recovery/function-high-tag`.
+No full Force, Miri, stripped shipping or complete performance acceptance is
+claimed. No tested callable representation change is promoted to main.
+
+### Function byte tag — compact but slower, not promoted, 2026-10-18
+
+Trial `2323cfa` annotates only Function with `repr(u8)`; Value and generated
+Slot declarations remain unchanged. Baseline-valid Function/Option size guards
+are retained on main as `d35a0a3`. Baseline representation checks pass **104
+executions / 14 summaries**; the candidate passes **137 / 22** focused checks
+and **44 / 6** layout-aware native, rooted-move and ABI checks.
+
+Fourteen exact whole-execution profiles preserve logical/resource counters but
+increase every instruction total: integer/float Off **+13.3817% / +11.9639%**.
+Executed-instruction maps show additional byte-field loads at offsets zero and
+one; numeric Add still subtracts two and conditionally selects a semantic tag.
+The targeted normalization did not disappear. Profile auditing passes nine
+corruptions; exact hot-map auditing passes four, with the removed instruction
+derived from this candidate rather than a historical hard-coded address.
+
+A seven-workload balanced elapsed screen completes **252 commands / 25,704
+measured executions**, CPUs 0/16, six A/candidate/B orders, 51 Off/Auto samples,
+unchanged gates and zero logical/resource-counter mismatches. Strict auditing
+and nine corruptions pass. CPU0 integer/float Off control-time/candidate-time
+ratios are **0.867614 / 0.878185**, placebos **1.001324 / 0.999239**, both six
+adverse rounds. Array Off is **0.770916**, also six adverse rounds. This trial
+is rejected; compactness alone does not establish faster enum handling.
+
+Evidence is under `target/jit-evidence/hook-resume-recovery/function-byte-tag`.
+No full Force, Miri, fallback-platform or shipping acceptance is claimed for
+this rejected runtime. The next isolated probe uses pointer-width high callable
+tags, subject to unchanged footprint and semantic gates; it is not an accepted
+representation policy. Full original JIT performance/release acceptance remains
+open.
+
 ### Direct numeric Add — forwarding hazard removed, not promoted, 2026-10-18
 
 The new actual-VM model covers **384 combinations** of sixteen numeric,
