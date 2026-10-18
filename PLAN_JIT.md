@@ -9,6 +9,33 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Callback ablation exact-image counters — attribution, 2026-10-18
+
+A 36-process hardware-counter screen uses the original speed `native-bench`
+images, not the cost worker or rebuilt symbol binaries: six balanced
+control/candidate/same-image-placebo rounds on CPUs 0/16, 1,000 float Off
+samples per process. Grouped user cycles, instructions, branches and misses
+are nonmultiplexed; source/image/tool hashes, logical execution/resource
+counters and two-valid/16-corruption audit fixtures pass. The first attempt
+never launches perf because the root Makefile's existing `PERF ?= perf`
+shadows the local default; a dedicated `NATIVE_PERF` variable fixes the recipe,
+and both failure and successful logs are retained.
+
+CPU 0 control/candidate cycle ratio is 1.1437, placebo 1.0019; hardware
+instructions and branches are effectively unchanged. CPU 16 cycle ratio is
+1.0103, placebo 0.9955; reported Off median ratio is 1.0012, placebo 0.9897.
+All individual rounds, including an adverse CPU 16 cycle outlier, remain in
+the audit. This isolated long-run screen does **not** reproduce the earlier
+short paired-suite loss and does not overturn it. Whole-process counters are
+not VM-exclusive attribution or full performance acceptance.
+
+The original acceptance workload alternates Off and Auto states and runs the
+complete suite; standalone Off changes that execution context. Paired float
+screens at 1,000 and 11 samples are being collected on unchanged images before
+any runtime change or causal code-layout claim. Evidence:
+`target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/native-counters*`
+and `native-paired*`.
+
 ### Callback setup component ablation — not promoted, 2026-10-18
 
 Isolated trial `b8a77bf` applies only the native callback setup/routing portion
