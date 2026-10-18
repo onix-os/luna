@@ -43,8 +43,27 @@ feature mode). These are focused results, not full release acceptance.
 larger numeric instruction reduction and lower write count than `2717a7a`.
 The same balanced, repeated, two-CPU/two-profile protocol measures no-feature,
 compiled-Off and native execution without relaxing the original gates. Its
-production images are still building at this checkpoint; no elapsed result
-is claimed.
+production campaign has now completed: 144 commands, 14,256 measured native
+executions and 285,120 measured cost iterations, with zero counter/resource
+mismatches. Source/image/configuration/environment verification passes before
+and after; two valid audit fixtures and 13 corrupted fixtures pass/refuse as
+expected. No owned builds, tests or profilers overlap elapsed collection.
+
+Results are mixed, not acceptance. CPU16 speed compiled-Off integer/float
+control/candidate medians are 1.03252/1.05301, improving in all six rounds.
+But CPU16 speed compiled-Off arrays regress in all six rounds (0.97097,
+placebo 0.99844). CPU0 shipping compiled-Off integer/float medians are
+0.97578/0.98167, worse in five rounds each, with placebo medians
+0.98514/0.99101. Some native comparisons have substantial placebo movement;
+those noisy observations are not clean causal speedup estimates.
+
+The candidate still fails compiled-Off upvalue gates in all 12 windows per
+profile, native callback gates in 11/12 speed and 12/12 shipping windows,
+and native array gates in 9/12 speed and 8/12 shipping windows. Shipping
+native thresholds remain diagnostic. The candidate is not promoted, and
+these results do not establish a fix for the original performance gaps.
+Complete ratios, all gates and raw records remain in
+`bounded/timing/production-audit.json` and `bounded/timing/production-screen/`.
 
 The earlier broad default-Miri run completed with 19 passes and two failures:
 `string_coercion_keeps_the_integer_subtype` and
