@@ -9,6 +9,266 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared registry traversal — measured, not promoted, 2026-10-18
+
+Trial `1b82d30` on `trial/jit-registry-pair-scan` resolves the inline native
+loop's caller/callee pair with one forward traversal of the existing registry.
+It retains current ID checks, both weak upgrades, source ordering, equal-ID
+behavior and all binding/provenance checks. No reverse map, cache, new field,
+allocation or unsafe access is added. Three independent tests compare against
+two unchanged single-ID lookups through growth, missing/equal/reversed IDs,
+authoritative replacement/removal, reset/re-registration and collection.
+
+The baseline is current-main `5757ed2` (runtime `066905e`), not a stack of
+previously rejected candidates. Both images are built at the same historical
+source/target paths with immutable source witnesses. Formatting/all-feature
+checks and **1,431 executions / six summaries** pass, including 1,361 JIT unit
+tests, with zero failures and 22 ignored. The three new tests pass under both
+pinned Miri models (**six total**); real i686-musl passes all 21 registry tests.
+The trial is committed and pushed; main runtime remains unchanged.
+
+Twenty-eight instruction captures compare fourteen workload/mode pairs, with
+two warmups and eleven measured executions each. All execution/resource counters
+match without adjustments. The strict auditor and its nine corruption fixtures
+pass. Upvalue Auto instructions fall **2.5149%**, from 54,429,781 to 53,060,902
+summed over eleven executions. Numeric and callback instructions are unchanged;
+small adverse changes remain in array, metamethod and allocation Auto.
+
+An initial focused **72-command / 7,344-execution** screen is mixed: upvalue Auto
+control/candidate medians are 1.01228/1.00038 on CPUs 0/16; CPU0's apparent
+callback gain does not reproduce in the stripped production comparisons below.
+It is not attributed to faster pair resolution, which that callback case does
+not exercise. Compiled-Off upvalues are adverse in all six focused rounds on
+each CPU. Those results are preserved rather than superseded by favorable runs.
+
+Two complete production screens retain **288 commands, 28,512 native executions
+and 570,240 cost iterations**, all nine workloads, six balanced A/candidate/B
+orders per CPU, speed/shipping builds and unchanged original gates. No-feature
+images are byte-identical between revisions in both profiles. Environment,
+source/image/tool hashes, native coverage and resource counters verify. Each
+auditor accepts its valid/restored screen and rejects thirteen corruptions.
+Cost medians are recomputed from raw durations; native logs expose summary
+medians only. No owned build/test/profiler overlaps elapsed collection.
+
+- CPU0 speed compiled-Off integer ratios are **0.89869 / 0.90005** in the
+  first/repeat campaigns, with placebo medians **1.07248 / 0.99855**. The repeat
+  retains four adverse rounds, including several near 0.90 with near-one
+  placebos; other rounds show substantial contention. This is not an accepted
+  no-regression result.
+- Shipping upvalue Auto improves in both screens: CPU0 **1.02928 / 1.02750**,
+  CPU16 **1.00580 / 1.00868**. Speed upvalue is less consistent; the first
+  CPU0 ratio 1.16980 has a 1.40246 placebo and is not a clean speedup claim.
+- CPU16 speed metamethod Auto is adverse in both campaigns (**0.97848 /
+  0.98647**), with placebo medians **0.98865 / 1.00407**. Callback thresholds
+  fail in every candidate speed and shipping window in both screens.
+
+**Do not promote this trial.** Reduced scanning work does not erase the broader
+elapsed regressions or original gate failures. Symbol inspection of diagnostic
+images shows `complete_inline` grows 52 bytes and VM/executor addresses move by
+48 bytes while their sizes remain unchanged; this suggests code placement as a
+follow-up question, not a proven explanation for stripped cost-image timings.
+Earlier placement trials remain relevant and must not be blindly repeated.
+Evidence: `target/jit-evidence/hook-resume-recovery/registry-pair-scan/`, including
+`warm-audit.json`, `elapsed-audit.json` and both `timing*/production-audit.json`.
+
+### Registry ID index — correctness passes, performance refusal, 2026-10-18
+
+Trial `fd2b0a7` on `trial/jit-registry-id-index` replaces ID resolution's
+linear scan with a charged ID-to-address map and an authoritative address-map
+lookup. It validates the registration ID before upgrading its weak prototype;
+integer addresses are keys, never dereferenced. Registration reserves both maps
+and manager tracking before publishing an ID. Retirement, reset and fallible
+compaction maintain both maps without retaining dead prototypes.
+
+Four new tests cover poisoned/stale indexes, all three reservation failures,
+exact allocation charges, collection, compaction refusal/retry and release.
+The independent scan oracle remains. Formatting/all-feature checks and
+**1,436 passing executions / six summaries** complete at `b18ac7d`, including
+1,365 JIT unit tests, with zero failures and 22 ignored. Initial Miri compilation
+exposed two assertions using a test helper unavailable under Miri. The separate
+`fd2b0a7` correction uses the configured quota instead; its release image is
+byte-identical to the profiled image. Corrected native registry tests pass 22,
+real i686-musl passes 22, and pinned Miri passes **22 per model / 44 total**
+under Stacked and Tree Borrows. The original failed compilation is retained.
+
+Fourteen instruction profiles against frozen `4fde210` preserve execution
+counters but increase retained and peak metadata **152 bytes each**. The original
+strict auditor refuses this difference; diagnostic analysis does not waive that
+resource gate. Callback Auto instructions rise 0.0114%, and upvalue Auto rises
+**2.7064%**. Reduced work in `complete_inline` and `Admitted::new` is outweighed
+by the newly outlined two-lookup resolver. No unfavorable profile is discarded.
+
+A completed focused elapsed screen has **72 commands / 7,344 measured
+executions**, six balanced A/candidate/B orders on CPUs 0/16, 51 alternating
+Off/Auto samples and identical hardlink launch paths. Source/image/tool hashes,
+native coverage, original workload thresholds and all other counters verify.
+The diagnostic auditor explicitly accounts for the known 152-byte differences,
+reports `resource_acceptance=false`, and rejects nine corrupted fixtures.
+No owned build/test/profiler overlaps timing; contention telemetry is retained.
+
+- Callback Auto median control/candidate ratios are **0.98180 / 1.00107**
+  on CPUs 0/16, with placebo medians **0.99948 / 1.00421**. CPU0 is adverse
+  in all six rounds; the original callback gate fails eleven of twelve windows.
+- Upvalue Auto ratios are **0.95894 / 0.92624**, adverse in all six rounds on
+  both CPUs, with placebo medians **0.99449 / 1.01582**. Passing the interpreter
+  speedup gate in twelve windows does not erase this cross-revision regression.
+- Compiled-Off callback ratios are **1.00034 / 0.99247**; upvalue ratios are
+  **0.99856 / 0.99315**. These diagnostic opt-level-3 unstripped images are not
+  shipping, no-feature or full release acceptance.
+
+**Do not promote this index.** Removing the scan alone increases allocation and
+does not improve these integrated workloads. Main runtime remains `066905e`;
+all three incremental trial commits are pushed. Further work must reduce actual
+lookup/transition costs while preserving identity, weak lifetime and quotas.
+Evidence: `target/jit-evidence/hook-resume-recovery/registry-id-index/`, including
+`counter-analysis.json`, `elapsed-audit.json` and the corrected Miri logs.
+
+### Canonical PC preservation — fewer instructions, elapsed refusal, 2026-10-18
+
+Trial `4fde210` on `trial/jit-canonical-pc` omits the narrow canonical helper's
+redundant completion PC write only without a projection. Canonical lookup,
+upvalue reads and destination stores cannot mutate that PC or invoke users;
+the initial advance remains before effects. Projection completion still restores
+PC after refresh, while decline rollback, panic materialization and other helper
+families retain their contracts. A bridge oracle deliberately changes PC during
+flush and injects flush/refresh failures, comparing narrow and unchanged
+six-argument entries at low and high representable PCs. The initial test's
+ambiguous-integer compile failure and corrected result are retained separately.
+
+Formatting/all-feature checks and **1,444 passing executions / eight summaries**
+complete, zero failures and 23 ignored: 45 focused executions plus 1,399 full
+JIT/native/heap executions (including 1,361 JIT unit tests). Pinned Miri passes
+five selected tests/model, ten total. Real i686-musl checks pass 33 executions,
+one ignored. Both incremental trial commits are pushed; main runtime is unchanged.
+
+Fourteen new instruction profiles compare against the frozen `6c69b95` image
+from the same build path. All non-timing execution/resource counters match.
+Partition sums, source/image/tool provenance, the unchanged strict auditor,
+its valid fixture and nine corruption refusals pass. Callback Auto falls
+**9,288,782 -> 9,258,782 instructions/execution (-0.323%)**; all 30,000 saved
+instructions are in the helper, whose 5,000 calls now execute **135 rather than
+141 self instructions each** (the earlier six-argument helper used 137).
+Metamethod Auto falls 0.124%; integer/float both modes are unchanged. Upvalue
+Auto instead rises **0.646%**. No unfavorable profile is discarded.
+
+A focused elapsed screen completes **72 commands / 7,344 measured executions**:
+six balanced A/candidate/B orders on CPUs 0/16, callbacks and upvalues, 51
+alternating Off/Auto samples, identical hardlink launch paths and same-image
+A/B controls. Image/source/tool hashes, order, native coverage, counter equality
+and telemetry verify; the audit's valid fixture and nine corruptions pass.
+No owned build/test/profiler overlaps timing. These are opt-level-3 unstripped
+diagnostic images, not shipping or full release acceptance.
+
+- Callback Auto median control/candidate ratios are **1.00267 / 0.99325** on
+  CPUs 0/16; placebos are **1.00164 / 1.00054**. The CPU16 candidate is adverse
+  in all six rounds. Its original callback gate fails four of twelve windows.
+- Upvalue Auto ratios are **0.97414 / 0.97043**, adverse in all six rounds on
+  both CPUs; placebos are **0.98771 / 0.99462**, with notable control drift.
+  Passing all twelve upvalue Off/Auto gates does not erase the cross-revision loss.
+
+This form is **not accepted or promoted**. A named-function diagnostic attributes
+the third measured upvalue execution's extra work to `Admitted::new`
+(63,019 -> 79,195) and `Session::complete_inline` (1,388,607 -> 1,404,075).
+VM/Executor self work matches. These paths inline registry ID-resolution scans;
+the previously documented same-image scan variation remains relevant, but does
+not justify subtracting this loss or claiming a new causal explanation without
+instruction-level attribution. Investigate registry resolution/admission before
+another broad timing campaign. Prepared-path injected signature-refusal coverage
+and full production/platform/resource/release acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/pc-preservation/`.
+
+### Helper signature reuse — allocation regression removed, 2026-10-18
+
+Trial `6c69b95` on `trial/jit-signature-reuse` reuses the existing six-parameter
+compiler signature template for the four-parameter prepared declaration, then
+restores it before other declarations. It removes two temporary vectors and
+their extra five-element reservation; the existing six-parameter bound still
+covers declaration/import clones. Native ABI, helper implementation, independent
+verification, panic/GC behavior and resource limits are unchanged. The capacity
+check refuses insufficient storage before mutation rather than allocating more.
+
+Formatting/all-feature checks and **1,429 test executions / eight summaries**
+pass, zero failed and 22 ignored, including all **1,360 JIT unit tests**. A new
+test checks stable allocation addresses/capacities, narrow/wide restoration,
+independent declaration clones and refusal without mutation. Pinned Miri passes
+the new storage test and existing signature-layout test under both borrowing
+models: four executions. The trial commit is pushed; main runtime is unchanged.
+
+The candidate completes fourteen full-execution instruction profiles, built at
+the same source/target path as the frozen `84a2c07` and `9515e33` controls. Those
+control profiles are reused, not freshly interleaved elapsed measurements.
+Source/image/tool hashes and exclusive partition sums verify. Relative to the
+narrow parent, the only non-timing counter changes are snapshot peaks:
+
+- Metamethod Auto: **16,205 -> 16,145 bytes**, now 32 below the six-argument control.
+- Callback Auto: **10,781 -> 10,721 bytes**, now 16 below the six-argument control.
+
+Both drop exactly 60 bytes. The unchanged strict equal-counter auditor still
+refuses the differing resource records; the separate analysis preserves that
+failure and does not grant acceptance. Callback instructions remain **9,288,782**
+per execution. Integer/float Off/Auto also match the narrow parent. Other
+instruction changes are mixed (including upvalue Auto +0.389%); no speedup is
+attributed to allocation reuse from those observations. No hardware elapsed
+acceptance, fresh full Force/platform/release completion or promotion is claimed.
+
+An instruction-address join of the parent callback profiles confirms 5,000
+helper calls and **137 -> 141 self instructions per call**. The four extras are
+an entry operand copy, an additional instruction saving PC+1, its completion
+reload, and an intermediate destination-register copy. The table-lookup path
+itself does not gain another probe. This explains the observed callee instruction
+increase, not hardware latency or all inputs; the current change does not fix it.
+
+Coverage follow-up: the test-only prepared-helper selector excludes
+`RequireSignatures`/`RefuseSignatures`. Existing injected lifetime fixtures cover
+ordinary signatures, not the prepared switch under those failures. Direct
+prepared-path resource-refusal coverage remains necessary before promotion.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/signature-reuse/`.
+
+### Narrow canonical helper ABI — correctness validated, 2026-10-18
+
+Separate trial `84a2c07` on `trial/jit-canonical-narrow` removes the two unused
+hash arguments from ordinary canonical lookup calls. The private
+`luna_get_up_table_c2` entry takes host, slots, packed operand indexes and source
+PC. Import signatures, call emission, temporary signature allocation accounting
+and the independent helper-flow verifier agree on four arguments. Prepared
+snapshots remain validated; supplied-hash and wide helper contracts are unchanged.
+The native diagnostic dump now lists the c2 entry address.
+
+Direct helper comparisons include six independent entry/transport variants,
+invalid operands, null hosts, mutation, metamethod decline and panic/frame
+materialization. New corruption cases check parameter count and width. The
+full JIT suite initially finds five strided-runtime failures: that test-only
+transport has a verified six-argument bridge. An explicit ABI selector retains
+its c1 family rather than weakening its grammar or reinterpreting function
+pointers. The initial build failures and failing full-suite run are retained.
+
+The corrected revision passes formatting/all-feature checking and **1,487 test
+executions / fifteen summaries**, zero failures and 23 ignored, including all
+1,359 JIT unit tests and the previously failing strided cases. Fresh i686-musl
+checks pass 32 executions / three summaries, one ignored. Pinned Miri passes
+four selected tests under each borrowing model. All trial commits are pushed;
+main runtime is unchanged. Full Force/release acceptance is not implied.
+
+Fresh control (`9515e33`) and candidate images each finish fourteen instruction
+profiles from the same historical source/target build path. Source/image/tool
+provenance and exclusive event sums verify. Integer/float instructions match in
+both modes. Callback Auto instead increases **9,278,782 -> 9,288,782 (+0.108%)**
+per execution: VM self work matches, but helper self instructions rise
+**685,000 -> 705,000**, exceeding the net 10,000 instructions saved elsewhere.
+The helper performs 5,000 fewer reads. Fewer ABI arguments alone do not prove
+lower total work or an elapsed improvement. Upvalue/metamethod Auto instructions
+fall 0.319%/0.550%; array Auto rises 0.195% and metamethod Off rises 0.135%.
+
+The unchanged strict auditor **refuses** two resource differences:
+`snapshot_peak_bytes` rises **16,177 -> 16,205** for metamethod Auto and
+**10,737 -> 10,781** for callback Auto. A separately named analysis preserves
+both complete counter records and reports no other counter differences across
+the fourteen pairs; it explicitly does not grant counter/performance acceptance.
+The strict failure and unrun downstream fixture gate remain visible. Attribute
+these peak changes and the additional callee work before accepting this form.
+No fresh elapsed result is claimed; disabled numeric regressions remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/narrow-helper/`.
+
 ### Canonical string lookup — isolated runtime trial, 2026-10-18
 
 Trial `c7a165b` separates canonical string lookup from the existing supplied-hash
@@ -93,9 +353,77 @@ callees/data or establish code placement as the cause. Previously rejected
 hot-section and fixed-alignment trials are not repeated on that assumption.
 Broader performance/platform/resource/release acceptance remains open.
 
+Further exact-image attribution completes 72 sampled processes: six balanced
+A/candidate/B rounds on CPUs 0/16, both numeric workloads, 1,000 iterations per
+worker. All **73,088 samples** and summed periods account correctly with zero
+reported loss. CPU0 VM median cycle shares increase from 91.59% to 93.28%
+(integer) and 92.03% to 93.61% (float). These are non-precise sampled PCs, not
+causal stall attribution. The original auditor rejects symlink spelling versus
+the kernel's resolved executable path. Resolving the expected image path while
+retaining exact binary comparison fixes that local analysis issue; two valid
+fixtures and twelve corruptions, including incorrect mapping/sample paths,
+pass/refuse as expected. The initial failure remains recorded.
+
+All **339 external direct VM call/jump references** resolve to matching symbol
+names at matching VM offsets. This excludes indirect calls/data and does not
+compare callees' implementations. Four VM-scoped Callgrind captures on the
+exact stripped shipping images find identical instruction/read/write and
+conditional/indirect branch totals: integer **18,639,675 instructions** and
+float **19,941,710**, each over five executions (two warmups, three measured).
+Every exclusive event sum verifies. The initial whole-process capture's
+two-instruction summary/totals discrepancy is preserved as a failed audit;
+VM-entry collection avoids including that unmatched process-exit boundary.
+Simulated cache/prediction counts are not hardware stall measurements.
+
+A separate 36-worker CPU0 hardware campaign uses matched launch paths, six
+balanced rounds, seven grouped user events and 100% scheduling coverage.
+Two valid audit fixtures and ten corruptions pass/refuse. Instructions and
+conditional branch misses remain approximately unchanged. Control/candidate
+cycle medians are **0.9413 / 0.9268** (integer/float), but individual rounds
+include reversals and substantial variation. Undelivered front-end uop ratios
+are **0.4741 / 0.5945**, below one in every round; their placebo medians are
+0.9119 / 1.0331. DSB/MITE delivery and indirect misses also vary. These observations
+motivate investigating instruction-delivery throughput, not another arithmetic
+rewrite, but do not identify its cause or establish an alignment fix. Original
+uninstrumented regressions remain authoritative for promotion.
+
 Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/`, including
 the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
-`warm-audit.json`, `corrected/` and validation logs.
+`warm-audit.json`, `corrected/`, `shipping-attribution/`, `shipping-profile/`
+and validation logs.
+
+### Matched VM placement control — rejected, 2026-10-18
+
+This diagnostic applies one fixed 4096-byte VM section alignment to **both**
+`066905e` and canonical candidate `9515e33`, not just the candidate. Isolated
+commits `14148d9` and `444ea13` are pushed on their trial branches. Each passes
+format/all-feature checks and 79 focused executions across ten summaries.
+Both shipping VMs start at image-relative `0x45d000`, size 42,104 bytes, in
+readable/executable, non-writable LOAD mappings. All 8,614 normalized instruction
+lines match their respective originals; external targets/RIP addresses remain
+outside that structural comparison. Main runtime is unchanged.
+
+Two matched-path comparisons each finish 144 workers: six balanced rounds,
+CPUs 0/16, original/aligned policies, A/candidate/B controls and two numeric
+cases, 1,000 measured iterations each. No owned build/test/profiler overlaps
+collection. Worker results, zero native work, image/source/tool hashes and
+telemetry verify. Each auditor accepts two valid fixtures and rejects nine
+corruptions. This is a numeric placement diagnostic, not full-suite acceptance.
+
+CPU0 original control/candidate integer ratios are **0.8822 / 0.8633**, versus
+**0.9701 / 0.9750** under alignment. Float ratios change from
+**0.8767 / 0.8667** to **0.9093 / 0.9777**. Corresponding CPU0 same-image controls
+stay near one. The smaller gap is not a sufficient candidate improvement:
+original/aligned baseline ratios are **0.9327 / 0.9049** for integer and
+**0.9025 / 0.8826** for float, showing a substantial baseline slowdown.
+Candidate integer original/aligned ratios are only **1.0056 / 1.0249**;
+candidate float is **0.9236 / 0.9991**, including another slowdown.
+CPU16 aligned integer also slows both variants by roughly 5–6%.
+
+Reject this fixed-placement policy. Equal VM entry alignment does not remove
+all observed differences, and making the control slower is not repairing the
+trial. No offset sweep, weakened gate or new production placement rule follows.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/placement-control/`.
 
 ### Branch-history attribution — no promotion, 2026-10-18
 
