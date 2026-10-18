@@ -9,6 +9,29 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Canonical Add scalar guards — mixed first screen, 2026-10-18
+
+Trial `bce1f0b` starts from the original runtime, replacing canonical Add's tuple
+match with four early-return numeric-pair guards and retaining the original
+inlinable fallback. It does not inherit the rejected outlined helper. Focused
+validation passes **137 executions / 22 summaries**; fourteen profiles retain
+logical/resource fields, with nine corruption checks and four exact-map checks.
+
+Scalar operand/result moves return, but numeric normalization remains. The
+compiler tests floats before integers: integer Off instructions **+2.6493%**,
+float Off **-1.4797%**. The first seven-case elapsed screen completes **252
+commands / 25,704 executions**, unchanged gates, zero counter mismatches and
+nine auditor corruption checks. CPU0 integer/float Off control/candidate ratios
+are **0.979718 / 1.009899**, placebos **0.998359 / 0.999220**, four/one adverse
+rounds. CPU16 ratios are **0.995114 / 1.019298**, three/one adverse rounds.
+
+This is mixed first-screen evidence, not an accepted speedup or full fix; a
+repeat is needed before treating the small timing deltas as stable. No Miri,
+full Force, fallback-platform or shipping acceptance is claimed. A separate
+integer-only VM guard tests whether direct integer dispatch can retain the
+float-path work reduction. Neither runtime is promoted. Evidence:
+`target/jit-evidence/hook-resume-recovery/canonical-add-guards`.
+
 ### Canonical Add outline — aggregate staging regression, 2026-10-18
 
 Trial `203065a` keeps the original VM caller and value representations, nests
