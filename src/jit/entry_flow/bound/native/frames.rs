@@ -33,8 +33,17 @@ fn live_helpers_preserve_rebinding_weak_modes_and_panic_exits() {
             Operation::GetUpTable { .. }
         ));
         assert!(snapshot.prepared_keys.is_some());
-        let codes = [Failure::None, Failure::RequireBoundEntry(bound as u32)]
-            .map(|mode| compile(&snapshot, mode));
+        let codes = [
+            Failure::None,
+            Failure::RequireBoundEntry(bound as u32),
+            Failure::RequireBoundBudget(bound as u32, 0),
+            Failure::RequireBoundBudget(bound as u32, 1),
+            Failure::RequireBoundBudget(bound as u32, 2),
+            Failure::RequireBoundBudget(bound as u32, 3),
+            Failure::RequireBoundBudget(bound as u32, 63),
+            Failure::RequireBoundBudget(bound as u32, 64),
+        ]
+        .map(|mode| compile(&snapshot, mode));
         let values = [
             Value::Nil,
             Value::Boolean(false),
@@ -66,8 +75,13 @@ fn live_helpers_preserve_rebinding_weak_modes_and_panic_exits() {
                     .set(&ctx, crate::closure::UpValueState::Closed(binding));
                 for value in values {
                     environment.set(ctx, "target", value).unwrap();
-                    for budget in [0, 1, 2, 3, 63, 64, u32::MAX] {
-                        let reports = codes.each_ref().map(|code| {
+                    for budget in [0u32, 1, 2, 3, 63, 64, u32::MAX] {
+                        let specialized = [0, 1, 2, 3, 63, 64]
+                            .iter()
+                            .position(|&value| value == budget.min(64))
+                            .unwrap()
+                            + 2;
+                        let reports = [&codes[0], &codes[1], &codes[specialized]].map(|code| {
                             let mut canonical = vec![value; snapshot.registers];
                             let mut frame_pc = bound;
                             let report = LuaRegisters::with_test_frame(
@@ -148,12 +162,14 @@ fn live_helpers_preserve_rebinding_weak_modes_and_panic_exits() {
                             );
                             (report, canonical)
                         });
-                        assert_eq!(
-                            reports[0].0, reports[1].0,
-                            "mode={mode} case={case} budget={budget}"
-                        );
-                        for (&actual, &expected) in reports[1].1.iter().zip(&reports[0].1) {
-                            identical(actual, expected);
+                        for report in &reports[1..] {
+                            assert_eq!(
+                                reports[0].0, report.0,
+                                "mode={mode} case={case} budget={budget}"
+                            );
+                            for (&actual, &expected) in report.1.iter().zip(&reports[0].1) {
+                                identical(actual, expected);
+                            }
                         }
                         seen[0] |= reports[1].0 .2[3] > 0;
                         seen[1] |= reports[1].0 .2[2] > 0;

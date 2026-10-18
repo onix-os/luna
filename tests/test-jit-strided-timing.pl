@@ -21,13 +21,13 @@ sub write_file {
 sub fixture {
     my ($name, $experiment, $windows) = @_;
     $windows //= 3;
-    my @selected = defined $experiment && $experiment eq 'preferred_entry' ? ('rust_callbacks') : @cases;
+    my @selected = defined $experiment && ($experiment eq 'preferred_entry' || $experiment =~ /^bound_pair/) ? ('rust_callbacks') : @cases;
     my $field = !defined $experiment || $experiment eq 'strided' ? 'strided'
-        : $experiment eq 'preferred_entry' ? 'preferred' : 'scratch';
+        : $experiment eq 'preferred_entry' ? 'preferred' : $experiment =~ /^bound_pair/ ? 'pair' : 'scratch';
     my $dir = "$root/$name";
     mkdir $dir or die $!;
     write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=$windows\n" . (defined $experiment ? "experiment=$experiment\n" : ''));
-    my $cross_image = defined $experiment && ($experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline');
+    my $cross_image = defined $experiment && ($experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline' || $experiment eq 'bound_pair_baseline');
     if ($cross_image) {
         write_file("$dir/configuration", "protocol=1\ncpu=0\nwindows=$windows\nexperiment=$experiment\nimage=/candidate\nbaseline=/baseline\n");
         write_file("$dir/binary.sha256", ('a' x 64) . "  /candidate/test-binary\n" . ('b' x 64) . "  /baseline/test-binary\n");
@@ -44,7 +44,8 @@ sub fixture {
                 my $mode = $label eq 'candidate' && (!defined $experiment || $experiment ne 'ordinary_baseline') ? 'true' : 'false';
                 my $ns = $label eq 'candidate' ? 500 : 1000;
                 my $counters = join ', ', (1) x 25;
-                my $worker_field = $cross_image && ($label ne 'candidate' || $experiment eq 'ordinary_baseline') ? 'strided' : $field;
+                my $worker_field = $cross_image && ($label ne 'candidate' || $experiment eq 'ordinary_baseline')
+                    ? ($experiment eq 'bound_pair_baseline' ? 'preferred' : 'strided') : $field;
                 write_file("$dir/$window-$case-$label.log",
                     "TIMING_V1 case=$case $worker_field=$mode elapsed_ns=$ns counters=[$counters] code_bytes=4096 metadata_bytes=16 metadata_peak_bytes=32 snapshot_peak_bytes=64\ntest result: ok. 1 passed; 0 failed;\n");
             }
@@ -76,13 +77,13 @@ for my $case (@{$report->{reports}}) {
     die 'wrong ratios' unless $case->{ratio}{median} == 2 && $case->{placebo}{median} == 1;
     die 'wrong sample count' unless $case->{ordinary_ns}{count} == 6 && $case->{candidate_ns}{count} == 3;
 }
-for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch_baseline ordinary_baseline)) {
+for my $experiment (qw(strided preferred_entry bound_pair bound_pair_baseline callback_scratch callback_scratch_baseline ordinary_baseline)) {
     my $good = fixture("good-$experiment", $experiment, 6);
     die "valid $experiment screen refused" unless audit($good);
     open my $json, '<', "$good/audit.json" or die $!;
     my $report = decode_json(do { local $/; <$json> });
     die 'wrong experiment' unless $report->{experiment} eq $experiment;
-    die 'wrong case count' unless @{$report->{reports}} == ($experiment eq 'preferred_entry' ? 1 : 7);
+    die 'wrong case count' unless @{$report->{reports}} == ($experiment eq 'preferred_entry' || $experiment =~ /^bound_pair/ ? 1 : 7);
     die 'incorrect acceptance claim' if $report->{performance_acceptance};
     die 'incorrect cross-image scope' if $experiment eq 'callback_scratch_baseline' && $report->{scope} !~ /scratch-free library-test baseline; not production acceptance/;
     for my $case (@{$report->{reports}}) {
@@ -91,7 +92,7 @@ for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch
     }
     for my $fault (qw(missing duplicate zero signed mode counters native failed order telemetry incomplete experiment field)) {
         my $dir = fixture("$experiment-$fault", $experiment, 6);
-        my $shape = $experiment eq 'preferred_entry' ? 'rust_callbacks' : 'integer_loop';
+        my $shape = $experiment eq 'preferred_entry' || $experiment =~ /^bound_pair/ ? 'rust_callbacks' : 'integer_loop';
         my $path = "$dir/0-$shape-candidate.log";
         open my $file, '<', $path or die $!;
         my $log = do { local $/; <$file> };
@@ -106,7 +107,7 @@ for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch
             elsif ($fault eq 'zero') { $log =~ s/elapsed_ns=500/elapsed_ns=0/; }
             elsif ($fault eq 'signed') { $log =~ s/elapsed_ns=500/elapsed_ns=-500/; }
             elsif ($fault eq 'mode') { $log =~ s/=(true|false) /'=' . ($1 eq 'true' ? 'false' : 'true') . ' '/e; }
-            elsif ($fault eq 'field') { $log =~ s/(strided|preferred|scratch)=/unknown=/; }
+            elsif ($fault eq 'field') { $log =~ s/(strided|preferred|scratch|pair)=/unknown=/; }
             elsif ($fault eq 'counters') { $log =~ s/counters=\[1/counters=[2/; }
             elsif ($fault eq 'native') { $log =~ s/code_bytes=4096/code_bytes=0/; }
             elsif ($fault eq 'failed') { $log =~ s/0 failed/1 failed/; }
@@ -134,7 +135,7 @@ for my $fault (qw(control_field control_mode baseline_identity image_manifest)) 
     die "accepted $fault" if audit($dir);
     die "wrote success artifact for $fault" if -e "$dir/audit.json";
 }
-print "Timing audit: legacy and five six-order experiments; 69 malformed screens refused\n";
+print "Timing audit: legacy and seven six-order experiments; 95 malformed screens refused\n";
 
 my $image = "$root/runner-image";
 my $bin = "$root/runner-bin";
@@ -152,15 +153,16 @@ write_file("$image/test-binary", "#!$perl\n" . <<'BINARY');
 use strict;
 use warnings;
 my $preferred = exists $ENV{LUNA_PREFERRED_ENTRY};
+my $pair = exists $ENV{LUNA_BOUND_PAIR};
 my $scratch = exists $ENV{LUNA_MEMORY_SELECTED};
-die 'baseline selected experimental worker' if $0 =~ /baseline-image/ && ($scratch || $preferred);
-my $case = $ENV{$scratch ? 'LUNA_MEMORY_CASE' : $preferred ? 'LUNA_PREFERRED_CASE' : 'LUNA_STRIDED_CASE'};
-my $mode = $ENV{$scratch ? 'LUNA_MEMORY_SELECTED' : $preferred ? 'LUNA_PREFERRED_ENTRY' : 'LUNA_STRIDED'};
+die 'baseline selected experimental worker' if $0 =~ /baseline-image/ && ($scratch || $pair || $preferred && $ENV{LUNA_PREFERRED_ENTRY} ne '0');
+my $case = $ENV{$scratch ? 'LUNA_MEMORY_CASE' : $preferred ? 'LUNA_PREFERRED_CASE' : $pair ? 'LUNA_BOUND_PAIR_CASE' : 'LUNA_STRIDED_CASE'};
+my $mode = $ENV{$scratch ? 'LUNA_MEMORY_SELECTED' : $preferred ? 'LUNA_PREFERRED_ENTRY' : $pair ? 'LUNA_BOUND_PAIR' : 'LUNA_STRIDED'};
 my $test = $scratch ? 'strided_profile::timing::time_callback_scratch_runtime'
-    : $preferred ? 'preferred_entry::timing::time_preferred_runtime' : 'strided_profile::timing::time_strided_runtime';
+    : $preferred ? 'preferred_entry::timing::time_preferred_runtime' : $pair ? 'bound_entry::timing::time_bound_pair_runtime' : 'strided_profile::timing::time_strided_runtime';
 die 'test selection' unless $ARGV[0] eq "jit::payload_runtime_tests::$test";
 die 'case and mode required' unless defined $case && defined $mode && $mode =~ /^[01]$/;
-my $field = $scratch ? 'scratch' : $preferred ? 'preferred' : 'strided';
+my $field = $scratch ? 'scratch' : $preferred ? 'preferred' : $pair ? 'pair' : 'strided';
 my $selected = $mode ? 'true' : 'false';
 my $ns = $mode ? 500 : 1000;
 my $counters = join ', ', (1) x 25;
@@ -184,17 +186,17 @@ close $baseline_checksums or die 'checksum failure';
 write_file("$baseline/binary.sha256", $baseline_manifest);
 write_file("$baseline/source.sha256", $baseline_manifest);
 write_file("$baseline/source-root", getcwd() . "\n");
-for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch_baseline ordinary_baseline)) {
+for my $experiment (qw(strided preferred_entry bound_pair bound_pair_baseline callback_scratch callback_scratch_baseline ordinary_baseline)) {
     my $out = "$root/runner-$experiment";
     my $pid = fork();
     die $! unless defined $pid;
     if (!$pid) {
         local $ENV{PATH} = "$bin:$ENV{PATH}";
-        delete @ENV{qw(LUNA_STRIDED_CASE LUNA_STRIDED LUNA_PREFERRED_CASE LUNA_PREFERRED_ENTRY LUNA_MEMORY_CASE LUNA_MEMORY_SELECTED)};
+        delete @ENV{qw(LUNA_STRIDED_CASE LUNA_STRIDED LUNA_PREFERRED_CASE LUNA_PREFERRED_ENTRY LUNA_MEMORY_CASE LUNA_MEMORY_SELECTED LUNA_BOUND_PAIR_CASE LUNA_BOUND_PAIR)};
         open STDOUT, '>', "$root/runner-$experiment.stdout" or die $!;
         open STDERR, '>', "$root/runner-$experiment.stderr" or die $!;
         exec 'bash', 'examples/jit_support/strided_timing.sh', $image, $out, 0, 3, $experiment,
-            ($experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline' ? ($baseline) : ());
+            ($experiment eq 'callback_scratch_baseline' || $experiment eq 'ordinary_baseline' || $experiment eq 'bound_pair_baseline' ? ($baseline) : ());
         die $!;
     }
     waitpid($pid, 0);
@@ -207,7 +209,7 @@ for my $experiment (qw(strided preferred_entry callback_scratch callback_scratch
     }
     die "runner output audit failed $experiment" unless audit($out);
 }
-print "Timing runner: five experiment selectors, telemetry and record checks passed with synthetic workers\n";
+print "Timing runner: seven experiment selectors, telemetry and record checks passed with synthetic workers\n";
 for my $fault (qw(missing_root bad_source wrong_binary same_image)) {
     my $out = "$root/rejected-$fault";
     unlink "$baseline/source-root" or die $! if $fault eq 'missing_root';

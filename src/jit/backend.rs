@@ -25,6 +25,8 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
+#[cfg(all(test, not(miri)))]
+pub(super) mod bound_pair;
 #[cfg(not(miri))]
 pub(super) mod calls;
 #[cfg(not(miri))]
@@ -232,6 +234,8 @@ pub(super) struct Code {
     pub projected_upvalues: bool,
     #[cfg(test)]
     pub continuations: Option<super::continuations::Continuations>,
+    #[cfg(all(test, not(miri)))]
+    pub bound_entry: Option<bound_pair::Binding>,
     #[cfg(test)]
     pub scalar_leaf: Option<super::leaf::Pattern>,
     #[cfg(test)]
@@ -297,9 +301,11 @@ impl Code {
         let scalar = self.discard_scalar_kernel();
         #[cfg(test)]
         let continuations = self.continuations.take().is_some();
+        #[cfg(test)]
+        let bound = self.bound_entry.take().is_some();
         let arrays = self.array_kernels.take().is_some();
         #[cfg(test)]
-        let arrays = scalar || continuations || arrays;
+        let arrays = scalar || continuations || bound || arrays;
         arrays
     }
 
@@ -360,7 +366,19 @@ impl Code {
             !self.entry_kind.needs_canonical_frame(),
             "payload code requires a canonical frame"
         );
-        unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
+        #[cfg(all(test, not(miri)))]
+        let entry = self.selected_entry(pc, budget);
+        #[cfg(not(all(test, not(miri))))]
+        let entry = self.entry;
+        unsafe { abi::invoke(entry, slots, pc, budget, host) }
+    }
+
+    #[cfg(all(test, not(miri)))]
+    fn selected_entry(&self, pc: usize, budget: u32) -> Entry {
+        match &self.bound_entry {
+            Some(binding) if binding.pc == pc && budget >= 64 => binding.code.entry,
+            _ => self.entry,
+        }
     }
 
     /// Invokes scalar code with initialized slots and an optional scoped cell view.
@@ -396,6 +414,8 @@ pub(super) enum Failure {
     RequireFieldMemory,
     RequirePreferredEntry,
     RequireBoundEntry(u32),
+    RequireBoundBudget(u32, u32),
+    PreferBoundPair,
     DisablePreferredEntry,
     PreferBoundPayload,
     RequireSparsePayload,
@@ -535,6 +555,10 @@ pub(super) fn compile_in(
     work: super::work::Limits,
     #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
+    #[cfg(all(test, not(miri)))]
+    if failure == Failure::PreferBoundPair {
+        return bound_pair::compile(snapshot, total, limit, metadata, work);
+    }
     compile_selected(
         snapshot,
         total,
@@ -819,6 +843,7 @@ fn compile_selected_rooted(
         Failure::RequireFieldMemory
             | Failure::RequirePreferredEntry
             | Failure::RequireBoundEntry(_)
+            | Failure::RequireBoundBudget(_, _)
             | Failure::PreferReadEffects
             | Failure::CompactIntegerPairs
     ) {
@@ -833,7 +858,10 @@ fn compile_selected_rooted(
             return Err(JitError::Compilation(
                 if failure == Failure::RequirePreferredEntry {
                     "preferred entry requires ordinary lowering"
-                } else if matches!(failure, Failure::RequireBoundEntry(_)) {
+                } else if matches!(
+                    failure,
+                    Failure::RequireBoundEntry(_) | Failure::RequireBoundBudget(_, _)
+                ) {
                     "bound entry requires ordinary lowering"
                 } else if failure == Failure::PreferReadEffects {
                     "read effects require ordinary lowering"
@@ -991,6 +1019,7 @@ fn compile_selected_rooted(
                     | Failure::CompactIntegerPairs
                     | Failure::RequirePreferredEntry
                     | Failure::RequireBoundEntry(_)
+                    | Failure::RequireBoundBudget(_, _)
                     | Failure::DisablePreferredEntry
             ))
         && !selection.leaf
@@ -1534,6 +1563,7 @@ fn compile_selected_rooted(
             | Failure::CompactIntegerPairs
             | Failure::RequirePreferredEntry
             | Failure::RequireBoundEntry(_)
+            | Failure::RequireBoundBudget(_, _)
             | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
@@ -1833,11 +1863,17 @@ fn compile_selected_rooted(
         (instructions, block_count)
     };
     #[cfg(test)]
-    if let Failure::RequireBoundEntry(pc) = failure {
+    if let Failure::RequireBoundEntry(pc) | Failure::RequireBoundBudget(pc, _) = failure {
         let original = context.func.clone();
         let rewrite =
             super::entry_flow::bound::Rewrite::apply(pc, &mut context.func, &paths, fallback)?;
         rewrite.verify(&original, &context.func)?;
+        if let Failure::RequireBoundBudget(_, budget) = failure {
+            let before_budget = context.func.clone();
+            let rewrite =
+                super::entry_flow::bound::Rewrite::budget(budget, &mut context.func, fallback)?;
+            rewrite.verify(&before_budget, &context.func)?;
+        }
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
         expansion.verify_actual(
@@ -2270,6 +2306,8 @@ fn compile_selected_rooted(
         projected_upvalues: selection.projected && projection_count != 0,
         #[cfg(test)]
         continuations: None,
+        #[cfg(all(test, not(miri)))]
+        bound_entry: None,
         #[cfg(test)]
         scalar_leaf: leaf_pattern,
         #[cfg(test)]

@@ -12,6 +12,8 @@ use crate::{Context, FunctionPrototype};
 mod identity_tests;
 #[cfg(test)]
 mod intrinsic_tests;
+#[cfg(test)]
+mod resolution_tests;
 
 #[derive(Collect)]
 #[collect(no_drop)]

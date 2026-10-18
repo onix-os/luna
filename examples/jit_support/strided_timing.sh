@@ -22,6 +22,13 @@ case $experiment in
         record_field=preferred
         test_name=jit::payload_runtime_tests::preferred_entry::timing::time_preferred_runtime
         ;;
+    bound_pair|bound_pair_baseline)
+        cases=(rust_callbacks)
+        case_variable=LUNA_BOUND_PAIR_CASE
+        mode_variable=LUNA_BOUND_PAIR
+        record_field=pair
+        test_name=jit::payload_runtime_tests::bound_entry::timing::time_bound_pair_runtime
+        ;;
     callback_scratch|callback_scratch_baseline)
         cases=(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
         case_variable=LUNA_MEMORY_CASE
@@ -31,7 +38,7 @@ case $experiment in
         ;;
     *) echo 'unknown timing experiment' >&2; exit 2;;
 esac
-if [[ $experiment == callback_scratch_baseline || $experiment == ordinary_baseline ]]; then
+if [[ $experiment == callback_scratch_baseline || $experiment == ordinary_baseline || $experiment == bound_pair_baseline ]]; then
     (( $# == 6 ))
     baseline=$(realpath "$6")
     test "$image" != "$baseline"
@@ -104,10 +111,16 @@ for (( window=0; window<windows; window++ )); do
                 worker_mode=LUNA_STRIDED
                 worker_test=jit::payload_runtime_tests::strided_profile::timing::time_strided_runtime
                 worker_field=strided
+                if [[ $experiment == bound_pair_baseline ]]; then
+                    worker_case=LUNA_PREFERRED_CASE
+                    worker_mode=LUNA_PREFERRED_ENTRY
+                    worker_test=jit::payload_runtime_tests::preferred_entry::timing::time_preferred_runtime
+                    worker_field=preferred
+                fi
             fi
             log="$out/$window-$shape-$label.log"
             printf '%s %s %s\n' "$window" "$shape" "$label" >> "$out/order.log"
-            env -u LUNA_STRIDED_CASE -u LUNA_STRIDED -u LUNA_MEMORY_CASE -u LUNA_MEMORY_SELECTED -u LUNA_PREFERRED_CASE -u LUNA_PREFERRED_ENTRY \
+            env -u LUNA_STRIDED_CASE -u LUNA_STRIDED -u LUNA_MEMORY_CASE -u LUNA_MEMORY_SELECTED -u LUNA_PREFERRED_CASE -u LUNA_PREFERRED_ENTRY -u LUNA_BOUND_PAIR_CASE -u LUNA_BOUND_PAIR \
                 "$worker_case=$shape" "$worker_mode=$mode" taskset -c "$cpu" \
                 "$worker_image/test-binary" "$worker_test" \
                 --ignored --exact --nocapture --test-threads=1 > "$log" 2>&1

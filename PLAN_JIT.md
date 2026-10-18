@@ -9,6 +9,232 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Validated registry-resolution hints — isolated trial, 2026-10-18
+
+Trial `dcddc83` on `trial/jit-resolution-cache` targets repeated ID-resolution
+scans in inline execution and admission, rather than changing executor dispatch.
+Two fixed ID/address hints consult the existing address map and recheck the ID
+and weak-reference liveness on every hit. A stale address is only an integer map
+key, never a pointer to dereference; misses retain the original scan. Reset
+clears hints. No GC root, native lease or successful policy result is cached.
+The GC-owned registry grows by32 bytes on64-bit hosts; there is no new metadata
+allocation. Cold execution and size costs still require measurement.
+
+Three independent scan-oracle tests pass on the original implementation and are
+retained on main in `edcfea8`: growth/sparse storage, removal/replacement, and
+collection/reset generations. The trial additionally checks both retained hints,
+poisoned addresses and IDs, growth, reset and unchanged metadata accounting.
+Two focused campaigns pass215 test executions, covering registry, inline ownership,
+native regions, heap, suspension and resources, with formatting/all-feature
+checking. Main's18 registry tests also pass after the oracle integration.
+Miri and elapsed acceptance are pending; the trial is not promoted.
+
+The first production instruction screen covers all seven warmed Off/Auto
+workloads:28 captures,308 measured executions, exact non-timing record matches
+and verified source/image hashes. Two additional fresh-process upvalue comparisons
+reverse image order. All three upvalue Auto totals increase:0.83013%,2.11807%
+and0.51260%. Callback Auto changes by+0.00066% in the full screen. The hint
+therefore does not demonstrate a net instruction reduction on these workloads.
+These are not elapsed-time results: the separate compiled-Off and native timing
+screen must determine whether removing scans helps hardware execution at all.
+Original workload thresholds remain unchanged; no result is selected away.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/resolution-cache/`, including
+`warm-audit.json`, `repeat{1,2}/audit.json` and focused validation logs. Baseline
+images are preserved from `a13b8c5`, with every source hash checked against a
+restored detached checkout. Candidate builds use their own Cargo target directory.
+
+### Isolated executor mode selection — rejected, 2026-10-18
+
+Trial `40f1f43` on `trial/jit-mode-isolation` separates the executor's
+ordinary and known-Normal bodies through a mode-selected wrapper. It preserves
+child-result mode checks and exercises both bodies against independent callback,
+fuel, interruption and child-handoff expectations. The trial remains isolated;
+its production changes are not merged into `feat/native-jit`.
+
+The trial passes73 focused test executions, four Miri mode tests, formatting and
+check-all. Separately, full `make jit-verify` on baseline `a13b8c5` completes:
+10,537 passing test executions across541 summaries,119 ignored, and all/heap
+four-seed fuzz smoke. That full-suite result does not validate the trial or close
+performance, resource-policy, platform or release acceptance.
+
+Production instruction collection covers the common outer Lua execution boundary,
+including the new wrapper rather than measuring only the specialized body.
+Twenty-eight captures contain308 measured warmed executions after two warmups
+each; partition sums, non-timing counters and source/image hashes verify.
+Callback Auto instructions fall3.34035%, from9,438,782 to9,123,494 per warmed
+execution. This is not an elapsed speedup.
+
+The completed production screen uses144 commands, six balanced A/trial/B orders,
+CPUs0/16, speed/shipping profiles, both no-feature controls and all original nine
+workloads. It retains14,256 native executions and285,120 cost iterations with
+zero counter/resource mismatches. No owned builds, tests or profilers overlap
+elapsed collection. Cost medians are independently recomputed from raw durations;
+native records expose summary medians only. Source/image hashes verify, and the
+screen auditor accepts two valid screens and rejects13 malformed variants.
+
+The following compiled-JIT-Off comparisons are adverse in all six rounds each.
+Ratios are control/trial elapsed time; below1 means the trial is slower.
+
+| CPU | Profile | Workload | Median ratio | Same-image placebo |
+| --- | --- | --- | ---: | ---: |
+| 0 | speed | float | 0.95841 | 0.99975 |
+| 0 | shipping | float | 0.96407 | 0.99662 |
+| 16 | shipping | integer | 0.95467 | 1.00185 |
+| 16 | shipping | float | 0.95246 | 1.00230 |
+
+These correspond to approximately3.7–5.0% longer elapsed times. Callback Auto
+ratios are0.99880/1.01419 for speed CPUs0/16 and1.03454/1.01260 for shipping;
+benefits elsewhere do not erase the numeric regressions. Both baseline controls
+and the trial also fail some original workload gates. Direct historical
+comparisons above are distinct from the original1.05 compiled-Off overhead gate;
+shipping native results remain diagnostic rather than release acceptance.
+
+Decision: reject production promotion of this mode-isolation implementation.
+Separating bodies did not preserve compiled-Off elapsed performance. Preserve the
+trial and negative evidence; fewer instructions alone cannot justify adoption.
+Evidence is under `target/jit-evidence/hook-resume-recovery/mode-isolation/`,
+especially `warm-audit.json`, `production-audit.json` and `production-screen/`.
+Baseline verification is under the adjacent `entry-followup/` directory.
+
+### Optional bound-entry runtime pair — test-only, 2026-10-18
+
+`PreferBoundPair` retains ordinary native code and optionally attaches a
+PC/budget64-specialized image for the unique fixed-call resumption selected by
+the existing enclosing-loop analysis. Selection uses the specialized entry only
+for matching PC and an effective64-instruction budget; the ordinary entries map
+and all other native coverage remain intact. This path and its fields exist only
+in native test builds. Production compilation and execution are unchanged.
+
+Both images use the existing mapping/metadata ledgers. The optional compilation
+receives remaining aggregate IR/block/relocation allowance; ordinary-owner
+storage is reserved first. Refused optional compilation/ownership keeps the
+ordinary image, and optional disposal participates in the existing owner/cache
+allocation recovery. The prior clone/string compiler oracle is still test-only
+and uncharged; this is not complete resource-policy acceptance.
+
+The initial17 compiler/pair/runtime fixtures pass with formatting/check-all.
+Tests cover exact selected function pointers, all entry PCs and budget boundaries,
+ordinary coverage after optional refusal, mapping/IR limits, child lease lifetime,
+parent-owner refusal/disposal, sixteen scalar/reference callback fuel scenarios,
+interruptions, weak-table mutation, GC and all25 runtime counters. In-callback
+cache clears and Off/Auto switches also preserve results, counters and resumption.
+The first lifecycle driver executed cold without installing code; it was replaced
+with explicit preparation/short stepping and requires observed pair installation
+and nonzero native execution, rather than weakening that assertion.
+
+`jit-bound-pair-profile-build/run` freeze an optimized image, execute its actual
+new fixtures, then measure four ordinary/pair instruction-profile rounds of the
+real frozen callback workload after two warmups. Hashes, native image dumps,
+all thirteen exclusive events and exact runtime counters are checked. Profile
+results are recorded below; elapsed production comparisons and full acceptance
+remain open.
+
+Frozen `436f85a` builds in3m19s and passes its17 actual new compiler/pair/runtime
+fixtures. Eight full-callback profiles complete with identical25-field counters
+and verified thirteen-event sums/source/binary hashes. All four rounds agree:
+total instructions10,675,985->10,640,984(-0.32785%); generated-native
+730,160->695,159(-4.79361%). Actual bound-image execution is established by
+exact-address attribution, not inferred from installation. Mapping charge rises
+4,096->8,192 bytes, requested bytes2,184->3,640 and metadata817->1,286;
+snapshot peak remains10,737. Another83 resource/owner/configuration tests and
+formatting/check-all pass. This is a small full-runtime instruction reduction,
+not a demonstrated elapsed speedup or production acceptance.
+
+The elapsed fixture times only warmed full callback execution, checks installed
+pair identity/results/counters and charges both images. The balanced runner and
+auditor now support `bound_pair` and `bound_pair_baseline`; seven selector tests,
+95 malformed-screen refusals and four invalid cross-image inputs pass. The
+cross-image mode uses the preserved pre-pair ordinary-entry image, rather than
+letting both controls pay the new optional-dispatch branch.
+
+Frozen `eb42456` passes18 compiler/pair/runtime fixtures in its copied optimized
+image. Four completed204-window screens retain2,448 warmed full callback
+executions, with all six A/candidate/B orders balanced and identical-image A/B
+controls from pre-pair `38d8d3f`. Source/binary/tool hashes and all25 counters
+verify. CPU order is0,16,16,0; no owned build, test or profiler overlaps timing.
+
+| Screen | Median control/candidate time ratio | Same-image placebo ratio |
+| --- | ---: | ---: |
+| CPU0 | 1.04084 | 0.99666 |
+| CPU16 | 1.00128 | 1.00090 |
+| CPU16 repeat | 1.00352 | 0.99931 |
+| CPU0 repeat | 1.02290 | 1.00179 |
+
+Ratios above1 favor the candidate, but contention and all outliers are retained.
+The initial CPU0 candidate-ratio interquartile range is0.85687–1.26151;
+CPU16 medians are near placebo. These small, CPU-dependent observations do not
+establish a causal speedup or satisfy production acceptance. Every timing record
+charges4,096 bytes of code/801 metadata for the pre-pair controls versus8,192
+code/1,286 metadata for the candidate. The same-image instruction profile above
+has817 control metadata bytes because it includes the optional-pair test layout.
+
+Decision: retain the reproducible test-only experiment without production
+promotion. The0.33% full-runtime instruction reduction does not yet justify the
+extra mapping and compiler complexity. Further promotion requires broader
+workload evidence and bounded compiler verification/accounting, followed by
+the unchanged shipping, compiled-Off, resource, platform and release gates.
+Evidence: `target/jit-evidence/hook-resume-recovery/bound-pair/`, including
+`time-{cpu0,cpu16,repeat-cpu16,repeat-cpu0}/audit.json` and `image/summary.json`.
+
+### PC-and-budget binding prototype — not promoted, 2026-10-18
+
+Test-only `RequireBoundBudget(pc, budget)` composes the PC specialization with
+an exact32-bit budget guard and substitutes that budget into the admitted
+body. Both guards must pass; other inputs decline through the original
+Interpreter exit without changing slots or charging source instructions.
+Bindings0..64 are supported; larger bindings are rejected. The public native
+adapter still clamps supplied budgets to64. A raw-entry fixture separately
+verifies rejection of unclamped65/high-bit/maximum inputs, so adapter clamping
+cannot hide an incorrect machine-code guard. Production selection is unchanged.
+
+The guarded-constant transform is shared by the two bindings. Each transform
+passes its inverse preservation oracle; structural and expansion checks run
+after composition. This retains the earlier test-only, uncharged clone/string
+workspace limitation. All ordinary integer-loop and prepared-helper passes
+remain enabled. No binding is installed into the runtime cache.
+
+`make jit-bound-entry` passes11 fixtures/1 ignored:56,784 scalar admitted
+comparisons and2,129,400 PC/budget mismatch refusals, nineteen IR corruption
+cases, bound-budget resource rejection, raw ABI checks, optimized loop sources,
+live helper frames and repeated resumption. The helper fixture compares ordinary,
+PC-only and matching PC/budget code across980 cases, including weak modes,
+rebinding and panic exits. Formatting and `check-all` pass. The profiling driver
+now compares ordinary, PC-only and PC/budget64 with identical component counts
+in two rounds.
+
+Frozen `38d8d3f` builds in3m20s in a fresh checkout-specific target and executes
+all eleven fixtures in the copied release image. Six component profiles finish
+successfully; all thirteen exclusive-event sums and source/binary hashes verify.
+Every mode/round preserves[81,000 native entries,242,000 source instructions,
+80,000 simulated callbacks,3,320,000 summed result]. Both rounds match exactly:
+
+| Entry | Total component instructions | Generated-native instructions |
+| --- | ---: | ---: |
+| Ordinary | 12,789,023 | 10,121,000 |
+| PC-only | 12,309,023 | 9,641,000 |
+| PC/budget64 | 11,911,023 | 9,243,000 |
+
+PC/budget binding removes8.6750% of native instructions and6.8653% of this
+synthetic component's total instructions versus ordinary entry. It saves10.975
+instructions per resume on average; budget binding adds4.975 to the earlier
+six-instruction PC-only saving. Non-native component work remains2,668,023.
+Native image sizes are1,376/1,036/1,009 bytes respectively. These measurements
+do not include extra runtime ownership/selection or real callback dispatch and
+are not elapsed speedups. Another163 original verifier tests, no-feature check,
+formatting and the profile auditor suite pass.
+
+The next acceptance step is an ordinary-plus-specialized **test runtime pair**,
+not another component-only percentage. It must select the optional image only
+for matching PC and effective budget, retain ordinary native coverage everywhere
+else, preserve all runtime counters/fuel/helper/GC/error behavior, and account
+for both owned images. Measure the actual frozen callback workload before any
+production promotion. The current clone/string compiler oracle remains
+uncharged and test-only. Evidence is under
+`target/jit-evidence/hook-resume-recovery/bound-budget/`; elapsed/runtime
+validation, bounded compilation, ownership/lifecycle integration and all
+original performance/platform/release gates remain open.
+
 ### PC-bound entry compiler prototype — not promoted, 2026-10-18
 
 The test-only `RequireBoundEntry(pc)` compiler mode specializes a complete

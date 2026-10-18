@@ -157,6 +157,10 @@ pub(in crate::jit) struct Plan {
 }
 
 impl Plan {
+    pub(in crate::jit) fn resume(self) -> u32 {
+        self.resume
+    }
+
     pub(in crate::jit) fn new(source: &Snapshot, graph: &FlowGraph) -> Option<Self> {
         if source.operations.len() != graph.nodes.len() {
             return None;

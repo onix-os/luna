@@ -7,7 +7,7 @@ mod workloads;
 
 mod timing;
 
-fn configured(mode: JitMode, preferred: bool, references: bool) -> Lua {
+pub(super) fn configured(mode: JitMode, preferred: bool, references: bool) -> Lua {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
         mode,

@@ -1496,7 +1496,11 @@ impl Runtime {
             let failure = self.0.borrow().memory_failure;
             let retry_prepared = true;
             #[cfg(test)]
-            let retry_prepared = retry_prepared && failure == backend::Failure::None;
+            let retry_prepared = retry_prepared
+                && matches!(
+                    failure,
+                    backend::Failure::None | backend::Failure::PreferBoundPair
+                );
             let compile = |snapshot: &ir::Snapshot| {
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().array_kernels {
