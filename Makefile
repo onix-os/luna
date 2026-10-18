@@ -397,6 +397,20 @@ jit-artifact-tests:
 jit-environment-tests:
 	@bash tests/test-jit-environment.sh '$(SHELL)'
 
+ELAPSED_AUDIT_ROOT ?=
+.PHONY: jit-elapsed-audit jit-elapsed-audit-tests
+jit-elapsed-audit:
+	@test -n '$(ELAPSED_AUDIT_ROOT)'
+	@cd '$(abspath $(ELAPSED_AUDIT_ROOT))/source' && sha256sum -c '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed/tools.sha256' > '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed-audit-v2-provenance.log'
+	@sha256sum -c '$(abspath $(ELAPSED_AUDIT_ROOT))/baseline/binary.sha256' '$(abspath $(ELAPSED_AUDIT_ROOT))/candidate/binary.sha256' >> '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed-audit-v2-provenance.log'
+	@cd '$(abspath $(ELAPSED_AUDIT_ROOT))/source' && sha256sum -c '$(abspath $(ELAPSED_AUDIT_ROOT))/candidate/source.sha256' >> '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed-audit-v2-provenance.log'
+	@cd '$(abspath $(ELAPSED_AUDIT_ROOT))/baseline-source' && sha256sum -c '$(abspath $(ELAPSED_AUDIT_ROOT))/baseline/source.sha256' >> '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed-audit-v2-provenance.log'
+	@sha256sum examples/jit_support/elapsed_audit.pl Makefile >> '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed-audit-v2-provenance.log'
+	@perl examples/jit_support/elapsed_audit.pl '$(abspath $(ELAPSED_AUDIT_ROOT))' > '$(abspath $(ELAPSED_AUDIT_ROOT))/elapsed-audit-v2.json'
+
+jit-elapsed-audit-tests:
+	@perl tests/test-jit-elapsed-audit.pl
+
 jit-size-build:
 	@case '$(SIZE_PROFILE)' in shipping|speed) ;; *) echo 'SIZE_PROFILE must be shipping|speed' >&2; exit 2;; esac
 	@mkdir -p $(COST_DIR)
