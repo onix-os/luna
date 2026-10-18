@@ -9,7 +9,137 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Thread-local prepared bucket hint — unaccepted trial, 2026-10-18
+### PC-bound entry compiler prototype — not promoted, 2026-10-18
+
+The test-only `RequireBoundEntry(pc)` compiler mode specializes a complete
+ordinary native image for one entry PC. A full-width equality guard declines
+other PCs through the existing Interpreter exit with the original PC, zero
+instructions and unchanged slots. Within the admitted body, uses of the entry
+PC become a constant, allowing code generation to eliminate unreachable entry
+dispatch and code. Runtime selection, caching and production compilation are
+unchanged. An eventual runtime must retain ordinary native entry for all other
+PCs, not replace their native coverage with interpretation.
+
+The first direct-dispatch rewrite failed the optimized integer-loop fixture:
+that optimization replaces the original entry layout. The revised transform
+runs after ordinary lowering and preserves the integer-loop fast path and
+prepared-key helper selection. Existing source/helper/exit/binding checks run
+before specialization; a test-only inverse-rewrite oracle verifies preservation
+of the original function, followed by structural and actual expansion checks.
+Its uncharged clone/string oracle is not production compiler-memory accounting.
+
+`make jit-bound-entry` passes eight fixtures (one profiling fixture is ignored):
+28,392 bound-PC differential cases,
+283,920 mismatched-PC refusals, twelve IR corruption cases, invalid-PC/resource
+refusal cleanup, and compiled helper/integer-loop source checks. Full-width PCs,
+scalar tag combinations and zero/short/maximum budgets are included. Formatting
+and `check-all` pass. A further171 focused executions pass, including the original
+entry/region/source-binding/helper/exit verifier suites. A live-helper fixture
+compares980 cases with rebinding, weak modes, reference identity, fallback and
+borrow-panic exits. Repeated scalar callback resumption preserves exact native
+entry/instruction/callback/result counters. The callback sample's resume image shrinks from2,160 to1,463
+bytes; the helper-resume sample from2,096 to1,352. These are native image sizes,
+not elapsed speedups or total memory savings: retaining ordinary plus specialized
+images would increase aggregate code ownership. `jit-bound-entry-profile-build`
+freezes and verifies an optimized test image; `jit-bound-entry-profile-run`
+collects two paired1,000-repetition native-component profiles with hashes,
+exclusive-event accounting and exact counter checks. These exclude real
+executor dispatch and callback execution.
+
+Frozen prototype `8514e93` builds in3m19s in its own Cargo target and executes all
+eight fixtures in the copied release image. Both profile pairs give identical
+results: total instructions12,789,023->12,309,023(-3.7532%); generated-native
+instructions10,121,000->9,641,000(-4.7426%). Each profile preserves81,000 native
+entries,242,000 accounted source instructions,80,000 simulated callbacks and
+the summed result3,320,000. The saving is exactly six machine instructions per
+resumption; non-native component instructions are unchanged. Indirect branches
+fall162,000->82,000. This does not establish elapsed gains or justify promoting
+additional runtime selection/code ownership yet. Inspect remaining generated
+budget/type checks before paying the integration cost for such a small saving.
+
+The first profile driver stopped after its first pair because the exclusive
+auditor rejected a summary with an omitted final zero event. `123b918` corrects
+that parser while retaining equality checks across all thirteen event sums;
+the [Callgrind format](https://valgrind.org/docs/manual/cl-format.html) permits
+omitted zero costs. Parser checks pass27 malformed partitions,16 malformed
+self-cost models, compressed-summary positives and runner lifecycle checks.
+The original raw pair is retained and reaudited; only the missing second pair
+is executed. All four exclusive audits, counters and frozen source/binary
+hashes pass. Final formatting/check-all and the eight prototype fixtures pass.
+No elapsed campaign or production runtime change is claimed. Evidence is in
+`target/jit-evidence/hook-resume-recovery/bound-entry/`; runtime integration,
+bounded compiler/ownership accounting and every original production
+performance/platform/release gate remain open.
+
+### Queued callback handoff — measured and withdrawn, 2026-10-18
+
+Trial `cb720ba` carried one already-queued callback between feature-JIT executor
+iterations. Extraction happens only after the original step fuel charge and
+continuation check; exhausted/interrupted steps leave the frame canonical.
+Running/deferred-error threads, other frame kinds and unavailable borrows retain
+the original dispatch. The next iteration consumes the callback through the
+existing callback branch, without repeating thread-mode classification or its
+frame pop. No values, native pointers or stack borrows are retained across user
+code, suspension or a return from `Executor::step`.
+
+This differs from the rejected second-mode-query elision and callback activation
+borrow fusion. It also adds an end-of-step inspection on non-callback paths;
+that cost may outweigh the saving. There is no performance acceptance yet.
+Formatting/check-all and the initial mode/heap/activation checks pass. An
+independent chained-callback fixture passes both feature builds across eleven
+fuel budgets and both initial/in-callback interruption choices. It verifies
+callback-visible frames/borrows, exact fuel, queued frames at interruption,
+minimum progress and results. The eligibility fixture checks all running,
+deferred-error, error-taken and queued/not-queued combinations.
+
+The isolated optimized build takes3m18s and executes both new fixtures, rather
+than merely recording source hashes beside an unchecked executable. Fourteen
+full-workload profiles compare the unchanged scratch-free `2e0c44c` image;
+all25 execution counters and code/metadata/snapshot fields match. All thirteen
+exclusive event totals verify. Callback instructions increase **10594582 →
+10634040 (+0.3724%)** in both rounds; generated callback work stays730160.
+Integer/float work increases7338 instructions each; array, upvalue, metamethod
+and allocation totals also increase in both rounds, with their variable amounts
+retained. Miri passes the two handoff fixtures and four existing mode fixtures
+under both Stacked seed90 and Tree seed91 (39 warnings per invocation).
+
+Four42-window diagnostic timing screens retain **3528 executions**, both CPUs
+and reversed-order repeats, balanced control/candidate/control orders, complete
+counter parity and contention telemetry. No owned build/test/profiler overlaps
+timing. Control/candidate callback medians are1.023506/1.002701 initially on
+CPUs0/16, then0.996010/1.034319 in reverse CPU order; corresponding placebos
+are1.023057/1.002577/0.995167/1.003392. Thus CPU16 has no repeatable callback
+gain. Its allocation ratios are **0.976582/0.984899**, with placebos
+0.999993/1.000069. Integer ratios are0.991082/0.989175. The repeated CPU0 float
+ratio is0.959458, with placebo1.002333. The first CPU0 numeric windows have
+large placebo dispersion and remain in the report, not accepted as causal gains.
+
+The runtime trial is withdrawn: it does not establish a sufficiently broad
+benefit to justify production selection. These library-test timings are not
+production speed/shipping acceptance. The independent44-case chained-callback
+fixture remains in both feature modes through `make vm-callback-chains`; the
+implementation-specific eligibility fixture is archived with the trial.
+Restored formatting/check-all and30 focused executions pass. Production runtime
+code returns to `34ea043`; only the test-module declaration differs in the
+executor. Original performance/resource/platform/release gates remain open.
+
+The timing driver initially omitted the per-screen audit before aggregation;
+a follow-up incorrectly redirected auditor stdout into its own JSON output.
+Only derived reports were affected. Both failed logs and invalid derived files
+are retained; the corrected audit regenerates valid reports from unchanged raw
+measurements and exits0. No timing rerun or sample removal was needed.
+Evidence is under `target/jit-evidence/hook-resume-recovery/callback-handoff/`,
+including frozen source/image, `profile-audit.json`, `time-summary.json`, all
+four `time-*` screens, Miri/restoration logs and `withdrawn.patch`.
+
+### Thread-local prepared bucket hint — withdrawn, 2026-10-18
+
+**Outcome: withdrawn after production measurements.** The speed-profile callback
+gain did not carry through shipping, and shipping compiled-Off integer time
+regressed in all six CPU0 comparisons. Runtime and prepared-table tests are
+restored exactly to the pre-trial implementation; the ordinary frozen-image
+comparison harness remains. This removes a failed trial, not the original JIT
+performance regressions.
 
 `7159218` trials a single constant-initialized TLS `usize` in JIT-only prepared
 string lookup. It retains no pointer, key, value or GC root. Each hit checks the
@@ -20,8 +150,8 @@ neither Code/Frame/table layouts nor their allocations, and does not instrument
 ordinary interpreter lookup. The fixed per-thread TLS storage and binary effects
 still require compiled-Off/resource acceptance.
 
-Formatting/check-all, eight prepared-table tests, nine prepared-key tests,
-twenty integrated heap tests and the seven-workload timing contract pass. Tests
+For the trial, formatting/check-all, eight prepared-table tests, nine prepared-key
+tests, twenty integrated heap tests and the seven-workload timing contract passed. Tests
 cover arbitrary indices, stale/foreign hints, separate threads/Lua instances,
 mutation, clear/growth, weak values, collisions, callbacks, metatables and GC.
 Assigning Nil can retain an occupied string-key slot for iteration order; the
@@ -66,12 +196,56 @@ proofs and artifact/source verifications pass; all nine non-timing proof records
 match between candidate/control in each profile. Proof timings overlapped builds
 and are not performance evidence. No-feature section totals match but executable
 bytes differ. Feature section totals change by+4084 bytes for speed and-12 for
-shipping; these totals do not establish resource acceptance. Production timing,
-compiled-Off/cold costs, original native gates, platform/resource gates and broader
-acceptance remain pending. Do not promote this trial based on the diagnostic
-callback gain. Evidence is under `target/jit-evidence/hook-resume-recovery/prepared-tls/`,
-including `image-fresh/`, `profile-audit.json`, `time-summary.json`, all four
-`time-*` screens and the rejected/stale build logs.
+shipping; these totals do not establish resource acceptance.
+
+The completed production screen retains **144 commands**, six rounds on each of
+CPUs0/16, all six control/candidate/control orders, both speed/shipping profiles
+and both original native/compiled-disabled gates. The two controls use the same
+unchanged binary, launched at matching hardlink paths. Eleven native samples per
+mode and eleven cost pairs of20 iterations account for **14256 native measured
+executions and285120 cost iterations**. All1296 workload gates, failed command
+statuses, source/image/tool hashes and contention telemetry are retained. No
+owned build/test/profiler overlapped timing; other workloads were left running.
+
+The independent audit recomputes cost medians from raw durations, native ratios
+from printed medians, original thresholds, execution/counter/resource parity and
+run order. Native raw samples are not emitted, so their medians cannot be
+independently recomputed. Incremental ratios below divide the geometric mean of
+the two controls by the candidate, then take the median across six rounds:
+
+- Speed Auto callbacks: **1.022035/1.020252** on CPUs0/16, with all twelve
+  incremental ratios above1. Shipping callback ratios are **0.985715/0.996857**;
+  there is no consistent shipping gain.
+- Speed Auto allocation ratios are **0.992720/0.995350**. Adverse windows and
+  larger contention outliers remain in the report, rather than being discarded.
+- CPU0 shipping compiled-Off integer ratio is **0.954698**, or about4.75% more
+  time. All six ratios are adverse at0.951717–0.959756 (about4.2–5.1% slower).
+  The same-image placebo median is0.998013 and no-feature median is1.004088.
+  This identifies a repeatable candidate regression, not its microarchitectural
+  cause; the prepared lookup does not execute in Off mode.
+- Eight of twelve candidate speed aggregate checks still fail. Failed scored
+  native gates total14/96 in speed and25/96 in shipping; shipping remains
+  diagnostic, not an opt-level-3 acceptance run. Compiled-disabled gates fail
+  23/108 and14/108 respectively. Neither the callback gain nor fewer failed cost
+  ratios establish full acceptance.
+
+Production timing is complete for this rejected trial. Platform/resource/release
+acceptance and the original workload regressions remain open. Evidence is under
+`target/jit-evidence/hook-resume-recovery/prepared-tls/`, including
+`production-screen/`, `production-audit.json`, `withdrawn-runtime.patch`,
+`image-fresh/`, `profile-audit.json`, `time-summary.json`, all four `time-*` screens
+and the rejected/stale build logs. The native proof recipe initially requested
+one sample, below the runner's minimum three; both failed build invocations and
+the successful corrected resumption are retained separately.
+
+Withdrawal validation uses a fresh, separate Cargo target: formatting and
+workspace/all-target/all-feature checking pass, followed by six prepared-table,
+nine prepared-key, twenty public heap and one timing-contract test (36 passed,
+two ignored diagnostic workers). The existing timing harness checks also pass:
+69 malformed screens, five synthetic runners and four invalid cross-image
+inputs. The production auditor accepts the valid/restored screen and rejects
+13 deliberately corrupted copies. All `src/` files match pre-trial `2a9f1d1`;
+the successful checks verify restoration, not full performance acceptance.
 
 ### Private callback scratch reuse — rejected, 2026-10-18
 

@@ -119,6 +119,21 @@ sed 's/calls=0 /calls=00 /' "$model" > "$root/zero-padded-model"
 normalize "$root/zero-padded-model" > "$root/zero-padded-normalized"
 grep -Fxq '+4 0 0' "$root/zero-padded-normalized"
 
+for width in {3..13}; do
+    awk -v width="$width" '/^summary:/ { NF=width+1 } { print }' "$model" > "$root/short-summary"
+    normalize "$root/short-summary" > "$root/short-normalized"
+done
+for width in 0 1 2; do
+    reset_model
+    awk -v width="$width" '/^summary:/ { NF=width+1 } { print }' "$model" > "$root/bad-model"
+    refuse_model
+done
+reset_model; sed -i 's/^summary:.*/summary: 100 20 5 0 0 0 0 0 0 0 0 0 0 0/' "$root/bad-model"; refuse_model
+reset_model; sed -i 's/^+4 0 60 10 3$/+4 0 60 10 3 0 0 0 0 0 0 0 0 0 1/' "$root/bad-model"; refuse_model
+printf 'positions: instr line\nevents: %s\nsummary: 100\nfn=(1) model\n0x1000 0 100\n' "$events" > "$root/single-cost"
+normalize "$root/single-cost" > "$root/single-normalized"
+cmp "$root/single-cost" "$root/single-normalized"
+
 mkdir "$root/bin"
 cat > "$root/bin/nm" <<'SH'
 #!/usr/bin/env bash

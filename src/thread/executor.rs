@@ -1666,6 +1666,9 @@ mod activation_tests {
 #[cfg(test)]
 mod mode_tests;
 
+#[cfg(test)]
+mod callback_chain_tests;
+
 #[cfg(all(
     test,
     feature = "jit",

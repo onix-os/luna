@@ -223,7 +223,7 @@ pub(super) struct Code {
     _memory: Memory,
     entry: Entry,
     #[cfg(test)]
-    byte_len: usize,
+    pub(super) byte_len: usize,
     #[cfg(test)]
     pub(super) preferred_entry: bool,
     pub(super) relocations: usize,
@@ -395,6 +395,7 @@ pub(super) enum Failure {
     RequireUniversalMemory,
     RequireFieldMemory,
     RequirePreferredEntry,
+    RequireBoundEntry(u32),
     DisablePreferredEntry,
     PreferBoundPayload,
     RequireSparsePayload,
@@ -817,6 +818,7 @@ fn compile_selected_rooted(
         failure,
         Failure::RequireFieldMemory
             | Failure::RequirePreferredEntry
+            | Failure::RequireBoundEntry(_)
             | Failure::PreferReadEffects
             | Failure::CompactIntegerPairs
     ) {
@@ -831,6 +833,8 @@ fn compile_selected_rooted(
             return Err(JitError::Compilation(
                 if failure == Failure::RequirePreferredEntry {
                     "preferred entry requires ordinary lowering"
+                } else if matches!(failure, Failure::RequireBoundEntry(_)) {
+                    "bound entry requires ordinary lowering"
                 } else if failure == Failure::PreferReadEffects {
                     "read effects require ordinary lowering"
                 } else if failure == Failure::CompactIntegerPairs {
@@ -986,6 +990,7 @@ fn compile_selected_rooted(
                     | Failure::PreferReadEffects
                     | Failure::CompactIntegerPairs
                     | Failure::RequirePreferredEntry
+                    | Failure::RequireBoundEntry(_)
                     | Failure::DisablePreferredEntry
             ))
         && !selection.leaf
@@ -1528,6 +1533,7 @@ fn compile_selected_rooted(
             | Failure::PreferReadEffects
             | Failure::CompactIntegerPairs
             | Failure::RequirePreferredEntry
+            | Failure::RequireBoundEntry(_)
             | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
@@ -1826,6 +1832,27 @@ fn compile_selected_rooted(
     } else {
         (instructions, block_count)
     };
+    #[cfg(test)]
+    if let Failure::RequireBoundEntry(pc) = failure {
+        let original = context.func.clone();
+        let rewrite =
+            super::entry_flow::bound::Rewrite::apply(pc, &mut context.func, &paths, fallback)?;
+        rewrite.verify(&original, &context.func)?;
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        expansion.verify_actual(
+            context
+                .func
+                .layout
+                .blocks()
+                .map(|block| context.func.layout.block_insts(block).count())
+                .sum(),
+            context.func.layout.blocks().count(),
+        )?;
+        for (index, entry) in entries.iter_mut().enumerate() {
+            *entry &= index == pc as usize;
+        }
+    }
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
     let mut projection_instructions = 0;

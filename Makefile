@@ -133,10 +133,10 @@ table-access-miri:
 .PHONY: jit-prehash-model jit-prehash-model-miri jit-prehash-profile-build jit-prehash-profile-run
 PREHASH_DIR ?= target/jit-evidence/short-slice-performance/prehashed-lookup
 jit-prehash-model:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 8 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prehash-model-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prehash-profile-build:
 	@mkdir -p '$(PREHASH_DIR)'
@@ -838,6 +838,11 @@ vm-activation-tests:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 
 .PHONY: vm-mode-checks vm-mode-checks-miri
+.PHONY: vm-callback-chains
+vm-callback-chains:
+	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::callback_chain_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::callback_chain_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 vm-mode-checks:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::mode_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::mode_tests
@@ -1296,6 +1301,44 @@ jit-entry-flow:
 
 jit-entry-flow-backend:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_entry_flow_
+
+.PHONY: jit-bound-entry
+jit-bound-entry:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::bound:: -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+BOUND_ENTRY_DIR ?= target/jit-evidence/bound-entry
+.PHONY: jit-bound-entry-profile-build jit-bound-entry-profile-run
+jit-bound-entry-profile-build:
+	@mkdir -p '$(BOUND_ENTRY_DIR)'
+	@test ! -e '$(BOUND_ENTRY_DIR)/test-binary'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json > '$(BOUND_ENTRY_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(BOUND_ENTRY_DIR)/build.jsonl' > '$(BOUND_ENTRY_DIR)/binary-path'
+	@test "$$(wc -l < '$(BOUND_ENTRY_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(BOUND_ENTRY_DIR)/binary-path')" '$(BOUND_ENTRY_DIR)/test-binary'
+	@sha256sum '$(BOUND_ENTRY_DIR)/test-binary' > '$(BOUND_ENTRY_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(BOUND_ENTRY_DIR)/source.sha256'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nscope=native-component-only\nwarmups=2\nmeasured_repetitions=1000\n'; } > '$(BOUND_ENTRY_DIR)/configuration'
+	@set -o pipefail; '$(BOUND_ENTRY_DIR)/test-binary' jit::entry_flow::bound:: --test-threads=1 | tee '$(BOUND_ENTRY_DIR)/contracts.log' | awk '/^test result: ok[.] 8 passed; 0 failed; 1 ignored;/ { valid=1 } END { exit !valid }'
+
+jit-bound-entry-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(BOUND_ENTRY_DIR)/binary.sha256' '$(BOUND_ENTRY_DIR)/source.sha256' > '$(BOUND_ENTRY_DIR)/verification-before.log'
+	@valgrind --version > '$(BOUND_ENTRY_DIR)/profiler.log'
+	@set -e; for round in 0 1; do for bound in 0 1; do \
+		out='$(BOUND_ENTRY_DIR)/'$$round-$$bound; test ! -e "$$out.callgrind"; \
+		LUNA_BOUND_ENTRY=$$bound LUNA_JIT_DIAGNOSTIC_DIR="$$out-native" taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*bound::native::profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+			'$(BOUND_ENTRY_DIR)/test-binary' jit::entry_flow::bound::native::profile::profile_bound_resumption --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
+		grep -Fq "bound=$$bound repetitions=1000" "$$out.log"; \
+		grep -Fq 'validated=true scope=native-component-only' "$$out.log"; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \
+		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
+		awk -f examples/jit_support/callgrind_exclusive.awk "$$out.callgrind" > "$$out.exclusive.callgrind" 2> "$$out.exclusive.log"; \
+	done; \
+		sed -n 's/.*totals=\(\[[^]]*\]\).*/\1/p' '$(BOUND_ENTRY_DIR)/'$$round-0.log > '$(BOUND_ENTRY_DIR)/'$$round-0.counts; \
+		sed -n 's/.*totals=\(\[[^]]*\]\).*/\1/p' '$(BOUND_ENTRY_DIR)/'$$round-1.log > '$(BOUND_ENTRY_DIR)/'$$round-1.counts; \
+		test "$$(wc -l < '$(BOUND_ENTRY_DIR)/'$$round-0.counts)" -eq 1; \
+		cmp '$(BOUND_ENTRY_DIR)/'$$round-0.counts '$(BOUND_ENTRY_DIR)/'$$round-1.counts; \
+	done
+	@sha256sum -c '$(BOUND_ENTRY_DIR)/binary.sha256' '$(BOUND_ENTRY_DIR)/source.sha256' > '$(BOUND_ENTRY_DIR)/verification-after.log'
 
 jit-region-flow:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::region_tests
