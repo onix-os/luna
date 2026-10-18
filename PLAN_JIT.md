@@ -33,8 +33,39 @@ live helper frames and repeated resumption. The helper fixture compares ordinary
 PC-only and matching PC/budget code across980 cases, including weak modes,
 rebinding and panic exits. Formatting and `check-all` pass. The profiling driver
 now compares ordinary, PC-only and PC/budget64 with identical component counts
-in two rounds. Results, elapsed/runtime validation, bounded compiler accounting,
-ownership/lifecycle integration and all original acceptance gates remain open.
+in two rounds.
+
+Frozen `38d8d3f` builds in3m20s in a fresh checkout-specific target and executes
+all eleven fixtures in the copied release image. Six component profiles finish
+successfully; all thirteen exclusive-event sums and source/binary hashes verify.
+Every mode/round preserves[81,000 native entries,242,000 source instructions,
+80,000 simulated callbacks,3,320,000 summed result]. Both rounds match exactly:
+
+| Entry | Total component instructions | Generated-native instructions |
+| --- | ---: | ---: |
+| Ordinary | 12,789,023 | 10,121,000 |
+| PC-only | 12,309,023 | 9,641,000 |
+| PC/budget64 | 11,911,023 | 9,243,000 |
+
+PC/budget binding removes8.6750% of native instructions and6.8653% of this
+synthetic component's total instructions versus ordinary entry. It saves10.975
+instructions per resume on average; budget binding adds4.975 to the earlier
+six-instruction PC-only saving. Non-native component work remains2,668,023.
+Native image sizes are1,376/1,036/1,009 bytes respectively. These measurements
+do not include extra runtime ownership/selection or real callback dispatch and
+are not elapsed speedups. Another163 original verifier tests, no-feature check,
+formatting and the profile auditor suite pass.
+
+The next acceptance step is an ordinary-plus-specialized **test runtime pair**,
+not another component-only percentage. It must select the optional image only
+for matching PC and effective budget, retain ordinary native coverage everywhere
+else, preserve all runtime counters/fuel/helper/GC/error behavior, and account
+for both owned images. Measure the actual frozen callback workload before any
+production promotion. The current clone/string compiler oracle remains
+uncharged and test-only. Evidence is under
+`target/jit-evidence/hook-resume-recovery/bound-budget/`; elapsed/runtime
+validation, bounded compilation, ownership/lifecycle integration and all
+original performance/platform/release gates remain open.
 
 ### PC-bound entry compiler prototype — not promoted, 2026-10-18
 
