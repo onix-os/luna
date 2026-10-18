@@ -261,6 +261,7 @@ impl<'gc> Registrations<'gc> {
         }
     }
 
+    #[inline(always)]
     pub fn identity(
         &self,
         ctx: Context<'gc>,
