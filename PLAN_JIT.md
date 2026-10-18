@@ -44,9 +44,32 @@ images would increase aggregate code ownership. `jit-bound-entry-profile-build`
 freezes and verifies an optimized test image; `jit-bound-entry-profile-run`
 collects two paired1,000-repetition native-component profiles with hashes,
 exclusive-event accounting and exact counter checks. These exclude real
-executor dispatch and callback execution. Native component profile results,
-runtime integration, lifecycle/resource accounting
-and all original production performance/release gates remain open.
+executor dispatch and callback execution.
+
+Frozen prototype `8514e93` builds in3m19s in its own Cargo target and executes all
+eight fixtures in the copied release image. Both profile pairs give identical
+results: total instructions12,789,023->12,309,023(-3.7532%); generated-native
+instructions10,121,000->9,641,000(-4.7426%). Each profile preserves81,000 native
+entries,242,000 accounted source instructions,80,000 simulated callbacks and
+the summed result3,320,000. The saving is exactly six machine instructions per
+resumption; non-native component instructions are unchanged. Indirect branches
+fall162,000->82,000. This does not establish elapsed gains or justify promoting
+additional runtime selection/code ownership yet. Inspect remaining generated
+budget/type checks before paying the integration cost for such a small saving.
+
+The first profile driver stopped after its first pair because the exclusive
+auditor rejected a summary with an omitted final zero event. `123b918` corrects
+that parser while retaining equality checks across all thirteen event sums;
+the [Callgrind format](https://valgrind.org/docs/manual/cl-format.html) permits
+omitted zero costs. Parser checks pass27 malformed partitions,16 malformed
+self-cost models, compressed-summary positives and runner lifecycle checks.
+The original raw pair is retained and reaudited; only the missing second pair
+is executed. All four exclusive audits, counters and frozen source/binary
+hashes pass. Final formatting/check-all and the eight prototype fixtures pass.
+No elapsed campaign or production runtime change is claimed. Evidence is in
+`target/jit-evidence/hook-resume-recovery/bound-entry/`; runtime integration,
+bounded compiler/ownership accounting and every original production
+performance/platform/release gate remain open.
 
 ### Queued callback handoff — measured and withdrawn, 2026-10-18
 
