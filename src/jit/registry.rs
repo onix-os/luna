@@ -258,7 +258,7 @@ impl<'gc> Registrations<'gc> {
         prototype: Gc<'gc, FunctionPrototype<'gc>>,
     ) -> Option<u64> {
         let address = Gc::as_ptr(prototype) as usize;
-        let entry = if self.entries.capacity() <= 7 {
+        let entry = if self.entries.raw_table().buckets() <= 8 {
             self.entries
                 .iter()
                 .find_map(|(&stored, entry)| (stored == address).then_some(entry))

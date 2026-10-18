@@ -13,10 +13,11 @@ fn identity_matches_hash_lookup_at_dense_and_sparse_capacities() {
                 registry.register(ctx, prototype);
             }
             assert_eq!(registry.entries.len(), count);
+            assert_eq!(registry.entries.raw_table().buckets() <= 8, count <= 7);
             for sparse in [false, true] {
                 if sparse {
                     registry.entries.try_reserve(128).unwrap();
-                    assert!(registry.entries.capacity() > 7);
+                    assert!(registry.entries.raw_table().buckets() > 8);
                 }
                 let before = ctx.jit().0.borrow().metadata.0.current();
                 for &prototype in &sources {
