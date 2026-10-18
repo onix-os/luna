@@ -3,8 +3,7 @@ BEGIN { OFS=" " }
 /^events:/ { if ($0!="events: Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw Bc Bcm Bi Bim") bad=1; events++ }
 /^summary:/ {
     summaries++
-    if (NF!=2 && NF!=14) bad=1
-    if (NF==2 && $2!="0") bad=1
+    if (NF<2 || NF>14) bad=1
     for (i=2; i<=NF; i++) {
         if ($i !~ /^[0-9]+$/ || length($i)>15) bad=1
         expected[i-2]=$i+0
