@@ -66,8 +66,32 @@ valid fixtures and rejects nine corruptions per profile. The initial whole-file
 comparison failure is preserved, not reported as a build pass. Original runtime
 and overhead performance thresholds are unchanged.
 
-Repeated elapsed and broader release acceptance remain open. Instruction savings
-and correctness checks are not runtime promotion.
+Two elapsed campaigns now finish, each covering 144 commands, 14,256 native
+executions and 285,120 feature-cost iterations across CPUs 0/16 and speed/shipping
+profiles. Six balanced control/candidate/control orders retain same-image
+placebos, matched launch paths, original thresholds and contention telemetry.
+No owned builds, tests or profilers overlap collection. Execution/resource
+comparisons report no mismatches; immutable artifacts and both audit-fixture
+suites verify. Successful collection is not a passing performance gate.
+
+Callback Auto control/candidate time ratios improve across all four CPU/profile
+combinations, with medians between **1.008 and 1.032** in both campaigns. However,
+CPU0 shipping compiled-Off integer ratios are **0.868459 / 0.876133** and float
+ratios **0.867875 / 0.872395**, approximately 14–15% longer candidate elapsed time.
+Corresponding same-image placebos and no-feature controls remain near one.
+CPU0 speed compiled-Off integer also regresses (**0.899840 / 0.906336**).
+CPU16 speed metamethod Auto and shipping allocation compiled-Off retain smaller
+repeatable losses. The trial is **not promoted**; callback gains do not offset
+these regressions or establish full-plan acceptance.
+
+An exact shipping link-map rebuild compares byte-for-byte with the timed image.
+The VM is 42,104 bytes in both variants, moving from `0x39b306` to `0x39b378`.
+All 8,614 normalized instruction lines match, including relative instruction
+offsets, internal branches and ordinary operands. External direct targets and
+RIP-relative displacements are masked: this comparison does not prove identical
+callees/data or establish code placement as the cause. Previously rejected
+hot-section and fixed-alignment trials are not repeated on that assumption.
+Broader performance/platform/resource/release acceptance remains open.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/`, including
 the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
