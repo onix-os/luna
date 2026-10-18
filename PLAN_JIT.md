@@ -9,6 +9,66 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded tiny-registry lookup — rejected, 2026-10-18
+
+A further audit of all eighty callback hardware profiles resolves VM/executor
+sample addresses against their verified symbol bounds and per-process mappings.
+The VM's source-identity hash/probe range accounts for **7.40% / 8.91%** of
+whole-process Auto weighted cycle samples on CPUs 0/16, and zero Off samples.
+The first range accidentally included the nearby inactive-mode fallback; the
+corrected range ends before `0x5cb1c6`, and both reports are retained. Executor
+mode dispatch accounts for **3.34% / 3.25%**, and its frame-pop/match path for
+**6.36% / 3.75%**. These selected ranges are diagnostic sampled shares, not
+exact instruction latencies or a complete partition of execution cost.
+
+Trial `7128a13`, revised by `6d3c063`, scans only registrations in tables with
+at most **eight physical buckets** and retains seeded hash lookup for larger
+tables. Every lookup still upgrades the weak registration and compares the live
+prototype; no positive ID, miss, owner, lease or GC pointer is cached. Registry
+reset/retirement, generation uniqueness, accounting and native work remain intact.
+The pinned hashbrown's public capacity is `items + growth_left`, not a direct
+physical scan bound. The guard therefore uses its safe `raw_table().buckets()`
+accessor. The initial capacity-based build is archived and was not timed.
+
+Test commit `5aafaa6` adds an independent always-hashed oracle: 64 queries at
+thirteen registry sizes, both dense and reserved-sparse maps, unchanged metadata
+charges, hits and misses after reset/re-registration. All fourteen registry
+tests pass against the original implementation before the trial. The revised
+candidate passes **117 focused executions / eleven summaries**, formatting,
+all-feature checking and **14 registry Miri executions** (39 warnings retained).
+There is no claim of a new full-suite or full-platform pass for this trial.
+
+Six alternating matched rounds produce **144 checked instruction profiles**,
+with equal worker/native-work records and verified exclusive event totals.
+Callback Auto control counts are 47,185,720 (one round 47,185,639); candidate
+counts are **47,964,146 / 48,264,206 / 47,063,966 / 47,363,945 / 47,063,966 /
+48,264,125**. A favorable single process is not a general improvement. Upvalue
+Auto rises in all six paired rounds, with both images showing process variation.
+JIT-Off float instructions consistently increase **20,060,895 -> 20,964,290**;
+the no-feature diagnostic image remains byte-identical to its control.
+
+A focused, uninstrumented callback screen then completes **144 verified workers /
+144,000 measured iterations**, twelve A/trial/B windows on each CPU, alternating
+Off/Auto order, common hardlink launch paths, frozen source/image/driver hashes
+and contention telemetry. No owned build/test/profiler overlaps this screen.
+Results and native counters match exactly. This uses the unchanged real callback
+workload, but is **not** an all-nine-case or stripped-image acceptance campaign.
+
+The candidate is **rejected**: Auto control/trial median time ratios are
+**0.97548 / 0.98551** on CPUs 0/16, with A/B medians **1.00640 / 0.99768**.
+It is slower in **10/12 and 11/12** windows. The severe CPU0 final-window
+disturbance and all other outliers remain in the data. Off also has adverse
+windows, so a reduced count of relative Auto failures on CPU0 is not called a
+speedup. The unchanged callback threshold fails in **19/24** trial windows.
+This rejection does not infer an elapsed float slowdown from instruction counts.
+
+Commit `40d121a` restores the original hash lookup exactly; the dense/sparse
+regression remains. Restoration formatting/all-feature checks and all **117
+focused executions** pass. Both rebuilt speed diagnostic images are byte-identical
+to the original split-hook controls. Evidence: `hook-resume-recovery/tiny-registry*`
+and `callback-dispatch-audit/`. Full native performance, resource, platform and
+release acceptance remain open; this trial supplies no retained runtime speedup.
+
 ### Prepared-key classification split — rejected, 2026-10-18
 
 Hardware samples and actual helper disassembly identify combined strong/weak
