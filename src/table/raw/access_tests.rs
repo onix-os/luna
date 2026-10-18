@@ -426,3 +426,49 @@ fn repeated_reads_do_not_root_weak_values_after_conversion() {
         });
     }
 }
+
+#[cfg(feature = "jit")]
+#[test]
+fn prepared_lookup_preserves_supplied_hash() {
+    crate::Lua::empty().enter(|ctx| {
+        let key = String::from_slice(&ctx, b"target");
+        let other = String::from_slice(&ctx, b"replacement");
+        let equal = String::from_buffer(&ctx, b"target".to_vec().into_boxed_slice());
+        let mut table = RawTable::new(&ctx);
+        for round in 0..4 {
+            for query in [key, equal, other] {
+                table
+                    .set(&ctx, query.into(), Value::Integer(round))
+                    .unwrap();
+                let hash = PreparedStringHash::new(query);
+                identical(
+                    table.get_prepared_string(&ctx, query, hash),
+                    Value::Integer(round),
+                );
+                for bits in [
+                    hash.bits(),
+                    hash.bits() ^ (1 << 31),
+                    hash.bits() ^ (1 << 63),
+                    hash.bits() ^ (1 << 31) ^ (1 << 63),
+                    0,
+                    u64::MAX,
+                ] {
+                    let expected = table
+                        .map
+                        .raw_entry()
+                        .from_hash(bits, |stored| stored.eq_string(query))
+                        .map_or(Value::Nil, |(_, slot)| slot.0.get(&ctx));
+                    identical(
+                        table.get_prepared_string(&ctx, query, PreparedStringHash::from_bits(bits)),
+                        expected,
+                    );
+                }
+            }
+            table.reserve_map(table.map.capacity() + 1);
+            table.set(&ctx, key.into(), Value::Nil).unwrap();
+            if round % 2 == 0 {
+                table.clear();
+            }
+        }
+    });
+}

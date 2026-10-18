@@ -9,6 +9,147 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Callback setup component ablation — profiling, 2026-10-18
+
+Isolated trial `b8a77bf` applies only the native callback setup/routing portion
+of `38c7880` to baseline `066905e`. No table layout, prepared lookup or hint
+changes remain. This diagnostic repeats a historical withdrawn design on the
+current runtime to distinguish components, not to relabel it as accepted.
+Main runtime remains unchanged; the trial is committed/pushed separately.
+
+Focused host validation passes **142 executions / 20 summaries**, with format
+and all-feature checks. Real i686-musl callback/model/metamethod validation
+passes **98 / 14**. Fourteen instruction profiles preserve all reported
+execution/resource fields; valid/nine-corruption audit fixtures pass both
+against the baseline and against the corrected composition.
+
+Callback Auto instructions are **9,438,782 → 9,158,782**, a 2.966% reduction.
+The composition removes another 30,000 helper instructions, reaching 9,128,782.
+The first isolated callback Off profile increases 345,000 instructions (4.419%).
+Its entire increase is in map probing and key/string equality, not VM dispatch
+or callback setup. Six additional paired process runs retain identical images
+and unmodified randomized hashing: Off is 7,807,066 for both images in all six,
+and Auto repeats the 280,000-instruction reduction in all six. Keep the initial
+outlier; a single process's probe count is not a causal code-change estimate.
+These are software instruction observations, not elapsed acceptance.
+
+Both no-feature production images reproduce the baseline byte-for-byte.
+Production builds and source/image/configuration/environment provenance pass.
+The full all-feature Force suite passes **2,031 executions / 90 summaries**,
+zero failures and 23 ignored diagnostics. The same 144-command balanced
+production timing protocol is now running, with all owned builds, tests and
+profilers terminal before collection. No elapsed acceptance or promotion is
+claimed. Evidence:
+`target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/`.
+
+### Hash-checked callback composition — validation, 2026-10-18
+
+Correction `38c7880` verifies the current key's canonical prepared hash before
+taking a bucket hit. A mismatch uses ordinary lookup, preserving its behavior
+instead of forcing nil or returning the cached bucket. No new fields,
+allocations or pointer-lifetime assumptions are added by the correction.
+
+The raw-table regression fails on `673218c` and passes after correction.
+Twenty-eight focused executions across five summaries pass, including both
+previously failing prepared-transition tests, table access and prepared-key
+coverage, with formatting/all-feature checking. The raw hash oracle and
+integrated Rust transition oracle pass under both Stacked and Tree Borrows:
+four focused Miri executions, not a complete Miri suite. The independent
+supplied-hash oracle is also retained on main in `2bd3fb8`; unchanged-runtime
+table-access validation passes 17 executions across both feature modes.
+
+Rebuilt fourteen-case profiling preserves all execution/resource counters and
+passes valid/nine-corruption audit fixtures. Callback Auto instructions fall
+**3.284%**, not the incorrect revision's 4.397%. Array Auto falls 0.191%,
+metamethod Auto 0.106%; numeric Off/Auto and callback Off remain unchanged.
+Four cases improve, six are unchanged and four increase (largest 0.086%).
+The prepared helper's callback self work is now 815,000 instructions versus
+845,000 baseline; hash validation consumes most of the initial lookup saving.
+These remain instruction observations, not elapsed acceptance.
+
+The corrected candidate stays isolated on `trial/jit-callback-composition`.
+Its full all-feature Force suite now passes **2,034 executions across 90
+summaries**, with zero failures and 23 ignored diagnostics. Corrected i686
+validation passes 27 executions across six summaries. Production image builds,
+configuration/environment/source/image provenance and preflight audit fixtures
+pass. Two 144-command timing campaigns now complete on the same frozen images,
+without overlapping owned builds/tests/profilers. Each retains 14,256 native
+executions and 285,120 cost iterations, zero counter/resource mismatches,
+provenance verification and valid/13-corruption audit fixtures.
+
+Speed-profile callback control/candidate median ratios are 1.0340/1.0242 on
+CPUs 0/16 initially and 1.0549/1.0442 on repeat. However, CPU 16 speed Oslo
+compiled-Off ratios are 0.9681 then 0.9742, slower in all six rounds of both
+campaigns; shipping native metamethod Auto ratios are 0.9561 then 0.9735,
+slower in six then five rounds. Ratios above one favor the candidate. Full
+distributions and same-image placebos remain in both audits; contention is
+not removed by repetition. Passing within-image gates does not excuse these
+cross-revision losses. The composition is not promoted.
+
+The next diagnostic isolates native-only callback setup from the table hint
+against the current baseline. This is a component ablation, not a new design
+or acceptance of the historical withdrawn `adaad1c` trial. The corrected hint
+removes only 30,000 callback helper self instructions, while the setup group
+accounts for substantially more saved work. Neither observation establishes
+which component causes the elapsed gains or losses.
+These results do not establish full `jit-verify`, all-platform or release
+acceptance. Original `673218c` artifacts and
+failures remain intact and must not be substituted for corrected evidence.
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-composition/hash-checked/`
+and the parent `hash-red.log`, `hash-green.log`, `main-hash-oracle.log`.
+
+### Native callback composition — hash regression found, 2026-10-18
+
+**`673218c` is not correct and must not be promoted or timed.** The subsequent
+full all-feature Force run passes 1,480 library tests but fails both existing
+prepared strided-transition tests (23 ignored; later targets not reached).
+They perturb the supplied hash: a warm bucket hit bypasses that hash and
+returns a value where the existing hash lookup returns nil. A new independent
+raw-table oracle reproduces the mismatch after warmup and mutations. Tests
+are not weakened. A correction verifies the canonical key hash before taking
+the hint; mismatches retain ordinary lookup. Correction validation is pending.
+
+The original production builds/provenance complete successfully, but no timing
+run starts. Miri Stacked completes ten access and six prepared-key tests;
+its long callback-model test is deliberately stopped after the full-suite
+failure, before Tree starts. These are partial results, not a Miri-chain pass.
+The instruction savings below describe the incorrect original candidate;
+they cannot establish the correction's performance.
+
+Trial `673218c` combines two previously rejected work reductions rather than
+presenting either old trial as accepted: native-only physical callback setup
+and an advisory compact string-bucket hint. The current prepared-string helper
+bypasses the older generic `get_map` path, so this version applies the hint
+only to JIT-feature prepared reads. Ordinary interpreter map lookup and the
+no-feature table shape remain unchanged. Both native Call transition paths
+use the independently modeled callback setup; interpreter calls are unchanged.
+
+The hint retains only an integer offset. Every hit checks current map bounds,
+occupancy and live strong string identity, then reads the current slot through
+the ordinary weak-value accessor. Misses retain prepared hashing/content
+equality. Mutation/rehashing/weak conversion/GC do not rely on a cached value,
+pointer or invalidation notification. Poisoned-offset, equal-content, weak
+lifecycle and 64-bit layout/positive GC-charge comparisons pass.
+
+Focused validation passes 164 executions across 22 summaries, all-feature
+checking and formatting. Real i686-musl fallback passes 25 executions across
+five summaries. The initial build caught a missing field in the separate
+capacity-test constructor; its failure is retained and the constructor is
+updated before the passing run. Both-model Miri validation is still running.
+
+Fourteen full-execution instruction comparisons preserve all execution and
+resource counters, with valid/nine-corruption audits passing. Callback Auto
+work falls 4.397%; upvalue Auto falls 0.527%, metamethod Auto 0.419%.
+Integer/float Off and Auto counts are unchanged. Five cases improve, five are
+unchanged and four increase (largest increase 0.0595%). These are instruction
+observations, not elapsed acceptance or proof of either component's isolated
+contribution. The runtime is committed/pushed separately on
+`trial/jit-callback-composition`, not promoted to main. Production timing
+images are building; all original thresholds remain in force.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-composition/`
+(`warm-audit.json`, `candidate/`, `focused-tests.log`, `fallback.log`, `timing/`).
+
 ### Shared numeric stores — rejected instruction trial, 2026-10-18
 
 Trial `3fc3ece` on `trial/jit-numeric-loop-store` consolidates the three
