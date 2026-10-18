@@ -9,6 +9,59 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Mixed numeric-loop outlining — rejected, 2026-10-18
+
+Exact-image instruction mapping of the preceding single-tail trial validates
+full profile self totals, every executed VM instruction boundary and independent
+annotation totals for integer/float Off in both images. Valid/restored fixtures
+and four deliberate corruptions pass their acceptance/refusal checks. Integer
+VM self work drops 3,662,572 -> 3,522,578, but its whole VM body grows from
+0xd906 to 0xda74 bytes. Hot dispatch, numeric-control and addition blocks remain
+widely separated; these facts do not identify a specific alignment/cache cause.
+No branch-boundary policy or padding change is enabled.
+
+Trial `9a05a51` on `trial/jit-for-mixed-outline` retains original checked register
+accesses and the inline all-integer loop path, moving mixed/string/float-control
+conversion into a safe non-inlined helper. It is not marked cold. Integer tags,
+overflow, signed zero, NaN, string conversion, error tags, PC-before-visible-write
+and conditional fourth-slot behavior are retained. The hypothesis is a smaller
+VM conversion body and fewer live values, not a selected instruction address.
+
+The expanded **96-scenario** control model passes first on unchanged main runtime
+in both feature configurations. Tests are committed separately (`7a18fe0`) and
+retained on main as `bba63c7`. Those main-runtime tests pass under both pinned
+Miri models/features (**twelve executions total**); real i686-musl passes the
+control and hook models (**ten executions**). These are not full native/Miri
+acceptance results for the outlined runtime. The trial's fmt/check-all and
+focused numeric/control/hook suite pass **37 executions / eight summaries**.
+
+Fourteen fresh instruction profiles match every execution/resource field;
+strict audit and nine corruption checks pass. Numeric Off work nevertheless
+increases **1.0598% integer / 0.9865% float**. The VM shrinks by **1,583 bytes**
+to 0xd2d7; the new helper is 0x3fb bytes. That helper is absent from all captured
+warm partitions, consistent with the existing workloads using integer controls.
+Its genuine fractional-control steady-state cost is therefore not measured by
+these workloads and must not be inferred from the float-accumulator case.
+
+A balanced **144-command / 14,688-execution** screen rejects the trial. All
+identities/counters, original thresholds and valid plus nine-corruption audits
+verify, with no owned build/test/profiler overlap. Control/candidate medians:
+
+| CPU | Workload / mode | Ratio | Placebo | Adverse rounds |
+| --- | --- | ---: | ---: | ---: |
+| 0 | integer / Off | 0.883569 | 0.999745 | 6/6 |
+| 0 | float / Off | 0.874161 | 1.001618 | 5/6 |
+| 16 | integer / Off | 0.955335 | 1.000482 | 6/6 |
+| 16 | float / Off | 0.960751 | 0.996611 | 6/6 |
+
+Callback Auto improves on CPU0, but cannot erase these regressions. **Do not
+promote.** No full Force/Miri/i686 or shipping/cost campaign was run for this
+early-negative runtime candidate. Shrinking the VM body alone is not a remedy;
+further work must preserve the original cross-workload and feature-cost gates.
+Main retains only the baseline-valid tests. Evidence:
+`target/jit-evidence/hook-resume-recovery/for-tail/hot-map/` and
+`target/jit-evidence/hook-resume-recovery/for-mixed-outline/`.
+
 ### Single numeric register window — rejected, 2026-10-18
 
 Trial `bdd8571` on `trial/jit-for-tail` uses one checked tail slice for numeric
