@@ -178,8 +178,6 @@ mod segments;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod shape;
-#[cfg(test)]
-mod slice_policy_tests;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -1372,24 +1370,6 @@ impl Runtime {
 
     pub(crate) fn active(&self) -> bool {
         self.0.borrow().config.mode == JitMode::Auto
-    }
-
-    pub(crate) fn slice_policy(&self) -> (bool, bool) {
-        let manager = self.0.borrow();
-        let active = manager.config.mode == JitMode::Auto;
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
-        let pairs = active && manager.pairs.is_some();
-        #[cfg(not(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
-        let pairs = false;
-        (active, pairs)
     }
 
     #[cfg(any(
@@ -3534,3 +3514,6 @@ mod packed_runtime;
 
 #[cfg(test)]
 mod scheduled_import_tests;
+
+#[cfg(test)]
+mod slice_policy_tests;

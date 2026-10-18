@@ -1,7 +1,19 @@
 use super::{JitMode, Runtime};
 
 fn observed(runtime: &Runtime) -> (bool, bool) {
-    runtime.slice_policy()
+    #[cfg(not(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )))]
+    let pairs = false;
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    let pairs = runtime.call_pairs_enabled();
+    (runtime.active(), pairs)
 }
 
 #[test]
