@@ -41,6 +41,26 @@ the compiled-disabled gate. Small source changes do not establish a complete
 JIT fix, and this runtime candidate remains unpromoted. Exact stripped shipping
 images are the next counter-diagnosis target; no opt-level policy is changed.
 
+The exact shipping-image counter capture now completes **216 commands /
+216,000 measured iterations** with valid/restored fixtures and 16 corruptions
+checked. CPU0 integer JIT-Off control/candidate time/cycle ratios are
+**0.966098 / 0.964009**, while retired-instruction and branch-miss ratios are
+**1.026612 / 1.000012**, with near-one placebos. Thus the loss survives longer
+sampling and is not explained by more instructions or a branch-miss increase.
+CPU16 no-feature array and GC cycle ratios are **0.992234 / 0.976649**,
+also with fewer retired instructions. This narrows the investigation; it does
+not identify a particular instruction-delivery or alignment cause.
+
+Address attribution must use the measured binary. Rebuilding with strip=false
+changes both `.text` and the stripped copy, so those symbol images are rejected
+as exact maps. Keeping strip=true and emitting a linker map through
+`NIX_LDFLAGS -Map=...` instead reproduces **byte-identical whole binaries** for
+both baseline and candidate. Their mapped `run_vm_slice` starts/sizes are
+`0x39b306 / 0xa478` and `0x39b336 / 0xa51f`. This permits exact shipping
+disassembly without assuming the diagnostic image has the same code layout.
+Evidence: `shipping-counters/`, `shipping-symbols/` (mismatches retained), and
+`shipping-link-map/` under `vm-scalar-guards/`.
+
 ### VM-only guards and corrected gate auditing — validation expanded, 2026-10-18
 
 Trial `6b5e5c7` restores the canonical operator exactly to main, leaving only
