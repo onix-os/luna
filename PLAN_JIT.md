@@ -32,9 +32,22 @@ mutation and did not establish optimizer coverage; those logs are preserved.
 The first 28-profile instruction matrix exposed a diagnostic selection mistake:
 the new test mode omitted existing prepared-key helpers and integer-loop
 augmentation. Those measurements are retained as unmatched-pipeline evidence,
-not attributed solely to cache effects. The follow-up restores both existing
-passes and adds byte-identical emitted integer/float kernel controls. Matched
-profiling is pending; there is no elapsed-time or shipping acceptance claim.
+not attributed solely to cache effects. Follow-up `a55a855` restores both existing
+passes and adds byte-identical emitted integer/float kernel controls. Formatting/
+all-feature checks and **44 focused executions / nine summaries** pass.
+
+The matched optimized image completes **28 profiles**, two alternating rounds
+of all seven workloads. All 25 execution counters agree within each pair;
+all thirteen exclusive event totals, source/image hashes and native captures
+verify. Integer and float instruction totals are exactly unchanged. Callback
+instructions are **10,594,582 -> 10,594,583** in both rounds despite **10,001
+fewer data reads**. Its generated body grows **2,160 -> 2,192 bytes**, with the
+same `0x40` stack reservation and 4,096 mapped bytes. Upvalue totals grow by
+163 instructions in both rounds. Metamethod instructions grow **0.52–0.62%**,
+allocation grows **0.086–0.095%**, and array results vary in both directions.
+There is no material instruction-count gain to justify production promotion.
+Keep this as test-only evidence; no elapsed campaign was run, and no elapsed
+speedup/slowdown or shipping acceptance is inferred from these profiles.
 
 This prototype still lacks an independent translation proof and full resource/
 platform/release acceptance. Source verification plus differential tests does
