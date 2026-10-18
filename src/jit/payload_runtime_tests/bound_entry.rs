@@ -4,6 +4,8 @@ use super::*;
 #[allow(dead_code)]
 mod workloads;
 
+mod timing;
+
 fn configured(mode: JitMode, pair: bool, references: bool) -> Lua {
     let mut lua = super::preferred_entry::configured(mode, false, references);
     lua.enter(|ctx| {

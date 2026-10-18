@@ -1309,7 +1309,7 @@ jit-bound-entry:
 .PHONY: jit-bound-pair
 jit-bound-pair:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::bound_pair:: -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::bound_entry:: -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::bound_entry:: -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed; 2 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 BOUND_ENTRY_DIR ?= target/jit-evidence/bound-entry
 .PHONY: jit-bound-entry-profile-build jit-bound-entry-profile-run
@@ -1353,7 +1353,8 @@ jit-bound-pair-profile-build:
 	@$(MAKE) --no-print-directory jit-bound-entry-profile-build BOUND_ENTRY_DIR='$(BOUND_PAIR_DIR)'
 	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nscope=full-frozen-callback-runtime\nwarmups=2\nmeasured_executions=1\n'; } > '$(BOUND_PAIR_DIR)/configuration'
 	@set -o pipefail; '$(BOUND_PAIR_DIR)/test-binary' jit::backend::bound_pair:: --test-threads=1 | tee '$(BOUND_PAIR_DIR)/pair-contracts.log' | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } END { exit !valid }'
-	@set -o pipefail; '$(BOUND_PAIR_DIR)/test-binary' jit::payload_runtime_tests::bound_entry:: --test-threads=1 | tee '$(BOUND_PAIR_DIR)/runtime-contracts.log' | awk '/^test result: ok[.] 3 passed; 0 failed; 1 ignored;/ { valid=1 } END { exit !valid }'
+	@set -o pipefail; '$(BOUND_PAIR_DIR)/test-binary' jit::payload_runtime_tests::bound_entry:: --test-threads=1 | tee '$(BOUND_PAIR_DIR)/runtime-contracts.log' | awk '/^test result: ok[.] 4 passed; 0 failed; 2 ignored;/ { valid=1 } END { exit !valid }'
+	@printf '%s\n' '$(CURDIR)' > '$(BOUND_PAIR_DIR)/source-root'
 
 jit-bound-pair-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(BOUND_PAIR_DIR)/binary.sha256' '$(BOUND_PAIR_DIR)/source.sha256' > '$(BOUND_PAIR_DIR)/verification-before.log'
@@ -1370,6 +1371,22 @@ jit-bound-pair-profile-run: jit-profile-cpu-check
 		test "$$(wc -l < "$$out.counts")" -eq 1; \
 	done; cmp '$(BOUND_PAIR_DIR)/'$$round-0.counts '$(BOUND_PAIR_DIR)/'$$round-1.counts; done
 	@sha256sum -c '$(BOUND_PAIR_DIR)/binary.sha256' '$(BOUND_PAIR_DIR)/source.sha256' > '$(BOUND_PAIR_DIR)/verification-after.log'
+
+BOUND_PAIR_TIMING_IMAGE ?= target/jit-evidence/bound-pair-timing-image
+BOUND_PAIR_TIMING_DIR ?= target/jit-evidence/bound-pair-timing
+BOUND_PAIR_BASELINE ?=
+BOUND_PAIR_WINDOWS ?= 204
+.PHONY: jit-bound-pair-time-build jit-bound-pair-time-run jit-bound-pair-time-audit
+jit-bound-pair-time-build:
+	@$(MAKE) --no-print-directory jit-bound-pair-profile-build BOUND_PAIR_DIR='$(BOUND_PAIR_TIMING_IMAGE)'
+	@sha256sum examples/jit_support/strided_timing.sh examples/jit_support/strided_timing_audit.pl tests/test-jit-strided-timing.pl >> '$(BOUND_PAIR_TIMING_IMAGE)/source.sha256'
+
+jit-bound-pair-time-run: jit-profile-cpu-check
+	@test -n '$(BOUND_PAIR_BASELINE)'
+	@bash examples/jit_support/strided_timing.sh '$(BOUND_PAIR_TIMING_IMAGE)' '$(BOUND_PAIR_TIMING_DIR)' '$(PROFILE_CPU)' '$(BOUND_PAIR_WINDOWS)' bound_pair_baseline '$(BOUND_PAIR_BASELINE)'
+
+jit-bound-pair-time-audit:
+	@perl examples/jit_support/strided_timing_audit.pl '$(BOUND_PAIR_TIMING_DIR)'
 
 jit-region-flow:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::region_tests

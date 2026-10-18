@@ -41,6 +41,27 @@ real frozen callback workload after two warmups. Hashes, native image dumps,
 all thirteen exclusive events and exact runtime counters are checked. Profile
 results, elapsed production comparisons and full acceptance remain open.
 
+Frozen `436f85a` builds in3m19s and passes its17 actual new compiler/pair/runtime
+fixtures. Eight full-callback profiles complete with identical25-field counters
+and verified thirteen-event sums/source/binary hashes. All four rounds agree:
+total instructions10,675,985->10,640,984(-0.32785%); generated-native
+730,160->695,159(-4.79361%). Actual bound-image execution is established by
+exact-address attribution, not inferred from installation. Mapping charge rises
+4,096->8,192 bytes, requested bytes2,184->3,640 and metadata817->1,286;
+snapshot peak remains10,737. Another83 resource/owner/configuration tests and
+formatting/check-all pass. This is a small full-runtime instruction reduction,
+not a demonstrated elapsed speedup or production acceptance.
+
+The elapsed fixture times only warmed full callback execution, checks installed
+pair identity/results/counters and charges both images. The balanced runner and
+auditor now support `bound_pair` and `bound_pair_baseline`; seven selector tests,
+95 malformed-screen refusals and four invalid cross-image inputs pass. The
+cross-image mode uses the preserved pre-pair ordinary-entry image, rather than
+letting both controls pay the new optional-dispatch branch. Timing results remain
+open; the planned screen uses204 windows on CPU0/16 plus reversed repeats, all
+six A/candidate/B orders and identical-image A/B controls. Production gates and
+the compiler workspace limitation remain unchanged.
+
 ### PC-and-budget binding prototype — not promoted, 2026-10-18
 
 Test-only `RequireBoundBudget(pc, budget)` composes the PC specialization with
