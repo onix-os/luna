@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### VM-only guards and corrected gate auditing — validation expanded, 2026-10-18
+
+Trial `6b5e5c7` restores the canonical operator exactly to main, leaving only
+the same-kind Add guards in `src/thread/vm.rs`. It passes **137 focused
+executions / 22 summaries**, four pinned Miri model executions (Stack/Tree,
+both feature choices, each exercising 384 actual-VM scenarios), **12 real
+i686 executions / 8 summaries**, and full all-feature Force **2,036 passes /
+90 summaries**, **23 ignored**, no failures. The JIT-containing unit suite
+contributes 1,485 passes; these are test executions, not complete release proof.
+Source manifests verify after validation.
+
+Fourteen profiles retain logical/resource fields, with integer/float Off work
+reductions **2.6493% / 6.9051%** and no new wide numeric operand loads. Two
+balanced seven-case screens total **504 commands / 51,408 measured executions**.
+Initial CPU0 integer/float Off control/candidate medians are **1.033331 /
+1.066347**; CPU16 initial/repeat integer **1.063591 / 1.065628**, float
+**1.087857 / 1.074092**. CPU16 metamethod Off remains adverse **0.986479 /
+0.966801**. The second CPU0 screen is severely contended: float placebos
+**1.190545 Off / 1.160713 Auto**, with large array/upvalue/GC swings. Retain all
+data; neither favorable aggregates nor those swings establish a precise cause.
+
+The actual original native gates still fail in the initial screen: CPU0
+metamethod and callback each fail all six rounds; CPU16 callback fails all six.
+Other warm native gates pass all six there. The full requirements remain
+2x numeric, 1.25x table/upvalue, at most 20% mixed overhead, 15% cold overhead
+and 5% compiled-Off/no-feature overhead. Candidate/main micro-screen ratios
+are diagnostics, not a newly invented requirement that every ratio exceed 1.
+Matched stripped speed/shipping, cold/Oslo, resource and platform acceptance
+remain open, and the runtime is not promoted.
+
+An audit bug was also fixed in `bef09c2`: copied diagnostic scripts used 1.05
+instead of 1.25 for the table gate and did not validate the declared minimum.
+The benchmark itself always used 1.25. The tracked auditor now checks the frozen
+threshold, reported ratio, gate schema and dispersion. `make
+jit-elapsed-audit-tests` passes valid/restored fixtures, four table-boundary
+cases and 18 targeted corruptions. Twelve preserved captures pass corrected
+provenance/auditing with **byte-identical aggregate reports**: 3,024 prior
+commands / 308,448 prior measured executions re-audited, not rerun. Original
+files/manifests remain untouched; their launch Makefile is verified through
+the immutable source witness. New collections must use the tracked auditor.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-scalar-guards`, its
+`audit-v2` and per-capture `elapsed-audit-v2` outputs. Targeted cycle diagnosis
+is separate from the full gates; its first launch stopped before measurement
+because the historical perf executable had been removed. That failure is
+preserved while the pinned tool package is restored.
+
 ### VM scalar Add guards — numeric gains, cross-workload acceptance open, 2026-10-18
 
 Integer-only trial `6f08d28` adds a direct-store integer-pair VM path to the
