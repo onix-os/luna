@@ -9,7 +9,23 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Native callback composition — instruction reduction, 2026-10-18
+### Native callback composition — hash regression found, 2026-10-18
+
+**`673218c` is not correct and must not be promoted or timed.** The subsequent
+full all-feature Force run passes 1,480 library tests but fails both existing
+prepared strided-transition tests (23 ignored; later targets not reached).
+They perturb the supplied hash: a warm bucket hit bypasses that hash and
+returns a value where the existing hash lookup returns nil. A new independent
+raw-table oracle reproduces the mismatch after warmup and mutations. Tests
+are not weakened. A correction verifies the canonical key hash before taking
+the hint; mismatches retain ordinary lookup. Correction validation is pending.
+
+The original production builds/provenance complete successfully, but no timing
+run starts. Miri Stacked completes ten access and six prepared-key tests;
+its long callback-model test is deliberately stopped after the full-suite
+failure, before Tree starts. These are partial results, not a Miri-chain pass.
+The instruction savings below describe the incorrect original candidate;
+they cannot establish the correction's performance.
 
 Trial `673218c` combines two previously rejected work reductions rather than
 presenting either old trial as accepted: native-only physical callback setup
