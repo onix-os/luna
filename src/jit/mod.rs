@@ -1374,6 +1374,24 @@ impl Runtime {
         self.0.borrow().config.mode == JitMode::Auto
     }
 
+    pub(crate) fn slice_policy(&self) -> (bool, bool) {
+        let manager = self.0.borrow();
+        let active = manager.config.mode == JitMode::Auto;
+        #[cfg(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        let pairs = active && manager.pairs.is_some();
+        #[cfg(not(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )))]
+        let pairs = false;
+        (active, pairs)
+    }
+
     #[cfg(any(
         test,
         all(
