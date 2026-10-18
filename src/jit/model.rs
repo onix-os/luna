@@ -297,6 +297,42 @@ mod tests {
         boundary_model(Some(super::super::backend::Failure::PreferReadEffects));
     }
 
+    #[cfg(not(miri))]
+    #[test]
+    fn effect_cached_getter_free_loops_keep_original_kernels() {
+        use super::super::{backend, resources, work, JitConfig};
+        let directory =
+            std::env::temp_dir().join(format!("luna-read-effects-{}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        for program in [
+            &b"local s=0 for i=1,20000 do s=s+i end return s"[..],
+            &b"local s=0.0 for i=1,20000 do s=s+0.5 end return s"[..],
+        ] {
+            let source = snapshot(program);
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let images =
+                [backend::Failure::None, backend::Failure::PreferReadEffects].map(|failure| {
+                    let code = backend::compile_in(
+                        &source,
+                        memory.clone(),
+                        8 * 1024 * 1024,
+                        resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                        work::Limits::from(&JitConfig::default()),
+                        failure,
+                    )
+                    .unwrap();
+                    let path = directory.join("kernel.bin");
+                    code.dump_finalized(&path);
+                    let bytes = std::fs::read(&path).unwrap();
+                    std::fs::remove_file(path).unwrap();
+                    bytes
+                });
+            assert_eq!(images[0], images[1]);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+        }
+        std::fs::remove_dir(directory).unwrap();
+    }
+
     #[test]
     fn writeback_scalar_regions_match_the_boundary_model() {
         boundary_model(Some(super::super::backend::Failure::RequireWriteback));

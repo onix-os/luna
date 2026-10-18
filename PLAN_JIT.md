@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Getter-preserving scalar cache — test-only investigation, 2026-10-18
+
+`f6b3a65` adds a test-selected native payload-cache experiment, not a production
+optimization. After existing helper/source verification, GetTable, GetUpTable
+and GetUpValue invalidate only their destination's two scratch words. Every
+other helper and unknown call remains a full barrier, particularly SetUpValue:
+its runtime cell can alias any current-frame register. Every scratch store and
+tag load remains intact. Only ordinary unprojected lowering is admitted; the
+existing two-payload/16-register/workspace bounds remain. Getter-free functions
+are unchanged by the cache pass rather than repeating the scalar-only trial.
+
+Formatting/all-feature checks and **43 focused executions / nine summaries**
+pass on the initial test-only revision. Coverage includes source-helper
+corruption refusals, every-entry scalar and helper comparisons, all seven frozen
+workloads, 24 scripts/eight initial fuel budgets, GC, retained/relocated stack
+aliases and helper panic recovery. A wrong SetUpValue preservation mask makes
+the final current-frame alias fixture return **42 instead of 43**. Restoring
+the mask restores the expected result. Earlier larger fixtures passed that
+mutation and did not establish optimizer coverage; those logs are preserved.
+
+The first 28-profile instruction matrix exposed a diagnostic selection mistake:
+the new test mode omitted existing prepared-key helpers and integer-loop
+augmentation. Those measurements are retained as unmatched-pipeline evidence,
+not attributed solely to cache effects. The follow-up restores both existing
+passes and adds byte-identical emitted integer/float kernel controls. Matched
+profiling is pending; there is no elapsed-time or shipping acceptance claim.
+
+This prototype still lacks an independent translation proof and full resource/
+platform/release acceptance. Source verification plus differential tests does
+not replace that proof. Evidence and failed fixture drafts are under
+`target/jit-evidence/hook-resume-recovery/read-effects/`.
+
 ### No-array native entry specialization — rejected, 2026-10-18
 
 Trial `0d134de` selects an array-capable or no-array native transport from the

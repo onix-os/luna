@@ -973,6 +973,7 @@ fn compile_selected_rooted(
                     | Failure::RequireStrided
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
+                    | Failure::PreferReadEffects
                     | Failure::RequirePreferredEntry
                     | Failure::DisablePreferredEntry
             ))
@@ -1513,6 +1514,7 @@ fn compile_selected_rooted(
         Failure::None
             | Failure::RequireUniversalMemory
             | Failure::RequireFieldMemory
+            | Failure::PreferReadEffects
             | Failure::RequirePreferredEntry
             | Failure::DisablePreferredEntry
             | Failure::RequireIntegerLoop

@@ -1177,7 +1177,7 @@ jit-read-cache:
 .PHONY: jit-read-effects
 jit-read-effects: jit-read-cache
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_flow::read_effect_tests
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::effect_cached_scalar_regions_match_the_boundary_model
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::effect_cached_
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) read_effects_runtime_
 
 jit-input:
