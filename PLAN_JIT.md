@@ -9,6 +9,52 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### No-array native entry specialization — rejected, 2026-10-18
+
+Trial `0d134de` selects an array-capable or no-array native transport from the
+immutable Code-owned kernel option, across all register tiers. The no-array
+instantiation removes optional-prefix invocation/budget/count handling; the
+general path retains its original checks. This is not the previously rejected
+array-call outlining, which left the ordinary entry unchanged. No ABI, owner,
+quota, hook, helper or native coverage contract changes.
+
+GNU formatting/check-all and **131 focused executions / nine summaries** pass.
+A differential fixture compares selected no-array entry against the original
+optional-prefix path over **1,862 cases**, admitted PCs, seven budgets, scalar/
+reference inputs, neighboring slots and borrowed globals. PC, fuel, full stats
+and canonical bits/identities agree, including **84 caught-panic comparisons**.
+The same fixture and native/upvalue/array gates pass on musl (**63 executions /
+five summaries**). These are focused checks, not a new full native suite.
+
+Two matched rounds produce **64 audited instruction profiles**, now including
+array workloads. Callback Auto falls **47,185,639 -> 47,061,444 / 47,061,525**;
+float Auto falls **5,859,342 -> 5,847,071**. Callback/float Off counts match;
+upvalue Auto varies in both directions, and array Auto rises about **0.04%**.
+All native worker records and thirteen exclusive event sums verify. Callback
+entry self work falls **7,750,507 -> 7,576,620**, while VM self work grows
+**9,010,769 -> 9,060,461**. Its stack reservation remains `0x828`; eliminating
+the array call does not remove embedded projection storage. Diagnostic text
+size reported by `size` grows **114,916 bytes**. No-feature images match controls.
+
+Two unchanged all-nine-case elapsed campaigns retain **9,072 native executions,
+362,880 cost iterations and 432 native proof records**, with zero counter/resource
+mismatches. No owned tests/builds/profilers overlap timing. Callback Auto improves
+in **6/8** direct comparisons (median control/trial **1.008395**), but its gate
+still fails **7/8**. Shipping integer Off and allocation Off are slower **8/8**,
+with median control/trial **0.922166 / 0.976696**; shipping upvalue cost fails
+**8/8**. Float Auto improves only **2/8**. Severe externally contended windows and
+identical-image placebo variation are retained, not credited as causal effects.
+
+Reject the specialization rather than keep the small callback signal with these
+cross-workload costs and extra code. Restore the prior runtime and archive the
+candidate-specific differential fixture with the rejected commit. Restoration
+`2bcdcee` matches all prior `src/` and Makefile bytes, passes formatting/check-all
+and **131 focused executions / nine summaries**, and rebuilds all five
+shipping/speed/native timing images byte-identical to their original controls.
+No fresh full-suite or full-platform acceptance is claimed for the restoration. Original
+performance/resource/platform/release gates remain open. Evidence prefix:
+`target/jit-evidence/hook-resume-recovery/array-presence*`.
+
 ### Shared VM slice policy — rejected, 2026-10-18
 
 Trial `d957621` reads Auto activity and call-pair admission under one temporary
