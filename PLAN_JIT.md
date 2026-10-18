@@ -9,6 +9,36 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### PC-bound entry compiler prototype — not promoted, 2026-10-18
+
+The test-only `RequireBoundEntry(pc)` compiler mode specializes a complete
+ordinary native image for one entry PC. A full-width equality guard declines
+other PCs through the existing Interpreter exit with the original PC, zero
+instructions and unchanged slots. Within the admitted body, uses of the entry
+PC become a constant, allowing code generation to eliminate unreachable entry
+dispatch and code. Runtime selection, caching and production compilation are
+unchanged. An eventual runtime must retain ordinary native entry for all other
+PCs, not replace their native coverage with interpretation.
+
+The first direct-dispatch rewrite failed the optimized integer-loop fixture:
+that optimization replaces the original entry layout. The revised transform
+runs after ordinary lowering and preserves the integer-loop fast path and
+prepared-key helper selection. Existing source/helper/exit/binding checks run
+before specialization; a test-only inverse-rewrite oracle verifies preservation
+of the original function, followed by structural and actual expansion checks.
+Its uncharged clone/string oracle is not production compiler-memory accounting.
+
+`make jit-bound-entry` passes six fixtures: 28,392 bound-PC differential cases,
+283,920 mismatched-PC refusals, twelve IR corruption cases, invalid-PC/resource
+refusal cleanup, and compiled helper/integer-loop source checks. Full-width PCs,
+scalar tag combinations and zero/short/maximum budgets are included. Formatting
+and `check-all` pass. The callback sample's resume image shrinks from2,160 to1,463
+bytes; the helper-resume sample from2,096 to1,352. These are native image sizes,
+not elapsed speedups or total memory savings: retaining ordinary plus specialized
+images would increase aggregate code ownership. Live helper frames, repeated
+native component profiles, runtime integration, lifecycle/resource accounting
+and all original production performance/release gates remain open.
+
 ### Queued callback handoff — measured and withdrawn, 2026-10-18
 
 Trial `cb720ba` carried one already-queued callback between feature-JIT executor

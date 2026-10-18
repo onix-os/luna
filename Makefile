@@ -1302,6 +1302,10 @@ jit-entry-flow:
 jit-entry-flow-backend:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_entry_flow_
 
+.PHONY: jit-bound-entry
+jit-bound-entry:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::bound:: -- --nocapture --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 jit-region-flow:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::region_tests
 	@$(MAKE) --no-print-directory jit-region-flow-backend
