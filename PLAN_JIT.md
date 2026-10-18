@@ -52,9 +52,33 @@ the immutable source witness. New collections must use the tracked auditor.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/vm-scalar-guards`, its
 `audit-v2` and per-capture `elapsed-audit-v2` outputs. Targeted cycle diagnosis
-is separate from the full gates; its first launch stopped before measurement
-because the historical perf executable had been removed. That failure is
-preserved while the pinned tool package is restored.
+is separate from the full gates. Its first launch stopped before measurement
+because the historical perf executable had been removed; that failure is
+preserved. Restoring the same pinned perf 6.19.11 package allowed a new
+`cycle-diagnostics-recovered` capture to finish: **216 commands / 216,000
+measured executions**, all 864 PMU events at 100% running, valid/restored
+fixtures and 15 corruption checks passing. No owned build/test/profile ran
+during collection.
+
+The recovered capture's control/candidate elapsed medians for integer/float
+Off are **1.034763 / 1.061399** on CPU0 and **1.081863 / 1.069545** on CPU16.
+Corresponding cycle ratios are **1.030354 / 1.060904** and **1.077923 /
+1.094783**. Instruction ratios are approximately **1.02715 / 1.07401** on
+both cores. These support the numeric improvement, not an overall JIT speedup.
+PMU counts cover whole-process user work, including startup/compilation;
+elapsed medians exclude startup and two warmups. They are not interchangeable
+with the earlier warm Callgrind counts. The prior CPU16 metamethod loss is
+not cleanly reproduced here; placebo movement prevents declaring it resolved.
+
+Matched stripped production builds are now being prepared under `timing/`,
+comparing baseline `79631fe` with candidate `6b5e5c7` in the same builder and
+target paths. Speed uses opt-level 3, shipping keeps opt-level s; both use
+LTO, one codegen unit and stripping. The production auditor retains the
+original numeric/table/upvalue/mixed/cold gates and the 5% compiled-Off cost
+limit. The unconditional VM change affects no-feature builds too, so those
+binaries must be measured rather than required to be byte-identical across
+revisions. Source, configuration, image hashes and launcher witnesses remain
+required. Build preparation is not a production performance result.
 
 ### VM scalar Add guards — numeric gains, cross-workload acceptance open, 2026-10-18
 
