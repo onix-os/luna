@@ -2160,7 +2160,13 @@ numeric-conversions:
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
 	done
 
-.PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks
+.PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks vm-return-spans
+vm-return-spans:
+	@for checked in true false; do \
+		CARGO_PROFILE_DEV_OVERFLOW_CHECKS=$$checked $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests::return_spans_preserve_bounds_fuel_and_capture_closing -- --exact || exit $$?; \
+		CARGO_PROFILE_DEV_OVERFLOW_CHECKS=$$checked $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests::return_spans_preserve_bounds_fuel_and_capture_closing -- --exact || exit $$?; \
+	done
+
 stack-bounds:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::bounds_tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) stack::bounds_tests $(ARGS)
