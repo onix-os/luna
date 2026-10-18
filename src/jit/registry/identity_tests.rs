@@ -1,6 +1,40 @@
 use crate::{Closure, Lua};
 
 #[test]
+fn cached_hashes_revalidate_entries_and_reset_with_the_seed() {
+    use ottavino_gc_arena::Gc;
+    Lua::empty().enter(|ctx| {
+        let first = Closure::load(ctx, None, b"return 1").unwrap().prototype();
+        let second = Closure::load(ctx, None, b"return 2").unwrap().prototype();
+        let mut registry = ctx.jit_registry().borrow_mut(&ctx);
+        let id = registry.identity(ctx, first).unwrap();
+        let other_id = registry.identity(ctx, second).unwrap();
+        let cached = registry.address_hashes.get();
+        for _ in 0..32 {
+            assert_eq!(registry.identity(ctx, first), Some(id));
+            assert_eq!(registry.identity(ctx, second), Some(other_id));
+            assert_eq!(registry.address_hashes.get(), cached);
+        }
+        registry.entries.try_reserve(128).unwrap();
+        assert_eq!(registry.identity(ctx, first), Some(id));
+        let address = Gc::as_ptr(first) as usize;
+        registry.entries.get_mut(&address).unwrap().prototype = Gc::downgrade(second);
+        assert_eq!(registry.identity(ctx, first), None);
+        registry.entries.get_mut(&address).unwrap().prototype = Gc::downgrade(first);
+        registry.entries.get_mut(&address).unwrap().id = u64::MAX;
+        assert_eq!(registry.identity(ctx, first), Some(u64::MAX));
+        registry.entries.get_mut(&address).unwrap().id = id;
+        registry.reset(ctx);
+        assert_eq!(registry.address_hashes.get(), [(0, 0); 2]);
+        assert_eq!(registry.identity(ctx, first), None);
+        assert_eq!(registry.address_hashes.get(), [(0, 0); 2]);
+        registry.register(ctx, first);
+        assert_ne!(registry.identity(ctx, first), Some(id));
+        assert!(registry.identity(ctx, first).is_some());
+    });
+}
+
+#[test]
 fn address_hashes_match_map_lookup_for_wide_keys_and_new_seeds() {
     use crate::jit::resources::{BudgetAllocator, Ledger};
     use std::hash::{BuildHasher, Hash, Hasher};

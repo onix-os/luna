@@ -1,3 +1,8 @@
+use std::{
+    cell::Cell,
+    hash::{BuildHasher, Hash, Hasher},
+};
+
 use allocator_api2::vec::Vec;
 use ottavino_gc_arena::{lock::RefLock, Collect, Gc, GcWeak};
 
@@ -177,6 +182,7 @@ mod tests {
 #[collect(no_drop)]
 pub(crate) struct Registrations<'gc> {
     entries: MetadataMap<usize, Registration<'gc>>,
+    address_hashes: Cell<[(usize, u64); 2]>,
     compactor: Compactor,
     #[cfg(test)]
     set_metatable: Option<GcWeak<'gc, crate::callback::CallbackInner<'gc>>>,
@@ -188,6 +194,7 @@ impl<'gc> Registrations<'gc> {
     pub fn new(allocator: BudgetAllocator) -> Self {
         Self {
             entries: metadata_map(allocator),
+            address_hashes: Cell::new([(0, 0); 2]),
             compactor: Compactor::default(),
             #[cfg(test)]
             set_metatable: None,
@@ -212,6 +219,7 @@ impl<'gc> Registrations<'gc> {
 
     pub fn reset(&mut self, ctx: Context<'gc>) {
         let allocator = ctx.jit().0.borrow().metadata.clone();
+        self.address_hashes.set([(0, 0); 2]);
         self.entries = metadata_map(allocator);
         self.compactor = Compactor::default();
         ctx.jit().0.borrow_mut().clear_registrations();
@@ -257,9 +265,29 @@ impl<'gc> Registrations<'gc> {
         ctx: Context<'gc>,
         prototype: Gc<'gc, FunctionPrototype<'gc>>,
     ) -> Option<u64> {
-        let entry = self.entries.get(&(Gc::as_ptr(prototype) as usize))?;
+        let address = Gc::as_ptr(prototype) as usize;
+        let cached = self.address_hashes.get();
+        let hash = if cached[0].0 == address {
+            cached[0].1
+        } else if cached[1].0 == address {
+            cached[1].1
+        } else {
+            let mut hasher = self.entries.hasher().build_hasher();
+            address.hash(&mut hasher);
+            hasher.finish()
+        };
+        let (_, entry) = self
+            .entries
+            .raw_entry()
+            .from_hash(hash, |key| *key == address)?;
         let live = entry.prototype.upgrade(&ctx)?;
-        Gc::ptr_eq(live, prototype).then_some(entry.id)
+        if !Gc::ptr_eq(live, prototype) {
+            return None;
+        }
+        if cached[0].0 != address && cached[1].0 != address {
+            self.address_hashes.set([(address, hash), cached[0]]);
+        }
+        Some(entry.id)
     }
 
     pub fn resolve(&self, ctx: Context<'gc>, id: u64) -> Option<Gc<'gc, FunctionPrototype<'gc>>> {
