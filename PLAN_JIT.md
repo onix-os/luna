@@ -9,6 +9,50 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Callback hardware-cycle attribution — 2026-10-18
+
+Eighty completed profiles cover twenty alternating Off/Auto rounds on each of
+CPUs 0 and 16, with 1,000 verified callback iterations per process. The independent
+audit checks exact run identities, worker protocols, native instruction counts,
+source/driver/image hashes, capture counts, report totals and executable mappings.
+All **33,435 samples** reconcile with their weighted event totals; all reports
+have zero lost samples. Auto reports 20,046,354 native logical instructions per
+worker; Off reports zero. The symbol-bearing speed image is byte-identical to
+the restored split-hook diagnostic control, not asserted to be the exact-link
+companion of the stripped acceptance image.
+
+| Whole-process sampled user-cycle self share | CPU0 | CPU16 |
+| --- | ---: | ---: |
+| VM, Auto | 20.06% | 21.18% |
+| Executor, Auto | 19.88% | 19.58% |
+| Prepared-key helper, Auto | 11.66% | 12.88% |
+| Seven-slot native entry, Auto | 10.47% | 11.06% |
+| Named generated code, Auto | 4.97% | 5.00% |
+| VM, Off | 23.84% | 25.80% |
+| Executor, Off | 22.98% | 23.08% |
+
+Unknown symbols are retained, not classified as native work: 0.0205%/0.0130%
+for Auto and 0.0086%/0.0252% for Off. Generated-map filenames are normalized only
+for aggregation; original sample records remain unchanged. Every entry/helper
+sample address is checked against the actual per-process executable mapping and
+ELF segment bias. Native scalar import occupies 3.03%/2.63% of whole-process
+samples; counter publication 2.02%/2.93%; normal frame/call setup 1.15%/2.05%.
+The remainder is retained without pretending these selected address ranges
+classify the whole entry. Sampling skid prevents exact instruction-latency claims.
+
+This is whole-process diagnostic sampling, including startup, compilation and
+cleanup, not Executor-only collection or uninstrumented timing acceptance. The
+original performance gates remain failed. Earlier integer-first writeback and
+projection-specialization trials already exist and are not repeated. Fresh
+helper disassembly instead exposes combined strong/weak-key classification in
+the prepared comparator as a further candidate; no gain is established yet.
+
+The first launcher requested an unsupported iteration count and failed. A second
+launcher accidentally generated an empty round loop and ran zero profiles; its
+completion marker is invalid and excluded. Only the corrected v3 campaign is
+counted. Evidence: `hook-resume-recovery/callback-cycles-v3/`, with its separate
+`callback-cycles-audit.{mk,pl}` driver and `audit/validated.json` report.
+
 ### Known inline-source validation diagnostic — 2026-10-18
 
 `backend::inline_loop::Code::run` previously rediscovered caller and callee
