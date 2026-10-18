@@ -9,6 +9,29 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded callable niches — hypothesis disproved, 2026-10-18
+
+Trial `d0fdcb9` uses Function `repr(usize)` discriminants 9 and
+`usize::MAX - 1`, testing a bounded low interval with a spare value for
+Option compactness. It changes neither Value nor generated Slot/access code.
+The unchanged bounds pass **104 real i686 representation executions**, **137
+host focused executions**, and **44 layout/native/ABI executions**.
+
+Fourteen exact profiles preserve all logical/resource counters. Integer/float
+Off and Auto instruction totals are unchanged; upvalue Auto falls **1.7280%**,
+with small increases elsewhere. Exact maps show integer tag **0xc**, and Add
+still subtracts **0xa** before conditionally selecting semantic tag 6. The
+compiler did not assign the intended low scalar tags. Profile auditing passes
+nine corruptions; exact maps pass four. This disproves the stated lowering
+hypothesis, not a portable Rust layout rule.
+
+The runtime is not promoted, and no elapsed regression or speedup is inferred
+from instruction counts. No elapsed, Miri, full Force or shipping acceptance
+campaign was run for this variant. Stop callable tag experiments rather than
+sweeping arbitrary discriminants; investigate canonical numeric operator
+control flow with unchanged representations and VM operand loading instead.
+Evidence: `target/jit-evidence/hook-resume-recovery/function-low-niche`.
+
 ### High callable tags — normalization remains, not promoted, 2026-10-18
 
 Trial `0ca3979` uses Function `repr(usize)` with the top two discriminants,
