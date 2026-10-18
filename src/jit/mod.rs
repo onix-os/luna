@@ -1680,6 +1680,10 @@ impl Runtime {
     }
 
     pub(crate) fn lookup(&self, id: u64) -> Option<Prepared> {
+        self.lookup_vm(id).map(|(code, _)| code)
+    }
+
+    pub(crate) fn lookup_vm(&self, id: u64) -> Option<(Prepared, bool)> {
         #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -1691,8 +1695,12 @@ impl Runtime {
             }
             #[cfg(not(miri))]
             if let Some(prepared) = native_region::resume::lookup(&mut manager, id) {
-                return prepared;
+                return prepared.map(|code| (code, true));
             }
+            #[cfg(not(miri))]
+            let scoped = manager.resume_scope.is_some();
+            #[cfg(miri)]
+            let scoped = false;
             manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
             let last_used = manager.clock.saturating_add(1);
             let entry = manager.code.lookup_mut(id)?;
@@ -1700,7 +1708,7 @@ impl Runtime {
             let code = entry.code.clone();
             manager.clock = last_used;
             manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
-            Some(Prepared { code })
+            Some((Prepared { code }, scoped))
         }
         #[cfg(not(all(
             target_os = "linux",
@@ -1757,14 +1765,29 @@ impl Runtime {
         budget: u32,
     ) -> u32 {
         #[cfg(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if native_region::resume::skip(self, prepared, closure, registers) {
+            return 0;
+        }
+        self.run_without_resume(prepared, ctx, closure, registers, budget)
+    }
+
+    pub(crate) fn run_without_resume<'gc>(
+        &self,
+        prepared: &Prepared,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        budget: u32,
+    ) -> u32 {
+        #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
-            #[cfg(not(miri))]
-            if native_region::resume::skip(self, prepared, closure, registers) {
-                return 0;
-            }
             let code = &prepared.code;
             if !code.entries.get(*registers.pc).copied().unwrap_or(false) {
                 return 0;
