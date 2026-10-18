@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Callback setup component ablation — profiling, 2026-10-18
+### Callback setup component ablation — not promoted, 2026-10-18
 
 Isolated trial `b8a77bf` applies only the native callback setup/routing portion
 of `38c7880` to baseline `066905e`. No table layout, prepared lookup or hint
@@ -36,10 +36,32 @@ These are software instruction observations, not elapsed acceptance.
 Both no-feature production images reproduce the baseline byte-for-byte.
 Production builds and source/image/configuration/environment provenance pass.
 The full all-feature Force suite passes **2,031 executions / 90 summaries**,
-zero failures and 23 ignored diagnostics. The same 144-command balanced
-production timing protocol is now running, with all owned builds, tests and
-profilers terminal before collection. No elapsed acceptance or promotion is
-claimed. Evidence:
+zero failures and 23 ignored diagnostics. Two complete 144-command balanced
+production timing campaigns use the same frozen images. Each retains 14,256
+native executions and 285,120 cost iterations, zero counter/resource mismatches,
+before/after provenance and two-valid/13-corruption audit fixtures. No owned
+build, test or profiler overlaps elapsed collection.
+
+Speed callback control/candidate median ratios are 1.0443/1.0254 on CPUs 0/16
+initially and 1.0487/1.0274 on repeat. Speed CPU 16 compiled-Off float ratios
+are **0.9754 then 0.9713**, slower in five of six rounds in each campaign;
+corresponding same-image placebos are 1.0144 then 1.0004. Ratios above one
+favor the candidate. The first CPU 0 array and upvalue losses do not repeat
+at their initial magnitude; shipping float repeat placebo variation is large.
+Those observations are retained rather than treating every initial loss as
+causal. Shipping CPU 16 Oslo compiled-Off also remains slightly slower
+(0.9945 then 0.9916, six then five adverse rounds).
+
+The composition's larger Oslo/metamethod losses do not reproduce in this
+ablation, but the persistent float loss prevents promotion. Native speed
+callback gates pass only eight then six of twelve candidate windows, and
+both complete performance audits remain false. The component is therefore
+not accepted or merged; historical callback-setup rejections remain valid.
+Source-level work reduction does not isolate the cause of changed whole-image
+cycle costs. Next attribution must use the actual **speed native-bench float
+Off** image on CPU 16, not substitute the feature-cost worker or a mismatched
+unstripped binary. Full performance/resource/platform/release scope remains
+open. Evidence:
 `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/`.
 
 ### Hash-checked callback composition — validation, 2026-10-18
