@@ -1353,3 +1353,6 @@ mod offset_tests {
 fn raw_subtract<'gc>(lhs: Value<'gc>, rhs: Value<'gc>) -> Option<Value<'gc>> {
     Some(lhs.to_constant()?.subtract(&rhs.to_constant()?)?.into())
 }
+
+#[cfg(test)]
+mod for_controls;
