@@ -9,6 +9,41 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Numeric control-register grouping — not promoted, 2026-10-18
+
+Trial `2e21a8e` on `trial/jit-for-controls` splits the three mandatory numeric
+loop controls from the conditional visible destination. Arithmetic, errors,
+PC/fuel ordering and the conditional fourth-slot access remain unchanged.
+The independent test foundation `89b5862` passes on the unchanged interpreter;
+it covers 48 scenarios across register positions, overflow, NaN, mixed types,
+typed errors and terminating three-slot frames. Those tests alone are retained
+on main as `740542c`; the runtime optimization is not.
+
+Focused validation passes 35 executions, both Miri models/features pass eight,
+and real i686-musl passes eight. Fourteen same-path instruction profiles retain
+all execution/resource fields, with strict auditing and nine corruption checks.
+Off integer/float instructions decrease **5.2822% / 4.9169%**. This does not
+establish faster execution. The float workload uses integer loop controls and
+a floating-point accumulator; its name does not imply all-Number controls.
+
+Two balanced diagnostic timing campaigns complete **288 commands / 29,376
+measured executions**, preserving original thresholds and exact counters. No
+owned validation overlaps timing. The first CPU0 integer result is dominated
+by alternating same-image placebo ratios near 1.85 and 0.5; its placebo median
+near one must not hide that variability. The repeat has a clearer adverse case:
+CPU0 float Off control/candidate median **0.9489975**, placebo **0.9994469**,
+with all six rounds adverse (approximately **5.37% longer candidate runtime**).
+CPU16 float Off's apparent gain is confounded by placebo drift, 1.03459 versus
+1.02978. Callback gates remain unmet. Do not promote this candidate.
+
+The same-image assembly shows the VM shrinks from 0xd906 to 0xd3b8 bytes, while
+its entry moves from 0x5c8900 to 0x5c88a0. Distinct control/visible pointers are
+spilled in the split version. These facts do not prove the hardware cause.
+A single-tail-slice variant is being tested against main, not merely against
+this regressed candidate. Full all-feature Force validation of `2e21a8e` is
+still running; broader shipping/cost/platform/release acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/for-controls/`.
+
 ### Immutable opcode slice — measured, not promoted, 2026-10-18
 
 Trial `01a6dfe` on `trial/jit-opcode-slice` borrows the prototype's immutable
