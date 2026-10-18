@@ -1,6 +1,48 @@
 use crate::{Closure, Lua};
 
 #[test]
+fn address_hashes_match_map_lookup_for_wide_keys_and_new_seeds() {
+    use crate::jit::resources::{BudgetAllocator, Ledger};
+    use std::hash::{BuildHasher, Hash, Hasher};
+
+    let keys = [
+        0,
+        1,
+        16,
+        256,
+        usize::MAX,
+        usize::MAX - 1,
+        1usize << (usize::BITS - 1),
+    ];
+    for _ in 0..32 {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut map = crate::jit::metadata_map(BudgetAllocator(ledger.clone()));
+        for (value, key) in keys.into_iter().enumerate() {
+            map.insert(key, value);
+        }
+        for sparse in [false, true] {
+            if sparse {
+                map.try_reserve(128).unwrap();
+            }
+            let before = ledger.current();
+            for key in keys.into_iter().chain([7, 31, usize::MAX / 2]) {
+                let mut hasher = map.hasher().build_hasher();
+                key.hash(&mut hasher);
+                assert_eq!(
+                    map.raw_entry()
+                        .from_hash(hasher.finish(), |stored| *stored == key)
+                        .map(|(_, value)| value),
+                    map.get(&key),
+                );
+            }
+            assert_eq!(ledger.current(), before);
+        }
+        drop(map);
+        assert_eq!(ledger.current(), 0);
+    }
+}
+
+#[test]
 fn identity_matches_hash_lookup_at_dense_and_sparse_capacities() {
     Lua::empty().enter(|ctx| {
         let sources: Vec<_> = (0..64)
