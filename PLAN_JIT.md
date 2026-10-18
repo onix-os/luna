@@ -9,6 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Source-identity outlining — rejected, 2026-10-18
+
+Revisited executor extraction before changing runtime code: the prior Lua-frame
+peek and guard-carrying selector trials already remove shared work and fail
+the original native/cost gates. Those mechanisms were not reimplemented.
+
+Trial `c2d505b` instead adds only `#[inline(never)]` to registry identity lookup.
+The seeded hash, fresh weak upgrade, pointer check, ownership and accounting
+remain unchanged. The hypothesis was reduced pressure in the large VM, not
+elimination of identity work. Formatting/check-all and **117 focused executions
+/ eleven summaries** pass. The matched opt3 no-feature image is byte-identical
+to the split-hook control; the JIT image has a separate 272-byte lookup symbol.
+
+Four alternating baseline/trial rounds produce **96 checked instruction
+profiles**, covering callback/upvalue/float, Off/Auto and both feature images.
+All worker/native counters and thirteen exclusive event totals verify. Callback
+Auto instructions increase **0.726–0.749% in all four rounds**, to 47,539,061;
+Off increases **0.965%**, from 38,915,025 to 39,290,435. Moving work out of the
+VM does not remove it: in round zero VM self work falls 1,297,299 instructions,
+but the new identity function executes 1,650,330. Upvalue Auto varies between
+**-1.641% and +2.116%**, with one favorable round retained rather than selected.
+
+Float Off repeatedly grows **20,060,895 -> 20,964,290 (4.503%)**. Address-level
+decoding of all four paired float profiles finds **903,285** extra VM
+instructions and 110 extra executor instructions. VM data reads/writes rise
+**400,075 / 400,080**; the explicit `%rsp` memory operands account for all of
+those respective increases. Such instructions rise **3,657,520 -> 4,457,675**.
+Every nonzero VM self-cost row maps to a decoded instruction in its own image,
+and the totals agree with independent Callgrind annotation. Eight valid profile
+checks and three refusal checks pass: missing assembly, wrong-image assembly
+and wrong expected instruction total. This measures extra generated stack
+traffic, not hardware cache misses or a causal elapsed-time regression.
+
+The VM's stack reservation actually shrinks **0x648 -> 0x638** while its symbol
+grows **55,274 -> 56,205 bytes**. Smaller stack reservation is therefore not
+evidence of less executed stack traffic. An initial exact-symbol selector used
+the wrong demangled spelling and failed; the corrected selector matches
+`<luna::jit::registry::Registrations>::identity` before attribution.
+
+Reject the annotation rather than proceed to a broad timing campaign with
+uniformly higher callback work and repeated Off-float work growth. `afe21c0`
+restores the original source exactly; formatting/check-all and the same 117
+focused executions pass again. Both rebuilt diagnostic images are byte-identical
+to their frozen split-hook controls. No new elapsed, Miri, full-suite or platform
+acceptance is claimed. All profiles, counter audits, exact assemblies, address
+checks and the rejected patch remain under `identity-outline*` in
+`target/jit-evidence/hook-resume-recovery/`. Full acceptance remains open.
+
 ### Bounded tiny-registry lookup — rejected, 2026-10-18
 
 A further audit of all eighty callback hardware profiles resolves VM/executor
