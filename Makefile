@@ -347,6 +347,33 @@ jit-metrics-tests:
 jit-bench-paired:
 	@$(MAKE) --no-print-directory jit-bench ARGS='--mode paired --samples 11 $(ARGS)'
 
+PERF ?= perf
+CYCLES_DIR ?= target/jit-evidence/warmed-cycles
+CYCLES_IMAGE ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_cycles
+CYCLES_CASE ?= rust_callbacks
+CYCLES_MODE ?= auto
+CYCLES_ITERATIONS ?= 1000
+CYCLES_EVENT ?= cycles:u
+.PHONY: jit-cycles-tests jit-cycles-build jit-cycles-run
+jit-cycles-tests:
+	@$(CARGO) test --locked -p luna --features jit --example jit_cycles $(TARGET_ARG) $(ARGS)
+
+jit-cycles-build:
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) build --locked -p luna --features jit --release --example jit_cycles $(TARGET_ARG)
+
+jit-cycles-run: jit-profile-cpu-check
+	@test -x '$(CYCLES_IMAGE)'
+	@mkdir '$(CYCLES_DIR)'
+	@set -e; ctl='$(CYCLES_DIR)/control'; ack='$(CYCLES_DIR)/ack'; \
+		mkfifo "$$ctl" "$$ack"; trap 'rm -f "$$ctl" "$$ack"' EXIT; \
+		timeout 180s taskset -c '$(PROFILE_CPU)' '$(PERF)' record -D -1 -e '$(CYCLES_EVENT)' -F 997 \
+			--control="fifo:$$ctl,$$ack" -o '$(CYCLES_DIR)/perf.data' -- \
+			'$(CYCLES_IMAGE)' '$(CYCLES_MODE)' '$(CYCLES_CASE)' '$(CYCLES_ITERATIONS)' "$$ctl" "$$ack" \
+			> '$(CYCLES_DIR)/run.log' 2> '$(CYCLES_DIR)/perf.log'
+	@$(PERF) report --stdio --no-children --percent-limit 0 --sort symbol,dso -i '$(CYCLES_DIR)/perf.data' > '$(CYCLES_DIR)/report.log'
+	@$(PERF) script -F ip,sym,dso,period -i '$(CYCLES_DIR)/perf.data' > '$(CYCLES_DIR)/samples.log'
+	@grep -F 'cycles_protocol=1 mode=$(CYCLES_MODE) case=$(CYCLES_CASE) warmups=2 iterations=$(CYCLES_ITERATIONS) verified=1 compilation_delta=0' '$(CYCLES_DIR)/run.log'
+
 jit-performance:
 	@$(MAKE) --no-print-directory jit-bench JIT_BENCH_OPT=3 ARGS='--mode paired --samples 11 --check $(ARGS)'
 
