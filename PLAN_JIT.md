@@ -118,7 +118,7 @@ the successful corrected resumption are retained separately.
 Withdrawal validation uses a fresh, separate Cargo target: formatting and
 workspace/all-target/all-feature checking pass, followed by six prepared-table,
 nine prepared-key, twenty public heap and one timing-contract test (36 passed,
-one ignored timing worker). The existing timing harness checks also pass:
+two ignored diagnostic workers). The existing timing harness checks also pass:
 69 malformed screens, five synthetic runners and four invalid cross-image
 inputs. The production auditor accepts the valid/restored screen and rejects
 13 deliberately corrupted copies. All `src/` files match pre-trial `2a9f1d1`;
