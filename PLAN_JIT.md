@@ -40,8 +40,8 @@ comparisons must not share Cargo targets across source checkouts or treat a
 successful build plus separately captured source hashes as sufficient proof.
 
 Fourteen fresh ordinary-image profiles are compared against the unchanged,
-scratch-free `2e0c44c` image. All25 counters, code/metadata/snapshot sizes and13-event
-exclusive sums match. Callback instructions fall **10594582 → 10554582 (-0.378%)**
+scratch-free `2e0c44c` image. All25 counters and code/metadata/snapshot sizes match;
+the13-event exclusive-sum audits pass. Callback instructions fall **10594582 → 10554582 (-0.378%)**
 in both rounds, with generated callback work remaining730160. Integer/float
 counts are unchanged; metamethod instructions fall by8016. Other small or
 variable differences remain in the complete report.
