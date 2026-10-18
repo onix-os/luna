@@ -9,6 +9,51 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Immutable opcode slice — measured, not promoted, 2026-10-18
+
+Trial `01a6dfe` on `trial/jit-opcode-slice` borrows the prototype's immutable
+opcode slice once per VM invocation and uses it for transition inspection and
+ordinary dispatch. It does not cache PC, decoded operations, native outcomes or
+registry identities; bounds checks, hooks, fuel and PC advancement remain.
+The hypothesis was fewer repeated opcode-buffer loads in the sampled VM hot path,
+not a new cache or object-layout change. Baseline `5757ed2` has identical runtime
+and build inputs to current main `4d730ea`; the rejected pair scan is not included.
+
+Formatting/all-feature checks and **1,402 executions / five summaries** pass,
+including 1,358 JIT unit tests, with zero failures and 22 ignored. Actual VM
+hook-resumption fixtures pass under both Miri models, both feature choices
+(**eight executions total**). Real i686-musl hook/dispatch checks pass eleven.
+The trial is committed and pushed, not merged.
+
+Fourteen fresh profiles against the frozen same-path control preserve every
+non-timing execution/resource field; strict auditing and nine corrupted fixtures
+pass. Instruction totals are mixed: integer/float Off rise **0.08295% / 0.07726%**,
+upvalue Off rises 0.55832%, callback Auto rises 0.37088%, while upvalue Auto falls
+3.27337%. These are whole-execution changes, not isolated attribution to the slice.
+
+The focused screen expands to integer, float, callbacks and upvalues:
+**144 commands / 14,688 measured executions**, six balanced A/candidate/B orders
+on CPUs 0/16, 51 alternating Off/Auto samples. Exact counters, native coverage,
+source/image/tool identities and the original workload thresholds verify; the
+auditor's valid fixture and nine corruptions pass. No owned tests/builds/profilers
+overlap elapsed collection. Adverse comparisons include:
+
+| CPU | Workload / mode | Control/candidate median | Placebo median | Adverse rounds |
+| --- | --- | ---: | ---: | ---: |
+| 0 | float / Off | 0.92493 | 0.99773 | 6/6 |
+| 0 | upvalue / Off | 0.95627 | 1.00002 | 6/6 |
+| 0 | upvalue / Auto | 0.97995 | 1.00721 | 6/6 |
+| 16 | integer / Off | 0.93037 | 1.01017 | 6/6 |
+| 16 | float / Off | 0.94190 | 1.02574 | 6/6 |
+
+CPU0 callback Auto improves in this diagnostic image, but does not erase these
+losses. The VM begins at the same address in both diagnostic images while its
+body grows **243 bytes**; whole-function placement alone cannot explain this
+trial's results. No detailed register-allocation cause is claimed.
+**Do not promote.** This early negative screen is not full shipping/cost/platform
+acceptance, and no such gate is claimed or waived. Main runtime remains `066905e`.
+Evidence: `target/jit-evidence/hook-resume-recovery/opcode-slice/`.
+
 ### Shared registry traversal — measured, not promoted, 2026-10-18
 
 Trial `1b82d30` on `trial/jit-registry-pair-scan` resolves the inline native
@@ -109,6 +154,35 @@ Placement/front-end behavior remains a hypothesis requiring stronger attribution
 no new alignment policy, offset search or runtime change is selected. The pair
 trial remains unpromoted. Evidence: the trial's `attribution/`, especially
 `*-map/identity`, `vm-structure.diff`, `direct-targets.json` and `counter-audit.json`.
+
+#### Sampled localization of the pair-scan disabled cost
+
+A further **144 captures / 144,000 worker iterations** use the exact original
+stripped images, integer/float Off, CPUs 0/16 and twelve balanced A/candidate/B
+orders. All **26,147 samples** reconcile with 115,770,605,400 weighted user cycles;
+reports have zero lost samples. Image/source/tool provenance, worker results,
+zero native work, original PMU domains and contention telemetry are retained.
+
+The linker map resolves image samples without trusting stripped-symbol names.
+Every mapping matches the executable segment's page-rounded offset/length, and
+every VM sample lands on an instruction boundary in exact-image disassembly.
+The strengthened auditor reproduces the initial analysis byte-for-byte and
+rejects thirteen corrupt fixtures, including wrong mapping offsets, shifted
+mapping starts and VM PCs inside instructions. Unknown/external work is retained.
+
+VM self-work accounts for **94.06–96.53%** of weighted cycles across all twelve
+CPU/workload/label groups. CPU0 integer control/candidate medians are **0.90505**
+for whole sampled cycles and **0.92066** for VM self cycles; corresponding placebo
+medians are **1.00101 / 1.02134**. Executor shares are small and noisy, so its
+larger relative ratios are not promoted to a precise attribution claim.
+These profiles localize the cost to the VM-dominated path, not native registry
+resolution; sampling skid still prevents exact instruction-latency claims.
+
+This motivates testing dispatch work rather than selecting a lucky code offset.
+The opcode-slice experiment above is the resulting measured negative trial;
+no performance acceptance follows from either the profile or that implementation.
+Sampling evidence: `registry-pair-scan/attribution/sampling/`, including
+`audit-v2.json`, immutable raw events and mutation-test results.
 
 ### Registry ID index — correctness passes, performance refusal, 2026-10-18
 
