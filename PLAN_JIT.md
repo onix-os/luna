@@ -9,6 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Single numeric register window — rejected, 2026-10-18
+
+Trial `bdd8571` on `trial/jit-for-tail` uses one checked tail slice for numeric
+loop controls and the conditional visible destination, rather than the split
+trial's two views. It preserves all arithmetic, errors, PC/fuel and conditional
+fourth-slot contracts. Formatting/check-all and the focused numeric/control/hook
+suite pass **35 executions / eight summaries**, without failures or ignores.
+This variant has not received its own full Force, Miri or i686 validation; the
+broader results below belong to the previous split candidate, not this one.
+
+Fourteen exact-image instruction profiles preserve every execution/resource
+field. Off integer/float instructions fall **3.7089% / 3.4522%**, while Auto
+upvalues fall 2.8083%; several other modes increase. Strict auditing and nine
+corruptions pass. A balanced **144-command / 14,688-execution** screen still
+rejects the change: CPU0 integer/float Off control/candidate medians are
+**0.913156 / 0.907538**, with placebo 1.001787 / 0.983419 and all six rounds
+adverse. CPU16 gains do not erase CPU0 regressions; callback gates remain unmet.
+
+Hardware counters narrow the investigation beyond instruction totals. With the
+same frozen images, common hardlink launch path, source/tool manifests and no
+overlapping owned validation, **72 commands / 72,000 measured executions**
+collect user cycles, instructions, branches and branch misses across CPUs 0/16.
+All **288 event readings run at 100%**; logical/resource counters match exactly.
+The auditor accepts valid/restored fixtures and refuses thirteen corruptions.
+CPU0 integer/float median-time ratios reproduce at **0.913568 / 0.906436**;
+cycle ratios are **0.927556 / 0.912851**, with placebo 1.005110 / 1.001143.
+Instruction ratios are 1.038425 / 1.035683, while branch-miss ratios remain
+approximately one. Thus fewer retired instructions coexist with more user
+cycles; timing contention alone does not explain this repeat.
+
+A separate CPU0 instruction-delivery capture completes **36 commands / 36,000
+measured executions**, with all **180 event readings at 100%**. It repeats the
+identity/counter checks and valid/restored plus thirteen-corruption audit.
+Control/candidate medians for `idq_uops_not_delivered.core` are **0.070299 /
+0.058481** for integer/float (placebo 1.071030 / 1.002694): the candidate has
+roughly 14–17 times the recorded delivery bubbles. Taken branches decrease,
+rather than increase, and branch misses were unchanged in the first capture.
+DSB-delivered uops decrease; MITE-delivered uops do not show a comparable
+order-of-magnitude change. Local perf event descriptions are retained.
+
+This is evidence of an instruction-delivery problem in the exact diagnostic
+image, not proof of a particular basic-block, cache-set or alignment cause.
+Inspect the hot machine-code layout before selecting another runtime change;
+do not infer a shipping fix or start a blind offset search. Neither numeric
+window optimization is enabled on main. No shipping/cost acceptance is claimed.
+Evidence: `target/jit-evidence/hook-resume-recovery/for-tail/`, including
+`counter-audit.json` and `frontend/counter-audit.json`.
+
 ### Numeric control-register grouping — not promoted, 2026-10-18
 
 Trial `2e21a8e` on `trial/jit-for-controls` splits the three mandatory numeric
