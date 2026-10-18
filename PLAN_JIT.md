@@ -9,6 +9,65 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Thread-local prepared bucket hint — unaccepted trial, 2026-10-18
+
+`7159218` trials a single constant-initialized TLS `usize` in JIT-only prepared
+string lookup. It retains no pointer, key, value or GC root. Each hit checks the
+current table's bucket bounds, occupancy and key equality under its shared
+borrow, then reads/upgrades the current slot. Misses use the existing hash lookup.
+Unlike the three previously rejected per-Code bucket-hint variants, this changes
+neither Code/Frame/table layouts nor their allocations, and does not instrument
+ordinary interpreter lookup. The fixed per-thread TLS storage and binary effects
+still require compiled-Off/resource acceptance.
+
+Formatting/check-all, eight prepared-table tests, nine prepared-key tests,
+twenty integrated heap tests and the seven-workload timing contract pass. Tests
+cover arbitrary indices, stale/foreign hints, separate threads/Lua instances,
+mutation, clear/growth, weak values, collisions, callbacks, metatables and GC.
+Assigning Nil can retain an occupied string-key slot for iteration order; the
+new test was corrected to require a semantic Nil result, not a nonexistent
+physical removal. Miri passes eight model and five helper tests in each borrow
+model (Stacked seed88, Tree seed89; retained warnings45/39/39/39). This is Rust-side
+evidence, not generated-code execution under Miri.
+
+An initial shared-target run silently used the old six-test executable; the
+explicit eight-test gate rejected it. A later shared release build also returned
+an old image without the two new tests, despite newly captured source hashes.
+That `prepared-tls/image/` is marked **INVALID**, not measured evidence. A fresh
+candidate-specific Cargo target rebuild took3m13s; both new test names and eight
+passing frozen-image tests verify that `image-fresh/` contains the trial. Future
+comparisons must not share Cargo targets across source checkouts or treat a
+successful build plus separately captured source hashes as sufficient proof.
+
+Fourteen fresh ordinary-image profiles are compared against the unchanged,
+scratch-free `2e0c44c` image. All25 counters, code/metadata/snapshot sizes and13-event
+exclusive sums match. Callback instructions fall **10594582 → 10554582 (-0.378%)**
+in both rounds, with generated callback work remaining730160. Integer/float
+counts are unchanged; metamethod instructions fall by8016. Other small or
+variable differences remain in the complete report.
+
+Four balanced42-window screens complete **3528 timing samples**, CPUs0/16 and
+reversed-order repeats, with source/image/tool hashes, results, counter parity
+and external-contention telemetry retained. No owned build/test/profiler overlaps
+these measurements. Control/candidate callback medians are **1.046225,1.012739,
+1.013202,1.037058**; corresponding placebos are0.994716,1.001719,1.002619,0.998395.
+Metamethod medians are1.014352,1.020935,1.020638,1.018004. CPU16 allocation medians
+are adverse at **0.985734/0.990573**; preserve them rather than reporting only gains.
+These are library-test images, not production release acceptance.
+
+The timing harness now supports ordinary-versus-ordinary frozen images without
+inventing an experimental selector or rewriting result records. Its five synthetic
+runners pass,69 malformed screens are refused, and four invalid cross-image
+inputs are refused before sampling. The default benchmark thresholds are unchanged.
+
+Production speed/shipping no-feature and feature images are being built from
+separate frozen source roots with independent Cargo targets. Their results,
+compiled-Off/cold costs, original native gates, platform/resource gates and broader
+acceptance remain pending. Do not promote this trial based on the diagnostic
+callback gain. Evidence is under `target/jit-evidence/hook-resume-recovery/prepared-tls/`,
+including `image-fresh/`, `profile-audit.json`, `time-summary.json`, all four
+`time-*` screens and the rejected/stale build logs.
+
 ### Private callback scratch reuse — rejected, 2026-10-18
 
 **Outcome: both variants lose against a scratch-free control.** The earlier
