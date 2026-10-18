@@ -9,6 +9,31 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Frame-mode classification diagnostic — 2026-10-18
+
+Fresh shipping disabled-upvalue profiles attribute 3,800,290 instructions and
+200,015 indirect branches to `ThreadState::mode`. Read-only disassembly of the
+hashed split-hook image shows a jump table even for ordinary Lua frames.
+This is not the previously rejected executor mode-query elision: both existing
+queries, child-result rechecks, borrow scopes and execution boundaries remain.
+
+Test commit `c6e23d1` adds 132 classification combinations covering all ten frame
+variants plus empty stacks, three depths and both deferred-error/taken flags.
+The new fixture and existing handoff/fuel fixtures pass in both feature builds
+before changing runtime code. Trial `d8aadb7` keeps Normal-frame classification
+in the ordinary function and outlines the remaining frame mapping. Deferred
+errors retain precedence; sole versus nested error frames retain distinct modes.
+It adds no cached state, unsafe code, layout assumption or fuel/stat change.
+
+Formatting/all-feature checks and **32 focused executions / eight summaries**
+pass; all four mode fixtures also pass under Miri without JIT. Fresh shipping
+assembly confirms a bit test and direct return replace the normal-path indirect
+jump; uncommon states retain their separate mapping. This is machine-code
+evidence, not a speedup claim. Shipping/speed builds and matched Off/Auto profiles
+precede any elapsed acceptance campaign. Evidence prefix:
+`hook-resume-recovery/mode-classification*`. All original performance gates remain
+open and unchanged.
+
 ### Owned scalar-import diagnostic — 2026-10-18
 
 Fresh shipping/speed Off-versus-no-feature profiles for the split-hook source
