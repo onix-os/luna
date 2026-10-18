@@ -151,3 +151,71 @@ fn terminating_numeric_loop_does_not_require_visible_slot() {
         }
     });
 }
+
+#[test]
+fn mixed_numeric_controls_preserve_conversion_and_termination() {
+    Lua::empty().enter(|ctx| {
+        use Value::{Integer as I, Nil, Number as N};
+        let zero = Value::String(ctx.intern(b"0"));
+        let step = Value::String(ctx.intern(b"-0.5"));
+        let bad = Value::String(ctx.intern(b"invalid"));
+        let cases = [
+            ([N(1.0), N(0.0), N(-0.5)], N(0.5), true, None),
+            ([N(1.0), N(1.0), N(-0.5)], N(0.5), false, None),
+            ([N(1.0), N(1.0), N(0.0)], N(1.0), true, None),
+            ([N(-0.0), N(0.0), N(-0.0)], N(-0.0), true, None),
+            (
+                [N(f64::INFINITY), N(f64::INFINITY), N(1.0)],
+                N(f64::INFINITY),
+                true,
+                None,
+            ),
+            (
+                [N(f64::NEG_INFINITY), N(0.0), N(1.0)],
+                N(f64::NEG_INFINITY),
+                true,
+                None,
+            ),
+            (
+                [N(f64::INFINITY), N(f64::INFINITY), N(f64::NEG_INFINITY)],
+                N(f64::NAN),
+                false,
+                None,
+            ),
+            ([N(f64::NAN), N(1.0), N(1.0)], N(f64::NAN), false, None),
+            ([N(0.0), N(1.0), N(f64::NAN)], N(f64::NAN), false, None),
+            ([I(0), N(f64::NAN), I(1)], I(1), false, None),
+            ([zero, I(2), I(1)], N(1.0), true, None),
+            ([I(0), I(2), step], N(-0.5), false, None),
+            (
+                [N(0.0), bad, N(1.0)],
+                N(0.0),
+                false,
+                Some(("number", "string", "number")),
+            ),
+            (
+                [I(0), bad, I(1)],
+                I(0),
+                false,
+                Some(("integer", "string", "integer")),
+            ),
+            (
+                [I(0), I(1), Nil],
+                I(0),
+                false,
+                Some(("number", "number", "nil")),
+            ),
+            (
+                [I(i64::MAX), N(f64::INFINITY), I(1)],
+                I(i64::MIN),
+                false,
+                None,
+            ),
+        ];
+        for base in [0, 1, 252] {
+            for (input, next, continues, error) in cases {
+                check(ctx, base, true, input, next, continues, error);
+            }
+        }
+    });
+}
