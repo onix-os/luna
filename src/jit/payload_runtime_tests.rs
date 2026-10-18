@@ -1,6 +1,7 @@
 use super::*;
 use crate::{Closure, Executor, Fuel, Lua, StashedExecutor};
 
+mod bound_entry;
 mod field_memory;
 mod preferred_entry;
 mod strided_profile;

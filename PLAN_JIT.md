@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Optional bound-entry runtime pair — test-only, 2026-10-18
+
+`PreferBoundPair` retains ordinary native code and optionally attaches a
+PC/budget64-specialized image for the unique fixed-call resumption selected by
+the existing enclosing-loop analysis. Selection uses the specialized entry only
+for matching PC and an effective64-instruction budget; the ordinary entries map
+and all other native coverage remain intact. This path and its fields exist only
+in native test builds. Production compilation and execution are unchanged.
+
+Both images use the existing mapping/metadata ledgers. The optional compilation
+receives remaining aggregate IR/block/relocation allowance; ordinary-owner
+storage is reserved first. Refused optional compilation/ownership keeps the
+ordinary image, and optional disposal participates in the existing owner/cache
+allocation recovery. The prior clone/string compiler oracle is still test-only
+and uncharged; this is not complete resource-policy acceptance.
+
+The initial17 compiler/pair/runtime fixtures pass with formatting/check-all.
+Tests cover exact selected function pointers, all entry PCs and budget boundaries,
+ordinary coverage after optional refusal, mapping/IR limits, child lease lifetime,
+parent-owner refusal/disposal, sixteen scalar/reference callback fuel scenarios,
+interruptions, weak-table mutation, GC and all25 runtime counters. In-callback
+cache clears and Off/Auto switches also preserve results, counters and resumption.
+The first lifecycle driver executed cold without installing code; it was replaced
+with explicit preparation/short stepping and requires observed pair installation
+and nonzero native execution, rather than weakening that assertion.
+
+`jit-bound-pair-profile-build/run` freeze an optimized image, execute its actual
+new fixtures, then measure four ordinary/pair instruction-profile rounds of the
+real frozen callback workload after two warmups. Hashes, native image dumps,
+all thirteen exclusive events and exact runtime counters are checked. Profile
+results, elapsed production comparisons and full acceptance remain open.
+
 ### PC-and-budget binding prototype — not promoted, 2026-10-18
 
 Test-only `RequireBoundBudget(pc, budget)` composes the PC specialization with

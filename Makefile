@@ -1306,6 +1306,11 @@ jit-entry-flow-backend:
 jit-bound-entry:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::bound:: -- --test-threads=1 | awk '/^test result: ok[.] 11 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
 
+.PHONY: jit-bound-pair
+jit-bound-pair:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::bound_pair:: -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::bound_entry:: -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 BOUND_ENTRY_DIR ?= target/jit-evidence/bound-entry
 .PHONY: jit-bound-entry-profile-build jit-bound-entry-profile-run
 jit-bound-entry-profile-build:
@@ -1316,7 +1321,7 @@ jit-bound-entry-profile-build:
 	@test "$$(wc -l < '$(BOUND_ENTRY_DIR)/binary-path')" -eq 1
 	@cp "$$(cat '$(BOUND_ENTRY_DIR)/binary-path')" '$(BOUND_ENTRY_DIR)/test-binary'
 	@sha256sum '$(BOUND_ENTRY_DIR)/test-binary' > '$(BOUND_ENTRY_DIR)/binary.sha256'
-	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/callgrind_exclusive.awk; } | sort -z | xargs -0 sha256sum > '$(BOUND_ENTRY_DIR)/source.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs examples/jit_support/callgrind_exclusive.awk; } | sort -z | xargs -0 sha256sum > '$(BOUND_ENTRY_DIR)/source.sha256'
 	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nscope=native-component-only\nwarmups=2\nmeasured_repetitions=1000\n'; } > '$(BOUND_ENTRY_DIR)/configuration'
 	@set -o pipefail; '$(BOUND_ENTRY_DIR)/test-binary' jit::entry_flow::bound:: --test-threads=1 | tee '$(BOUND_ENTRY_DIR)/contracts.log' | awk '/^test result: ok[.] 11 passed; 0 failed; 1 ignored;/ { valid=1 } END { exit !valid }'
 
@@ -1341,6 +1346,30 @@ jit-bound-entry-profile-run: jit-profile-cpu-check
 		cmp '$(BOUND_ENTRY_DIR)/'$$round-0.counts '$(BOUND_ENTRY_DIR)/'$$round-2.counts; \
 	done
 	@sha256sum -c '$(BOUND_ENTRY_DIR)/binary.sha256' '$(BOUND_ENTRY_DIR)/source.sha256' > '$(BOUND_ENTRY_DIR)/verification-after.log'
+
+BOUND_PAIR_DIR ?= target/jit-evidence/bound-pair
+.PHONY: jit-bound-pair-profile-build jit-bound-pair-profile-run
+jit-bound-pair-profile-build:
+	@$(MAKE) --no-print-directory jit-bound-entry-profile-build BOUND_ENTRY_DIR='$(BOUND_PAIR_DIR)'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nscope=full-frozen-callback-runtime\nwarmups=2\nmeasured_executions=1\n'; } > '$(BOUND_PAIR_DIR)/configuration'
+	@set -o pipefail; '$(BOUND_PAIR_DIR)/test-binary' jit::backend::bound_pair:: --test-threads=1 | tee '$(BOUND_PAIR_DIR)/pair-contracts.log' | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } END { exit !valid }'
+	@set -o pipefail; '$(BOUND_PAIR_DIR)/test-binary' jit::payload_runtime_tests::bound_entry:: --test-threads=1 | tee '$(BOUND_PAIR_DIR)/runtime-contracts.log' | awk '/^test result: ok[.] 3 passed; 0 failed; 1 ignored;/ { valid=1 } END { exit !valid }'
+
+jit-bound-pair-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(BOUND_PAIR_DIR)/binary.sha256' '$(BOUND_PAIR_DIR)/source.sha256' > '$(BOUND_PAIR_DIR)/verification-before.log'
+	@valgrind --version > '$(BOUND_PAIR_DIR)/profiler.log'
+	@set -e; for round in 0 1 2 3; do for selected in 0 1; do \
+		out='$(BOUND_PAIR_DIR)/'$$round-$$selected; test ! -e "$$out.callgrind"; \
+		LUNA_BOUND_PAIR=$$selected LUNA_JIT_DIAGNOSTIC_DIR="$$out-native" taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*bound_entry::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+			'$(BOUND_PAIR_DIR)/test-binary' jit::payload_runtime_tests::bound_entry::profile_bound_pair_callback --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
+		grep -Fq "case=rust_callbacks pair=$$([ $$selected = 1 ] && echo true || echo false) validated=true" "$$out.log"; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \
+		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
+		awk -f examples/jit_support/callgrind_exclusive.awk "$$out.callgrind" > "$$out.exclusive.callgrind" 2> "$$out.exclusive.log"; \
+		sed -n 's/.*counters=\(\[[^]]*\]\).*/\1/p' "$$out.log" > "$$out.counts"; \
+		test "$$(wc -l < "$$out.counts")" -eq 1; \
+	done; cmp '$(BOUND_PAIR_DIR)/'$$round-0.counts '$(BOUND_PAIR_DIR)/'$$round-1.counts; done
+	@sha256sum -c '$(BOUND_PAIR_DIR)/binary.sha256' '$(BOUND_PAIR_DIR)/source.sha256' > '$(BOUND_PAIR_DIR)/verification-after.log'
 
 jit-region-flow:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::region_tests
