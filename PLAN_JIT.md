@@ -93,9 +93,44 @@ callees/data or establish code placement as the cause. Previously rejected
 hot-section and fixed-alignment trials are not repeated on that assumption.
 Broader performance/platform/resource/release acceptance remains open.
 
+Further exact-image attribution completes 72 sampled processes: six balanced
+A/candidate/B rounds on CPUs 0/16, both numeric workloads, 1,000 iterations per
+worker. All **73,088 samples** and summed periods account correctly with zero
+reported loss. CPU0 VM median cycle shares increase from 91.59% to 93.28%
+(integer) and 92.03% to 93.61% (float). These are non-precise sampled PCs, not
+causal stall attribution. The original auditor rejects symlink spelling versus
+the kernel's resolved executable path. Resolving the expected image path while
+retaining exact binary comparison fixes that local analysis issue; two valid
+fixtures and twelve corruptions, including incorrect mapping/sample paths,
+pass/refuse as expected. The initial failure remains recorded.
+
+All **339 external direct VM call/jump references** resolve to matching symbol
+names at matching VM offsets. This excludes indirect calls/data and does not
+compare callees' implementations. Four VM-scoped Callgrind captures on the
+exact stripped shipping images find identical instruction/read/write and
+conditional/indirect branch totals: integer **18,639,675 instructions** and
+float **19,941,710**, each over five executions (two warmups, three measured).
+Every exclusive event sum verifies. The initial whole-process capture's
+two-instruction summary/totals discrepancy is preserved as a failed audit;
+VM-entry collection avoids including that unmatched process-exit boundary.
+Simulated cache/prediction counts are not hardware stall measurements.
+
+A separate 36-worker CPU0 hardware campaign uses matched launch paths, six
+balanced rounds, seven grouped user events and 100% scheduling coverage.
+Two valid audit fixtures and ten corruptions pass/refuse. Instructions and
+conditional branch misses remain approximately unchanged. Control/candidate
+cycle medians are **0.9413 / 0.9268** (integer/float), but individual rounds
+include reversals and substantial variation. Undelivered front-end uop ratios
+are **0.4741 / 0.5945**, below one in every round; their placebo medians are
+0.9119 / 1.0331. DSB/MITE delivery and indirect misses also vary. These observations
+motivate investigating instruction-delivery throughput, not another arithmetic
+rewrite, but do not identify its cause or establish an alignment fix. Original
+uninstrumented regressions remain authoritative for promotion.
+
 Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/`, including
 the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
-`warm-audit.json`, `corrected/` and validation logs.
+`warm-audit.json`, `corrected/`, `shipping-attribution/`, `shipping-profile/`
+and validation logs.
 
 ### Branch-history attribution — no promotion, 2026-10-18
 
