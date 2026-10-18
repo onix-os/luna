@@ -39,7 +39,8 @@ and nonzero native execution, rather than weakening that assertion.
 new fixtures, then measure four ordinary/pair instruction-profile rounds of the
 real frozen callback workload after two warmups. Hashes, native image dumps,
 all thirteen exclusive events and exact runtime counters are checked. Profile
-results, elapsed production comparisons and full acceptance remain open.
+results are recorded below; elapsed production comparisons and full acceptance
+remain open.
 
 Frozen `436f85a` builds in3m19s and passes its17 actual new compiler/pair/runtime
 fixtures. Eight full-callback profiles complete with identical25-field counters
@@ -57,10 +58,36 @@ pair identity/results/counters and charges both images. The balanced runner and
 auditor now support `bound_pair` and `bound_pair_baseline`; seven selector tests,
 95 malformed-screen refusals and four invalid cross-image inputs pass. The
 cross-image mode uses the preserved pre-pair ordinary-entry image, rather than
-letting both controls pay the new optional-dispatch branch. Timing results remain
-open; the planned screen uses204 windows on CPU0/16 plus reversed repeats, all
-six A/candidate/B orders and identical-image A/B controls. Production gates and
-the compiler workspace limitation remain unchanged.
+letting both controls pay the new optional-dispatch branch.
+
+Frozen `eb42456` passes18 compiler/pair/runtime fixtures in its copied optimized
+image. Four completed204-window screens retain2,448 warmed full callback
+executions, with all six A/candidate/B orders balanced and identical-image A/B
+controls from pre-pair `38d8d3f`. Source/binary/tool hashes and all25 counters
+verify. CPU order is0,16,16,0; no owned build, test or profiler overlaps timing.
+
+| Screen | Median control/candidate time ratio | Same-image placebo ratio |
+| --- | ---: | ---: |
+| CPU0 | 1.04084 | 0.99666 |
+| CPU16 | 1.00128 | 1.00090 |
+| CPU16 repeat | 1.00352 | 0.99931 |
+| CPU0 repeat | 1.02290 | 1.00179 |
+
+Ratios above1 favor the candidate, but contention and all outliers are retained.
+The initial CPU0 candidate-ratio interquartile range is0.85687–1.26151;
+CPU16 medians are near placebo. These small, CPU-dependent observations do not
+establish a causal speedup or satisfy production acceptance. Every timing record
+charges4,096 bytes of code/801 metadata for the pre-pair controls versus8,192
+code/1,286 metadata for the candidate. The same-image instruction profile above
+has817 control metadata bytes because it includes the optional-pair test layout.
+
+Decision: retain the reproducible test-only experiment without production
+promotion. The0.33% full-runtime instruction reduction does not yet justify the
+extra mapping and compiler complexity. Further promotion requires broader
+workload evidence and bounded compiler verification/accounting, followed by
+the unchanged shipping, compiled-Off, resource, platform and release gates.
+Evidence: `target/jit-evidence/hook-resume-recovery/bound-pair/`, including
+`time-{cpu0,cpu16,repeat-cpu16,repeat-cpu0}/audit.json` and `image/summary.json`.
 
 ### PC-and-budget binding prototype — not promoted, 2026-10-18
 
