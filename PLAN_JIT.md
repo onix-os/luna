@@ -29,9 +29,42 @@ subsequent native arithmetic. Activation, in-place call/return, call-pair,
 native-region and hook-resumption Make targets also pass. These adjacent tests
 do not establish every combination with the scratch selector enabled.
 Logs are `callback-scratch/local-scopes-{full,adjacent}.log` under the evidence
-directory below. New Miri, optimized profiling, elapsed measurements and an
-unchanged-production baseline remain pending. Earlier measurements below apply
-to their historical candidates, not this refactor; no acceptance gate is closed.
+directory below. The two pure scratch-state tests also pass under Miri Stacked
+seed 86 and Tree seed 87, with 43 retained warnings in each run. These tests do
+not execute generated native code or prove all integrated borrowing paths.
+
+The independently frozen opt-level-3 image completes 28 profiles and all
+result/counter, native-body and exclusive 13-event audits. Callback instructions
+are **11255842 → 11182426 (-0.652%)** in both rounds; reuse/import counts remain
+4970/10157 and generated native instructions remain 730160 in all four callback
+captures. The selected callback total is nevertheless 35351 instructions above
+the previous outlined candidate, and the control also changed: this does not
+prove the ownership refactor itself is faster. Integer/float instruction counts
+increase by 1285; closure/upvalue counts increase by 80498/206498 across rounds.
+
+Four sequential, balanced CPU0/CPU16 screens, repeated in reversed CPU order,
+complete **3528 timing samples**. All results, 25 counters and manifests verify;
+no owned build/test/profiler overlaps elapsed measurement. External contention
+is retained. Control/candidate medians (greater than one favors the candidate):
+
+| Screen | Callback | Callback placebo | Closure/upvalue |
+| --- | ---: | ---: | ---: |
+| CPU0 first | 1.003459 | 0.999895 | 0.997263 |
+| CPU16 first | 1.018541 | 0.997463 | 0.989797 |
+| CPU16 repeat | 1.023995 | 0.991355 | 0.994576 |
+| CPU0 repeat | 1.011792 | 0.994949 | 0.996711 |
+
+The callback signal is small and variable, while closure/upvalue medians remain
+adverse in all four screens. Array and metamethod vectors are mixed; all samples
+and placebos are retained, not only favorable medians. This is still an
+instrumented same-image comparison, **not an unchanged-production speedup**.
+Do not promote this trial or treat the regressions as fixed. Before further
+scratch tuning, establish its cost against a scratch-free baseline and then the
+actual production runtime, including compiled-Off/cold/resource costs. Full
+performance, platform and release gates remain open. Evidence is in
+`callback-scratch/local-image/`, `local-audit.json`, `local-time*/`,
+`local-time-summary.json` and `local-{build,miri,profile,time}.log/status`.
+Earlier measurements below apply to their historical candidates.
 
 `a8e0edb` adds a test-only candidate for ordinary Rust callback returns. It
 retains scalar descriptors, not managed references, and still writes canonical
