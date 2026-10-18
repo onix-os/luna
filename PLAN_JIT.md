@@ -56,8 +56,23 @@ integers/floats and compiled-Off integers. Original native callback gates fail
 Passing an individual compiled-disabled overhead gate does not erase a
 cross-revision slowdown. The measured runtime is not accepted; main remains
 unchanged. Instruction equality does not establish a layout or hardware cause.
-Investigate exact-image numeric behavior before another runtime variant; do
-not rerun a broad correctness suite merely to accumulate passes for this build.
+
+An exact-image hardware follow-up completes72 grouped user-space counter runs,
+six balanced A/candidate/B rounds for both numeric workloads on CPUs0/16,
+1000 iterations per worker. All four counters run without multiplexing. CPU0
+cycle control/candidate medians are0.8997995116 for integers and0.9029902457
+for floats:10.7–11.1% more candidate cycles, in every round. Their instruction
+and branch-count medians differ by less than0.001%; branch-miss counts do not
+show a comparable increase. The cycle penalty does not reproduce in CPU16
+medians. These counters cover the whole worker, including startup/warmups,
+not just the VM. Source/image/tool verification and two valid audit fixtures
+plus ten corrupt refusals pass. The initial missing-PATH-perf failure is
+retained; the completed run uses the explicitly identified Nix perf binary.
+Results are in `timing/hardware-audit.json` and `timing/hardware/`.
+
+Investigate the numeric cycle penalty before another runtime variant; do not
+assume branch prediction or alignment is its cause, or rerun a broad
+correctness suite merely to accumulate passes for this build.
 Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/`, especially
 `warm-audit.json`, `timing/production-audit.json` and `timing/production-screen/`.
 Full performance/resource/platform/release acceptance remains open.
