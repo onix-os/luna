@@ -9,6 +9,27 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared numeric stores — rejected instruction trial, 2026-10-18
+
+Trial `3fc3ece` on `trial/jit-numeric-loop-store` consolidates the three
+numeric arms' index/PC/visible-index writes after computing the next Value
+and past-end flag. It builds on `a7182e5`, preserves conversion failures
+before writes and the original write order, and is not promoted to main.
+Sixty-four focused executions, all-feature/format checks and two focused
+default-Miri loop executions pass.
+
+The intended write reduction occurs, but other work increases: integer VM
+writes fall from baseline 428,859 to 408,857, while reads rise from 1,017,720
+to 1,098,355 and instructions rise from 3,662,572 to 3,683,828. Whole integer
+Off instructions grow 0.563%, float Off 0.524%. Thirteen of fourteen cases
+increase; only closure/upvalue Auto improves (0.351%). All execution/resource
+counters and the valid/nine-corruption profile audit agree. This is not an
+elapsed improvement and does not justify another production timing campaign
+for this form. Source-level consolidation did not reduce total work.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/argument-rotation/borrowed-loop/shared-store/`
+(`warm-audit.json`, `candidate/`, `focused-tests.log`, `miri.log`).
+
 ### Bounded numeric operands — instruction screening, 2026-10-18
 
 Two isolated successors to the separate-reference experiment retain the
