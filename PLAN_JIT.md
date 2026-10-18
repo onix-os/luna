@@ -9,6 +9,42 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Compact integer-pair guard — test-only investigation, 2026-10-18
+
+`2572c06` tests `(left_tag | right_tag) == Integer` after both existing Numeric
+guards, replacing the two materialized Integer comparisons only in test-selected
+ordinary arithmetic lowering. Without both Numeric guards, Nil/Integer would
+be wrongly admitted. Prepared-key and integer-loop passes remain enabled;
+production selection, loop emission, fuel and helper boundaries are unchanged.
+The test-only verifier recognizes direct OR conflicts within its existing
+traversal budget. Missing guards, wrong operands and both predicate polarities
+are covered; this does not restore the rejected combined numeric-loop guard.
+
+Formatting/all-feature checks and **214 focused executions / 29 summaries**
+pass, including **185,856 arithmetic comparisons**, **1,800 malformed-tag
+comparisons**, the shared 24-script/eight-fuel contract and source corruption
+refusals. Both Miri borrow models pass the pure 16-case admission fixture
+(45 Stacked / 39 Tree warnings). Miri does not execute generated native code.
+
+The frozen optimized image completes **28 profiles** across seven workloads
+and two alternating rounds. All 25 paired execution counters and thirteen
+exclusive event sums verify. Callback instructions remain **10,594,582** in
+both modes and rounds; data reads increase by **10,000**. Captured native
+address attribution independently matches function self totals: **730,160**
+instructions in all four callback runs, with a **2,160-byte** body and `0x40`
+stack reservation. Removing 10,000 SETEs, 5,000 comparisons and 5,000 tests is
+offset by 5,000 ORs and 15,000 additional moves; branch totals are unchanged.
+
+Integer instructions fall by 1,311 (0.119%); float grows by 116 (0.010%).
+Upvalue decreases in both rounds, but by different amounts; array, metamethod
+and allocation increase in both rounds with variable magnitudes. These whole
+profile differences are retained, not assigned solely to guard lowering.
+There is no material callback instruction reduction to justify promotion.
+No elapsed campaign was run: instruction neutrality does not establish elapsed
+neutrality, improvement or regression. The experiment remains test-only; full
+performance, resource, platform and release acceptance remain open. Evidence:
+`target/jit-evidence/hook-resume-recovery/integer-pair-guard/`.
+
 ### Getter-preserving scalar cache — test-only investigation, 2026-10-18
 
 `f6b3a65` adds a test-selected native payload-cache experiment, not a production
