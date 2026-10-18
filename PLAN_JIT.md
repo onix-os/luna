@@ -9,6 +9,253 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Direct numeric Add — forwarding hazard removed, not promoted, 2026-10-18
+
+The new actual-VM model covers **384 combinations** of sixteen numeric,
+coercion and error pairs, four register/constant operand forms, three destination
+aliases and low/high register windows including register 255. Constant arithmetic
+supplies expected values; canonical operators supply expected error variants.
+PC, fuel, untouched registers and stack size are checked. Both feature choices
+pass on unchanged main runtime before optimization. Test commit `1548cda` is
+retained on main as `a32aa73`; an initial fixture-only integer-mask inference
+error and its correction remain in the evidence.
+
+Trial `84cc957` on `trial/jit-numeric-add` dispatches the four numeric pairs
+directly after ordinary operand loading, with canonical coercion/metamethod
+fallback outlined. It is not the earlier constant-RHS specialization. Formatting,
+check-all and focused model/constant/numeric/hook validation pass **137 executions
+/ 22 summaries**. Fourteen profiles preserve all execution/resource fields, and
+strict audit plus nine corruptions pass. Integer/float Off instructions fall
+2.1194%/1.4797%, but metamethod Off/Auto work grows about 0.93%.
+
+The initial elapsed screen now covers all seven workloads: **252 commands /
+25,704 measured executions**, unchanged thresholds, six balanced A/candidate/B
+orders on CPUs 0/16, strict identities/counters and nine corruption checks.
+CPU0 integer/float Off ratios are **0.785486 / 0.949764**, placebo
+1.003148 / 0.998346, both six adverse rounds. This candidate is rejected.
+
+Exact executed-instruction maps expose new 16-byte register reloads and stack
+staging after producers' separate 8-byte tag/payload stores. A CPU0 hardware
+capture (**36 commands / 36,000 measured executions**, all 144 events at 100%)
+reproduces cycle ratios **0.787785 / 0.949922**. The first integer pair records
+**18,285 versus 32,473,375** `ld_blocks.store_forward` events. Median
+control/candidate forwarding ratios are 0.000583 / 0.001673 for integer/float.
+Logical/resource counters match; valid/restored fixtures and thirteen deliberate
+corruptions pass. These are whole-process events, not exact per-instruction latency.
+
+Refinement `4e43bee` on `trial/jit-numeric-add-borrowed` borrows register operands
+through the match and passes references to the canonical fallback. Constants
+still use ordinary conversion; borrows end before destination writes or deferred
+metamethod scheduling. The same **137 / 22** focused checks pass. Exact maps now
+show scalar operand loads rather than the staged wide reloads. Another 36-command
+hardware capture has forwarding counts between **11,077 and 22,851 across all
+control and candidate captures**, instead of the first candidate's millions.
+All 144 events run at 100%; strict counter/identity auditing and thirteen
+corruption checks pass. Its duration/cycle ratios are severely contended
+(integer per-round time ratios 0.647–1.738); the favorable aggregate must not
+be presented as a speedup or used to discard the elapsed results below.
+
+The borrowed refinement's actual VM model also passes both pinned Miri models
+and feature configurations (**four test executions**, each covering the 384
+combinations); real i686-musl model/constant/GC integration passes **twelve
+executions / eight summaries**. This does not establish native execution under
+Miri or replace a full Force suite, which was not run for these negative trials.
+
+Two complete seven-workload elapsed campaigns for the refinement total
+**504 commands / 51,408 measured executions**. CPU0 integer Off ratios are
+**0.865431 / 0.872083** initially/repeated, and float Off **0.882192 / 0.873944**.
+CPU16 float Off is **0.956603 / 0.964873**, and metamethod Off
+**0.980887 / 0.977906**. Full per-round placebo variation remains in the reports;
+no owned tests/builds/profilers overlap elapsed collection. Instruction savings
+and removal of the new forwarding hazard do not establish a net improvement.
+**Do not promote either runtime change.** Main retains only the baseline-valid
+test foundation. Shipping/feature-cost/full-release acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/numeric-add/` and
+`numeric-add-borrowed/`, including each `store-forward/` and `hot-map/` directory.
+
+### Mixed numeric-loop outlining — rejected, 2026-10-18
+
+Exact-image instruction mapping of the preceding single-tail trial validates
+full profile self totals, every executed VM instruction boundary and independent
+annotation totals for integer/float Off in both images. Valid/restored fixtures
+and four deliberate corruptions pass their acceptance/refusal checks. Integer
+VM self work drops 3,662,572 -> 3,522,578, but its whole VM body grows from
+0xd906 to 0xda74 bytes. Hot dispatch, numeric-control and addition blocks remain
+widely separated; these facts do not identify a specific alignment/cache cause.
+No branch-boundary policy or padding change is enabled.
+
+Trial `9a05a51` on `trial/jit-for-mixed-outline` retains original checked register
+accesses and the inline all-integer loop path, moving mixed/string/float-control
+conversion into a safe non-inlined helper. It is not marked cold. Integer tags,
+overflow, signed zero, NaN, string conversion, error tags, PC-before-visible-write
+and conditional fourth-slot behavior are retained. The hypothesis is a smaller
+VM conversion body and fewer live values, not a selected instruction address.
+
+The expanded **96-scenario** control model passes first on unchanged main runtime
+in both feature configurations. Tests are committed separately (`7a18fe0`) and
+retained on main as `bba63c7`. Those main-runtime tests pass under both pinned
+Miri models/features (**twelve executions total**); real i686-musl passes the
+control and hook models (**ten executions**). These are not full native/Miri
+acceptance results for the outlined runtime. The trial's fmt/check-all and
+focused numeric/control/hook suite pass **37 executions / eight summaries**.
+
+Fourteen fresh instruction profiles match every execution/resource field;
+strict audit and nine corruption checks pass. Numeric Off work nevertheless
+increases **1.0598% integer / 0.9865% float**. The VM shrinks by **1,583 bytes**
+to 0xd2d7; the new helper is 0x3fb bytes. That helper is absent from all captured
+warm partitions, consistent with the existing workloads using integer controls.
+Its genuine fractional-control steady-state cost is therefore not measured by
+these workloads and must not be inferred from the float-accumulator case.
+
+A balanced **144-command / 14,688-execution** screen rejects the trial. All
+identities/counters, original thresholds and valid plus nine-corruption audits
+verify, with no owned build/test/profiler overlap. Control/candidate medians:
+
+| CPU | Workload / mode | Ratio | Placebo | Adverse rounds |
+| --- | --- | ---: | ---: | ---: |
+| 0 | integer / Off | 0.883569 | 0.999745 | 6/6 |
+| 0 | float / Off | 0.874161 | 1.001618 | 5/6 |
+| 16 | integer / Off | 0.955335 | 1.000482 | 6/6 |
+| 16 | float / Off | 0.960751 | 0.996611 | 6/6 |
+
+Callback Auto improves on CPU0, but cannot erase these regressions. **Do not
+promote.** No full Force/Miri/i686 or shipping/cost campaign was run for this
+early-negative runtime candidate. Shrinking the VM body alone is not a remedy;
+further work must preserve the original cross-workload and feature-cost gates.
+Main retains only the baseline-valid tests. Evidence:
+`target/jit-evidence/hook-resume-recovery/for-tail/hot-map/` and
+`target/jit-evidence/hook-resume-recovery/for-mixed-outline/`.
+
+### Single numeric register window — rejected, 2026-10-18
+
+Trial `bdd8571` on `trial/jit-for-tail` uses one checked tail slice for numeric
+loop controls and the conditional visible destination, rather than the split
+trial's two views. It preserves all arithmetic, errors, PC/fuel and conditional
+fourth-slot contracts. Formatting/check-all and the focused numeric/control/hook
+suite pass **35 executions / eight summaries**, without failures or ignores.
+This variant has not received its own full Force, Miri or i686 validation; the
+broader results below belong to the previous split candidate, not this one.
+
+Fourteen exact-image instruction profiles preserve every execution/resource
+field. Off integer/float instructions fall **3.7089% / 3.4522%**, while Auto
+upvalues fall 2.8083%; several other modes increase. Strict auditing and nine
+corruptions pass. A balanced **144-command / 14,688-execution** screen still
+rejects the change: CPU0 integer/float Off control/candidate medians are
+**0.913156 / 0.907538**, with placebo 1.001787 / 0.983419 and all six rounds
+adverse. CPU16 gains do not erase CPU0 regressions; callback gates remain unmet.
+
+Hardware counters narrow the investigation beyond instruction totals. With the
+same frozen images, common hardlink launch path, source/tool manifests and no
+overlapping owned validation, **72 commands / 72,000 measured executions**
+collect user cycles, instructions, branches and branch misses across CPUs 0/16.
+All **288 event readings run at 100%**; logical/resource counters match exactly.
+The auditor accepts valid/restored fixtures and refuses thirteen corruptions.
+CPU0 integer/float median-time ratios reproduce at **0.913568 / 0.906436**;
+cycle ratios are **0.927556 / 0.912851**, with placebo 1.005110 / 1.001143.
+Instruction ratios are 1.038425 / 1.035683, while branch-miss ratios remain
+approximately one. Thus fewer retired instructions coexist with more user
+cycles; timing contention alone does not explain this repeat.
+
+A separate CPU0 instruction-delivery capture completes **36 commands / 36,000
+measured executions**, with all **180 event readings at 100%**. It repeats the
+identity/counter checks and valid/restored plus thirteen-corruption audit.
+Control/candidate medians for `idq_uops_not_delivered.core` are **0.070299 /
+0.058481** for integer/float (placebo 1.071030 / 1.002694): the candidate has
+roughly 14–17 times the recorded delivery bubbles. Taken branches decrease,
+rather than increase, and branch misses were unchanged in the first capture.
+DSB-delivered uops decrease; MITE-delivered uops do not show a comparable
+order-of-magnitude change. Local perf event descriptions are retained.
+
+This is evidence of an instruction-delivery problem in the exact diagnostic
+image, not proof of a particular basic-block, cache-set or alignment cause.
+Inspect the hot machine-code layout before selecting another runtime change;
+do not infer a shipping fix or start a blind offset search. Neither numeric
+window optimization is enabled on main. No shipping/cost acceptance is claimed.
+Evidence: `target/jit-evidence/hook-resume-recovery/for-tail/`, including
+`counter-audit.json` and `frontend/counter-audit.json`.
+
+### Numeric control-register grouping — not promoted, 2026-10-18
+
+Trial `2e21a8e` on `trial/jit-for-controls` splits the three mandatory numeric
+loop controls from the conditional visible destination. Arithmetic, errors,
+PC/fuel ordering and the conditional fourth-slot access remain unchanged.
+The independent test foundation `89b5862` passes on the unchanged interpreter;
+it covers 48 scenarios across register positions, overflow, NaN, mixed types,
+typed errors and terminating three-slot frames. Those tests alone are retained
+on main as `740542c`; the runtime optimization is not.
+
+Focused validation passes 35 executions, both Miri models/features pass eight,
+and real i686-musl passes eight. Fourteen same-path instruction profiles retain
+all execution/resource fields, with strict auditing and nine corruption checks.
+Off integer/float instructions decrease **5.2822% / 4.9169%**. This does not
+establish faster execution. The float workload uses integer loop controls and
+a floating-point accumulator; its name does not imply all-Number controls.
+
+Two balanced diagnostic timing campaigns complete **288 commands / 29,376
+measured executions**, preserving original thresholds and exact counters. No
+owned validation overlaps timing. The first CPU0 integer result is dominated
+by alternating same-image placebo ratios near 1.85 and 0.5; its placebo median
+near one must not hide that variability. The repeat has a clearer adverse case:
+CPU0 float Off control/candidate median **0.9489975**, placebo **0.9994469**,
+with all six rounds adverse (approximately **5.37% longer candidate runtime**).
+CPU16 float Off's apparent gain is confounded by placebo drift, 1.03459 versus
+1.02978. Callback gates remain unmet. Do not promote this candidate.
+
+The same-image assembly shows the VM shrinks from 0xd906 to 0xd3b8 bytes, while
+its entry moves from 0x5c8900 to 0x5c88a0. Distinct control/visible pointers are
+spilled in the split version. These facts do not prove the hardware cause.
+A single-tail-slice variant `bdd8571` is being tested against main, not merely
+against this regressed candidate. Full all-feature Force validation of
+`2e21a8e` passes **2,034 executions / 90 summaries**, zero failures and 23 ignored
+(including 1,483 JIT unit tests). Broader shipping/cost/platform/release
+acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/for-controls/`.
+
+### Immutable opcode slice — measured, not promoted, 2026-10-18
+
+Trial `01a6dfe` on `trial/jit-opcode-slice` borrows the prototype's immutable
+opcode slice once per VM invocation and uses it for transition inspection and
+ordinary dispatch. It does not cache PC, decoded operations, native outcomes or
+registry identities; bounds checks, hooks, fuel and PC advancement remain.
+The hypothesis was fewer repeated opcode-buffer loads in the sampled VM hot path,
+not a new cache or object-layout change. Baseline `5757ed2` has identical runtime
+and build inputs to current main `4d730ea`; the rejected pair scan is not included.
+
+Formatting/all-feature checks and **1,402 executions / five summaries** pass,
+including 1,358 JIT unit tests, with zero failures and 22 ignored. Actual VM
+hook-resumption fixtures pass under both Miri models, both feature choices
+(**eight executions total**). Real i686-musl hook/dispatch checks pass eleven.
+The trial is committed and pushed, not merged.
+
+Fourteen fresh profiles against the frozen same-path control preserve every
+non-timing execution/resource field; strict auditing and nine corrupted fixtures
+pass. Instruction totals are mixed: integer/float Off rise **0.08295% / 0.07726%**,
+upvalue Off rises 0.55832%, callback Auto rises 0.37088%, while upvalue Auto falls
+3.27337%. These are whole-execution changes, not isolated attribution to the slice.
+
+The focused screen expands to integer, float, callbacks and upvalues:
+**144 commands / 14,688 measured executions**, six balanced A/candidate/B orders
+on CPUs 0/16, 51 alternating Off/Auto samples. Exact counters, native coverage,
+source/image/tool identities and the original workload thresholds verify; the
+auditor's valid fixture and nine corruptions pass. No owned tests/builds/profilers
+overlap elapsed collection. Adverse comparisons include:
+
+| CPU | Workload / mode | Control/candidate median | Placebo median | Adverse rounds |
+| --- | --- | ---: | ---: | ---: |
+| 0 | float / Off | 0.92493 | 0.99773 | 6/6 |
+| 0 | upvalue / Off | 0.95627 | 1.00002 | 6/6 |
+| 0 | upvalue / Auto | 0.97995 | 1.00721 | 6/6 |
+| 16 | integer / Off | 0.93037 | 1.01017 | 6/6 |
+| 16 | float / Off | 0.94190 | 1.02574 | 6/6 |
+
+CPU0 callback Auto improves in this diagnostic image, but does not erase these
+losses. The VM begins at the same address in both diagnostic images while its
+body grows **243 bytes**; whole-function placement alone cannot explain this
+trial's results. No detailed register-allocation cause is claimed.
+**Do not promote.** This early negative screen is not full shipping/cost/platform
+acceptance, and no such gate is claimed or waived. Main runtime remains `066905e`.
+Evidence: `target/jit-evidence/hook-resume-recovery/opcode-slice/`.
+
 ### Shared registry traversal — measured, not promoted, 2026-10-18
 
 Trial `1b82d30` on `trial/jit-registry-pair-scan` resolves the inline native
@@ -70,6 +317,74 @@ follow-up question, not a proven explanation for stripped cost-image timings.
 Earlier placement trials remain relevant and must not be blindly repeated.
 Evidence: `target/jit-evidence/hook-resume-recovery/registry-pair-scan/`, including
 `warm-audit.json`, `elapsed-audit.json` and both `timing*/production-audit.json`.
+
+#### Exact-image follow-up on the pair-scan disabled cost
+
+A separate unstripped rebuild is **not** an exact companion: the baseline
+executable segment grows 16 bytes and writable segment geometry changes. The
+strict companion check refuses it; those images are excluded from attribution.
+Rebuilding with original strip flags and an added linker-map output instead
+produces **whole-file byte-identical copies of both benchmarked speed-cost
+executables**. Original source witnesses, maps and artifact hashes verify.
+
+In these exact images, VM starts move **0x5caee0 -> 0x5caf10 (+48 bytes)** while
+size remains **0xd7ea**. All 11,115 normalized instruction lines match; 286
+external direct-branch references resolve to matching symbol names. Normalization
+does not verify indirect targets or referenced data, so this is not a blanket
+whole-program equivalence proof or causal placement proof.
+
+A new **72-command / 72,000-iteration** diagnostic runs the unchanged stripped
+Off workers, integer/float, CPUs 0/16, six balanced A/candidate/B orders and a
+common hardlink path. Four grouped user-mode hardware events use the appropriate
+core/atom PMU. All 288 event records report 100% running; worker results are
+verified, native work is zero, provenance/telemetry/order checks pass, and the
+independent auditor rejects twelve corrupt fixtures. No owned build/test overlaps.
+
+- CPU0 integer control/candidate medians: worker elapsed **0.94446**, user
+  cycles **0.94216**, instructions **1.00000545**, branch misses **1.00116**.
+  Corresponding elapsed/cycle placebos are **1.03027 / 1.03041**; contention and
+  opposite-direction rounds remain in the evidence.
+- Across all integer/float instruction ratios, maximum distance from one is
+  **0.00194%**. Extra executed interpreter instructions are not supported as
+  the explanation for the observed disabled-cost gap.
+- CPU16 float elapsed and cycle ratios differ (**0.92502 / 1.02494**), reinforcing
+  that whole-process user counters and worker wall time have different scopes.
+  Counters include startup/two warmups; worker timing excludes them. This is
+  diagnostic evidence, not a replacement for the original acceptance screen.
+
+Placement/front-end behavior remains a hypothesis requiring stronger attribution;
+no new alignment policy, offset search or runtime change is selected. The pair
+trial remains unpromoted. Evidence: the trial's `attribution/`, especially
+`*-map/identity`, `vm-structure.diff`, `direct-targets.json` and `counter-audit.json`.
+
+#### Sampled localization of the pair-scan disabled cost
+
+A further **144 captures / 144,000 worker iterations** use the exact original
+stripped images, integer/float Off, CPUs 0/16 and twelve balanced A/candidate/B
+orders. All **26,147 samples** reconcile with 115,770,605,400 weighted user cycles;
+reports have zero lost samples. Image/source/tool provenance, worker results,
+zero native work, original PMU domains and contention telemetry are retained.
+
+The linker map resolves image samples without trusting stripped-symbol names.
+Every mapping matches the executable segment's page-rounded offset/length, and
+every VM sample lands on an instruction boundary in exact-image disassembly.
+The strengthened auditor reproduces the initial analysis byte-for-byte and
+rejects thirteen corrupt fixtures, including wrong mapping offsets, shifted
+mapping starts and VM PCs inside instructions. Unknown/external work is retained.
+
+VM self-work accounts for **94.06–96.53%** of weighted cycles across all twelve
+CPU/workload/label groups. CPU0 integer control/candidate medians are **0.90505**
+for whole sampled cycles and **0.92066** for VM self cycles; corresponding placebo
+medians are **1.00101 / 1.02134**. Executor shares are small and noisy, so its
+larger relative ratios are not promoted to a precise attribution claim.
+These profiles localize the cost to the VM-dominated path, not native registry
+resolution; sampling skid still prevents exact instruction-latency claims.
+
+This motivates testing dispatch work rather than selecting a lucky code offset.
+The opcode-slice experiment above is the resulting measured negative trial;
+no performance acceptance follows from either the profile or that implementation.
+Sampling evidence: `registry-pair-scan/attribution/sampling/`, including
+`audit-v2.json`, immutable raw events and mutation-test results.
 
 ### Registry ID index — correctness passes, performance refusal, 2026-10-18
 
