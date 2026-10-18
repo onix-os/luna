@@ -9,6 +9,58 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Registry ID index — correctness passes, performance refusal, 2026-10-18
+
+Trial `fd2b0a7` on `trial/jit-registry-id-index` replaces ID resolution's
+linear scan with a charged ID-to-address map and an authoritative address-map
+lookup. It validates the registration ID before upgrading its weak prototype;
+integer addresses are keys, never dereferenced. Registration reserves both maps
+and manager tracking before publishing an ID. Retirement, reset and fallible
+compaction maintain both maps without retaining dead prototypes.
+
+Four new tests cover poisoned/stale indexes, all three reservation failures,
+exact allocation charges, collection, compaction refusal/retry and release.
+The independent scan oracle remains. Formatting/all-feature checks and
+**1,436 passing executions / six summaries** complete at `b18ac7d`, including
+1,365 JIT unit tests, with zero failures and 22 ignored. Initial Miri compilation
+exposed two assertions using a test helper unavailable under Miri. The separate
+`fd2b0a7` correction uses the configured quota instead; its release image is
+byte-identical to the profiled image. Corrected native registry tests pass 22,
+real i686-musl passes 22, and pinned Miri passes **22 per model / 44 total**
+under Stacked and Tree Borrows. The original failed compilation is retained.
+
+Fourteen instruction profiles against frozen `4fde210` preserve execution
+counters but increase retained and peak metadata **152 bytes each**. The original
+strict auditor refuses this difference; diagnostic analysis does not waive that
+resource gate. Callback Auto instructions rise 0.0114%, and upvalue Auto rises
+**2.7064%**. Reduced work in `complete_inline` and `Admitted::new` is outweighed
+by the newly outlined two-lookup resolver. No unfavorable profile is discarded.
+
+A completed focused elapsed screen has **72 commands / 7,344 measured
+executions**, six balanced A/candidate/B orders on CPUs 0/16, 51 alternating
+Off/Auto samples and identical hardlink launch paths. Source/image/tool hashes,
+native coverage, original workload thresholds and all other counters verify.
+The diagnostic auditor explicitly accounts for the known 152-byte differences,
+reports `resource_acceptance=false`, and rejects nine corrupted fixtures.
+No owned build/test/profiler overlaps timing; contention telemetry is retained.
+
+- Callback Auto median control/candidate ratios are **0.98180 / 1.00107**
+  on CPUs 0/16, with placebo medians **0.99948 / 1.00421**. CPU0 is adverse
+  in all six rounds; the original callback gate fails eleven of twelve windows.
+- Upvalue Auto ratios are **0.95894 / 0.92624**, adverse in all six rounds on
+  both CPUs, with placebo medians **0.99449 / 1.01582**. Passing the interpreter
+  speedup gate in twelve windows does not erase this cross-revision regression.
+- Compiled-Off callback ratios are **1.00034 / 0.99247**; upvalue ratios are
+  **0.99856 / 0.99315**. These diagnostic opt-level-3 unstripped images are not
+  shipping, no-feature or full release acceptance.
+
+**Do not promote this index.** Removing the scan alone increases allocation and
+does not improve these integrated workloads. Main runtime remains `066905e`;
+all three incremental trial commits are pushed. Further work must reduce actual
+lookup/transition costs while preserving identity, weak lifetime and quotas.
+Evidence: `target/jit-evidence/hook-resume-recovery/registry-id-index/`, including
+`counter-analysis.json`, `elapsed-audit.json` and the corrected Miri logs.
+
 ### Canonical PC preservation — fewer instructions, elapsed refusal, 2026-10-18
 
 Trial `4fde210` on `trial/jit-canonical-pc` omits the narrow canonical helper's
