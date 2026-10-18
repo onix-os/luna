@@ -9,7 +9,228 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Validated registry-resolution hints — isolated trial, 2026-10-18
+### VM-produced normal successors — isolated timing candidate, 2026-10-18
+
+Main `2346ff8` adds an independent interpreter/native step-trace oracle across
+eight scripts and eight fuel budgets. Runtime experiments remain isolated;
+neither performance acceptance nor a production regression fix is established.
+
+`e706e64` returns a private instruction-count/normal-successor pair from the VM
+after a compiled ordinary call. The executor consumes the boolean exactly once,
+before its next iteration, avoiding two redundant mode classifications. Original
+frame popping, fuel charges, interruption checks and callback handling remain.
+The hint is discarded when `step` returns; no frame, stack borrow, pointer or code
+lease crosses a callback. Running/deferred-error guards remain. Existing scalar
+instruction-count APIs and the full `u32` range are preserved.
+
+`7197813` moves result extraction out of the ordinary closure. It does not remove
+the numeric overhead: callback Auto instructions fall0.954%, but numeric Auto
+grows0.65–0.67% and upvalue Off grows1.178%. This is not the selected timing trial.
+
+Selected **`679e3a1`** additionally emits the fact at existing compiled/interpreted
+budget-exhaustion exits and ordinary interpreted calls. These exits retain a Lua
+frame or a caller below a newly queued frame, including a depth-refusal Error.
+Other exits retain general dispatch. Production instruction profiles cover the
+full outer `Lua::execute<i64>` boundary, excluding two warmups and retaining eleven
+executions per workload/mode. Compared with `2346ff8`:
+
+| Workload | Off instruction change | Auto instruction change |
+|---|---:|---:|
+| Integer loop | -0.305% | -1.071% |
+| Float loop | -0.284% | -1.034% |
+| Array/table | -0.194% | -0.260% |
+| Closure/upvalue | -0.677% | -0.052% |
+| Polymorphic metamethod | +0.367% | +0.331% |
+| Rust callbacks | -1.153% | -0.954% |
+| Allocation/GC | -0.125% | -0.144% |
+
+All execution counters and code/metadata/snapshot fields match. The profile
+auditor accepts the valid fixture and rejects nine targeted corruptions.
+**These are instruction counts, not elapsed speedups.** The two small increases
+also require timing rather than being declared hardware regressions.
+
+The selected source passes133 focused tests, all-feature/format checks and five
+fallback Miri tests. Its enabled/disabled shortcut oracle covers96 paired step
+schedules, including instruction-budget boundaries, callbacks, hooks, close
+handlers and coroutines. Tests require actual shortcut hits for both interpreted
+and native execution. Small Miri fixtures exercise the interpreted exhaustion
+and depth-refusal shortcuts; they do not execute native code. A deliberate
+persistent-read mutation in place of `mem::take` fails two fixtures; restoration
+passes. Initial formatting-only failures and the negative mutation log remain.
+
+The later **`53dd423` metamethod extension is rejected**: although134 focused
+tests, six fallback Miri tests and19 focused i686-musl tests pass, production
+Off instruction work grows2.858% for integers,2.661% for floats and1.494% for
+upvalues. The integer VM alone adds119409 instructions per measured execution
+relative to `679e3a1`; executor work is unchanged. This does not establish a
+hardware cause. The rejected source and its expanded metamethod tests remain
+on `trial/jit-vm-successor`, separate from selected
+`trial/jit-vm-budget-successor`.
+
+Matched speed/shipping image preparation and full `make jit-verify` for the
+selected source have started. Elapsed collection has **not** started and must
+not overlap owned validation/build work. Remaining gates include source/image
+and no-feature control verification, balanced repeated production timing,
+independent auditing and the original performance/resource/platform/release
+requirements. Evidence and exact job checkpoints are under
+`target/jit-evidence/hook-resume-recovery/vm-successor/`, especially
+`all-slices/STATUS.md`, `meta-slices/STATUS.md` and `timing/STATUS.md`.
+
+### Cold helper panic recovery — measured and rejected, 2026-10-18
+
+Main commit `2a2e371` adds an independent panic-writeback oracle for ordinary
+and prepared helpers. It checks all scratch-capacity tiers, including zero and
+256, scalar bit patterns, retained reference identity, untouched trailing
+registers, all eight counters, PC and panic-payload identity. The 13 helper tests
+pass normally and under Miri before changing runtime recovery. The first fixture
+draft's unsupported `Value` equality was corrected before the committed pass.
+
+Isolated `8118434` moves the shared helper panic-recovery branch into a cold,
+non-inlined method without changing its operations or publication boundary.
+It passes 44 focused tests, formatting/all-feature checks and the same 13 Miri
+tests. Sequential package-cleaned opt-level-3 builds use one source/target path
+and matching root-launched Nix/linker environments. Frozen source copies retain
+baseline and broad-candidate manifest verification.
+
+Two full Off/Auto instruction-profile comparisons cover all seven warm workloads
+(56 processes, each with two excluded warmups and eleven measured executions).
+Callback instructions fall exactly 103,826,602 -> 103,771,602 in both comparisons,
+only **0.05297%**. Allocation instructions instead grow by 37,804 and 44,000.
+Selected-part attribution finds additional work in ordinary GetTable and SetList
+helpers. Other workload variation remains in the reports. Do not promote this
+broad change as a general performance improvement.
+
+Refinement `82eb90c` outlines recovery only for prepared-key helpers, leaving the
+ordinary helper recovery inline. Another 44 focused tests, all-feature/format
+checks and 13 Miri tests pass. Fourteen additional profiles against the retained
+baseline preserve the same callback reduction; allocation is now 6,196
+instructions below baseline rather than above it. That small whole-profile
+difference is not a measured elapsed speedup. All reported non-timing fields
+match; each auditor run also accepts its valid fixture and rejects nine corruptions.
+
+The prepared helper shrinks from 1,531 to 1,245 bytes and reserves 136 rather than
+152 stack bytes; its separate recovery method occupies 322 bytes. These figures
+do not establish a whole-image size reduction.
+
+The ensuing production screen compares prepared-only `82eb90c` with its
+oracle-only parent `0c09d33`. Both revisions pass 44 focused tests again. Speed
+and shipping artifacts are built sequentially at the same source/target paths,
+package-cleaning between phases/profiles. Environment/configuration and frozen
+source/image checks pass. Both profiles have byte-identical no-feature controls,
+also matching the previous matched-path campaign's controls.
+
+All 144 commands complete: six balanced control/candidate/placebo orders on
+CPUs 0/16, both profiles, original nine workloads, 11 samples and 20 cost
+iterations. There are 14,256 measured native executions, 285,120 cost iterations
+and zero counter/resource mismatches. Raw cost medians are independently
+recomputed; native medians remain worker-reported summaries. The auditor accepts
+two valid screens and refuses 13 mutations. No owned build/test/profiler overlaps
+elapsed collection; external contention and every outlier remain in the records.
+
+On CPU16, speed Auto upvalue is adverse in all six rounds, control/trial median
+0.98232 (about 1.80% longer elapsed time), versus placebo 1.00726. Shipping Auto
+metamethod is adverse 6/6, median 0.98371 (1.66% longer), and shipping callbacks
+are adverse 5/6, median 0.97810 (2.24% longer). Their placebos are 1.00351 and
+1.01077. Shipping upvalues instead improve 6/6, median 1.01832; speed callback
+median 1.00541 has three favorable and three adverse rounds. Those results do
+not establish a general benefit.
+
+CPU0 shipping compiled-Off integer/float are adverse 5/6 each: medians
+0.88733/0.92140 (12.70%/8.53% longer) versus placebos 1.00436/0.99974. Their
+large first-round placebos, about 1.87, are retained. CPU0 speed callback's
+apparently favorable 1.30805 median accompanies a 1.28108 placebo; do not claim
+that as a causal speedup. These are artifact comparisons, not proof of a
+particular machine-instruction or layout cause.
+
+Candidate speed native callback gates fail 12/12; shipping callback diagnostics
+fail 11/12. Compiled-Off upvalue cost gates fail 12/12 in both profiles. Reject
+prepared-only recovery as well as the broader variant: neither runtime change
+is merged. Main retains the independent oracle only. All owned jobs are terminal;
+no new full-suite or release acceptance is claimed. Evidence and frozen sources:
+`target/jit-evidence/hook-resume-recovery/cold-helper-panic/`, including `repeat/`,
+`broad-source/`, `refined/` and the completed `timing/production-audit.json`.
+Full performance/resource/platform/release acceptance remains open.
+
+### Borrowed prepared-key comparator — no improvement, 2026-10-18
+
+Isolated trial `ce0fe04`, based on `1203cd4`, changes the private
+`Key::eq_string` receiver from a copied key to a borrowed key. The hypothesis
+was that avoiding aggregate transport might reduce prepared table-lookup cost.
+Baseline and candidate were built sequentially at the same source and Cargo
+target paths, with a release-package clean between them and a root-launched
+Nix environment. Frozen baseline sources preserve source-manifest verification.
+
+The opt-level-3 `jit_bench` executable is byte-for-byte identical in both builds
+(SHA-256 `d645acc8aeec0d6072f20ed8f37eaeca7e2b0c312035923013b5355e94ab9c10`).
+The `.text` and `.rodata` sections also match. The prepared helper remains
+1,531 bytes at the same address. This source change provides no generated-code
+improvement in this image; it does not establish equivalence for other profiles
+or architectures. No elapsed campaign is warranted for these identical images.
+
+The baseline passes 54 focused tests; the candidate passes 70, including table
+access with and without JIT. Formatting and all-feature checks pass. No new
+full-suite, Miri, shipping-profile or elapsed validation is claimed. The trial
+remains unmerged. All owned jobs have terminated; full performance acceptance
+remains open. Evidence: `target/jit-evidence/hook-resume-recovery/borrow-prepared-key/`.
+
+### Matched-path rebuild attribution — completed, 2026-10-18
+
+The resolution-hint trial's no-feature files differ from controls even though
+the production edit is JIT-gated. Exact ELF inspection now establishes that both
+profiles have byte-identical `.text` and `.rodata` sections, but `.text` starts64
+bytes later in each trial image. GNU `size`'s65-byte text-category increase is
+therefore not65 extra machine-code bytes. The RUNPATH embeds a different
+checkout directory: Nix's development shell exports a launch-directory-specific
+`out` and adds its `outputs/out/lib` to `NIX_LDFLAGS`. This identifies a build
+difference, not the hardware cause of any timing loss.
+
+A new comparison rebuilds unchanged baseline `a13b8c5` and trial `dcddc83`
+sequentially at one dedicated source path and Cargo target path within one shell
+environment. Luna release-package outputs are cleaned between phases/profiles;
+dependency-generated paths remain fixed. Separate immutable source copies verify
+the captured hashes after the active worktree changes revisions. This does not
+share Cargo outputs between different source worktrees. The pre-timing gate
+requires identical no-feature files and identical compiler/profile configuration.
+The original144-command timing protocol and thresholds remain unchanged.
+
+The matched builds complete with15 baseline and19 trial registry tests passing.
+Both profiles' no-feature files are now byte-identical between control and trial,
+and also reproduce the earlier root-built no-feature controls. Compiler/profile
+configuration and all frozen source/image checks pass. Main commit `09babdc`
+adds linker/path provenance to `make environment`, records native-build context,
+and tests absent, spaced and special-character values plus the actual capture
+recipe. The recorded Cargo target reflects the recipe's override, not an unused
+inherited setting. This is a benchmark-reporting fix, not a runtime optimization.
+
+The completed144-command screen retains14,256 native executions and285,120 cost
+iterations with zero counter/resource mismatches. Six balanced orders, both CPUs,
+both profiles, original workloads and thresholds are unchanged. No owned build,
+test or profiler overlaps elapsed collection. Independent audit and two valid/
+13 malformed-screen checks pass. Cost raw medians are recomputed; native medians
+remain worker-reported summaries.
+
+CPU16 Auto upvalue ratios remain adverse in all six rounds of each profile:
+control/trial0.99098(speed) and0.97604(shipping), approximately0.91% and2.45%
+longer elapsed time, versus placebos1.00589 and0.99844. CPU0 speed is adverse
+in5/6 rounds, median0.98341; shipping favors the candidate at1.01129. CPU0
+outliers, including a2.14402 upvalue placebo, remain in the report.
+
+The earlier shipping compiled-Off float loss does **not** reproduce in this
+matched-build campaign: ratios are1.02905(CPU0) and1.00145(CPU16). Do not
+present the older artifact's loss as a demonstrated source-level float defect.
+However, CPU0 speed compiled-Off integer is adverse in5/6 rounds, median0.93790
+and placebo0.99993. All12 speed callback native gates and all12 shipping callback
+diagnostics still fail; shipping disabled-upvalue fails12/12. Normalization has
+not established a performance fix. The resolution-hint trial remains rejected.
+
+Future comparisons must retain build/linker context and verify their no-feature
+controls rather than treating file-size differences as extra instructions.
+The earlier negative artifact comparisons remain recorded without being promoted
+to causal hardware explanations. Full performance acceptance stays open. Evidence:
+`target/jit-evidence/hook-resume-recovery/same-path-resolution/`, particularly
+`old-sections/`, `build.sh`, `build.log` and `checks.mk`.
+
+### Validated registry-resolution hints — rejected, 2026-10-18
 
 Trial `dcddc83` on `trial/jit-resolution-cache` targets repeated ID-resolution
 scans in inline execution and admission, rather than changing executor dispatch.
@@ -27,7 +248,9 @@ poisoned addresses and IDs, growth, reset and unchanged metadata accounting.
 Two focused campaigns pass215 test executions, covering registry, inline ownership,
 native regions, heap, suspension and resources, with formatting/all-feature
 checking. Main's18 registry tests also pass after the oracle integration.
-Miri and elapsed acceptance are pending; the trial is not promoted.
+All19 registry tests also pass under Miri, including poisoned hints and weak
+source retirement;40 existing warnings remain. These are focused results, not a
+full candidate-suite or release pass.
 
 The first production instruction screen covers all seven warmed Off/Auto
 workloads:28 captures,308 measured executions, exact non-timing record matches
@@ -35,9 +258,31 @@ and verified source/image hashes. Two additional fresh-process upvalue compariso
 reverse image order. All three upvalue Auto totals increase:0.83013%,2.11807%
 and0.51260%. Callback Auto changes by+0.00066% in the full screen. The hint
 therefore does not demonstrate a net instruction reduction on these workloads.
-These are not elapsed-time results: the separate compiled-Off and native timing
-screen must determine whether removing scans helps hardware execution at all.
-Original workload thresholds remain unchanged; no result is selected away.
+These are not elapsed-time results. Original workload thresholds remain unchanged;
+no result is selected away.
+
+The subsequent elapsed screen completes144 commands,14,256 native executions and
+285,120 cost iterations across both profiles and CPUs0/16, with six balanced
+A/trial/B orders. All non-timing fields, source/image hashes and resource records
+verify; the auditor accepts two valid screens and rejects13 malformed variants.
+No owned build, test or profiler overlaps timing. External contention is retained.
+The candidate's no-feature images differ from the controls, so both are measured;
+identical-code or causal code-layout attribution is not assumed.
+
+CPU16 Auto upvalue control/trial medians are0.97906(speed) and0.98136(shipping),
+adverse in all six rounds each: approximately2.14% and1.90% longer elapsed time.
+Same-image placebo medians are1.01705 and1.00158. Shipping compiled-Off float is
+also adverse in all six CPU16 rounds: ratio0.97304, placebo1.00357 and no-feature
+ratio1.00028. CPU0 upvalue medians favor the candidate, but same-image placebo
+ratios range0.44902–1.91706(speed) and0.87498–1.83380(shipping); those excursions
+are not discarded or interpreted as a reliable win.
+
+Native callback gates still fail10/12 speed cases and12/12 shipping diagnostics;
+shipping compiled-Off upvalue gates fail12/12. Both controls also retain gate
+failures. These original-gate failures are separate from the direct historical
+comparisons above. Decision: reject production promotion. Retain the isolated
+trial and baseline-validated tests; the fixed hint has not earned its extra work
+or memory on the measured workloads. Full performance acceptance remains open.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/resolution-cache/`, including
 `warm-audit.json`, `repeat{1,2}/audit.json` and focused validation logs. Baseline

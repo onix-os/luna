@@ -1172,6 +1172,115 @@ slot_count: slots.len(),
     }
 
     #[test]
+    fn panic_recovery_materializes_only_the_active_prefix_at_every_tier() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return missing").unwrap();
+            assert!(matches!(
+                closure.prototype().constants[0],
+                crate::Constant::String(_)
+            ));
+            let retained = Value::Table(Table::new(&ctx));
+            let reference = Value::String(crate::String::from_static(&ctx, b"pending"));
+            for width in [0, 1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64, 128, 256] {
+                for prepared in [false, true] {
+                    let mut canonical = vec![retained; width + 3];
+                    let pending: Vec<_> = (0..width)
+                        .map(|index| match index % 8 {
+                            0 => Value::Integer(i64::MIN),
+                            1 => Value::Number(-0.0),
+                            2 => Value::Boolean(false),
+                            3 => Value::Nil,
+                            4 => reference,
+                            5 => Value::Number(f64::from_bits(0x7ff8_1234_5678_9abc)),
+                            6 => Value::Boolean(true),
+                            _ => Value::Number(f64::INFINITY),
+                        })
+                        .collect();
+                    let mut slots: Vec<_> = pending.iter().copied().map(Slot::from_value).collect();
+                    let mut pc = 17;
+                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                        let mut frame = Frame {
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: Counts::default(),
+                            slot_count: width,
+                            projection: None,
+                            panic: None,
+                        };
+                        let mut host = abi::Host {
+                            data: (&mut frame as *mut Frame<'_, '_, '_, '_>).cast(),
+                            projection: std::ptr::null_mut(),
+                        };
+                        let status = unsafe {
+                            if prepared {
+                                call_prehashed(&mut host, slots.as_mut_ptr(), 255 << 8, 0, 0, 17)
+                            } else {
+                                call::<{ abi::HELPER_CONSTANT }>(
+                                    &mut host,
+                                    slots.as_mut_ptr(),
+                                    0,
+                                    u32::MAX,
+                                    0,
+                                    17,
+                                )
+                            }
+                        };
+                        assert_eq!(status, abi::HELPER_PANICKED);
+                        assert_eq!(*frame.registers.pc, 18);
+                        assert_eq!(
+                            [
+                                frame.count.calls,
+                                frame.count.completed,
+                                frame.count.declined,
+                                frame.count.table_reads,
+                                frame.count.table_writes,
+                                frame.count.upvalue_reads,
+                                frame.count.upvalue_writes,
+                                frame.count.allocations
+                            ],
+                            [1, 0, 0, 0, 0, 0, 0, 0]
+                        );
+                        for (index, actual) in frame.registers.stack_frame.iter().enumerate() {
+                            let expected = match pending.get(index).copied() {
+                                Some(Value::String(_)) | None => retained,
+                                Some(value) => value,
+                            };
+                            match (*actual, expected) {
+                                (Value::Number(actual), Value::Number(expected)) => {
+                                    assert_eq!(actual.to_bits(), expected.to_bits());
+                                }
+                                (Value::Integer(actual), Value::Integer(expected)) => {
+                                    assert_eq!(actual, expected);
+                                }
+                                (Value::Boolean(actual), Value::Boolean(expected)) => {
+                                    assert_eq!(actual, expected);
+                                }
+                                (Value::Table(actual), Value::Table(expected)) => {
+                                    assert!(ottavino_gc_arena::Gc::ptr_eq(
+                                        actual.into_inner(),
+                                        expected.into_inner(),
+                                    ));
+                                }
+                                (Value::Nil, Value::Nil) => {}
+                                _ => panic!("unexpected materialized value: {actual:?}"),
+                            }
+                        }
+                        let payload = frame.panic.take().unwrap();
+                        let original = payload.as_ref() as *const dyn Any as *const ();
+                        let propagated =
+                            catch_unwind(AssertUnwindSafe(|| std::panic::resume_unwind(payload)))
+                                .unwrap_err();
+                        assert_eq!(propagated.as_ref() as *const dyn Any as *const (), original);
+                    });
+                }
+            }
+        });
+        lua.gc_collect();
+    }
+
+    #[test]
     fn upvalue_bounds_panics_preserve_cells_pc_and_materialize_pending_values() {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {

@@ -265,6 +265,7 @@ jit-evidence:
 
 jit-bench-build:
 	@mkdir -p target/jit-evidence
+	@CARGO_TARGET_DIR='$(TOP_DIR)/target' $(MAKE) --no-print-directory environment > target/jit-evidence/bench-environment.log
 	@set -o pipefail; CARGO_TARGET_DIR='$(TOP_DIR)/target' LUNA_BENCH_OPT_LEVEL=$(JIT_BENCH_OPT) CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) build --release --example jit_bench --features jit $(TARGET_ARG) 2>&1 | tee target/jit-evidence/bench-build.log
 
 jit-bench-run:
@@ -385,17 +386,21 @@ jit-cost-tests:
 	@$(CARGO) test --example jit_feature_cost --no-default-features --features jit $(TARGET_ARG)
 	@$(MAKE) --no-print-directory jit-artifact-tests
 
-.PHONY: jit-cost-verify jit-artifact-tests
+.PHONY: jit-cost-verify jit-artifact-tests jit-environment-tests
 jit-cost-verify:
 	@bash examples/jit_support/verify_artifacts.sh '$(COST_DIR)'
 
 jit-artifact-tests:
 	@bash tests/test-jit-artifacts.sh
+	@$(MAKE) --no-print-directory jit-environment-tests
+
+jit-environment-tests:
+	@bash tests/test-jit-environment.sh '$(SHELL)'
 
 jit-size-build:
 	@case '$(SIZE_PROFILE)' in shipping|speed) ;; *) echo 'SIZE_PROFILE must be shipping|speed' >&2; exit 2;; esac
 	@mkdir -p $(COST_DIR)
-	@$(MAKE) --no-print-directory environment > $(COST_DIR)/environment.log
+	@CARGO_TARGET_DIR='$(TOP_DIR)/target' $(MAKE) --no-print-directory environment > $(COST_DIR)/environment.log
 	@printf 'profile=%s\nopt_level=%s\nlto=true\ncodegen_units=1\nstrip=%s\nRUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' '$(SIZE_PROFILE)' '$(COST_OPT)' '$(COST_STRIP)' "$${RUSTFLAGS:-}" "$${CARGO_ENCODED_RUSTFLAGS:-}" >> $(COST_DIR)/environment.log
 	@rustc -vV >> $(COST_DIR)/environment.log
 	@if command -v lscpu >/dev/null; then lscpu >> $(COST_DIR)/environment.log; fi
@@ -2069,6 +2074,8 @@ environment:
 	@$(CARGO) --version
 	@printf 'Cargo home: %s\n' "$${CARGO_HOME:-$$HOME/.cargo}"
 	@printf 'Requested target: %s\n' '$(if $(TARGET),$(TARGET),host)'
+	@printf 'Build directory: %s\nCargo target directory: %s\nNix output: %s\n' "$$(pwd -P)" "$${CARGO_TARGET_DIR:-default}" "$${out:-unset}"
+	@printf 'NIX_LDFLAGS=%q\nNIX_LDFLAGS_FOR_TARGET=%q\n' "$${NIX_LDFLAGS:-}" "$${NIX_LDFLAGS_FOR_TARGET:-}"
 	@uname -sm
 
 jit-deps:

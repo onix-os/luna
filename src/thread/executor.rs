@@ -1643,6 +1643,26 @@ mod activation_tests {
     }
 
     #[test]
+    fn native_call_successors_preserve_complete_step_traces() {
+        for source in [
+            "local n=3 n=boundary(n+4) return n",
+            "local cb=boundary local n=0 for i=1,4 do n=cb(n) end return n",
+            "local f=setmetatable({}, {__call=function(_,n) return boundary(n) end}) local n=f(7) return n",
+            "local ok=pcall(function() return boundary({}) end) return ok and 0 or 17",
+            "local co=coroutine.create(function() coroutine.yield(boundary(4)) return boundary(5) end) local ok,a=coroutine.resume(co) local ok2,b=coroutine.resume(co) return a+b",
+            "debug.sethook(function() end,'',1) local n=boundary(4) debug.sethook() return n",
+            "local n=4 read=function() return n end n=nested_boundary() return n",
+            "local n=boundary(1) return boundary(n)",
+        ] {
+            for budget in [0, 1, 2, 7, 11, 12, 17, 4096] {
+                let reference = run(source, budget, false);
+                assert!(reference.1.is_ok(), "{source}, {budget}: {reference:?}");
+                assert_eq!(reference, run(source, budget, true), "{source}, {budget}");
+            }
+        }
+    }
+
+    #[test]
     fn native_and_interpreted_callbacks_match_interrupted_slices() {
         for budget in [1, 17, 4096] {
             let source = "local n=0 for i=1,100 do n=boundary(n) end return n";
