@@ -9,6 +9,35 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Known inline-source validation diagnostic — 2026-10-18
+
+`backend::inline_loop::Code::run` previously rediscovered caller and callee
+prototypes with two linear `Registry::resolve` scans on each entry. Its owning
+session already holds those prototypes in `Admitted`. Trial `a50469a` passes
+those existing roots to the entry boundary and checks both current registry
+identities against the code key before binding. The registry is still borrowed
+and checked on every invocation; root ownership, source generations, runtime
+provenance, hook/mode checks, frame binding and native accounting are unchanged.
+No positive result is cached across callbacks or resets, and no reverse index,
+new allocation, global state, unsafe code or register representation is added.
+The one-time canonical admission scan remains unchanged.
+
+Test commit `439cad3` independently compares known-prototype identity checks to
+ID resolution and pointer equality across growth, reset, re-registration, missing
+IDs and wrong prototypes, without increasing metadata charges. Its baseline
+registry suite passes 13 executions. The native ownership fixture additionally
+checks wrong source pairs and a retained image after registry reset and fresh
+generations: refusal preserves PC, fuel and native entry counts. The owner
+Make gate now requires four tests rather than three to include the new fixture.
+
+Formatting/all-feature checking and **135 focused executions / nine summaries**
+pass; all **13 registry Miri executions** pass. The rebuilt speed no-feature
+diagnostic image is byte-identical to the control. Three repeated matched-image
+profile rounds and full validation are running; this is not a claimed speedup
+or acceptance. The repeated profiles retain same-image hash-dependent work
+variation instead of treating a single small difference as causal evidence.
+Evidence prefix: `hook-resume-recovery/known-sources*`.
+
 ### Frame-mode classification diagnostic — 2026-10-18
 
 Fresh shipping disabled-upvalue profiles attribute 3,800,290 instructions and
