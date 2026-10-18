@@ -9,6 +9,58 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Warmed hardware-cycle attribution — 2026-10-18
+
+`933a9c9` adds a separate `jit_cycles` diagnostic example without changing the
+runtime or frozen benchmark gates. Sampling starts disabled; the worker loads
+the workload and completes two warmups, then brackets repeated execution with
+acknowledged perf enable/disable commands. The measured window includes executor
+creation, execution, result checks and collection during that lifecycle, plus
+bounded control-command overhead. It is not an Executor-only or elapsed-time
+acceptance measurement. Compilation requests and code-byte totals must remain
+unchanged across the window; all results and 25 execution counters are checked.
+
+Formatting/all-feature checks and six control-protocol tests pass. The first
+native probe exposed a trailing NUL in perf's `ack\n\0` messages. A syscall trace
+confirmed the framing; the corrected reader accepts newline-only and optionally
+NUL-terminated acknowledgements across multiple windows, while rejecting leading
+or repeated NULs, malformed/truncated replies and write failures. Workload errors
+still send disable. Failed initial captures remain excluded from results.
+
+All seven frozen workloads pass Off/Auto smoke runs with no compilation during
+collection. The callback campaign then completes **16 captures**, four alternating
+Off/Auto rounds on each of CPUs 0 and 16, with **10,000 verified executions** per
+capture. The audit reconciles **69,708 samples**, exact capture counts, rounded
+report headers, weighted event totals, zero lost samples and host/native address
+ranges. Each of 25 counters equals 10,000 times its independent single-execution
+control; Auto executes **200,070,000 native logical instructions** per capture,
+versus zero Off. No compiler symbols appear in the warmed samples. Source and
+image manifests verify before/after; no owned build, test or second profiler
+overlaps a capture. External contention and all per-run observations are retained.
+
+| Auto user-cycle self share | CPU 0 | CPU 16 |
+| --- | ---: | ---: |
+| VM slice | 18.86% | 20.47% |
+| Executor | 19.50% | 20.34% |
+| Seven-slot native entry | 11.70% | 10.57% |
+| Prepared-key helper | 11.02% | 13.16% |
+| Named generated code | 5.54% | 5.91% |
+
+The original whole-process attribution is no longer the only evidence for
+prioritizing entry/helper costs over tiny arithmetic-guard rewrites. All sampled
+addresses in the four selected host functions also match decoded instruction
+starts in the exact image; annotated weighted distributions are retained.
+Sampling skid prevents interpreting an individual address as instruction latency.
+These shares do not prove a speedup, identify a causal hardware bottleneck, or
+close any original performance/resource/platform/release gate. This separately
+linked diagnostic image is not asserted byte-identical to a shipping benchmark.
+
+Reproduction uses `make jit-cycles-tests`, `make jit-cycles-build`, and
+`make jit-cycles-run` with an unused `CYCLES_DIR`, `PERF`, `PROFILE_CPU`,
+`CYCLES_EVENT`, `CYCLES_MODE`, `CYCLES_CASE` and `CYCLES_ITERATIONS` overrides.
+Captures have a 180-second timeout. Evidence, protocol trace, local campaign and
+independent audit are under `target/jit-evidence/hook-resume-recovery/warmed-cycles/`.
+
 ### Compact integer-pair guard — test-only investigation, 2026-10-18
 
 `2572c06` tests `(left_tag | right_tag) == Integer` after both existing Numeric
