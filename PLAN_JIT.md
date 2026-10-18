@@ -55,9 +55,19 @@ both datasets remain: the 64-bit images are not byte-identical, so the disappear
 of the initial integer increase is not attributed causally to the narrower-target
 layout fix. Refreshed Miri passes the same four tests per borrowing model.
 
-The full all-feature Force gate is still running. Production speed/shipping,
-compiled-Off/no-feature, repeated elapsed and broader release acceptance remain
-open. Instruction savings and focused correctness are not runtime promotion.
+The corrected full all-feature Force gate passes **2,035 executions / ninety
+summaries**, zero failed and 23 ignored. Production speed/shipping native,
+compiled-Off and no-feature images finish at the original builder/target path.
+Environment and configuration comparisons pass. The no-feature binaries differ
+only in 28/30 source-location line words (speed/shipping): their entire executable
+code and every other byte match. A strict ELF/relocation check ties each changed
+word to the exact unchanged source line through the source diff; it accepts three
+valid fixtures and rejects nine corruptions per profile. The initial whole-file
+comparison failure is preserved, not reported as a build pass. Original runtime
+and overhead performance thresholds are unchanged.
+
+Repeated elapsed and broader release acceptance remain open. Instruction savings
+and correctness checks are not runtime promotion.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/`, including
 the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
