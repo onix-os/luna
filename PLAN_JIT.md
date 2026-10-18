@@ -9,7 +9,14 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Thread-local prepared bucket hint — unaccepted trial, 2026-10-18
+### Thread-local prepared bucket hint — withdrawn, 2026-10-18
+
+**Outcome: withdrawn after production measurements.** The speed-profile callback
+gain did not carry through shipping, and shipping compiled-Off integer time
+regressed in all six CPU0 comparisons. Runtime and prepared-table tests are
+restored exactly to the pre-trial implementation; the ordinary frozen-image
+comparison harness remains. This removes a failed trial, not the original JIT
+performance regressions.
 
 `7159218` trials a single constant-initialized TLS `usize` in JIT-only prepared
 string lookup. It retains no pointer, key, value or GC root. Each hit checks the
@@ -20,8 +27,8 @@ neither Code/Frame/table layouts nor their allocations, and does not instrument
 ordinary interpreter lookup. The fixed per-thread TLS storage and binary effects
 still require compiled-Off/resource acceptance.
 
-Formatting/check-all, eight prepared-table tests, nine prepared-key tests,
-twenty integrated heap tests and the seven-workload timing contract pass. Tests
+For the trial, formatting/check-all, eight prepared-table tests, nine prepared-key
+tests, twenty integrated heap tests and the seven-workload timing contract passed. Tests
 cover arbitrary indices, stale/foreign hints, separate threads/Lua instances,
 mutation, clear/growth, weak values, collisions, callbacks, metatables and GC.
 Assigning Nil can retain an occupied string-key slot for iteration order; the
@@ -66,12 +73,56 @@ proofs and artifact/source verifications pass; all nine non-timing proof records
 match between candidate/control in each profile. Proof timings overlapped builds
 and are not performance evidence. No-feature section totals match but executable
 bytes differ. Feature section totals change by+4084 bytes for speed and-12 for
-shipping; these totals do not establish resource acceptance. Production timing,
-compiled-Off/cold costs, original native gates, platform/resource gates and broader
-acceptance remain pending. Do not promote this trial based on the diagnostic
-callback gain. Evidence is under `target/jit-evidence/hook-resume-recovery/prepared-tls/`,
-including `image-fresh/`, `profile-audit.json`, `time-summary.json`, all four
-`time-*` screens and the rejected/stale build logs.
+shipping; these totals do not establish resource acceptance.
+
+The completed production screen retains **144 commands**, six rounds on each of
+CPUs0/16, all six control/candidate/control orders, both speed/shipping profiles
+and both original native/compiled-disabled gates. The two controls use the same
+unchanged binary, launched at matching hardlink paths. Eleven native samples per
+mode and eleven cost pairs of20 iterations account for **14256 native measured
+executions and285120 cost iterations**. All1296 workload gates, failed command
+statuses, source/image/tool hashes and contention telemetry are retained. No
+owned build/test/profiler overlapped timing; other workloads were left running.
+
+The independent audit recomputes cost medians from raw durations, native ratios
+from printed medians, original thresholds, execution/counter/resource parity and
+run order. Native raw samples are not emitted, so their medians cannot be
+independently recomputed. Incremental ratios below divide the geometric mean of
+the two controls by the candidate, then take the median across six rounds:
+
+- Speed Auto callbacks: **1.022035/1.020252** on CPUs0/16, with all twelve
+  incremental ratios above1. Shipping callback ratios are **0.985715/0.996857**;
+  there is no consistent shipping gain.
+- Speed Auto allocation ratios are **0.992720/0.995350**. Adverse windows and
+  larger contention outliers remain in the report, rather than being discarded.
+- CPU0 shipping compiled-Off integer ratio is **0.954698**, or about4.75% more
+  time. All six ratios are adverse at0.951717–0.959756 (about4.2–5.1% slower).
+  The same-image placebo median is0.998013 and no-feature median is1.004088.
+  This identifies a repeatable candidate regression, not its microarchitectural
+  cause; the prepared lookup does not execute in Off mode.
+- Eight of twelve candidate speed aggregate checks still fail. Failed scored
+  native gates total14/96 in speed and25/96 in shipping; shipping remains
+  diagnostic, not an opt-level-3 acceptance run. Compiled-disabled gates fail
+  23/108 and14/108 respectively. Neither the callback gain nor fewer failed cost
+  ratios establish full acceptance.
+
+Production timing is complete for this rejected trial. Platform/resource/release
+acceptance and the original workload regressions remain open. Evidence is under
+`target/jit-evidence/hook-resume-recovery/prepared-tls/`, including
+`production-screen/`, `production-audit.json`, `withdrawn-runtime.patch`,
+`image-fresh/`, `profile-audit.json`, `time-summary.json`, all four `time-*` screens
+and the rejected/stale build logs. The native proof recipe initially requested
+one sample, below the runner's minimum three; both failed build invocations and
+the successful corrected resumption are retained separately.
+
+Withdrawal validation uses a fresh, separate Cargo target: formatting and
+workspace/all-target/all-feature checking pass, followed by six prepared-table,
+nine prepared-key, twenty public heap and one timing-contract test (36 passed,
+one ignored timing worker). The existing timing harness checks also pass:
+69 malformed screens, five synthetic runners and four invalid cross-image
+inputs. The production auditor accepts the valid/restored screen and rejects
+13 deliberately corrupted copies. All `src/` files match pre-trial `2a9f1d1`;
+the successful checks verify restoration, not full performance acceptance.
 
 ### Private callback scratch reuse — rejected, 2026-10-18
 
