@@ -9,6 +9,68 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared registry traversal — measured, not promoted, 2026-10-18
+
+Trial `1b82d30` on `trial/jit-registry-pair-scan` resolves the inline native
+loop's caller/callee pair with one forward traversal of the existing registry.
+It retains current ID checks, both weak upgrades, source ordering, equal-ID
+behavior and all binding/provenance checks. No reverse map, cache, new field,
+allocation or unsafe access is added. Three independent tests compare against
+two unchanged single-ID lookups through growth, missing/equal/reversed IDs,
+authoritative replacement/removal, reset/re-registration and collection.
+
+The baseline is current-main `5757ed2` (runtime `066905e`), not a stack of
+previously rejected candidates. Both images are built at the same historical
+source/target paths with immutable source witnesses. Formatting/all-feature
+checks and **1,431 executions / six summaries** pass, including 1,361 JIT unit
+tests, with zero failures and 22 ignored. The three new tests pass under both
+pinned Miri models (**six total**); real i686-musl passes all 21 registry tests.
+The trial is committed and pushed; main runtime remains unchanged.
+
+Twenty-eight instruction captures compare fourteen workload/mode pairs, with
+two warmups and eleven measured executions each. All execution/resource counters
+match without adjustments. The strict auditor and its nine corruption fixtures
+pass. Upvalue Auto instructions fall **2.5149%**, from 54,429,781 to 53,060,902
+summed over eleven executions. Numeric and callback instructions are unchanged;
+small adverse changes remain in array, metamethod and allocation Auto.
+
+An initial focused **72-command / 7,344-execution** screen is mixed: upvalue Auto
+control/candidate medians are 1.01228/1.00038 on CPUs 0/16; CPU0's apparent
+callback gain does not reproduce in the stripped production comparisons below.
+It is not attributed to faster pair resolution, which that callback case does
+not exercise. Compiled-Off upvalues are adverse in all six focused rounds on
+each CPU. Those results are preserved rather than superseded by favorable runs.
+
+Two complete production screens retain **288 commands, 28,512 native executions
+and 570,240 cost iterations**, all nine workloads, six balanced A/candidate/B
+orders per CPU, speed/shipping builds and unchanged original gates. No-feature
+images are byte-identical between revisions in both profiles. Environment,
+source/image/tool hashes, native coverage and resource counters verify. Each
+auditor accepts its valid/restored screen and rejects thirteen corruptions.
+Cost medians are recomputed from raw durations; native logs expose summary
+medians only. No owned build/test/profiler overlaps elapsed collection.
+
+- CPU0 speed compiled-Off integer ratios are **0.89869 / 0.90005** in the
+  first/repeat campaigns, with placebo medians **1.07248 / 0.99855**. The repeat
+  retains four adverse rounds, including several near 0.90 with near-one
+  placebos; other rounds show substantial contention. This is not an accepted
+  no-regression result.
+- Shipping upvalue Auto improves in both screens: CPU0 **1.02928 / 1.02750**,
+  CPU16 **1.00580 / 1.00868**. Speed upvalue is less consistent; the first
+  CPU0 ratio 1.16980 has a 1.40246 placebo and is not a clean speedup claim.
+- CPU16 speed metamethod Auto is adverse in both campaigns (**0.97848 /
+  0.98647**), with placebo medians **0.98865 / 1.00407**. Callback thresholds
+  fail in every candidate speed and shipping window in both screens.
+
+**Do not promote this trial.** Reduced scanning work does not erase the broader
+elapsed regressions or original gate failures. Symbol inspection of diagnostic
+images shows `complete_inline` grows 52 bytes and VM/executor addresses move by
+48 bytes while their sizes remain unchanged; this suggests code placement as a
+follow-up question, not a proven explanation for stripped cost-image timings.
+Earlier placement trials remain relevant and must not be blindly repeated.
+Evidence: `target/jit-evidence/hook-resume-recovery/registry-pair-scan/`, including
+`warm-audit.json`, `elapsed-audit.json` and both `timing*/production-audit.json`.
+
 ### Registry ID index — correctness passes, performance refusal, 2026-10-18
 
 Trial `fd2b0a7` on `trial/jit-registry-id-index` replaces ID resolution's
