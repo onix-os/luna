@@ -82,6 +82,7 @@ impl Scratch {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[inline(always)]
     pub(super) fn invoke<'gc>(
         &mut self,
         runtime: &super::Runtime,
@@ -91,6 +92,19 @@ impl Scratch {
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
         budget: u32,
     ) -> Option<u32> {
+        if !code.callback_calls
+            || !registers
+                .scratch_private
+                .is_some_and(|private| private.get())
+            || registers.stack_frame.len() != code.registers
+            || code.entry_kind != super::backend::EntryKind::Ordinary
+            || code.projected_upvalues
+            || code.scalar_leaf.is_some()
+            || self.epoch == 0
+        {
+            self.invalidate();
+            return None;
+        }
         match code.registers {
             1 => self.invoke_width::<1>(runtime, code, ctx, closure, registers, budget),
             2 => self.invoke_width::<2>(runtime, code, ctx, closure, registers, budget),
@@ -126,20 +140,6 @@ impl Scratch {
         use ottavino_gc_arena::Gc;
 
         let count = N;
-        if self.epoch == 0
-            || !code.callback_calls
-            || !registers
-                .scratch_private
-                .is_some_and(|private| private.get())
-            || count > 8
-            || registers.stack_frame.len() != count
-            || code.entry_kind != super::backend::EntryKind::Ordinary
-            || code.projected_upvalues
-            || code.scalar_leaf.is_some()
-        {
-            self.invalidate();
-            return None;
-        }
         let key = registers.shadow_key();
         let identity = Gc::as_ptr(closure.into_inner()) as usize;
         let reuse = self.phase == Phase::Ready
