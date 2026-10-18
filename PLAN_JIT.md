@@ -70,6 +70,45 @@ also changes substantially, and non-callback instruction regressions remain.
 Both frozen images and all adverse results are retained in `profile/` and
 `outlined/`. The experiment remains test-only, not production acceptance.
 
+The warmed elapsed screen added by `561ed70` uses the same outlined-width
+candidate, with two warmups and one timed execution per process. It asserts
+actual callback reuse, expected results, unchanged compilation requests and
+native execution outside the timed interval. Its controller rotates all seven
+workloads and all six orders of candidate/two duplicate controls. Forty-two
+windows balance both rotations. The audit checks every result record, 25
+counters, run order, telemetry and source/image/tool hashes; 39 malformed
+synthetic screens are refused and all three experiment selectors pass their
+runner checks. Formatting/check-all and nine focused Rust test executions pass.
+The synthetic runner exposed a pre-existing relative-Perl shebang failure on
+this host; resolving the executable to an absolute PATH entry fixes it, and
+runner failures now print their temporary logs before cleanup.
+
+Two sequential CPU0/CPU16 screens and a repeat in reversed CPU order complete
+**3528 checked timing samples**. No owned build, test or profiler overlaps the
+measurements; other workloads and contention are left running. The combined
+audit verifies counter equality across all four screens. Callback results:
+
+| Screen | Control / candidate median | Duplicate-control median |
+| --- | ---: | ---: |
+| CPU0 first | 1.035434 | 1.002947 |
+| CPU16 first | 1.024718 | 0.997899 |
+| CPU16 repeat | 1.028823 | 1.001039 |
+| CPU0 repeat | 1.041613 | 1.000462 |
+
+These are approximately **2.4–4.0% lower callback elapsed times against this
+instrumented same-image control**, not an unchanged-production speedup. Retain
+the adverse cases: CPU16 closure/upvalue medians are 0.994629 and 0.990670
+(roughly 0.5% and 0.9% slower), while several other workload/placebo distributions
+are noisy or mixed. The experiment is not promoted, and shipping/compiled-Off,
+cold/consumer, platform, resource and full performance gates remain open.
+Next isolate unnecessary tracking/admission work on ineligible frames, then
+compare against an unchanged production baseline before considering activation.
+`timing-image/`, `timing{,-repeat}-cpu{0,16}/` and `timing-summary.json` retain
+the complete evidence. The generic image manifest now also hashes the two
+example workload modules imported into library tests. Reproduction uses
+`jit-callback-scratch-time-run` and `jit-callback-scratch-time-audit` with
+`STRIDED_TIMING_WINDOWS=42` and explicit distinct output directories.
+
 ### Callback stack offset overflow — corrected, 2026-10-18
 
 Investigation of cross-callback import reuse found that callback stack suffix
