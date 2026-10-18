@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### VM-produced normal successors — isolated timing candidate, 2026-10-18
+### VM-produced normal successors — measured and rejected, 2026-10-18
 
 Main `2346ff8` adds an independent interpreter/native step-trace oracle across
 eight scripts and eight fuel budgets. Runtime experiments remain isolated;
@@ -27,7 +27,7 @@ instruction-count APIs and the full `u32` range are preserved.
 the numeric overhead: callback Auto instructions fall0.954%, but numeric Auto
 grows0.65–0.67% and upvalue Off grows1.178%. This is not the selected timing trial.
 
-Selected **`679e3a1`** additionally emits the fact at existing compiled/interpreted
+Timing trial **`679e3a1`** additionally emits the fact at existing compiled/interpreted
 budget-exhaustion exits and ordinary interpreted calls. These exits retain a Lua
 frame or a caller below a newly queued frame, including a depth-refusal Error.
 Other exits retain general dispatch. Production instruction profiles cover the
@@ -49,7 +49,7 @@ auditor accepts the valid fixture and rejects nine targeted corruptions.
 **These are instruction counts, not elapsed speedups.** The two small increases
 also require timing rather than being declared hardware regressions.
 
-The selected source passes133 focused tests, all-feature/format checks and five
+The timing source passes133 focused tests, all-feature/format checks and five
 fallback Miri tests. Its enabled/disabled shortcut oracle covers96 paired step
 schedules, including instruction-budget boundaries, callbacks, hooks, close
 handlers and coroutines. Tests require actual shortcut hits for both interpreted
@@ -64,15 +64,52 @@ Off instruction work grows2.858% for integers,2.661% for floats and1.494% for
 upvalues. The integer VM alone adds119409 instructions per measured execution
 relative to `679e3a1`; executor work is unchanged. This does not establish a
 hardware cause. The rejected source and its expanded metamethod tests remain
-on `trial/jit-vm-successor`, separate from selected
+on `trial/jit-vm-successor`, separate from
 `trial/jit-vm-budget-successor`.
 
-Matched speed/shipping image preparation and full `make jit-verify` for the
-selected source have started. Elapsed collection has **not** started and must
-not overlap owned validation/build work. Remaining gates include source/image
-and no-feature control verification, balanced repeated production timing,
-independent auditing and the original performance/resource/platform/release
-requirements. Evidence and exact job checkpoints are under
+**Production timing also rejects `679e3a1`.** Sequential package-cleaned builds
+use the same source/target paths and identical root-launched Nix/linker settings.
+No-feature binaries are not byte-identical: both profiles differ at106 Rust
+source-line/column records. An ELF comparison validates those records against
+the frozen source files and proves every other byte, including executable code
+and layout, identical. Exact controls and metadata-only controls pass; seven
+targeted corruptions are refused. The original strict binary-comparison failure
+is retained, not reported as a pass. This explicit metadata-only check runs
+before/after timing and its implementation is hashed with the campaign tools.
+
+The144-command campaign completes six balanced A/trial/B orders on CPUs0/16,
+speed/shipping profiles, all nine workloads and both native/compiled-disabled
+comparisons: **14256 native executions and285120 cost iterations**, with zero
+counter/resource mismatches. No owned build, test or profiler overlaps elapsed
+collection. All raw cost medians are recomputed; native medians remain worker
+summaries. The independent auditor accepts two valid screens and rejects13
+malformed variants. Original performance thresholds are unchanged.
+
+Representative repeated losses below use control/candidate time ratios; lower
+than1 means a slower candidate. Every listed loss occurs in all six rounds.
+
+| CPU/profile | Workload/mode | Control/candidate | Longer elapsed | A/B placebo median |
+|---|---|---:|---:|---:|
+| 0/speed | Callbacks, Auto | 0.972413 | 2.84% | 0.996863 |
+| 16/speed | Callbacks, Auto | 0.982112 | 1.82% | 0.993039 |
+| 16/shipping | Float, compiled-Off | 0.936644 | 6.76% | 0.999495 |
+| 16/shipping | Callbacks, compiled-Off | 0.915915 | 9.18% | 1.002082 |
+
+Shipping CPU16 no-feature float control/candidate is1.001313, with placebo
+1.000621; the corresponding compiled-Off loss is not mirrored by its no-feature
+control. The complete report retains other wins, losses and placebo dispersion,
+including the CPU0 shipping Auto callback ratio1.047405. These wins do not
+establish a broad improvement. Original native callback gates fail12/12 times
+in both profiles; compiled-Off upvalue gates fail12/12 in speed and10/12 in
+shipping. Neither successor runtime variant is promoted to main.
+
+The two-thread full `make jit-verify` run was intentionally interrupted after
+confirming its owned test process was using only two CPUs on the24-CPU host.
+Its partial log and SIGTERM exit remain; it is **not** a full-suite pass. Timing
+ran after every owned build/test process was terminal. The proposed eight-thread
+full rerun is not needed for this now-rejected runtime and has not been started.
+Full performance/resource/platform/release acceptance remains open; main keeps
+the independent oracle, not these runtime changes. Evidence is under
 `target/jit-evidence/hook-resume-recovery/vm-successor/`, especially
 `all-slices/STATUS.md`, `meta-slices/STATUS.md` and `timing/STATUS.md`.
 
