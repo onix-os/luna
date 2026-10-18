@@ -30,9 +30,27 @@ short paired-suite loss and does not overturn it. Whole-process counters are
 not VM-exclusive attribution or full performance acceptance.
 
 The original acceptance workload alternates Off and Auto states and runs the
-complete suite; standalone Off changes that execution context. Paired float
-screens at 1,000 and 11 samples are being collected on unchanged images before
-any runtime change or causal code-layout claim. Evidence:
+complete suite; standalone Off changes that execution context. Two further
+36-process paired float screens complete at 1,000 and 11 samples. Each passes
+execution/resource parity, original float gate/status checks, provenance and
+two-valid/18-corruption audit fixtures. CPU 16 long paired Off ratio is 1.0015
+(placebo 0.9995); short paired Off is 0.9848 (placebo 1.0016), adverse in four
+of six rounds. Short paired whole-process branch-miss ratio is 0.9857, adverse
+in six of six rounds, but these counters include compilation and Auto work:
+they do not identify an Off VM branch as the cause. Hardware instruction and
+branch totals remain effectively unchanged. Neither isolated context replaces
+the original full-suite acceptance measurements or clears the regression.
+
+Original-strip, map-only rebuilds now reproduce **both complete measured
+executables byte-for-byte**. Verified linker ranges and disassembly put the
+baseline VM at 0x5c89f0 and candidate VM at 0x5c8e90, both 55,558 bytes; their
+entry offsets modulo 64 are 48 and 16. This establishes changed placement,
+not a causal alignment diagnosis or permission to retry blind padding variants.
+The builder is restored clean to `trial/jit-callback-setup-ablation`. All owned
+jobs are terminal; main runtime remains unchanged and no trial is promoted.
+Next sampling must retain the original short paired suite context and use
+these exact-image ranges/MMAP records rather than substitute a long steady
+worker or a different executable. Evidence:
 `target/jit-evidence/hook-resume-recovery/argument-rotation/callback-setup-ablation/native-counters*`
 and `native-paired*`.
 
