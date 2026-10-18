@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Seeded address-hash cache — candidate, 2026-10-18
+
+Current trial `8495f75` remembers two source-address hashes in the GC-owned
+registry. It caches neither identity nor eligibility: every query still probes
+the map, upgrades the weak entry, compares the live prototype and reads its
+current registration ID. Reset clears both pairs before changing hash seeds;
+growth/compaction preserve the seed. No bucket pointer, code lease, unsafe
+access or new allocation is introduced. The two pairs add **32 GC-accounted
+bytes** on this host; unchanged map charges do not mean zero total memory cost.
+
+Baseline test `a37e825` independently compares raw-entry hashes to ordinary map
+lookup over wide keys, hits/misses, dense/sparse capacities and 32 freshly seeded
+maps. It passes with the original registry. Hash generation deliberately uses
+`build_hasher`/`Hash::hash`/`finish`, not specialized `hash_one`.
+
+Initial trial `77a1442` populates only successful hits; refinement `b41cb42`
+uses separate Cells and populates the pure hash before probing. A missing address
+may have a remembered hash, but is never remembered as missing or registered.
+Both forms retain all fresh identity checks. Candidate tests mutate weak entries
+and IDs, rehash, reset and re-register; existing collection tests remain active.
+Each form passes **16 registry Miri tests**, retaining 39 emitted warnings.
+
+Three four-round matrices produce **288 checked instruction profiles** across
+callbacks/upvalues/float, Off/Auto and both feature images. All worker/native
+records agree and all thirteen exclusive event sums verify. The first two forms
+outline identity automatically and add **4.503%** float Off instructions. Eager
+population reduces identity self work **1,825,383 -> 1,425,285**, but total
+callback Auto work remains about **0.272% higher** than the original control.
+
+Keeping the revised identity method inline restores float Off to **20,060,895**
+instructions in all four runs. Callback Auto falls **47,185,720 -> 46,960,768 /
+46,960,849 (about 0.477%)**; float Auto falls **5,859,342 -> 5,834,307**.
+Upvalue Auto improves in three rounds but worsens **1.348%** in one. One callback
+Off run is **40,640,025**, versus control **38,915,025**; the other three match.
+All process variation remains. These are diagnostic instructions, not elapsed
+speedups. All three no-feature diagnostic images match their frozen control.
+
+The current candidate passes **164 focused/host-memory executions across
+nineteen summaries** and **16 fresh registry Miri tests** (39 warnings).
+Full `make jit-verify` is still running: its initial verification portion has
+completed **2,441 passing executions / 177 summaries**, but subsequent JIT-mode,
+documentation and fuzz stages are not yet accepted. The five immutable timing
+images are being built; no elapsed campaign has started. Original all-nine-case
+native and disabled-cost gates, resource/platform and release acceptance remain
+open. Evidence and exact source manifests are under `address-hash*` in
+`target/jit-evidence/hook-resume-recovery/`. This candidate is **not accepted**.
+
 ### Scoped VM lease classification — rejected, 2026-10-18
 
 Trial `5d59e5c` classifies ordinary versus scoped native execution during the
