@@ -1111,12 +1111,21 @@ impl<'gc> Key<'gc> {
             a == b
         }
 
+        #[inline(never)]
+        fn equal_weak<'gc>(stored: Key<'gc>, query: String<'gc>) -> bool {
+            match stored {
+                Key::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(key)), _) => {
+                    Gc::ptr_eq(key.into_inner(), query.into_inner()) || equal_contents(key, query)
+                }
+                _ => false,
+            }
+        }
+
         match self {
-            Self::Live(CanonicalKey::String(key))
-            | Self::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(key)), _) => {
+            Self::Live(CanonicalKey::String(key)) => {
                 Gc::ptr_eq(key.into_inner(), query.into_inner()) || equal_contents(key, query)
             }
-            _ => false,
+            _ => equal_weak(self, query),
         }
     }
 }
