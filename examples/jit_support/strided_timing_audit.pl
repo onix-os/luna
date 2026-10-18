@@ -30,9 +30,10 @@ die "invalid configuration\n" unless defined $cpu && defined $windows && $window
 die "missing final verification\n" unless slurp("$directory/verification-after.log") =~ /: OK\n/;
 my ($experiment) = $config =~ /^experiment=(.*)$/m;
 $experiment //= 'strided';
-die "unknown timing experiment\n" unless $experiment eq 'strided' || $experiment eq 'preferred_entry';
-my $field = $experiment eq 'strided' ? 'strided' : 'preferred';
-my @cases = $experiment eq 'strided'
+my %fields = (strided => 'strided', preferred_entry => 'preferred', callback_scratch => 'scratch');
+die "unknown timing experiment\n" unless exists $fields{$experiment};
+my $field = $fields{$experiment};
+my @cases = $experiment ne 'preferred_entry'
     ? qw(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
     : ('rust_callbacks');
 my @orders = ([qw(a candidate b)], [qw(candidate b a)], [qw(b a candidate)],

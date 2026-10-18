@@ -21,6 +21,13 @@ case $experiment in
         record_field=preferred
         test_name=jit::payload_runtime_tests::preferred_entry::timing::time_preferred_runtime
         ;;
+    callback_scratch)
+        cases=(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
+        case_variable=LUNA_MEMORY_CASE
+        mode_variable=LUNA_MEMORY_SELECTED
+        record_field=scratch
+        test_name=jit::payload_runtime_tests::strided_profile::timing::time_callback_scratch_runtime
+        ;;
     *) echo 'unknown timing experiment' >&2; exit 2;;
 esac
 [[ $cpu =~ ^[0-9]+$ && $windows =~ ^[0-9]+$ ]]

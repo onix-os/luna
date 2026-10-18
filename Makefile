@@ -1547,7 +1547,7 @@ jit-strided-profile-build:
 	@test "$$(wc -l < '$(STRIDED_DIR)/binary-path')" -eq 1
 	@cp "$$(cat '$(STRIDED_DIR)/binary-path')" '$(STRIDED_DIR)/test-binary'
 	@sha256sum '$(STRIDED_DIR)/test-binary' > '$(STRIDED_DIR)/binary.sha256'
-	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(STRIDED_DIR)/source.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs examples/jit_support/resource_workloads.rs; } | sort -z | xargs -0 sha256sum > '$(STRIDED_DIR)/source.sha256'
 	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\ncalls=100000\nscope=synthetic transport only\n'; } > '$(STRIDED_DIR)/configuration'
 
 jit-strided-profile-run: jit-profile-cpu-check
@@ -2166,6 +2166,15 @@ jit-callback-scratch:
 
 jit-callback-scratch-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::callback_scratch::tests:: -- --test-threads=1
+
+CALLBACK_SCRATCH_DIR ?= target/jit-evidence/hook-resume-recovery/callback-scratch/timing-image
+CALLBACK_SCRATCH_TIMING_DIR ?= target/jit-evidence/hook-resume-recovery/callback-scratch/timing
+.PHONY: jit-callback-scratch-time-run jit-callback-scratch-time-audit
+jit-callback-scratch-time-run: jit-profile-cpu-check
+	@bash examples/jit_support/strided_timing.sh '$(CALLBACK_SCRATCH_DIR)' '$(CALLBACK_SCRATCH_TIMING_DIR)' '$(PROFILE_CPU)' '$(STRIDED_TIMING_WINDOWS)' callback_scratch
+
+jit-callback-scratch-time-audit:
+	@perl examples/jit_support/strided_timing_audit.pl '$(CALLBACK_SCRATCH_TIMING_DIR)'
 
 .PHONY: stack-bounds stack-bounds-miri stack-bounds-callbacks vm-return-spans
 vm-return-spans:
