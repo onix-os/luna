@@ -57,6 +57,19 @@ hashes, native disassembly and audits are in
 `jit-callback-scratch`, `jit-callback-scratch-miri` and the existing universal
 memory-profile targets with `MEMORY_KIND=callback_scratch`.
 
+An outlined-width follow-up keeps the same safety logic and all six tests pass
+again. A second independently frozen 28-capture matrix also passes every result,
+counter, native-body and exclusive-event audit. Callback control/candidate
+instructions are **11190392 → 11147075 (0.387%)**, identical across both rounds;
+the selected candidate is 70075 instructions below the initial candidate, but
+the disabled control also changes by 40008. Import counts and native instruction
+counts stay unchanged. The seven-register path is now a distinct function and
+no longer calls the separately outlined Code::invoke_raw. This is not evidence
+of elapsed improvement: simulated instruction-cache and branch-miss behavior
+also changes substantially, and non-callback instruction regressions remain.
+Both frozen images and all adverse results are retained in `profile/` and
+`outlined/`. The experiment remains test-only, not production acceptance.
+
 ### Callback stack offset overflow — corrected, 2026-10-18
 
 Investigation of cross-callback import reuse found that callback stack suffix

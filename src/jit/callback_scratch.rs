@@ -112,6 +112,7 @@ impl Scratch {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[inline(never)]
     fn invoke_width<'gc, const N: usize>(
         &mut self,
         runtime: &super::Runtime,
