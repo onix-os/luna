@@ -85,19 +85,7 @@ fn charged_image_executes_after_snapshot_release_until_final_lease_drop() {
             }
             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
             let before = ctx.jit().0.borrow().stats.native_entries;
-            let sources = (closure.prototype(), closure.prototype().prototypes[0]);
-            let fuel = host.fuel().remaining();
-            for wrong in [
-                (sources.1, sources.0),
-                (sources.0, sources.0),
-                (sources.1, sources.1),
-            ] {
-                assert!(lease.run(ctx, host, wrong, 16, 64, 0).is_none());
-                assert_eq!(host.fuel().remaining(), fuel);
-                assert_eq!(host.with_registers(|_, r| *r.pc), key.pc);
-                assert_eq!(ctx.jit().0.borrow().stats.native_entries, before);
-            }
-            let progress = lease.run(ctx, host, sources, 16, 64, 0).unwrap();
+            let progress = lease.run(ctx, host, 16, 64, 0).unwrap();
             assert!(progress.calls > 1);
             assert_eq!(ctx.jit().0.borrow().stats.native_entries, before + 1);
         });
@@ -207,7 +195,7 @@ fn retained_image_rejects_reset_generations_before_effects() {
                 }
                 let fuel = host.fuel().remaining();
                 let entries = ctx.jit().0.borrow().stats.native_entries;
-                assert!(code.run(ctx, host, sources, 16, 64, 0).is_none());
+                assert!(code.run(ctx, host, 16, 64, 0).is_none());
                 assert_eq!(host.fuel().remaining(), fuel);
                 assert_eq!(host.with_registers(|_, r| *r.pc), key.pc);
                 assert_eq!(ctx.jit().0.borrow().stats.native_entries, entries);
