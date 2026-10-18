@@ -34,10 +34,24 @@ checks pass 32 executions / three summaries, one ignored. Pinned Miri passes
 four selected tests under each borrowing model. All trial commits are pushed;
 main runtime is unchanged. Full Force/release acceptance is not implied.
 
-Fresh control (`9515e33`) and candidate instruction profiles are running from
-the same historical source/target build path, with frozen source witnesses and
-the existing strict execution/resource auditor. No instruction saving or elapsed
-speedup is claimed yet; the disabled numeric regressions remain unresolved.
+Fresh control (`9515e33`) and candidate images each finish fourteen instruction
+profiles from the same historical source/target build path. Source/image/tool
+provenance and exclusive event sums verify. Integer/float instructions match in
+both modes. Callback Auto instead increases **9,278,782 -> 9,288,782 (+0.108%)**
+per execution: VM self work matches, but helper self instructions rise
+**685,000 -> 705,000**, exceeding the net 10,000 instructions saved elsewhere.
+The helper performs 5,000 fewer reads. Fewer ABI arguments alone do not prove
+lower total work or an elapsed improvement. Upvalue/metamethod Auto instructions
+fall 0.319%/0.550%; array Auto rises 0.195% and metamethod Off rises 0.135%.
+
+The unchanged strict auditor **refuses** two resource differences:
+`snapshot_peak_bytes` rises **16,177 -> 16,205** for metamethod Auto and
+**10,737 -> 10,781** for callback Auto. A separately named analysis preserves
+both complete counter records and reports no other counter differences across
+the fourteen pairs; it explicitly does not grant counter/performance acceptance.
+The strict failure and unrun downstream fixture gate remain visible. Attribute
+these peak changes and the additional callee work before accepting this form.
+No fresh elapsed result is claimed; disabled numeric regressions remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/narrow-helper/`.
 
 ### Canonical string lookup — isolated runtime trial, 2026-10-18
