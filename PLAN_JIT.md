@@ -132,6 +132,39 @@ the immutable `c7-source` and `corrected-source` witnesses, both i686 results,
 `warm-audit.json`, `corrected/`, `shipping-attribution/`, `shipping-profile/`
 and validation logs.
 
+### Matched VM placement control — rejected, 2026-10-18
+
+This diagnostic applies one fixed 4096-byte VM section alignment to **both**
+`066905e` and canonical candidate `9515e33`, not just the candidate. Isolated
+commits `14148d9` and `444ea13` are pushed on their trial branches. Each passes
+format/all-feature checks and 79 focused executions across ten summaries.
+Both shipping VMs start at image-relative `0x45d000`, size 42,104 bytes, in
+readable/executable, non-writable LOAD mappings. All 8,614 normalized instruction
+lines match their respective originals; external targets/RIP addresses remain
+outside that structural comparison. Main runtime is unchanged.
+
+Two matched-path comparisons each finish 144 workers: six balanced rounds,
+CPUs 0/16, original/aligned policies, A/candidate/B controls and two numeric
+cases, 1,000 measured iterations each. No owned build/test/profiler overlaps
+collection. Worker results, zero native work, image/source/tool hashes and
+telemetry verify. Each auditor accepts two valid fixtures and rejects nine
+corruptions. This is a numeric placement diagnostic, not full-suite acceptance.
+
+CPU0 original control/candidate integer ratios are **0.8822 / 0.8633**, versus
+**0.9701 / 0.9750** under alignment. Float ratios change from
+**0.8767 / 0.8667** to **0.9093 / 0.9777**. Corresponding CPU0 same-image controls
+stay near one. The smaller gap is not a sufficient candidate improvement:
+original/aligned baseline ratios are **0.9327 / 0.9049** for integer and
+**0.9025 / 0.8826** for float, showing a substantial baseline slowdown.
+Candidate integer original/aligned ratios are only **1.0056 / 1.0249**;
+candidate float is **0.9236 / 0.9991**, including another slowdown.
+CPU16 aligned integer also slows both variants by roughly 5–6%.
+
+Reject this fixed-placement policy. Equal VM entry alignment does not remove
+all observed differences, and making the control slower is not repairing the
+trial. No offset sweep, weakened gate or new production placement rule follows.
+Evidence: `target/jit-evidence/hook-resume-recovery/canonical-string/placement-control/`.
+
 ### Branch-history attribution — no promotion, 2026-10-18
 
 The 36-process short full-suite branch-history campaign finishes on the same
