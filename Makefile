@@ -838,6 +838,11 @@ vm-activation-tests:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 
 .PHONY: vm-mode-checks vm-mode-checks-miri
+.PHONY: jit-callback-handoff
+jit-callback-handoff:
+	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::callback_handoff_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::callback_handoff_tests $(ARGS) | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 vm-mode-checks:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::mode_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::mode_tests

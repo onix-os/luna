@@ -9,6 +9,31 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Queued callback handoff — unaccepted trial, 2026-10-18
+
+The feature-JIT executor now trials carrying one already-queued callback between
+iterations. Extraction happens only after the original step fuel charge and
+continuation check; exhausted/interrupted steps leave the frame canonical.
+Running/deferred-error threads, other frame kinds and unavailable borrows retain
+the original dispatch. The next iteration consumes the callback through the
+existing callback branch, without repeating thread-mode classification or its
+frame pop. No values, native pointers or stack borrows are retained across user
+code, suspension or a return from `Executor::step`.
+
+This differs from the rejected second-mode-query elision and callback activation
+borrow fusion. It also adds an end-of-step inspection on non-callback paths;
+that cost may outweigh the saving. There is no performance acceptance yet.
+Formatting/check-all and the initial mode/heap/activation checks pass. An
+independent chained-callback fixture passes both feature builds across eleven
+fuel budgets and both initial/in-callback interruption choices. It verifies
+callback-visible frames/borrows, exact fuel, queued frames at interruption,
+minimum progress and results. The eligibility fixture checks all running,
+deferred-error, error-taken and queued/not-queued combinations.
+
+Next gates are the isolated optimized image, full-workload instruction profiles,
+Miri and unchanged production elapsed/cost checks if the trial merits them.
+Evidence is under `target/jit-evidence/hook-resume-recovery/callback-handoff/`.
+
 ### Thread-local prepared bucket hint — withdrawn, 2026-10-18
 
 **Outcome: withdrawn after production measurements.** The speed-profile callback
