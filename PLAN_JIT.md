@@ -9,6 +9,96 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Seeded address-hash cache — candidate, 2026-10-18
+
+Current trial `8495f75` remembers two source-address hashes in the GC-owned
+registry. It caches neither identity nor eligibility: every query still probes
+the map, upgrades the weak entry, compares the live prototype and reads its
+current registration ID. Reset clears both pairs before changing hash seeds;
+growth/compaction preserve the seed. No bucket pointer, code lease, unsafe
+access or new allocation is introduced. The two pairs add **32 GC-accounted
+bytes** on this host; unchanged map charges do not mean zero total memory cost.
+
+Baseline test `a37e825` independently compares raw-entry hashes to ordinary map
+lookup over wide keys, hits/misses, dense/sparse capacities and 32 freshly seeded
+maps. It passes with the original registry. Hash generation deliberately uses
+`build_hasher`/`Hash::hash`/`finish`, not specialized `hash_one`.
+
+Initial trial `77a1442` populates only successful hits; refinement `b41cb42`
+uses separate Cells and populates the pure hash before probing. A missing address
+may have a remembered hash, but is never remembered as missing or registered.
+Both forms retain all fresh identity checks. Candidate tests mutate weak entries
+and IDs, rehash, reset and re-register; existing collection tests remain active.
+Each form passes **16 registry Miri tests**, retaining 39 emitted warnings.
+
+Three four-round matrices produce **288 checked instruction profiles** across
+callbacks/upvalues/float, Off/Auto and both feature images. All worker/native
+records agree and all thirteen exclusive event sums verify. The first two forms
+outline identity automatically and add **4.503%** float Off instructions. Eager
+population reduces identity self work **1,825,383 -> 1,425,285**, but total
+callback Auto work remains about **0.272% higher** than the original control.
+
+Keeping the revised identity method inline restores float Off to **20,060,895**
+instructions in all four runs. Callback Auto falls **47,185,720 -> 46,960,768 /
+46,960,849 (about 0.477%)**; float Auto falls **5,859,342 -> 5,834,307**.
+Upvalue Auto improves in three rounds but worsens **1.348%** in one. One callback
+Off run is **40,640,025**, versus control **38,915,025**; the other three match.
+All process variation remains. These are diagnostic instructions, not elapsed
+speedups. All three no-feature diagnostic images match their frozen control.
+
+The current candidate passes **164 focused/host-memory executions across
+nineteen summaries** and **16 fresh registry Miri tests** (39 warnings).
+Full `make jit-verify` is still running: its initial verification portion has
+completed **2,441 passing executions / 177 summaries**, but subsequent JIT-mode,
+documentation and fuzz stages are not yet accepted. The five immutable timing
+images are being built; no elapsed campaign has started. Original all-nine-case
+native and disabled-cost gates, resource/platform and release acceptance remain
+open. Evidence and exact source manifests are under `address-hash*` in
+`target/jit-evidence/hook-resume-recovery/`. This candidate is **not accepted**.
+
+### Scoped VM lease classification — rejected, 2026-10-18
+
+Trial `5d59e5c` classifies ordinary versus scoped native execution during the
+VM's existing code lookup. A tagged dispatch variant carries that classification
+without expanding its 16-byte bound or adding an owner/allocation. Every existing
+scope, including claimed and foreign-source states, retains the original
+owner/closure/stack/PC/once check. Other `Runtime::run` callers remain checked;
+legacy test resumption selects the checked path conservatively. Only an ordinary
+VM slice bypasses the repeated manager borrow. Scope installation remains behind
+the canonical-slice entry boundary; helpers cannot install a scope or call users.
+
+Formatting/check-all and **189 focused executions / nineteen summaries** pass,
+with two existing ignored tests. Coverage includes prefix/fuel/counter parity,
+nested scope unwinding, debug hooks, ownership, resources and upvalues. The new
+classification fixture checks ordinary, claimed, Off/Auto and foreign-source
+scope cases; dispatch retirement/GC checks exercise both compiled tags.
+
+Four alternating baseline/trial rounds yield **96 checked instruction profiles**
+for callbacks/upvalues/float, Off/Auto and both feature images. Worker/native
+records agree and all thirteen exclusive event totals verify. Callback Auto
+work is effectively unchanged but slightly higher: control **47,185,720**,
+candidate **47,188,521** (one **47,188,440**). In round zero, VM self work falls
+**767,927**, but the newly separate `run_without_resume` executes **670,707**
+instructions and code lookup grows **100,021**. Those changes account for the
+entire **2,801** increase; moving work out of the VM is not its removal.
+
+Disabled-JIT work rises repeatedly: float **20,060,895 -> 21,470,635 (+7.027%)**,
+callbacks **38,915,025 -> 39,715,250 (+2.056%)**, and upvalues about **2.924%**.
+Upvalue Auto ranges from **-0.625% to +0.267%**; favorable and adverse runs remain.
+The no-feature image differs from the older control, so byte identity is not
+claimed for the candidate. Five of its 24 paired instruction counts differ;
+all data remain in the audit rather than being replaced with a selected control.
+No hardware cause or elapsed-time result is inferred from these profiles.
+
+Reject this form before a broad timing campaign. `e4cb1da` restores every runtime
+and candidate-only test change exactly to `5362611`; restored formatting/check-all
+and **188 focused executions / nineteen summaries** pass, with the same two
+ignores. Both fresh restored diagnostic images match the split-hook controls
+byte-for-byte. No new full-suite, Miri, platform or elapsed acceptance is claimed.
+The rejected source/tests, frozen images, complete profiles and checks remain
+under `scoped-dispatch*` in `target/jit-evidence/hook-resume-recovery/`.
+Full native, disabled-cost, resource, platform and release gates remain open.
+
 ### Source-identity outlining — rejected, 2026-10-18
 
 Revisited executor extraction before changing runtime code: the prior Lua-frame
