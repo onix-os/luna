@@ -9,6 +9,43 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Outlined upvalue fusion — float recovery with closure loss, 2026-10-19
+
+Trial `79b7f73` outlines only the fusion helper relative to `2430bb8`. Exact
+focused **267 tests / 44 summaries** and full Force **2,042 / 90**, **23 ignored**,
+pass without failures. Six images and original/direct-parent preflights verify;
+no-feature text and section/segment geometry match original, whole files differ.
+
+Eight exact-image Callgrind processes capture 40 executions including 16 warmups,
+with all 13 exclusive event sums and complete text-symbol partitions reconciled.
+The outlined helper executes 1,150,000 self instructions per measured closure
+execution. VM self work falls by 910,013 speed / 1,090,027 shipping instructions,
+so total image work **increases 239,987 / 59,973**, respectively. Other symbol
+costs and frame/VM/executor entry counts match. Moving work to a helper is not
+itself a work reduction.
+
+Four screens complete **576 commands / 57,024 native executions / 1,140,480 cost
+iterations**, zero counter/resource mismatches, and valid/restored plus 13
+corruption fixtures each. Original speed native failures are **10 then 8 / 96**,
+cost failures **52 then 55 / 216**; parent failures **12 then 9 / 96** and **56
+then 53 / 216**. Shipping native diagnostics are separate. All 24 closure cost
+gates fail in each campaign.
+
+CPU0 shipping float Off control/trial ratios recover: original **1.027547 /
+1.032635**, direct-parent **1.133720 / 1.139616**. But CPU16 speed closure ratios
+are adverse in every round: original **0.983118 / 0.975859**, parent **0.976283 /
+0.975110**. Parent CPU16 float is also adverse in every round, speed **0.960482 /
+0.966842**, shipping **0.942902 / 0.953559**, despite remaining above original in
+the aggregate comparisons. CPU classes and reference revisions are not pooled.
+
+This trade-off does not meet acceptance; no runtime promotion or exact-trial
+Miri/i686 result is claimed. `2430bb8` validation is not inherited as proof for
+this revision. Exact helper disassembly is retained for the next diagnosis:
+the helper still converts constants to general Value tags before rejecting
+nonnumeric operands. A new separately tested follow-up targets that handling
+while retaining canonical coercion, metamethod, error and prefix behavior.
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-upvalue-outline/`.
+
 ### Fused operand access — local recovery, acceptance still open, 2026-10-19
 
 Trial `2430bb8` on `trial/jit-upvalue-inline` removes the operand closure and
