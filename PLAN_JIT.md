@@ -36069,6 +36069,39 @@ reported as a new passing gate: identical restored images retain the original
 known performance gaps. Full native/resource/platform/release acceptance remains
 incomplete. No branches or worktrees were created for this trial's withdrawal.
 
+### Known current-frame closure input — implementation under validation
+
+The Executor ordinary Lua-frame arm already owns the just-popped frame's
+canonical closure and pushes that same frame back immediately before VM entry.
+This trial forwards that closure to the existing VM instead of rediscovering
+it through a second frame-stack inspection. Hook-resume and activation-host
+entries keep canonical discovery when they do not already own the frame value.
+The single opcode implementation, zero-budget ordering, source/mode/hook checks,
+leases, frame/fuel transitions and native accounting remain unchanged.
+
+This is an ephemeral call argument, not a cached closure or mode, persistent
+frame field, register-view rewrite, accessor inline annotation or second VM.
+Each Executor invocation supplies the currently matched frame; no value is
+retained across a callback or frame transition. Debug entry rejects a stale
+nonzero argument. Zero-budget entry still preserves a pending hook marker and
+does not resolve the frame or borrow the JIT manager, including when a manager
+borrow is already held.
+
+A test-only scoped selector compares known and original resolved entries through
+the public Executor. Eight scripts, both Off/Auto and four fuel budgets give
+64 paired schedules, comparing every existing physical-frame/scalar-stack,
+fuel/interruption/dispatch/result trace with collection between steps. Positive
+route counts require both paths to execute. Nested and typed-panic restoration,
+zero-budget/hook-marker and stale-closure guards have dedicated fixtures.
+Make targets are `vm-known-closure` and `vm-known-closure-miri`.
+
+Compilation and the initial focused execution pass; exact-image whole-path
+evaluation remains required. Prior closure-accessor/constructor trials remain rejected. This new
+call-boundary trial is **not performance accepted**; full correctness, safety,
+actual unsupported-platform fallback, original native/disabled/resource and
+release gates remain required before retention. Evidence:
+`target/jit-evidence/hook-resume-recovery/known-frame-closure`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

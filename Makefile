@@ -893,6 +893,14 @@ vm-static-off-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::static_off -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::hook_resume -- --test-threads=1
 
+.PHONY: vm-known-closure vm-known-closure-miri
+vm-known-closure:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::known_closure $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::known_closure_tests $(ARGS)
+
+vm-known-closure-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::known_closure -- --test-threads=1
+
 .PHONY: vm-callback-chains
 vm-callback-chains:
 	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::callback_chain_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'

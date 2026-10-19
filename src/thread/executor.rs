@@ -666,13 +666,22 @@ impl<'gc> Executor<'gc> {
                             }
                         }
                     }
-                    Some(frame @ Frame::Lua { .. }) => {
+                    Some(
+                        frame @ Frame::Lua {
+                            closure: _current_function,
+                            ..
+                        },
+                    ) => {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
                         top_state.frames.push(frame);
 
                         // One borrow of the stack for the whole VM slice, not one per opcode.
                         let stack = top_state.stack;
                         let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
+                            #[cfg(feature = "jit")]
+                            let run_vm = |ctx, frame, budget| {
+                                super::vm::run_vm_known(ctx, frame, budget, _current_function)
+                            };
                             let frame_stack = stack.borrow_mut(&ctx);
                             #[cfg(feature = "jit")]
                             let mut frame_stack = frame_stack;
@@ -1700,3 +1709,6 @@ mod builtin_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod static_off_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod known_closure_tests;
