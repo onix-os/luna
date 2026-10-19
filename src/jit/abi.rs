@@ -56,7 +56,6 @@ impl Slot {
         Self::from_value(value.into())
     }
 
-    #[inline(always)]
     pub fn write_back(self, dest: &mut Value<'_>) {
         *dest = self.value(*dest);
     }
@@ -73,7 +72,6 @@ impl Slot {
         *dest = self.value(*dest);
     }
 
-    #[inline(always)]
     pub fn value<'gc>(self, reference: Value<'gc>) -> Value<'gc> {
         match self.tag {
             NIL => Value::Nil,

@@ -9,12 +9,12 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Native slot-conversion call boundary — validation pending, 2026-10-19
+### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 
 **Resumed by the user on `feat/native-jit`.** The previously interrupted
 validation output is preserved and is not claimed as a full test pass or
-performance result. The pending one-attribute conversion candidate is applied
-on the existing implementation branch. Validation uses the retained detached
+performance result. The conversion candidates are tested and reverted
+on the existing implementation branch. Initial validation uses the retained detached
 source snapshot only after confirming its runtime, test and build inputs match;
 no local/remote branch or additional worktree is created.
 Experimental branch names below are historical provenance: **59 local and 55
@@ -41,7 +41,7 @@ not guessed from stripped disassembly names. Speed conversion is already inlined
 The explicit stack-operand counts are not stack traffic attributable solely to
 conversion and are not a claim of removable time.
 
-Pending implementation commit `eb25372` forces the existing `Slot::value` conversion inline,
+Initial candidate `eb25372` forces the existing `Slot::value` conversion inline,
 without integer/reference shortcuts, skipped writebacks, narrowed counters,
 changed tags, altered ABI or retained pointers. Unlike earlier rejected scalar
 specializations, its hypothesis is removing the shipping aggregate-return call
@@ -74,12 +74,33 @@ their original controls. No out-of-line `Slot::value` or `Slot::write_back`
 symbol remains in the shipping image. Whole steady callback work falls from
 **11,684,260 to 11,509,225 instructions** in shipping, but grows from **9,438,782
 to 9,463,787** in speed. This is a mixed result, not a claimed speedup or evidence
-that the speed callback gate is solved. The larger serial campaign is running:
+that the speed callback gate is solved. The larger serial campaign completes:
 full Force, both Miri borrow models, real i686 fallback, then both original
 all-nine-case elapsed screens. No owned tests/builds/profilers overlap timing.
+
+The refined source passes full Force **2,044 / 91 summaries / 23 ignored**, both
+Miri borrow models **23 / two summaries each**, and real i686 fallback **25 /
+three summaries**. Miri/fallback do not establish generated-code execution.
+Two original elapsed screens complete **288 commands / 28,512 native executions /
+570,240 feature-cost iterations**, with zero printed counter/resource mismatches.
+Both pass source/image/tool verification and valid/restored plus 13-corruption
+audits. Capture/audit exit zero does not mean passing performance acceptance.
+
+Shipping native callbacks improve: control/trial median ratios are **1.043601 /
+1.043206** on CPU0 and **1.039909 / 1.042847** on CPU16. Speed callbacks do not
+improve repeatably (**1.000736 / 0.993187**, **0.995250 / 0.987493**). More
+importantly, CPU0 shipping compiled-Off integer ratios are **0.888304 / 0.889048**
+and float **0.924176 / 0.925253**, adverse in every round of both screens with
+A/B medians near one. These are roughly 12.5% and 8% longer elapsed times;
+instruction reduction does not justify the regression. All noisy samples remain,
+and changed code placement is not claimed as a proven hardware cause.
+
+Original speed-native candidate gates fail **19/96**, then **18/96**; compiled-Off
+gates fail **49/216**, then **35/216**. **Reject both annotations and restore the
+pre-candidate runtime**, retaining the complete evidence and no new branches.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
-`slot-value-inline/`. The candidate is not performance-accepted or release-ready;
-it will be reverted if whole-workload evidence is adverse. No speedup established.
+`slot-value-inline/complete-boundary/` (the first form remains in its parent).
+No candidate performance gain is retained; full native-JIT acceptance remains open.
 
 ### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
