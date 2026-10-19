@@ -35939,6 +35939,53 @@ verify this withdrawal. Restoring the original runtime removes these experimenta
 changes; it does **not** close the original callback, metamethod, compiled-Off,
 platform or release acceptance gaps, and the full JIT goal remains incomplete.
 
+### Verified withdrawal and original interpreter-overhead attribution
+
+Withdrawal `8844322e` is source-bound and verified under
+`target/jit-evidence/hook-resume-recovery/execution-counter-withdrawal`:
+
+- All `src/` bytes equal `5fbe729`; no storage trial remains active.
+- Fresh focused gates: **274 executions / 39 summaries**, zero failures/ignores.
+- Fresh all-feature Force: **2,065 executions / 91 summaries**, zero failures,
+  23 existing ignores, zero compiler warnings.
+- All **six** rebuilt speed/shipping no-jit, jit-off and native-bench images
+  are byte-identical to the original controls. Configurations, environments,
+  frozen source witnesses and tool hashes verify. This restores the old code;
+  it does not constitute new performance acceptance.
+
+A separate six-group campaign now compares the **original no-feature image
+directly with original compiled-Off**, rather than testing another storage
+candidate. In `baseline-interpreter-overhead`, baseline labels mean no-jit and
+candidate labels mean original jit-off; the latter is not a proposed runtime.
+Headers independently require compiled-feature flags 0/1, both mode Off and
+zero native instructions. Four alternating loads and five dumps per group
+reconcile all 13 event columns and complete text attribution; all 18 parser
+fixtures pass. No elapsed acceptance is inferred from this campaign.
+
+Representative non-warmup whole-execution instruction counts:
+
+| Case/profile | No feature | Original compiled-Off |
+| --- | ---: | ---: |
+| Integer/shipping | 4,054,764 | 3,848,937 |
+| Float/shipping | 4,375,155 | 4,109,344 |
+| Upvalue/speed | 14,198,359 | 16,090,583 |
+| Upvalue/shipping | 15,769,385 | 17,730,859 |
+
+External/allocator upvalue variation is retained. For the shipping upvalue
+sample, added self instructions include VM **990,063**, the statistics destructor
+**480,024**, Executor **320,814**, closure accessor **240,012** and register-view
+constructor **200,010**; other symbols offset part of their sum. Counts alone
+do not explain the contended CPU timing or imply every feature-on path is slower:
+the numeric instruction totals above are actually lower with JIT compiled in.
+
+Do not repeat the already withdrawn closure-accessor or register-constructor
+inlining, optional-fuel tuple view, or counter-storage trials. Native-only fuel
+and variable-stack state are still materialized by the shared register-view
+constructor; separating that work from ordinary interpretation is an unproven
+design question, not an adopted change or an accepted optimization. Its exact
+call sites, borrow/fuel contracts and prior rejected view work must be inspected
+before implementation. Full original acceptance remains open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
