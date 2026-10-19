@@ -3588,3 +3588,6 @@ mod slice_policy_tests;
 
 #[cfg(test)]
 mod vm_progress;
+
+#[cfg(test)]
+pub(crate) mod entry_bytes;

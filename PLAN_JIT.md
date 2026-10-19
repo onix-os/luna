@@ -9,6 +9,48 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Code-owned per-PC read hints — independent models, 2026-10-19
+
+Current callback profiles still attribute substantial work to the prepared
+global-read helper. Earlier table/closure caches changed common GC object layout
+and failed disabled-mode comparisons. This investigation instead keeps only a
+bounded bucket offset in compiled-code metadata: one byte per source PC stores
+the original entry flag in bit zero and a seven-bit read hint in the remaining
+bits. It preserves the original entry-vector payload/capacity and owner size;
+there is no padding allocation, new table/closure field, cached value, GC pointer,
+registry identity or retained code lease. Atomic bytes preserve Send/Sync while
+hint writes retain the immutable native-entry bit.
+
+Each canonical read rechecks the current table's bucket bounds, occupancy and
+live/equal string key before reading the current weak-aware slot. Misses use the
+existing canonical hash lookup. Bucket offsets above 126 are deliberately
+uncached and use the same generic lookup; this is not a table-size admission or
+native-coverage restriction. Resizing, deletion, weak conversion, different
+tables/arenas and collection can make hints stale but cannot make them roots.
+The arbitrary-supplied-hash prepared API remains distinct and unchanged.
+
+The code-ownership and raw-read modules are **test-only models**, not a production
+cache. Formatting/check-all and **ten checks / two summaries** pass, zero failures,
+ignored checks or warnings. Models cover every byte encoding, boundary PCs,
+per-PC isolation, flag updates, concurrent hints, exact ledger charges/refusal/
+release, original header footprint, all value kinds, equal non-interned strings,
+growth/removal/shrink, weak collection and cross-arena reuse. Initial fixture API
+compile errors and the superseded whole-vector bitset model are retained as draft
+logs, not current runtime evidence.
+
+The models plus existing prepared-key, helper, dispatch/statistics, native/heap
+and table-access checks pass **100 executions / eleven summaries**, zero failures,
+ignored checks or warnings. This checks compatibility on the unchanged runtime,
+not the performance or correctness of an integrated hint cache.
+
+Next validate these exact models under both source-bound Miri models and real
+i686, then integrate only if the ownership, weak-reference and resource proofs
+hold. Integration must keep original helper panic/PC/counter behavior, private
+ABI versioning, full metadata accounting and all original timing gates. No
+production speedup, unchanged image identity, runtime implementation or full-plan
+acceptance is claimed. Evidence:
+`target/jit-evidence/hook-resume-recovery/code-owned-hint/`.
+
 ### Shared binary-metamethod resolution — runtime withdrawn, 2026-10-19
 
 The next investigation targets repeated generic metatable-resolution bodies in

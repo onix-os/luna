@@ -2621,3 +2621,12 @@ binary-metamethods:
 binary-metamethods-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' meta_ops::binary_dispatch_tests -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' meta_ops::binary_dispatch_tests -- --test-threads=1
+
+.PHONY: jit-entry-hints jit-entry-hints-miri
+jit-entry-hints:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_bytes
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests
+
+jit-entry-hints-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_bytes -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::code_read_hint_tests -- --test-threads=1

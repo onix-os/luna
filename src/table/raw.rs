@@ -1129,3 +1129,6 @@ mod capacity_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod prehashed_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod code_read_hint_tests;
