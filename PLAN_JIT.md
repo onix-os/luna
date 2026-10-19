@@ -56,6 +56,40 @@ being added to the acceptance policy. The numeric trade-offs remain visible.
 This trial is a working diagnostic base, **not promoted**, and full acceptance
 remains open. Evidence: `target/jit-evidence/hook-resume-recovery/vm-inline-byte-outline/`.
 
+Current closure-cost attribution now compares the candidate's own frozen
+no-feature and compiled-Off images, not different runtime revisions. Fresh
+no-feature linker-map builds match both frozen executables byte-for-byte;
+JIT-Off maps came from their original links. An initial cached build did not
+emit a map when only `NIX_LDFLAGS` changed; that failure is retained separately.
+The successful recipe forces a package-only release relink in the owned cache.
+
+Eight Callgrind processes capture 40 Lua executions, including 16 warmups, across
+shipping and speed. Feature headers, results, zero native work, hashes and all
+13 exclusive event sums verify. Each measured execution enters the VM 20,001
+times, calls/pushes 10,000 frames and returns 10,001 times in both feature modes.
+Speed total work is about **14.198M no-feature / 16.071M Off** instructions
+(13.2% extra); shipping is **15.769M / 17.711M** (12.3% extra). External allocator
+work varies slightly; the reported image self costs repeat exactly.
+
+| Self work per measured execution | No-feature | JIT-Off |
+| --- | ---: | ---: |
+| Speed VM | 6,490,847 | 7,850,914 |
+| Speed ordinary executor adapter | 0 | 620,031 |
+| Shipping VM | 6,040,775 | 7,010,838 |
+| Shipping statistics destructor | 0 | 480,024 |
+| Shipping register-view construction | 720,036 | 920,046 |
+
+Zero denotes no separately attributed executed symbol, not free equivalent
+semantics. Full text-symbol attribution reconciles to the original partitions;
+data-section aliases are excluded and text-range overlaps rejected. Other
+functions become cheaper, so these are not independent total deltas or elapsed
+shares. This refreshes the earlier disabled VM/frame/accounting finding; it does
+not justify blindly repeating rejected adapter/register-view inlining, optional
+fuel, or statistics-finalization trials. Exact-trial Miri/i686 validation is now
+running separately from measurement. Evidence: `closure-cost-profile/` below the
+trial root, including original profiles, detail/symbol reconciliations and the
+retained failed map/analysis attempts.
+
 ### Constant inline-string offsets — repeated regressions, 2026-10-19
 
 Trial `eb24c3a` on `trial/jit-inline-byte-offset` starts from `0102f37`, not the
