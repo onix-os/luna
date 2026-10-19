@@ -9,6 +9,52 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Fused operand access — local recovery, acceptance still open, 2026-10-19
+
+Trial `2430bb8` on `trial/jit-upvalue-inline` removes the operand closure and
+Option::map decoding introduced by `20c980a`. A small explicitly inlined operand
+reader retains bounds checks and numeric conversion; explicit opcode matching
+retains refusal behavior. The setter invokes the same canonical
+set_upvalue_with implementation with an empty observer. No global inlining
+attribute, representation, bytecode, barrier, or execution-prefix rule changes.
+
+The exact candidate passes **267 focused executions / 44 summaries** and full
+Force **2,042 passes / 90 summaries**, **23 ignored**, zero failures. Six stripped
+images and original/direct-parent preflights pass. No-feature executable text
+and section/segment geometry match original `79631fe`; whole files differ.
+
+Eight Callgrind processes capture 40 executions including 16 warmups, with all
+13 exclusive event sums and exact text-symbol partitions reconciled. Against
+`20c980a`, image instruction work drops **530,064 speed / 1,050,038 shipping**
+per measured execution. Operand-closure work disappears in both profiles, and
+shipping Option::map decoder work disappears. The separately executed setter
+is replaced by a set_upvalue_with specialization of the same cost, not removed.
+Image work remains **70,013 speed / 10,002 shipping instructions above** the
+pre-fusion `0c054a3` profiles. External allocator variation is excluded from these
+image deltas; these are not elapsed-time percentages.
+
+Four complete screens retain **576 commands / 57,024 native executions /
+1,140,480 cost iterations**, zero execution/resource-counter mismatches, and
+valid/restored plus 13 corruption fixtures each. Original speed native failures
+are **15 then 13 / 96**, cost failures **38 then 45 / 216**. Direct-parent
+failures are **12 then 15 / 96** and **45 then 44 / 216**, respectively. Shipping
+native diagnostics are separate; no universal candidate/main >= 1 gate is added.
+
+CPU16 closure Off control/trial ratios recover against rejected `20c980a`:
+speed **1.054508 / 1.055805**, shipping **1.041542 / 1.032410**. Against original
+`79631fe`, the improvement is much smaller: speed **1.005096 / 1.003561**,
+shipping **1.004634 / 1.005160**. All shipping closure cost gates still fail in
+all four campaigns. Original repeats also retain a material CPU0 shipping float
+trade-off: **0.911362 / 0.909180**, adverse in every round. These gains over a
+rejected parent are not proof of an accepted improvement over the working base.
+
+The original repeat's 45 cost failures comprise 18 closure, 24 Oslo, two cold
+and one callback failure. Native speed failures remain in array/table,
+metamethod and callback workloads. Exact Miri/i686 validation is now running
+separately from measurement. This trial is **not promoted**; full performance,
+resource, platform and release acceptance remains open. Evidence:
+`target/jit-evidence/hook-resume-recovery/vm-upvalue-inline/`.
+
 ### Numeric upvalue dispatch — measured regression, 2026-10-19
 
 Trial `20c980a` on `trial/jit-upvalue-dispatch` builds on `0c054a3`, with
