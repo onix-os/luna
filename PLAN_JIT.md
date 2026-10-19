@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Early operand refusal — work reduction, timing pending, 2026-10-19
+### Early operand refusal — work recovery, gates still failing, 2026-10-19
 
 Trial `c113a70` unwraps each optional numeric operand before reading the next,
 then matches two non-optional numeric values. It preserves numeric operation
@@ -27,9 +27,29 @@ Image instruction totals drop by exactly **90,000 / 70,000**; VM self work
 is unchanged. This recovers the previous operand-handling regression, not proof
 of an accepted improvement over the original runtime or elapsed-time speedup.
 
-Four original/direct-parent timing campaigns are running after owned builds and
-profilers finished. Their gates remain unchanged. Exact-candidate Miri/i686 and
-full performance/release acceptance remain open; this trial is not promoted.
+Four original/direct-parent timing campaigns complete after owned builds and
+profilers finish: **576 commands / 57,024 native executions / 1,140,480 cost
+iterations**, zero counter/resource mismatches. Each audit accepts its valid and
+restored screens and rejects all 13 corruptions. Original speed native failures
+are **8 then 11 / 96**, cost failures **47 then 69 / 216**. Direct-parent failures
+are **13 then 14 / 96** and **67 then 59 / 216**. Shipping native results remain
+separate. All **24 closure cost gates fail in each campaign**.
+
+Direct-parent CPU0 speed closure ratios improve **1.009459 / 1.006322**, but
+original CPU0 speed closure is **0.957492 / 0.956309** and original CPU16 speed
+closure **0.971418 / 0.974358**, adverse in all six rounds of both campaigns.
+Original CPU0 shipping float remains **0.954466 / 0.955350**, also adverse in
+every round. CPU16 shipping integer improves **1.082121 / 1.082946** against
+original, without offsetting other failed requirements. Ratios are control/trial.
+Some outcomes vary across campaigns: original Oslo cost failures change from
+zero to 24; these contended observations are retained, not pooled away.
+
+The change recovers work versus a rejected parent but does not solve the actual
+regressions. Do not promote this fusion chain or continue treating tiny helper
+reductions as the target. The next diagnosis returns to the pre-fusion working
+base `0c054a3` and the retained whole-closure VM/executor cost attribution.
+Exact-candidate Miri/i686 has not run; all full-plan gates remain unchanged and
+performance/resource/platform/release acceptance stays open.
 Evidence: `target/jit-evidence/hook-resume-recovery/vm-upvalue-early/`.
 
 ### Numeric-only operands — additional work and gate failures, 2026-10-19
