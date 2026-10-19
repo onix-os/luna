@@ -43,9 +43,15 @@ the independent-publication fixture to typed unwinding while the manager is
 mutably borrowed. Refined focused validation passes **111 checks / 18 summaries**,
 zero ignored; the failed full-run logs and source revision remain preserved.
 
+The refined candidate completes full all-target Force validation: **2,047 passing
+checks / 91 summaries / 23 ignored**, with no failures. The ignored tests are not
+claimed as executed coverage. Six exact default-flag production builds are now
+running before whole-workload instruction profiling. Separate follow-up recipes
+are prepared for actual native callback profiles, both Miri borrow models and
+i686 fallback; syntax validation is not execution evidence for those gates.
+
 The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
-unchanged. Full Force validation is rerunning before six exact production builds
-and whole-workload instruction profiling. A helper disappearing or moving work
+unchanged. A helper disappearing or moving work
 to snapshot construction will not establish a speedup. Fresh Miri/fallback,
 original elapsed/compiled-Off gates and full resource/platform/release acceptance
 remain open. Evidence:
