@@ -36226,6 +36226,23 @@ inline variant is selected. Fresh identical-input baseline test executions and
 six original-profile image comparisons must verify restoration. Original
 performance/resource/platform/release acceptance remains incomplete.
 
+Withdrawal **`2a5ae789`** is verified in `known-frame-withdrawal`. All tracked
+compiled/test/build inputs match immutable baseline`b3546663`; only uncompiled
+`PLAN_JIT.md` differs. Fresh test executions therefore use that identical-input
+archive and its existing build cache, not a claim of recompilation from the
+new documentation archive. Formatting/check-all and **274 focused executions /
+39 summaries** pass without failures, ignores or compiler warnings. Fresh
+all-feature Force passes **2,065 executions / 91 summaries**, zero failures,
+23 existing ignores and zero compiler warnings; both immutable source witnesses
+verify before and after execution.
+
+All **six freshly rebuilt** speed/shipping no-feature, compiled-Off and native
+benchmark images are byte-identical to the original controls. New source,
+configuration, environment, test-input and tool witnesses verify; the restoration
+pipeline is terminal zero. No new branch/worktree was created. This proves
+removal of the rejected family, **not** repair of the original failed performance
+gates or complete native-JIT acceptance.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
