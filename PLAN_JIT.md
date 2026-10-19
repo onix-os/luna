@@ -9,7 +9,77 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Native closed-upvalue helper — candidate under validation, 2026-10-19
+### Non-fall-through block alignment — isolated experiment, 2026-10-19
+
+Current hardware evidence motivates a distinct, fixed compiler-policy experiment:
+`RUSTFLAGS='-C llvm-args=-align-all-nofallthru-blocks=5'`. Pinned rustc 1.97.1 /
+LLVM 22.1.6 advertises this option as log2 alignment of blocks without fall-through
+predecessors, avoiding padding on fall-through execution paths. This is not the
+previous whole-VM 4K placement or branch-crossing policy, not an offset sweep,
+and not a change to Cranelift's generated native-code alignment. No default flag
+or runtime change is promoted.
+
+The frozen source is `218112b`, identical to the timed control. Current main's
+production `src` remains identical, excluding the independent test-only
+prepared-key fixtures. All six new production images build and pass workload
+smoke checks at the existing shared builder/target. Source/configuration/hash
+witnesses verify, with the declared flag the sole retained environment difference.
+Full original nine-case, CPU0/16, speed/shipping comparisons and their
+controls remain required; smaller instruction-delivery counts alone cannot
+establish acceptance. A static direct-target parser passes six positive and six
+negative fixtures, including duplicate/indirect/external targets and incomplete,
+overlapping or mid-instruction targets. It does not classify block hotness or
+prove all branch targets require alignment.
+
+Static VM disassembly verifies complete instruction coverage in all four images.
+Speed VM extent grows **55,274 → 71,333 bytes**, shipping **42,104 → 57,061**;
+unique internal direct targets stay **952 / 745**, while targets on 32-byte
+boundaries rise **43 → 495 / 34 → 376**. These counts include cold blocks and
+do not establish dynamic instruction savings. Both complete elapsed campaigns
+are running sequentially after all owned build/test work finishes. The code-size
+increase remains a cost to evaluate; no performance or release acceptance follows
+from successful build/preflight/static checks.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/block-target-align/`.
+
+### Prepared-table disabled-mode attribution — no promotion, 2026-10-19
+
+The rejected `79f1498` candidate and original `218112b` control undergo fresh
+hardware-counter capture using the exact shipping feature-cost images from both
+completed timing campaigns. Integer and float campaigns each retain six rotated
+A/candidate/B rounds and four separately grouped user-event sets: starvation,
+fetch, delivery and prediction. One verified launch path and CPU0 affinity are
+used throughout. No source rebuild, owned profiler or other owned test overlaps
+capture; external contention remains recorded.
+
+Both pipelines finish successfully: **144 commands / 14,688 executions including
+warmups / 576 counters**, all **100% scheduled**. Image/source/tool hashes,
+worker results, zero native work, event identities, telemetry and complete run
+order verify. Each independent audit accepts two valid fixtures and rejects
+16 corruptions, including identity, scheduling, mode and workload mutations.
+These grouped whole-process events are diagnostic, not elapsed acceptance.
+
+Across the four groups, integer control/candidate cycle ratios are
+**0.903135–0.905547**, float **0.869289–0.871719**; corresponding median A/B
+cycle ratios remain **0.997496–1.001138 / 0.996057–1.003572**. Instructions and
+retired branches stay approximately equal. Branch-miss ratios are
+**0.998226 / 0.998710**, rather than a corresponding large increase. Undelivered
+IDQ-uop ratios are **0.239014 / 0.303129**, versus A/B **1.004680 / 1.018748**.
+Instruction-cache, instruction-TLB and DSB-to-MITE penalties do not show a
+similarly large repeated increase; all raw counts and outliers remain.
+
+The exact feature-cost link maps place the VM at **0x39b306 / 0x39b316** with
+equal **0xa478-byte** extent. This is a placement observation, not a proof of
+identical executed instructions or alignment causality. Counter evidence directs
+further investigation toward instruction delivery rather than another helper
+rewrite or an assertion that disabled mode executes more work. The previously
+rejected static-mask import, matched-4K placement and fixed branch-boundary
+policies remain exclusions, not fresh optimization candidates. Runtime and
+acceptance gates are unchanged. Evidence:
+`target/jit-evidence/hook-resume-recovery/helper-prepared-table/disabled-attribution/`
+and sibling `disabled-float-attribution/`.
+
+### Native closed-upvalue helper — measured trials, 2026-10-19
 
 Current callback attribution motivates a private JIT helper change, not another
 VM operand rewrite. First-stage `fb22491` forces `Frame::upvalue` inline. Sixty
@@ -38,10 +108,85 @@ exactly within each image/profile. The refinement reduces speed totals to
 work. VM and native transport self work are unchanged. These are instruction
 reductions, **not elapsed speedups or performance acceptance**.
 
+Full Force validation of the refinement now passes **2,044 executions / 91
+summaries**, zero failures and **23 ignored**. Matched native benchmark images
+and two complete elapsed campaigns finish **288 commands / 28,512 native
+executions / 570,240 cost iterations**. Full counter/resource records match;
+both audits reject all 13 corruption fixtures. No owned build/test/profiler
+overlaps timing. CPU0 speed callback control/trial ratios are **1.026247 /
+1.010922**, while shipping callbacks give **0.992509 / 0.992738**. CPU16 speed
+callbacks give **0.997211 / 1.005904**, shipping **0.982621 / 0.993871**. CPU0
+speed array Auto initially gives **0.956599** without a repeated greater-than-2%
+adverse median. Large favorable repeat excursions also remain unaccepted as
+causal gains. Candidate speed native failures are **nine then 13 / 96**, cost
+failures **48 then 54 / 216**; fewer aggregate failures do not prove acceptance.
+
 Both trials are committed/pushed on separate branches; main runtime is unchanged.
-Next run full Force correctness, build matched native benchmark images and repeat
-all nine native/disabled-cost workloads on CPU0/16, including open-upvalue costs.
-Full platform/resource/release gates remain open. Evidence:
+Mixed elapsed evidence motivates a third, **201-native-sample** campaign retaining
+the same images, all nine cases, CPUs, rotated controls and original thresholds;
+cost comparisons remain at 11 samples / 20 iterations. It now completes **144
+commands / 260,496 native executions / 285,120 cost iterations** with matching
+full counters/resources and all 13 corruption fixtures rejected. CPU0 speed
+callbacks retain **1.018380** control/trial, A/B **1.000463**, favorable in all
+six rounds. CPU0 shipping callbacks instead give **0.980681**, A/B **0.995929**,
+adverse in all six rounds. CPU16 callbacks are near parity: **1.001236 / 1.001363**
+in speed/shipping. CPU0 speed array Auto is **0.997585**; the earlier large loss
+does not repeat. CPU0 speed compiled-Off float gives **0.991039**, adverse in all
+six rounds. Candidate speed native gates still fail **14 / 96**, cost **60 / 216**;
+all outliers remain, including A/B extrema **0.507377 / 1.113662** across rows.
+
+Keep the candidate isolated while investigating the shipping callback loss.
+The preceding instruction profiles used feature-cost executables, not these
+native-benchmark executables; their counts cannot identify this loss's cause.
+Next recover link maps with **whole-file identity** to the actual measured
+native images and attribute those exact images before another source change.
+The four map recaptures now reproduce those measured native-benchmark ELFs
+byte-for-byte. Fresh single-mode Auto profiles complete eight processes / 40
+executions / 16 warmups, with full non-timing record equality, reconciled events
+and text symbols, and both identity-parser fixture sets passing. Native-image
+speed totals are **9,438,782 → 9,373,782**, shipping **11,684,260 → 11,609,260**.
+VM/transport self work remains unchanged. Shipping VM address/size and several
+physical-frame symbols also stay identical; the prepared helper grows from
+`0x480` to `0x4be` bytes at the same address. These findings do not establish a
+hardware cause or cancel the elapsed shipping loss.
+
+Independent test foundation **`b43d9ce`** adds closure, callback, thread and
+userdata environments to the generic/prepared differential model. All nine
+prepared-key tests and formatting pass on the unchanged runtime. New isolated
+trial **`79f1498`** specializes only the prepared string-key table read: a fresh
+`Closed(Table)` state yields its table directly, other closed kinds decline,
+and open cells retain the original resolver. Generic upvalue helpers and their
+inlining policy are unchanged. This tests a narrower typed result path instead
+of repeating the general helper annotation. Focused validation passes **69
+executions / seven summaries**, and all six production images verify, including
+byte-identical no-feature controls. Actual native-image callback profiling
+completes 40 executions / 16 warmups with reconciled event/symbol partitions,
+equal full non-timing records and passing identity fixtures. Speed totals are
+**9,438,782 → 9,383,782**, shipping **11,684,260 → 11,624,260**, approximately
+**0.58% / 0.51%** less work; VM/transport self work is unchanged.
+
+The new candidate's full Force suite passes **2,044 executions / 91 summaries**,
+zero failures and **23 ignored**. Fresh-target Miri runs pass **five prepared-key
+and 13 helper tests per borrow model**, with 40 warnings per invocation retained.
+Real i686 passes **five prepared-key and 13 helper tests**, plus **two fallback
+tests in each of the default/all-feature configurations**. These are Rust-helper/fallback
+checks, not native execution on Miri/i686 or full platform certification.
+Both 201-native-sample elapsed campaigns now finish with terminal-zero pipeline
+and audit statuses: **288 commands / 520,992 native executions / 570,240 cost
+iterations**, retaining all original cases, controls and gates. Audit success
+does not mean performance acceptance. CPU0 shipping callback control/trial
+ratios improve **1.024950 / 1.026672**, but shipping compiled-Off integer falls
+to **0.906449 / 0.903463** and float to **0.868049 / 0.867015**. Corresponding
+median A/B ratios stay between **0.997249 and 1.003506**. These repeated
+contended observations imply approximately **10–11% / 15% longer elapsed time**
+for integer/float respectively; they do not establish the hardware cause.
+Reject this specialization rather than trading disabled-mode regressions for
+callback gains. Main runtime remains unchanged; the independently useful
+reference-valued environment tests remain committed. Evidence root:
+`target/jit-evidence/hook-resume-recovery/helper-prepared-table/`.
+
+No runtime promotion or full performance/platform/resource/release acceptance
+is established. Earlier candidate evidence:
 `target/jit-evidence/hook-resume-recovery/helper-upvalue-inline/` and
 `target/jit-evidence/hook-resume-recovery/helper-closed-read/`.
 

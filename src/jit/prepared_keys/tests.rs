@@ -224,6 +224,15 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                     Value::Integer(29),
                     Value::Number(-0.0),
                     Value::String(ctx.intern(b"not a table")),
+                    Value::Function(closure.into()),
+                    Value::Function(
+                        crate::Callback::from_fn(&ctx, |_, _, _| {
+                            Ok(crate::CallbackReturn::Return)
+                        })
+                        .into(),
+                    ),
+                    Value::Thread(crate::Thread::new(ctx)),
+                    Value::UserData(crate::UserData::new_static(&ctx, 7i64)),
                     Value::Table(replacement),
                     Value::Table(ctx.globals()),
                 ]
