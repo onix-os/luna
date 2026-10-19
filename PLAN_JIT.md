@@ -97,10 +97,23 @@ Auto comparisons and the unchanged disabled-cost gates prevent that false win.
 
 Rollback **`ec83531`** restores all source/test/build inputs exactly to model-only
 baseline **`a49f25f`**, preserving independent tests. It is pushed on the existing
-branch; no new branch/worktree is created. Fresh focused checks and exact six-image
-restoration are running after both timing campaigns. Full Force/Miri/fallback
-was not run for the rejected extraction; no full-safety or performance pass is
-claimed.
+branch; no new branch/worktree is created. Fresh formatting/check-all and **219
+focused checks / twenty summaries** pass, zero failures, two ignored and no
+emitted warnings. All six rebuilt speed/shipping no-feature, compiled-Off and
+native-bench executables match original `218112b` controls **byte-for-byte**.
+Source/configuration/tool witnesses verify. Both elapsed campaigns and restoration
+are terminal-zero. Full Force/Miri/fallback was not run for the rejected extraction;
+no full-safety or performance pass is claimed.
+
+Extra validation of the **retained tests on restored production** initially
+catches a source-cache mismatch: reusing the earlier snapshot's Cargo-Miri target
+replays an invocation whose recorded `current_dir` still points at that snapshot.
+Both new filters execute zero tests even though Cargo returns zero. The explicit
+positive-fixture gate correctly fails the pipeline before Tree/fallback; those
+initial logs/statuses remain failed evidence. The corrected run uses fresh target
+directories for this immutable source, requires each fixture twice in each lane,
+and checks recorded Cargo-Miri source directories independently. It is running;
+no successful Miri or fallback result is inferred from the initial empty runs.
 
 The preceding frame-identity-cache idea is not being implemented: a metadata-cap
 reduction resets registrations even with rooted activations alive. The earlier
