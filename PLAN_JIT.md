@@ -35887,6 +35887,30 @@ This is a measured follow-up hypothesis, **not a proven performance fix**;
 fresh correctness checks, original-profile images and repeated elapsed screens
 are required before retention, followed by the outstanding safety/platform gates.
 
+### Scalar-publication outline rejected; original-call-boundary probe
+
+The scalar-publication outline at `f714961d` is also **rejected**. Its focused
+host gates passed 142 executions across 23 summaries, but both complete original
+elapsed screens reproduced worse numeric and upvalue results. CPU0 shipping
+integer control/trial medians are **0.831626 / 0.834239**, and float medians are
+**0.786461 / 0.785348**. CPU16 shipping float medians are **0.858838 / 0.859451**.
+Validation succeeds with zero counter/resource mismatches; performance does not.
+
+Exact-image profiling after timing confirms that the scalar publisher is a
+separate function, but the caller still changes: shipping float whole-execution
+instructions rise from **4,109,344 to 4,203,119**, with VM reads/writes changing
+from **1,006,551/487,036 to 1,067,207/423,266**. The publisher itself uses only
+11,268 instructions versus 15,024 in the original destructor. Reducing callee
+instructions is therefore not evidence that the full execution improves.
+
+The final narrow boundary probe instead keeps the original destructor's
+single-pointer call boundary: outline `InterpreterStats::drop` and let the
+scalar publisher inline inside it. Storage and counter semantics are unchanged.
+Use a shipping-only, cost-only gross-regression preselection before spending
+another full native/profile matrix on this probe. Such preselection is not
+performance acceptance; any retained candidate still needs the original full
+screens and all remaining correctness, safety, platform and release gates.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

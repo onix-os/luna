@@ -1399,7 +1399,6 @@ impl ExecutionStats {
             .set(self.total_dispatches.get().saturating_add(dispatches));
     }
 
-    #[inline(never)]
     fn publish(&self, dispatches: u32, reported: Option<u32>) {
         self.add_dispatches(u64::from(dispatches));
         if let Some(instructions) = reported {
@@ -1546,6 +1545,7 @@ pub(crate) struct InterpreterStats<'a> {
 }
 
 impl Drop for InterpreterStats<'_> {
+    #[inline(never)]
     fn drop(&mut self) {
         self.runtime
             .0
