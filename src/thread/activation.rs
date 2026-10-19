@@ -133,21 +133,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
     }
 
-    pub(crate) fn with_native_registers<R>(
-        &mut self,
-        f: impl for<'frame> FnOnce(
-            crate::Closure<'gc>,
-            crate::thread::LuaRegisters<'gc, 'frame>,
-            crate::thread::NativeList<'frame>,
-        ) -> R,
-    ) -> R {
-        self.with_frame(|mut frame| {
-            let closure = frame.closure();
-            let (registers, list) = frame.native_registers();
-            f(closure, registers, list)
-        })
-    }
-
     #[cfg(test)]
     pub(crate) fn snapshot_capture(
         &self,

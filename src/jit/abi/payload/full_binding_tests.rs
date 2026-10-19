@@ -40,62 +40,52 @@ fn full_binding_preserves_mixed_prefixes_and_reentry_after_type_changes() {
                 values[count] = Value::Number(-0.0);
                 let mut expected = values.clone();
                 let mut pc = 5;
-                LuaRegisters::with_test_native_frame(
-                    ctx,
-                    &mut pc,
-                    &mut values,
-                    |mut registers, mut _list| {
-                        let mut frame = helpers::Frame {
-                            list: Some(_list.reborrow()),
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: count,
-                            panic: None,
-                            projection: None,
-                        };
-                        for replacement in [Value::Number(-0.0), Value::Integer(i64::MAX)] {
-                            with_binding::<256>(&mut frame, |binding| unsafe {
-                                let slots = binding.slots.as_ptr();
-                                for (index, value) in expected[..count].iter().copied().enumerate()
-                                {
-                                    let descriptor = slots.add(index).read();
-                                    let expected = Slot::from_value(value);
-                                    assert_eq!(descriptor.tag, expected.tag);
-                                    if expected.tag != REFERENCE {
-                                        assert_eq!(load(descriptor).unwrap().bits, expected.bits);
-                                    } else {
-                                        assert!(descriptor.pointer.is_null());
-                                    }
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: count,
+                        panic: None,
+                        projection: None,
+                    };
+                    for replacement in [Value::Number(-0.0), Value::Integer(i64::MAX)] {
+                        with_binding::<256>(&mut frame, |binding| unsafe {
+                            let slots = binding.slots.as_ptr();
+                            for (index, value) in expected[..count].iter().copied().enumerate() {
+                                let descriptor = slots.add(index).read();
+                                let expected = Slot::from_value(value);
+                                assert_eq!(descriptor.tag, expected.tag);
+                                if expected.tag != REFERENCE {
+                                    assert_eq!(load(descriptor).unwrap().bits, expected.bits);
+                                } else {
+                                    assert!(descriptor.pointer.is_null());
                                 }
-                                if count != 0 {
-                                    let scalar = Slot::from_value(replacement);
-                                    let host = binding.host;
-                                    (host.functions.write)(
-                                        host,
-                                        slots,
-                                        dest as u32,
-                                        scalar.tag,
-                                        scalar.bits,
-                                    );
-                                    assert_eq!(
-                                        load(slots.add(dest).read()).unwrap().bits,
-                                        scalar.bits
-                                    );
-                                    expected[dest] = replacement;
-                                }
-                            });
-                            for (actual, expected) in
-                                frame.registers.stack_frame.iter().copied().zip(&expected)
-                            {
-                                identical(actual, *expected);
                             }
+                            if count != 0 {
+                                let scalar = Slot::from_value(replacement);
+                                let host = binding.host;
+                                (host.functions.write)(
+                                    host,
+                                    slots,
+                                    dest as u32,
+                                    scalar.tag,
+                                    scalar.bits,
+                                );
+                                assert_eq!(load(slots.add(dest).read()).unwrap().bits, scalar.bits);
+                                expected[dest] = replacement;
+                            }
+                        });
+                        for (actual, expected) in
+                            frame.registers.stack_frame.iter().copied().zip(&expected)
+                        {
+                            identical(actual, *expected);
                         }
-                        assert_eq!((frame.count.calls, frame.count.completed), (0, 0));
-                        assert!(frame.panic.is_none());
-                    },
-                );
+                    }
+                    assert_eq!((frame.count.calls, frame.count.completed), (0, 0));
+                    assert!(frame.panic.is_none());
+                });
                 assert_eq!(pc, 5);
                 for (actual, expected) in values.into_iter().zip(expected) {
                     identical(actual, expected);

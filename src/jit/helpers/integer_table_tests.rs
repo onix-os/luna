@@ -95,71 +95,65 @@ fn integer_helper_reads_keep_pending_keys_aliases_and_miss_semantics() {
             for destination in [0, 1, 2] {
                 let mut values = [Value::Table(table), Value::Integer(7), Value::Integer(99)];
                 let mut pc = 0;
-                LuaRegisters::with_test_native_frame(
-                    ctx,
-                    &mut pc,
-                    &mut values,
-                    |mut registers, mut _list| {
-                        let mut slots = [
-                            Slot::from_value(Value::Table(table)),
-                            Slot::from_value(key),
-                            Slot::from_value(Value::Integer(99)),
-                        ];
-                        let mut frame = Frame {
-                            list: Some(_list.reborrow()),
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: Counts::default(),
-                            slot_count: slots.len(),
-                            panic: None,
-                            projection: None,
-                        };
-                        let expected = table.get_raw(&ctx, key);
-                        let before = frame.registers.stack_frame[destination];
-                        let before_slot = slots[destination];
-                        let result = invoke::<{ abi::HELPER_GET_TABLE }>(
-                            &mut frame,
-                            &mut slots,
-                            destination as u32,
-                            0,
-                            1,
-                            7,
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut slots = [
+                        Slot::from_value(Value::Table(table)),
+                        Slot::from_value(key),
+                        Slot::from_value(Value::Integer(99)),
+                    ];
+                    let mut frame = Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: Counts::default(),
+                        slot_count: slots.len(),
+                        panic: None,
+                        projection: None,
+                    };
+                    let expected = table.get_raw(&ctx, key);
+                    let before = frame.registers.stack_frame[destination];
+                    let before_slot = slots[destination];
+                    let result = invoke::<{ abi::HELPER_GET_TABLE }>(
+                        &mut frame,
+                        &mut slots,
+                        destination as u32,
+                        0,
+                        1,
+                        7,
+                    );
+                    assert_eq!(frame.count.calls, 1);
+                    assert_eq!(frame.count.table_writes, 0);
+                    if expected.is_nil() {
+                        assert_eq!(result, abi::HELPER_DECLINED);
+                        assert_eq!(
+                            (
+                                frame.count.completed,
+                                frame.count.declined,
+                                frame.count.table_reads
+                            ),
+                            (0, 1, 0)
                         );
-                        assert_eq!(frame.count.calls, 1);
-                        assert_eq!(frame.count.table_writes, 0);
-                        if expected.is_nil() {
-                            assert_eq!(result, abi::HELPER_DECLINED);
-                            assert_eq!(
-                                (
-                                    frame.count.completed,
-                                    frame.count.declined,
-                                    frame.count.table_reads
-                                ),
-                                (0, 1, 0)
-                            );
-                            assert_identical(frame.registers.stack_frame[destination], before);
-                            assert_eq!(
-                                (slots[destination].tag, slots[destination].bits),
-                                (before_slot.tag, before_slot.bits)
-                            );
-                            assert_eq!(*frame.registers.pc, 7);
-                        } else {
-                            assert_eq!(result, abi::HELPER_COMPLETED);
-                            assert_eq!(
-                                (
-                                    frame.count.completed,
-                                    frame.count.declined,
-                                    frame.count.table_reads
-                                ),
-                                (1, 0, 1)
-                            );
-                            assert_identical(frame.registers.stack_frame[destination], expected);
-                            assert_eq!(*frame.registers.pc, 8);
-                        }
-                        assert!(frame.panic.is_none());
-                    },
-                );
+                        assert_identical(frame.registers.stack_frame[destination], before);
+                        assert_eq!(
+                            (slots[destination].tag, slots[destination].bits),
+                            (before_slot.tag, before_slot.bits)
+                        );
+                        assert_eq!(*frame.registers.pc, 7);
+                    } else {
+                        assert_eq!(result, abi::HELPER_COMPLETED);
+                        assert_eq!(
+                            (
+                                frame.count.completed,
+                                frame.count.declined,
+                                frame.count.table_reads
+                            ),
+                            (1, 0, 1)
+                        );
+                        assert_identical(frame.registers.stack_frame[destination], expected);
+                        assert_eq!(*frame.registers.pc, 8);
+                    }
+                    assert!(frame.panic.is_none());
+                });
             }
         }
     });

@@ -683,11 +683,11 @@ mod tests {
                                 Value::Table(table)
                             };
                             let mut current_pc = pc;
-                            LuaRegisters::with_test_native_frame(
+                            LuaRegisters::with_test_frame(
                                 ctx,
                                 &mut current_pc,
                                 &mut canonical,
-                                |mut registers, mut _list| {
+                                |mut registers| {
                                     let mut slots: Vec<_> = registers
                                         .stack_frame
                                         .iter()
@@ -695,7 +695,6 @@ mod tests {
                                         .map(Slot::from_value)
                                         .collect();
                                     let mut frame = helpers::Frame {
-                                        list: Some(_list.reborrow()),
                                         ctx,
                                         closure,
                                         registers: &mut registers,

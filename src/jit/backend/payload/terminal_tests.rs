@@ -333,37 +333,31 @@ fn native_terminal_stores_preserve_canonical_values_at_budget_and_call_exits() {
                 let mut actual = vec![Value::Nil; snapshot.registers];
                 let mut helper_pc = pc;
                 let mut exit = Exit::default();
-                LuaRegisters::with_test_native_frame(
-                    ctx,
-                    &mut helper_pc,
-                    &mut actual,
-                    |mut registers, mut _list| {
-                        let mut frame = helpers::Frame {
-                            list: Some(_list.reborrow()),
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: snapshot.registers,
-                            panic: None,
-                            projection: None,
-                        };
-                        type Entry =
-                            unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
-                        let entry: Entry = unsafe { std::mem::transmute(code.entry) };
-                        crate::jit::abi::payload::runtime::with_bridge::<256>(
-                            &mut frame,
-                            |slots, host| unsafe {
-                                entry(slots, pc as u64, budget, &mut exit, host);
-                                crate::jit::abi::payload::runtime::check_retired_descriptor(
-                                    slots.add(destination).read(),
-                                );
-                            },
-                        );
-                        assert!(frame.panic.is_none());
-                        assert_eq!(frame.count.calls, 0);
-                    },
-                );
+                LuaRegisters::with_test_frame(ctx, &mut helper_pc, &mut actual, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: snapshot.registers,
+                        panic: None,
+                        projection: None,
+                    };
+                    type Entry =
+                        unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
+                    let entry: Entry = unsafe { std::mem::transmute(code.entry) };
+                    crate::jit::abi::payload::runtime::with_bridge::<256>(
+                        &mut frame,
+                        |slots, host| unsafe {
+                            entry(slots, pc as u64, budget, &mut exit, host);
+                            crate::jit::abi::payload::runtime::check_retired_descriptor(
+                                slots.add(destination).read(),
+                            );
+                        },
+                    );
+                    assert!(frame.panic.is_none());
+                    assert_eq!(frame.count.calls, 0);
+                });
                 assert_eq!(
                     (exit.pc, exit.instructions, exit.reason),
                     (

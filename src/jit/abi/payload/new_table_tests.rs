@@ -242,40 +242,34 @@ fn new_table_destinations_are_visible_through_open_upvalue_aliases() {
                 Value::Boolean(true),
             ];
             let mut pc = 0;
-            LuaRegisters::with_test_native_frame(
-                ctx,
-                &mut pc,
-                &mut values,
-                |mut registers, mut _list| {
-                    let cell =
-                        registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(dest as u8));
-                    closure.set_upvalue(&ctx, 0, cell);
-                    let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: 4,
-                        panic: None,
-                        projection: None,
-                    };
-                    with_session(&mut frame, |host, slots| unsafe {
-                        let saved: Vec<_> = (0..4).map(|i| slots.add(i).read()).collect();
-                        assert_eq!(
-                            call::<{ abi::HELPER_NEW_TABLE }>(host, slots, dest, 2, 3, 7),
-                            abi::HELPER_COMPLETED
-                        );
-                        siblings(slots, &saved, Some(dest as usize));
-                        assert_eq!(
-                            call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 3, 0, 0, 8),
-                            abi::HELPER_COMPLETED
-                        );
-                    });
-                    assert_eq!(counts(frame.count), [2, 2, 0, 0, 0, 1, 0, 1]);
-                    assert!(frame.panic.is_none());
-                },
-            );
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let cell =
+                    registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(dest as u8));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 4,
+                    panic: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    let saved: Vec<_> = (0..4).map(|i| slots.add(i).read()).collect();
+                    assert_eq!(
+                        call::<{ abi::HELPER_NEW_TABLE }>(host, slots, dest, 2, 3, 7),
+                        abi::HELPER_COMPLETED
+                    );
+                    siblings(slots, &saved, Some(dest as usize));
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 3, 0, 0, 8),
+                        abi::HELPER_COMPLETED
+                    );
+                });
+                assert_eq!(counts(frame.count), [2, 2, 0, 0, 0, 1, 0, 1]);
+                assert!(frame.panic.is_none());
+            });
             assert_eq!(pc, 9);
             assert!(matches!(values[dest as usize], Value::Table(_)));
             identical(values[dest as usize], values[3]);

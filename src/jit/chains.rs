@@ -118,7 +118,7 @@ fn prefix<'gc>(
         return None;
     }
     let frame = host.frame_identity();
-    host.with_native_registers(|closure, mut registers, mut _list| {
+    host.with_registers(|closure, mut registers| {
         let id = ctx
             .jit_registry()
             .borrow()
@@ -127,14 +127,7 @@ fn prefix<'gc>(
             return None;
         }
         let code = ctx.jit().lookup(id)?;
-        let instructions = ctx.jit().run(
-            &code,
-            ctx,
-            closure,
-            &mut registers,
-            Some(&mut _list),
-            budget,
-        );
+        let instructions = ctx.jit().run(&code, ctx, closure, &mut registers, budget);
         let transition = (instructions < budget)
             .then(|| closure.prototype().opcodes[*registers.pc].call_transition())
             .flatten();

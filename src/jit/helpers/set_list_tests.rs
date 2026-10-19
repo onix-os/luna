@@ -7,41 +7,6 @@ fn invoke(frame: &mut Frame<'_, '_, '_, '_>, slots: &mut [Slot], count: u32) -> 
 }
 
 #[test]
-fn missing_native_fuel_capability_declines_before_table_effects() {
-    Lua::empty().enter(|ctx| {
-        let closure = Closure::load(ctx, None, b"return 42").unwrap();
-        let table = Table::new(&ctx);
-        let mut values = [Value::Table(table), Value::Integer(0), Value::Integer(17)];
-        let mut slots = values.map(Slot::from_value);
-        let mut pc = 7;
-        let mut fuel = Fuel::with(31);
-        LuaRegisters::with_test_frame_state(
-            ctx,
-            &mut pc,
-            &mut values,
-            &mut fuel,
-            false,
-            |mut registers, _list| {
-                let mut frame = Frame {
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    list: None,
-                    count: Counts::default(),
-                    slot_count: slots.len(),
-                    panic: None,
-                    projection: None,
-                };
-                assert_eq!(invoke(&mut frame, &mut slots, 1), abi::HELPER_DECLINED);
-                assert_eq!(frame.count.table_writes, 0);
-                assert!(table.get_raw(&ctx, Value::Integer(1)).is_nil());
-            },
-        );
-        assert_eq!(fuel.remaining(), 31);
-    });
-}
-
-#[test]
 pub(super) fn pending_values_overflow_and_zero_count_preserve_index_and_fuel() {
     let mut lua = Lua::empty();
     lua.enter(|ctx| {
@@ -67,9 +32,8 @@ pub(super) fn pending_values_overflow_and_zero_count_preserve_index_and_fuel() {
                     &mut canonical,
                     &mut fuel,
                     false,
-                    |mut registers, mut _list| {
+                    |mut registers| {
                         let mut frame = Frame {
-                            list: Some(_list.reborrow()),
                             ctx,
                             closure,
                             registers: &mut registers,
@@ -149,9 +113,8 @@ pub(super) fn invalid_types_and_variable_stack_decline_without_fuel_or_effects()
                 &mut canonical,
                 &mut fuel,
                 case == 2,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -202,9 +165,8 @@ pub(super) fn readonly_panic_keeps_pending_scalars_and_charges_attempted_list_fu
             &mut canonical,
             &mut fuel,
             false,
-            |mut registers, mut _list| {
+            |mut registers| {
                 let mut frame = Frame {
-                    list: Some(_list.reborrow()),
                     ctx,
                     closure,
                     registers: &mut registers,
@@ -252,9 +214,8 @@ pub(super) fn partial_writes_are_not_replayed_after_a_helper_panic() {
             &mut canonical,
             &mut fuel,
             false,
-            |mut registers, mut _list| {
+            |mut registers| {
                 let mut frame = Frame {
-                    list: Some(_list.reborrow()),
                     ctx,
                     closure,
                     registers: &mut registers,

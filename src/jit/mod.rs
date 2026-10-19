@@ -1822,7 +1822,6 @@ impl Runtime {
         ctx: crate::Context<'gc>,
         closure: crate::Closure<'gc>,
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
-        list: Option<&mut crate::thread::NativeList<'_>>,
         budget: u32,
     ) -> u32 {
         #[cfg(all(
@@ -1845,20 +1844,20 @@ impl Runtime {
                 return 0;
             }
             match code.registers {
-                0 => self.invoke::<8, false>(code, ctx, closure, registers, list, budget),
-                1 => self.invoke::<1, true>(code, ctx, closure, registers, list, budget),
-                2 => self.invoke::<2, true>(code, ctx, closure, registers, list, budget),
-                3 => self.invoke::<3, true>(code, ctx, closure, registers, list, budget),
-                4 => self.invoke::<4, true>(code, ctx, closure, registers, list, budget),
-                5 => self.invoke::<5, true>(code, ctx, closure, registers, list, budget),
-                6 => self.invoke::<6, true>(code, ctx, closure, registers, list, budget),
-                7 => self.invoke::<7, true>(code, ctx, closure, registers, list, budget),
-                8 => self.invoke::<8, true>(code, ctx, closure, registers, list, budget),
-                9..=16 => self.invoke::<16, false>(code, ctx, closure, registers, list, budget),
-                17..=32 => self.invoke::<32, false>(code, ctx, closure, registers, list, budget),
-                33..=64 => self.invoke::<64, false>(code, ctx, closure, registers, list, budget),
-                65..=128 => self.invoke::<128, false>(code, ctx, closure, registers, list, budget),
-                129..=256 => self.invoke::<256, false>(code, ctx, closure, registers, list, budget),
+                0 => self.invoke::<8, false>(code, ctx, closure, registers, budget),
+                1 => self.invoke::<1, true>(code, ctx, closure, registers, budget),
+                2 => self.invoke::<2, true>(code, ctx, closure, registers, budget),
+                3 => self.invoke::<3, true>(code, ctx, closure, registers, budget),
+                4 => self.invoke::<4, true>(code, ctx, closure, registers, budget),
+                5 => self.invoke::<5, true>(code, ctx, closure, registers, budget),
+                6 => self.invoke::<6, true>(code, ctx, closure, registers, budget),
+                7 => self.invoke::<7, true>(code, ctx, closure, registers, budget),
+                8 => self.invoke::<8, true>(code, ctx, closure, registers, budget),
+                9..=16 => self.invoke::<16, false>(code, ctx, closure, registers, budget),
+                17..=32 => self.invoke::<32, false>(code, ctx, closure, registers, budget),
+                33..=64 => self.invoke::<64, false>(code, ctx, closure, registers, budget),
+                65..=128 => self.invoke::<128, false>(code, ctx, closure, registers, budget),
+                129..=256 => self.invoke::<256, false>(code, ctx, closure, registers, budget),
                 _ => 0,
             }
         }
@@ -1883,16 +1882,14 @@ impl Runtime {
         ctx: crate::Context<'gc>,
         closure: crate::Closure<'gc>,
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
-        list: Option<&mut crate::thread::NativeList<'_>>,
         budget: u32,
     ) -> u32 {
         #[cfg(all(test, not(miri)))]
         if code.entry_kind.needs_canonical_frame() {
-            return self.invoke_transport::<CAPACITY, EXACT, true>(
-                code, ctx, closure, registers, list, budget,
-            );
+            return self
+                .invoke_transport::<CAPACITY, EXACT, true>(code, ctx, closure, registers, budget);
         }
-        self.invoke_transport::<CAPACITY, EXACT, false>(code, ctx, closure, registers, list, budget)
+        self.invoke_transport::<CAPACITY, EXACT, false>(code, ctx, closure, registers, budget)
     }
 
     #[cfg(all(
@@ -1906,7 +1903,6 @@ impl Runtime {
         ctx: crate::Context<'gc>,
         closure: crate::Closure<'gc>,
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
-        list: Option<&mut crate::thread::NativeList<'_>>,
         budget: u32,
     ) -> u32 {
         let register_count = if EXACT { CAPACITY } else { code.registers };
@@ -1917,7 +1913,6 @@ impl Runtime {
                 ctx,
                 closure,
                 registers,
-                list,
                 (std::ptr::null_mut(), None, register_count),
                 budget,
             );
@@ -1964,7 +1959,6 @@ impl Runtime {
                         ctx,
                         closure,
                         registers,
-                        list,
                         (pointer, projection, register_count),
                         budget,
                     )
@@ -1976,7 +1970,6 @@ impl Runtime {
                 ctx,
                 closure,
                 registers,
-                list,
                 (slots.as_mut_ptr(), None, register_count),
                 budget,
             )
@@ -2046,7 +2039,6 @@ impl Runtime {
         ctx: crate::Context<'gc>,
         closure: crate::Closure<'gc>,
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
-        list: Option<&mut crate::thread::NativeList<'_>>,
         binding: (
             *mut abi::Slot,
             Option<&mut dyn projection::Bridge<'gc>>,
@@ -2057,11 +2049,11 @@ impl Runtime {
         #[cfg(not(miri))]
         if code.entry_kind.needs_canonical_frame() {
             return self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, true>(
-                code, ctx, closure, registers, list, binding, budget,
+                code, ctx, closure, registers, binding, budget,
             );
         }
         self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, false>(
-            code, ctx, closure, registers, list, binding, budget,
+            code, ctx, closure, registers, binding, budget,
         )
     }
 
@@ -2082,7 +2074,6 @@ impl Runtime {
         ctx: crate::Context<'gc>,
         closure: crate::Closure<'gc>,
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
-        list: Option<&mut crate::thread::NativeList<'_>>,
         binding: (
             *mut abi::Slot,
             Option<&mut dyn projection::Bridge<'gc>>,
@@ -2097,7 +2088,6 @@ impl Runtime {
             ctx,
             closure,
             registers,
-            list: list.map(|list| list.reborrow()),
             count: helpers::Counts::default(),
             slot_count: register_count,
             panic: None,
@@ -3464,38 +3454,26 @@ mod runtime_projection_tests {
             let runtime = Runtime::new();
             let mut canonical = vec![Value::Nil; code.registers];
             let mut pc = 0;
-            LuaRegisters::with_test_native_frame(
-                ctx,
-                &mut pc,
-                &mut canonical,
-                |mut registers, mut _list| {
-                    for (index, operation) in snapshot.operations.iter().enumerate() {
-                        if matches!(operation, crate::opcode::Operation::Return { .. }) {
-                            break;
-                        }
-                        assert_eq!(*registers.pc, index);
-                        assert_eq!(
-                            runtime.invoke::<256, false>(
-                                &code,
-                                ctx,
-                                closure,
-                                &mut registers,
-                                Some(&mut _list),
-                                1
-                            ),
-                            1
-                        );
-                        assert_eq!(*registers.pc, index + 1);
-                        if matches!(operation, crate::opcode::Operation::SetUpValue { .. }) {
-                            assert!(matches!(
-                                cell.get(),
-                                UpValueState::Closed(Value::Integer(42))
-                            ));
-                        }
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                for (index, operation) in snapshot.operations.iter().enumerate() {
+                    if matches!(operation, crate::opcode::Operation::Return { .. }) {
+                        break;
                     }
-                    assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
-                },
-            );
+                    assert_eq!(*registers.pc, index);
+                    assert_eq!(
+                        runtime.invoke::<256, false>(&code, ctx, closure, &mut registers, 1),
+                        1
+                    );
+                    assert_eq!(*registers.pc, index + 1);
+                    if matches!(operation, crate::opcode::Operation::SetUpValue { .. }) {
+                        assert!(matches!(
+                            cell.get(),
+                            UpValueState::Closed(Value::Integer(42))
+                        ));
+                    }
+                }
+                assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
+            });
             let stats = runtime.0.borrow().stats;
             assert_eq!(
                 (stats.native_upvalue_reads, stats.native_upvalue_writes),
@@ -3531,35 +3509,23 @@ mod runtime_projection_tests {
                     let runtime = Runtime::new();
                     let mut canonical = vec![Value::Nil; code.registers];
                     let mut pc = 0;
-                    LuaRegisters::with_test_native_frame(
-                        ctx,
-                        &mut pc,
-                        &mut canonical,
-                        |mut registers, mut _list| {
-                            assert_eq!(
-                                runtime.invoke::<256, false>(
-                                    &code,
-                                    ctx,
-                                    closure,
-                                    &mut registers,
-                                    Some(&mut _list),
-                                    1
-                                ),
-                                1
-                            );
-                            assert_eq!(*registers.pc, 1);
-                            let actual = registers.stack_frame[0];
-                            let expected = abi::Slot::from_value(value);
-                            let encoded = abi::Slot::from_value(actual);
-                            assert_eq!((encoded.tag, encoded.bits), (expected.tag, expected.bits));
-                            if let Value::Table(table) = value {
-                                let Value::Table(result) = actual else {
-                                    panic!("reference result lost");
-                                };
-                                assert_eq!(result, table);
-                            }
-                        },
-                    );
+                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                        assert_eq!(
+                            runtime.invoke::<256, false>(&code, ctx, closure, &mut registers, 1),
+                            1
+                        );
+                        assert_eq!(*registers.pc, 1);
+                        let actual = registers.stack_frame[0];
+                        let expected = abi::Slot::from_value(value);
+                        let encoded = abi::Slot::from_value(actual);
+                        assert_eq!((encoded.tag, encoded.bits), (expected.tag, expected.bits));
+                        if let Value::Table(table) = value {
+                            let Value::Table(result) = actual else {
+                                panic!("reference result lost");
+                            };
+                            assert_eq!(result, table);
+                        }
+                    });
                     let stats = runtime.0.borrow().stats;
                     assert_eq!(
                         (

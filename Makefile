@@ -2229,15 +2229,6 @@ jit-frame-view:
 jit-frame-view-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) thread::register_view_tests
 
-.PHONY: jit-native-list jit-native-list-miri
-jit-native-list: jit-frame-view jit-set-list jit-payload-set-list
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::native_list::tests $(ARGS)
-
-jit-native-list-miri:
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::native_list::tests -- --test-threads=1
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::register_view_tests -- --test-threads=1
-	@$(MAKE) --no-print-directory jit-set-list-miri jit-payload-set-list-miri
-
 .PHONY: vm-register-base vm-register-base-miri
 vm-register-base:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests::register_base

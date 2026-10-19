@@ -349,13 +349,12 @@ fn packed_real_frame_helpers_refresh_retired_values_and_canonical_writes() {
                 AlignedValues::new([Value::Nil, Value::Boolean(false), Value::Integer(17), next]);
             values.check_alignment();
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_native_frame(
+            crate::thread::LuaRegisters::with_test_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -427,13 +426,12 @@ fn packed_real_frame_declines_refresh_and_panics_stop_helper_reentry() {
             let mut values = AlignedValues::new([Value::Integer(17), Value::Boolean(false)]);
             values.check_alignment();
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_native_frame(
+            crate::thread::LuaRegisters::with_test_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -508,52 +506,46 @@ fn packed_stopped_scope_does_not_invent_a_frame_panic() {
         let closure = crate::Closure::load(ctx, None, b"return 17").unwrap();
         let mut values = AlignedValues::new([Value::Boolean(false), Value::Integer(17)]);
         let mut pc = 5;
-        crate::thread::LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let mut frame = helpers::Frame {
-                    list: Some(_list.reborrow()),
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: 2,
-                    panic: None,
-                    projection: None,
-                };
-                with_frame_scope::<2, _>(&mut frame, |bound| {
-                    assert!(bound
+        crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 2,
+                panic: None,
+                projection: None,
+            };
+            with_frame_scope::<2, _>(&mut frame, |bound| {
+                assert!(bound
+                    .scope
+                    .store_numeric(
+                        1,
+                        Slot {
+                            tag: INTEGER,
+                            bits: 42
+                        }
+                    )
+                    .unwrap());
+                let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    bound
                         .scope
-                        .store_numeric(
-                            1,
-                            Slot {
-                                tag: INTEGER,
-                                bits: 42
-                            }
-                        )
-                        .unwrap());
-                    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        bound
-                            .scope
-                            .with_destination(0, |value| {
-                                *value = Value::Boolean(true);
-                                std::panic::panic_any(731u64);
-                            })
-                            .unwrap();
-                    }));
-                    assert_eq!(*panic.unwrap_err().downcast::<u64>().unwrap(), 731);
-                    assert_eq!(
-                        bound.helper::<{ abi::HELPER_MOVE }>(0, 1, 0, 7),
-                        Err(Refusal::Stopped)
-                    );
-                })
-                .unwrap();
-                assert!(frame.panic.is_none());
-                assert_eq!(frame.count.calls, 0);
-            },
-        );
+                        .with_destination(0, |value| {
+                            *value = Value::Boolean(true);
+                            std::panic::panic_any(731u64);
+                        })
+                        .unwrap();
+                }));
+                assert_eq!(*panic.unwrap_err().downcast::<u64>().unwrap(), 731);
+                assert_eq!(
+                    bound.helper::<{ abi::HELPER_MOVE }>(0, 1, 0, 7),
+                    Err(Refusal::Stopped)
+                );
+            })
+            .unwrap();
+            assert!(frame.panic.is_none());
+            assert_eq!(frame.count.calls, 0);
+        });
         assert_eq!(pc, 5);
         equivalent(values[0], Value::Boolean(true));
         equivalent(values[1], Value::Integer(42));
@@ -568,13 +560,12 @@ fn packed_descriptor_array_pointer_survives_control_reborrows() {
             let mut values =
                 AlignedValues::new([Value::Integer(17), Value::Number(-0.0), Value::Nil]);
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_native_frame(
+            crate::thread::LuaRegisters::with_test_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,

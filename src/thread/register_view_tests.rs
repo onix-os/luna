@@ -55,28 +55,6 @@ fn unchanged_payload(frame: &LuaFrame<'_, '_>) {
 }
 
 #[test]
-fn interpreter_view_contains_only_core_projection_words() {
-    assert_eq!(
-        std::mem::size_of::<super::LuaRegisters<'_, '_>>(),
-        9 * std::mem::size_of::<usize>()
-    );
-    assert_eq!(
-        std::mem::size_of::<super::NativeList<'_>>(),
-        2 * std::mem::size_of::<usize>()
-    );
-    Lua::empty().enter(|ctx| {
-        let mut pc = 0;
-        let mut values = [Value::Integer(3)];
-        super::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |registers| {
-            *registers.pc = 1;
-            registers.stack_frame[0] = Value::Integer(5);
-        });
-        assert_eq!(pc, 1);
-        assert!(matches!(values[0], Value::Integer(5)));
-    });
-}
-
-#[test]
 fn register_view_pc_mutates_only_the_current_counter() {
     Lua::core().enter(|ctx| {
         with_frame(ctx, |frame| {
@@ -88,7 +66,7 @@ fn register_view_pc_mutates_only_the_current_counter() {
                     assert_eq!(*frame.registers().pc, 19);
                     *frame.registers().pc += 3;
                     assert_eq!(*frame.registers().pc, 22);
-                    assert_eq!(frame.native_registers().1.is_fixed(), !variable);
+                    assert_eq!(frame.registers().fixed_list_stack(), !variable);
                     assert!(matches!(frame.state.frames[0], Frame::Lua { pc: 17, .. }));
                     unchanged_payload(frame);
                 }

@@ -77,65 +77,58 @@ fn closed_constant_table_reads_keep_sibling_pointers_live() {
             for dest in [0, count / 2, count - 1] {
                 let mut values: Vec<_> = (0..count).map(|i| kinds[i % kinds.len()]).collect();
                 let mut pc = 0;
-                LuaRegisters::with_test_native_frame(
-                    ctx,
-                    &mut pc,
-                    &mut values,
-                    |mut registers, mut _list| {
-                        let mut frame = helpers::Frame {
-                            list: Some(_list.reborrow()),
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: count,
-                            panic: None,
-                            projection: None,
-                        };
-                        for value in kinds {
-                            table.set_readonly(&ctx, false);
-                            table.set_raw(&ctx, key, value).unwrap();
-                            table.set_readonly(&ctx, true);
-                            with_session(&mut frame, |host, slots| unsafe {
-                                let saved: Vec<_> =
-                                    (0..count).map(|i| slots.add(i).read()).collect();
-                                assert_eq!(
-                                    call::<{ abi::HELPER_GET_UP_TABLE }>(
-                                        host,
-                                        slots,
-                                        dest as u32,
-                                        0,
-                                        key_index,
-                                        17
-                                    ),
-                                    abi::HELPER_COMPLETED
-                                );
-                                siblings(slots, &saved, Some(dest));
-                            });
-                            identical(frame.registers.stack_frame[dest], value);
-                            assert_eq!(*frame.registers.pc, 18);
-                        }
-                        assert_eq!(
-                            (
-                                frame.count.calls,
-                                frame.count.completed,
-                                frame.count.table_reads,
-                                frame.count.upvalue_reads
-                            ),
-                            [kinds.len() as u64; 4].into()
-                        );
-                        assert_eq!(
-                            (
-                                frame.count.declined,
-                                frame.count.table_writes,
-                                frame.count.upvalue_writes,
-                                frame.count.allocations
-                            ),
-                            (0, 0, 0, 0)
-                        );
-                        assert!(frame.panic.is_none());
-                    },
-                );
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: count,
+                        panic: None,
+                        projection: None,
+                    };
+                    for value in kinds {
+                        table.set_readonly(&ctx, false);
+                        table.set_raw(&ctx, key, value).unwrap();
+                        table.set_readonly(&ctx, true);
+                        with_session(&mut frame, |host, slots| unsafe {
+                            let saved: Vec<_> = (0..count).map(|i| slots.add(i).read()).collect();
+                            assert_eq!(
+                                call::<{ abi::HELPER_GET_UP_TABLE }>(
+                                    host,
+                                    slots,
+                                    dest as u32,
+                                    0,
+                                    key_index,
+                                    17
+                                ),
+                                abi::HELPER_COMPLETED
+                            );
+                            siblings(slots, &saved, Some(dest));
+                        });
+                        identical(frame.registers.stack_frame[dest], value);
+                        assert_eq!(*frame.registers.pc, 18);
+                    }
+                    assert_eq!(
+                        (
+                            frame.count.calls,
+                            frame.count.completed,
+                            frame.count.table_reads,
+                            frame.count.upvalue_reads
+                        ),
+                        [kinds.len() as u64; 4].into()
+                    );
+                    assert_eq!(
+                        (
+                            frame.count.declined,
+                            frame.count.table_writes,
+                            frame.count.upvalue_writes,
+                            frame.count.allocations
+                        ),
+                        (0, 0, 0, 0)
+                    );
+                    assert!(frame.panic.is_none());
+                });
             }
         }
     });
@@ -156,99 +149,93 @@ fn closed_reads_refresh_control_pointers_after_fallback_and_preserve_declines() 
             Value::Boolean(true),
         ];
         let mut pc = 0;
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                closure.set_upvalue(&ctx, 0, cell);
-                let mut frame = helpers::Frame {
-                    list: Some(_list.reborrow()),
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: 4,
-                    panic: None,
-                    projection: None,
-                };
-                with_session(&mut frame, |host, slots| unsafe {
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 1),
-                        abi::HELPER_COMPLETED
-                    );
-                    cell.set(
-                        &ctx,
-                        crate::closure::UpValueState::Closed(Value::Table(table)),
-                    );
-                    for operand in [1, key_index] {
-                        assert_eq!(
-                            call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, operand, 2),
-                            abi::HELPER_COMPLETED
-                        );
-                    }
-                    assert_eq!(
-                        call::<{ abi::HELPER_MOVE }>(host, slots, 2, 3, 0, 3),
-                        abi::HELPER_COMPLETED
-                    );
-                    let saved: Vec<_> = (0..4).map(|i| slots.add(i).read()).collect();
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 4),
-                        abi::HELPER_COMPLETED
-                    );
-                    siblings(slots, &saved, Some(2));
-                    table.set_raw(&ctx, key, Value::Nil).unwrap();
-                    let meta = crate::Table::new(&ctx);
-                    meta.set_raw(
-                        &ctx,
-                        Value::String(ctx.intern(b"__index")),
-                        Value::Boolean(true),
-                    )
-                    .unwrap();
-                    table.set_metatable(ctx, Some(meta));
-                    let saved: Vec<_> = (0..4).map(|i| slots.add(i).read()).collect();
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 5),
-                        abi::HELPER_DECLINED
-                    );
-                    siblings(slots, &saved, None);
-                    assert_eq!(load(slots.add(2).read()).unwrap().bits, 42);
-                    cell.set(
-                        &ctx,
-                        crate::closure::UpValueState::Closed(Value::Integer(9)),
-                    );
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 5),
-                        abi::HELPER_DECLINED
-                    );
-                    siblings(slots, &saved, None);
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, u32::MAX, 6),
-                        abi::HELPER_PANICKED
-                    );
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 7),
-                        abi::HELPER_PANICKED
-                    );
-                    assert_eq!(
-                        materialize(host, slots, 2, INTEGER, 99),
-                        abi::HELPER_PANICKED
-                    );
-                });
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 4,
+                panic: None,
+                projection: None,
+            };
+            with_session(&mut frame, |host, slots| unsafe {
                 assert_eq!(
-                    (
-                        frame.count.calls,
-                        frame.count.completed,
-                        frame.count.declined,
-                        frame.count.table_reads,
-                        frame.count.upvalue_reads
-                    ),
-                    (8, 5, 2, 4, 4)
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 1),
+                    abi::HELPER_COMPLETED
                 );
-                assert!(frame.panic.is_some());
-            },
-        );
+                cell.set(
+                    &ctx,
+                    crate::closure::UpValueState::Closed(Value::Table(table)),
+                );
+                for operand in [1, key_index] {
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, operand, 2),
+                        abi::HELPER_COMPLETED
+                    );
+                }
+                assert_eq!(
+                    call::<{ abi::HELPER_MOVE }>(host, slots, 2, 3, 0, 3),
+                    abi::HELPER_COMPLETED
+                );
+                let saved: Vec<_> = (0..4).map(|i| slots.add(i).read()).collect();
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 4),
+                    abi::HELPER_COMPLETED
+                );
+                siblings(slots, &saved, Some(2));
+                table.set_raw(&ctx, key, Value::Nil).unwrap();
+                let meta = crate::Table::new(&ctx);
+                meta.set_raw(
+                    &ctx,
+                    Value::String(ctx.intern(b"__index")),
+                    Value::Boolean(true),
+                )
+                .unwrap();
+                table.set_metatable(ctx, Some(meta));
+                let saved: Vec<_> = (0..4).map(|i| slots.add(i).read()).collect();
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 5),
+                    abi::HELPER_DECLINED
+                );
+                siblings(slots, &saved, None);
+                assert_eq!(load(slots.add(2).read()).unwrap().bits, 42);
+                cell.set(
+                    &ctx,
+                    crate::closure::UpValueState::Closed(Value::Integer(9)),
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 5),
+                    abi::HELPER_DECLINED
+                );
+                siblings(slots, &saved, None);
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, u32::MAX, 6),
+                    abi::HELPER_PANICKED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 2, 0, key_index, 7),
+                    abi::HELPER_PANICKED
+                );
+                assert_eq!(
+                    materialize(host, slots, 2, INTEGER, 99),
+                    abi::HELPER_PANICKED
+                );
+            });
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.declined,
+                    frame.count.table_reads,
+                    frame.count.upvalue_reads
+                ),
+                (8, 5, 2, 4, 4)
+            );
+            assert!(frame.panic.is_some());
+        });
         assert_eq!(pc, 7);
         assert!(matches!(values[2], Value::Integer(42)));
     });
@@ -269,54 +256,48 @@ fn narrow_table_read_panics_preserve_direct_writes_and_stop_reentry() {
         );
         let mut values = [Value::Nil, Value::Integer(7)];
         let mut pc = 0;
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let mut frame = helpers::Frame {
-                    list: Some(_list.reborrow()),
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: 2,
-                    panic: None,
-                    projection: None,
-                };
-                with_session(&mut frame, |host, slots| unsafe {
-                    assert_eq!(
-                        materialize(host, slots, 1, INTEGER, 41),
-                        abi::HELPER_COMPLETED
-                    );
-                    let inner = table.into_inner();
-                    let _borrow = inner.borrow_mut(&ctx);
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 0, 0, key(closure), 5),
-                        abi::HELPER_PANICKED
-                    );
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 0, 0, key(closure), 6),
-                        abi::HELPER_PANICKED
-                    );
-                    assert_eq!(
-                        materialize(host, slots, 1, INTEGER, 99),
-                        abi::HELPER_PANICKED
-                    );
-                });
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 2,
+                panic: None,
+                projection: None,
+            };
+            with_session(&mut frame, |host, slots| unsafe {
                 assert_eq!(
-                    (
-                        frame.count.calls,
-                        frame.count.completed,
-                        frame.count.declined,
-                        frame.count.table_reads,
-                        frame.count.upvalue_reads
-                    ),
-                    (1, 0, 0, 0, 0)
+                    materialize(host, slots, 1, INTEGER, 41),
+                    abi::HELPER_COMPLETED
                 );
-                assert!(frame.panic.is_some());
-            },
-        );
+                let inner = table.into_inner();
+                let _borrow = inner.borrow_mut(&ctx);
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 0, 0, key(closure), 5),
+                    abi::HELPER_PANICKED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UP_TABLE }>(host, slots, 0, 0, key(closure), 6),
+                    abi::HELPER_PANICKED
+                );
+                assert_eq!(
+                    materialize(host, slots, 1, INTEGER, 99),
+                    abi::HELPER_PANICKED
+                );
+            });
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.declined,
+                    frame.count.table_reads,
+                    frame.count.upvalue_reads
+                ),
+                (1, 0, 0, 0, 0)
+            );
+            assert!(frame.panic.is_some());
+        });
         assert_eq!(pc, 6);
         assert!(matches!(values[0], Value::Nil));
         assert!(matches!(values[1], Value::Integer(41)));

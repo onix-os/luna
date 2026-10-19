@@ -94,9 +94,8 @@ fn check_kinds(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u32)
                         &mut values,
                         &mut fuel,
                         false,
-                        |mut registers, mut _list| {
+                        |mut registers| {
                             let mut frame = helpers::Frame {
-                                list: Some(_list.reborrow()),
                                 ctx,
                                 closure,
                                 registers: &mut registers,
@@ -184,13 +183,12 @@ fn check_bounds(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u32
         for count in [0, 1, 7, 255, 256] {
             let mut values = vec![Value::Integer(17); count + 1];
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_native_frame(
+            crate::thread::LuaRegisters::with_test_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -254,13 +252,12 @@ fn check_reentry(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u3
         {
             let mut values = [Value::Integer(17), Value::Nil];
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_native_frame(
+            crate::thread::LuaRegisters::with_test_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -320,13 +317,12 @@ fn check_stopped(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u3
         for panic in [false, true] {
             let mut values = [Value::Integer(17)];
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_native_frame(
+            crate::thread::LuaRegisters::with_test_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers, mut _list| {
+                |mut registers| {
                     let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,

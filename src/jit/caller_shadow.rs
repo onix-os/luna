@@ -98,7 +98,7 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
         if ctx.hook_enabled() {
             return None;
         }
-        host.with_native_registers(|closure, mut registers, mut _list| {
+        host.with_registers(|closure, mut registers| {
             let code = &prepared.code;
             if !self.matches(closure, &registers)
                 || code.registers != self.count
@@ -124,7 +124,6 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
                 ctx,
                 closure,
                 &mut registers,
-                Some(&mut _list),
                 (self.slots.as_mut_ptr(), None, self.count),
                 budget,
             ))
@@ -247,37 +246,32 @@ fn recovery_materializes_pending_prefix_without_overwriting_capture_effects() {
         let closure = Closure::load(ctx, None, b"return 1").unwrap();
         let mut pc = 0;
         let mut values = [crate::Value::Integer(10); 8];
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                let key = registers.shadow_key();
-                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
-                shadow.slots_mut()[0] = Slot::from_value(crate::Value::Integer(42));
-                shadow.slots_mut()[2] = Slot::from_value(crate::Value::Integer(99));
-                let transfer = shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
-                    .unwrap();
-                registers.stack_frame[0] = crate::Value::Integer(45);
-                registers.stack_frame[6] = crate::Value::Integer(123);
-                assert!(transfer.recover_prefix(closure, key, &mut registers.stack_frame[..6]));
-                assert!(matches!(
-                    registers.stack_frame[0],
-                    crate::Value::Integer(45)
-                ));
-                assert!(matches!(
-                    registers.stack_frame[2],
-                    crate::Value::Integer(99)
-                ));
-                assert!(matches!(
-                    registers.stack_frame[6],
-                    crate::Value::Integer(123)
-                ));
-                assert!(!shadow.flush(closure, &mut registers));
-            },
-        );
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            let key = registers.shadow_key();
+            let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+            shadow.slots_mut()[0] = Slot::from_value(crate::Value::Integer(42));
+            shadow.slots_mut()[2] = Slot::from_value(crate::Value::Integer(99));
+            let transfer = shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .unwrap();
+            registers.stack_frame[0] = crate::Value::Integer(45);
+            registers.stack_frame[6] = crate::Value::Integer(123);
+            assert!(transfer.recover_prefix(closure, key, &mut registers.stack_frame[..6]));
+            assert!(matches!(
+                registers.stack_frame[0],
+                crate::Value::Integer(45)
+            ));
+            assert!(matches!(
+                registers.stack_frame[2],
+                crate::Value::Integer(99)
+            ));
+            assert!(matches!(
+                registers.stack_frame[6],
+                crate::Value::Integer(123)
+            ));
+            assert!(!shadow.flush(closure, &mut registers));
+        });
     });
 }
 
@@ -290,33 +284,28 @@ fn refused_recovery_never_materializes_or_revalidates_pending_values() {
         for case in 0..3 {
             let mut pc = 0;
             let mut values = [crate::Value::Integer(10); 8];
-            LuaRegisters::with_test_native_frame(
-                ctx,
-                &mut pc,
-                &mut values,
-                |mut registers, mut _list| {
-                    let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                    let mut key = registers.shadow_key();
-                    let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
-                    shadow.slots_mut()[2] = Slot::from_value(crate::Value::Integer(99));
-                    let transfer = shadow
-                        .prepare_call(closure, &mut registers, 6, 1, capture)
-                        .unwrap();
-                    if case == 1 {
-                        key.1 += 1;
-                    }
-                    assert!(!transfer.recover_prefix(
-                        if case == 0 { foreign } else { closure },
-                        key,
-                        &mut registers.stack_frame[..if case == 2 { 5 } else { 6 }],
-                    ));
-                    assert!(matches!(
-                        registers.stack_frame[2],
-                        crate::Value::Integer(10)
-                    ));
-                    assert!(!shadow.flush(closure, &mut registers));
-                },
-            );
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                let mut key = registers.shadow_key();
+                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+                shadow.slots_mut()[2] = Slot::from_value(crate::Value::Integer(99));
+                let transfer = shadow
+                    .prepare_call(closure, &mut registers, 6, 1, capture)
+                    .unwrap();
+                if case == 1 {
+                    key.1 += 1;
+                }
+                assert!(!transfer.recover_prefix(
+                    if case == 0 { foreign } else { closure },
+                    key,
+                    &mut registers.stack_frame[..if case == 2 { 5 } else { 6 }],
+                ));
+                assert!(matches!(
+                    registers.stack_frame[2],
+                    crate::Value::Integer(10)
+                ));
+                assert!(!shadow.flush(closure, &mut registers));
+            });
         }
     });
 }
@@ -328,28 +317,23 @@ fn dropped_transfer_never_revalidates_stale_caller_slots() {
         let closure = Closure::load(ctx, None, b"return 1").unwrap();
         let mut pc = 0;
         let mut values = [crate::Value::Integer(10); 8];
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
-                let transfer = shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
-                    .unwrap();
-                registers.stack_frame[0] = crate::Value::Integer(99);
-                drop(transfer);
-                assert!(!shadow.flush(closure, &mut registers));
-                assert!(shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
-                    .is_none());
-                assert!(matches!(
-                    registers.stack_frame[0],
-                    crate::Value::Integer(99)
-                ));
-            },
-        );
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+            let transfer = shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .unwrap();
+            registers.stack_frame[0] = crate::Value::Integer(99);
+            drop(transfer);
+            assert!(!shadow.flush(closure, &mut registers));
+            assert!(shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .is_none());
+            assert!(matches!(
+                registers.stack_frame[0],
+                crate::Value::Integer(99)
+            ));
+        });
     });
 }
 
@@ -362,56 +346,51 @@ fn call_transfer_preserves_pending_scalars_and_refreshes_callee_effects() {
         let mut pc = 0;
         let mut values = [crate::Value::Integer(10); 8];
         values[1] = table.into();
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
-                shadow.slots_mut()[0] = Slot::from_value(crate::Value::Integer(42));
-                shadow.slots[2] = Slot::from_value(crate::Value::Integer(99));
-                shadow.slots[5] = Slot::from_value(crate::Value::Integer(111));
-                let transfer = shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
-                    .unwrap();
-                assert!(matches!(
-                    registers.stack_frame[0],
-                    crate::Value::Integer(42)
-                ));
-                assert!(matches!(
-                    registers.stack_frame[2],
-                    crate::Value::Integer(10)
-                ));
-                assert!(matches!(
-                    registers.stack_frame[5],
-                    crate::Value::Integer(10)
-                ));
-                registers.stack_frame[0] = crate::Value::Integer(45);
-                registers.stack_frame[6] = crate::Value::Nil;
-                registers.stack_frame[7] = crate::Value::Nil;
-                assert!(transfer.resume(closure, &registers));
-                assert!(shadow.flush(closure, &mut registers));
-                assert!(matches!(
-                    registers.stack_frame[0],
-                    crate::Value::Integer(45)
-                ));
-                assert!(
-                    matches!(registers.stack_frame[1], crate::Value::Table(value) if value == table)
-                );
-                assert!(matches!(
-                    registers.stack_frame[2],
-                    crate::Value::Integer(99)
-                ));
-                assert!(matches!(
-                    registers.stack_frame[5],
-                    crate::Value::Integer(111)
-                ));
-                assert!(matches!(registers.stack_frame[6], crate::Value::Nil));
-                assert!(matches!(registers.stack_frame[7], crate::Value::Nil));
-                assert_eq!(*registers.pc, 0);
-            },
-        );
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+            shadow.slots_mut()[0] = Slot::from_value(crate::Value::Integer(42));
+            shadow.slots[2] = Slot::from_value(crate::Value::Integer(99));
+            shadow.slots[5] = Slot::from_value(crate::Value::Integer(111));
+            let transfer = shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .unwrap();
+            assert!(matches!(
+                registers.stack_frame[0],
+                crate::Value::Integer(42)
+            ));
+            assert!(matches!(
+                registers.stack_frame[2],
+                crate::Value::Integer(10)
+            ));
+            assert!(matches!(
+                registers.stack_frame[5],
+                crate::Value::Integer(10)
+            ));
+            registers.stack_frame[0] = crate::Value::Integer(45);
+            registers.stack_frame[6] = crate::Value::Nil;
+            registers.stack_frame[7] = crate::Value::Nil;
+            assert!(transfer.resume(closure, &registers));
+            assert!(shadow.flush(closure, &mut registers));
+            assert!(matches!(
+                registers.stack_frame[0],
+                crate::Value::Integer(45)
+            ));
+            assert!(
+                matches!(registers.stack_frame[1], crate::Value::Table(value) if value == table)
+            );
+            assert!(matches!(
+                registers.stack_frame[2],
+                crate::Value::Integer(99)
+            ));
+            assert!(matches!(
+                registers.stack_frame[5],
+                crate::Value::Integer(111)
+            ));
+            assert!(matches!(registers.stack_frame[6], crate::Value::Nil));
+            assert!(matches!(registers.stack_frame[7], crate::Value::Nil));
+            assert_eq!(*registers.pc, 0);
+        });
     });
 }
 
@@ -422,29 +401,24 @@ fn overlapping_capture_and_argument_tail_rebind_after_return() {
         let closure = Closure::load(ctx, None, b"return 1").unwrap();
         let mut pc = 0;
         let mut values = [crate::Value::Integer(10); 8];
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(7));
-                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
-                shadow.slots[7] = Slot::from_value(crate::Value::Integer(-7));
-                let transfer = shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
-                    .unwrap();
-                assert!(matches!(
-                    registers.stack_frame[7],
-                    crate::Value::Integer(-7)
-                ));
-                registers.stack_frame[6] = crate::Value::Nil;
-                registers.stack_frame[7] = crate::Value::Nil;
-                assert!(transfer.resume(closure, &registers));
-                assert_eq!(shadow.slots[7].tag, abi::NIL);
-                assert!(shadow.flush(closure, &mut registers));
-                assert!(matches!(registers.stack_frame[7], crate::Value::Nil));
-            },
-        );
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(7));
+            let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+            shadow.slots[7] = Slot::from_value(crate::Value::Integer(-7));
+            let transfer = shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .unwrap();
+            assert!(matches!(
+                registers.stack_frame[7],
+                crate::Value::Integer(-7)
+            ));
+            registers.stack_frame[6] = crate::Value::Nil;
+            registers.stack_frame[7] = crate::Value::Nil;
+            assert!(transfer.resume(closure, &registers));
+            assert_eq!(shadow.slots[7].tag, abi::NIL);
+            assert!(shadow.flush(closure, &mut registers));
+            assert!(matches!(registers.stack_frame[7], crate::Value::Nil));
+        });
     });
 }
 
@@ -456,37 +430,31 @@ fn malformed_transfer_and_foreign_caller_decline_before_materialization() {
         let foreign = Closure::load(ctx, None, b"return 1").unwrap();
         let mut pc = 0;
         let mut values = [crate::Value::Integer(10); 8];
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                assert!(Shadow::<7>::capture(closure, &registers).is_none());
-                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
-                shadow.slots[0] = Slot::from_value(crate::Value::Integer(99));
-                for (caller, function, arguments) in
-                    [(closure, 8, 0), (closure, 7, 1), (foreign, 6, 1)]
-                {
-                    assert!(shadow
-                        .prepare_call(caller, &mut registers, function, arguments, capture)
-                        .is_none());
-                    assert!(registers
-                        .stack_frame
-                        .iter()
-                        .all(|value| matches!(*value, crate::Value::Integer(10))));
-                }
-                shadow.slots[5].tag = u64::MAX;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            assert!(Shadow::<7>::capture(closure, &registers).is_none());
+            let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+            shadow.slots[0] = Slot::from_value(crate::Value::Integer(99));
+            for (caller, function, arguments) in [(closure, 8, 0), (closure, 7, 1), (foreign, 6, 1)]
+            {
                 assert!(shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
+                    .prepare_call(caller, &mut registers, function, arguments, capture)
                     .is_none());
-                assert!(!shadow.flush(closure, &mut registers));
                 assert!(registers
                     .stack_frame
                     .iter()
                     .all(|value| matches!(*value, crate::Value::Integer(10))));
-            },
-        );
+            }
+            shadow.slots[5].tag = u64::MAX;
+            assert!(shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .is_none());
+            assert!(!shadow.flush(closure, &mut registers));
+            assert!(registers
+                .stack_frame
+                .iter()
+                .all(|value| matches!(*value, crate::Value::Integer(10))));
+        });
     });
 }
 
@@ -501,36 +469,27 @@ fn closed_capture_and_wrong_stack_decline_without_reusing_shadow() {
         );
         let mut pc = 0;
         let mut values = [crate::Value::Integer(10); 8];
-        let mut shadow = LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
+        let mut shadow =
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
                 let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
                 shadow.slots[0] = Slot::from_value(crate::Value::Integer(99));
                 assert!(shadow
                     .prepare_call(closure, &mut registers, 6, 1, capture)
                     .is_none());
                 shadow
-            },
-        );
+            });
         let mut other_pc = 0;
         let mut other = [crate::Value::Integer(20); 8];
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut other_pc,
-            &mut other,
-            |mut registers, mut _list| {
-                assert!(!shadow.flush(closure, &mut registers));
-                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                assert!(shadow
-                    .prepare_call(closure, &mut registers, 6, 1, capture)
-                    .is_none());
-                assert!(registers
-                    .stack_frame
-                    .iter()
-                    .all(|value| matches!(*value, crate::Value::Integer(20))));
-            },
-        );
+        LuaRegisters::with_test_frame(ctx, &mut other_pc, &mut other, |mut registers| {
+            assert!(!shadow.flush(closure, &mut registers));
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            assert!(shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .is_none());
+            assert!(registers
+                .stack_frame
+                .iter()
+                .all(|value| matches!(*value, crate::Value::Integer(20))));
+        });
     });
 }

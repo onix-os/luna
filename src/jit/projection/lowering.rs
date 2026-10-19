@@ -988,11 +988,11 @@ mod tests {
                         let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
                         let mut canonical = [Value::Integer(42), Value::Integer(11)];
                         let mut pc = 0;
-                        LuaRegisters::with_test_native_frame(
+                        LuaRegisters::with_test_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
-                            |mut registers, mut _list| {
+                            |mut registers| {
                                 let open = registers.projection_open_at(ctx, 1);
                                 let mut scratch = [
                                     Slot::from_value(Value::Integer(42)),

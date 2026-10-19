@@ -191,7 +191,7 @@ fn observe<'gc>(
         &mut values,
         &mut fuel,
         scenario == 3,
-        |mut registers, mut _list| {
+        |mut registers| {
             let cell = if scenario == 1 || scenario == 2 {
                 registers.open_test_upvalue(&ctx, RegisterIndex(0))
             } else {
@@ -199,7 +199,6 @@ fn observe<'gc>(
             };
             closure.set_upvalue(&ctx, 0, cell);
             let mut frame = Frame {
-                list: Some(_list.reborrow()),
                 ctx,
                 closure,
                 registers: &mut registers,

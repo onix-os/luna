@@ -36,35 +36,29 @@ fn bound_entry_retains_control_after_a_caught_helper_panic() {
             let mut values = vec![Value::Integer(17); count];
             values[1] = marker;
             let mut pc = 5;
-            LuaRegisters::with_test_native_frame(
-                ctx,
-                &mut pc,
-                &mut values,
-                |mut registers, mut _list| {
-                    let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: count,
-                        panic: None,
-                        projection: None,
-                    };
-                    with_binding::<256>(&mut frame, |binding| unsafe {
-                        binding.invoke(run, count, 5, 64, &mut abi::Exit::default());
-                    });
-                    assert_eq!(
-                        (
-                            frame.count.calls,
-                            frame.count.completed,
-                            frame.count.declined
-                        ),
-                        (2, 1, 0)
-                    );
-                    assert!(frame.panic.is_some());
-                },
-            );
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    projection: None,
+                };
+                with_binding::<256>(&mut frame, |binding| unsafe {
+                    binding.invoke(run, count, 5, 64, &mut abi::Exit::default());
+                });
+                assert_eq!(
+                    (
+                        frame.count.calls,
+                        frame.count.completed,
+                        frame.count.declined
+                    ),
+                    (2, 1, 0)
+                );
+                assert!(frame.panic.is_some());
+            });
             assert_eq!(pc, 32);
             closed_table_tests::identical(values[0], marker);
             closed_table_tests::identical(values[1], marker);
@@ -133,31 +127,25 @@ fn bound_entry_preserves_refresh_and_canonical_writes() {
             for budget in [0, 1, 64, 65, u32::MAX] {
                 let mut values = vec![Value::Integer(17); count + 1];
                 let mut pc = 5;
-                LuaRegisters::with_test_native_frame(
-                    ctx,
-                    &mut pc,
-                    &mut values,
-                    |mut registers, mut _list| {
-                        let mut frame = helpers::Frame {
-                            list: Some(_list.reborrow()),
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: count,
-                            panic: None,
-                            projection: None,
-                        };
-                        let mut exit = abi::Exit::default();
-                        with_binding::<256>(&mut frame, |binding| unsafe {
-                            binding.invoke(entry, count, 5, budget, &mut exit);
-                        });
-                        assert_eq!(exit.pc, 5);
-                        assert_eq!(frame.count.calls, u64::from(budget != 0));
-                        assert_eq!(frame.count.completed, frame.count.calls);
-                        assert!(frame.panic.is_none());
-                    },
-                );
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: count,
+                        panic: None,
+                        projection: None,
+                    };
+                    let mut exit = abi::Exit::default();
+                    with_binding::<256>(&mut frame, |binding| unsafe {
+                        binding.invoke(entry, count, 5, budget, &mut exit);
+                    });
+                    assert_eq!(exit.pc, 5);
+                    assert_eq!(frame.count.calls, u64::from(budget != 0));
+                    assert_eq!(frame.count.completed, frame.count.calls);
+                    assert!(frame.panic.is_none());
+                });
                 assert_eq!(pc, if budget == 0 { 5 } else { 8 });
                 if budget == 0 {
                     assert!(matches!(values[0], Value::Integer(17)));
@@ -179,33 +167,27 @@ fn bound_entry_rejects_count_and_capacity_before_entry() {
         for (count, expected) in [(0, 0), (1, 0), (1, 2), (2, 2), (3, 3)] {
             let mut values = vec![Value::Integer(17); 3];
             let mut pc = 5;
-            LuaRegisters::with_test_native_frame(
-                ctx,
-                &mut pc,
-                &mut values,
-                |mut registers, mut _list| {
-                    let mut frame = helpers::Frame {
-                        list: Some(_list.reborrow()),
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: count,
-                        panic: None,
-                        projection: None,
-                    };
-                    let mut exit = abi::Exit::default();
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        with_binding::<2>(&mut frame, |binding| unsafe {
-                            binding.invoke(entry, expected, 5, 0, &mut exit);
-                        });
-                    }));
-                    let admitted = count <= 2 && count == expected;
-                    assert_eq!(result.is_ok(), admitted);
-                    assert_eq!(exit.pc, if admitted { 5 } else { 0 });
-                    assert_eq!(frame.count.calls, 0);
-                },
-            );
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    projection: None,
+                };
+                let mut exit = abi::Exit::default();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    with_binding::<2>(&mut frame, |binding| unsafe {
+                        binding.invoke(entry, expected, 5, 0, &mut exit);
+                    });
+                }));
+                let admitted = count <= 2 && count == expected;
+                assert_eq!(result.is_ok(), admitted);
+                assert_eq!(exit.pc, if admitted { 5 } else { 0 });
+                assert_eq!(frame.count.calls, 0);
+            });
             assert!(values.iter().all(|v| matches!(v, Value::Integer(17))));
         }
     });

@@ -9,21 +9,19 @@ pub(super) fn scope<'gc>(
 ) -> (helpers::Counts, usize, bool) {
     let count = values.len();
     let mut pc = 0;
-    let (counts, panic) =
-        LuaRegisters::with_test_native_frame(ctx, &mut pc, values, |mut registers, mut _list| {
-            let mut frame = helpers::Frame {
-                list: Some(_list.reborrow()),
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: count,
-                panic: None,
-                projection: None,
-            };
-            with_session(&mut frame, body);
-            (frame.count, frame.panic.is_some())
-        });
+    let (counts, panic) = LuaRegisters::with_test_frame(ctx, &mut pc, values, |mut registers| {
+        let mut frame = helpers::Frame {
+            ctx,
+            closure,
+            registers: &mut registers,
+            count: helpers::Counts::default(),
+            slot_count: count,
+            panic: None,
+            projection: None,
+        };
+        with_session(&mut frame, body);
+        (frame.count, frame.panic.is_some())
+    });
     (counts, pc, panic)
 }
 
@@ -335,50 +333,44 @@ fn table_writes_preserve_non_table_receivers_and_current_frame_captures() {
             Value::Nil,
         ];
         let mut pc = 0;
-        LuaRegisters::with_test_native_frame(
-            ctx,
-            &mut pc,
-            &mut values,
-            |mut registers, mut _list| {
-                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(2));
-                closure.set_upvalue(&ctx, 0, cell);
-                let mut frame = helpers::Frame {
-                    list: Some(_list.reborrow()),
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: 4,
-                    panic: None,
-                    projection: None,
-                };
-                with_session(&mut frame, |host, slots| unsafe {
-                    assert!(store(
-                        slots.add(2).read(),
-                        Slot {
-                            tag: INTEGER,
-                            bits: 82
-                        }
-                    ));
-                    assert_eq!(
-                        call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 1, 2, 7),
-                        abi::HELPER_COMPLETED
-                    );
-                    assert_eq!(
-                        call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 3, 0, 0, 8),
-                        abi::HELPER_COMPLETED
-                    );
-                    assert_eq!(load(slots.add(3).read()).unwrap().bits, 82);
-                    assert_eq!(
-                        call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 1, 3, 9),
-                        abi::HELPER_COMPLETED
-                    );
-                    assert_eq!(load(slots.add(2).read()).unwrap().bits, 82);
-                });
-                assert_eq!(counts(frame.count), [3, 3, 0, 0, 2, 1, 0, 0]);
-                assert!(frame.panic.is_none());
-            },
-        );
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(2));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 4,
+                panic: None,
+                projection: None,
+            };
+            with_session(&mut frame, |host, slots| unsafe {
+                assert!(store(
+                    slots.add(2).read(),
+                    Slot {
+                        tag: INTEGER,
+                        bits: 82
+                    }
+                ));
+                assert_eq!(
+                    call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 1, 2, 7),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 3, 0, 0, 8),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(load(slots.add(3).read()).unwrap().bits, 82);
+                assert_eq!(
+                    call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 1, 3, 9),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(load(slots.add(2).read()).unwrap().bits, 82);
+            });
+            assert_eq!(counts(frame.count), [3, 3, 0, 0, 2, 1, 0, 0]);
+            assert!(frame.panic.is_none());
+        });
         assert_eq!(pc, 10);
         identical(table.get_raw(&ctx, Value::Integer(1)), Value::Integer(82));
         identical(values[2], Value::Integer(82));

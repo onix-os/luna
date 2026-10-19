@@ -35986,7 +35986,7 @@ design question, not an adopted change or an accepted optimization. Its exact
 call sites, borrow/fuel contracts and prior rejected view work must be inspected
 before implementation. Full original acceptance remains open.
 
-### Native-only fixed-list context — implementation under validation
+### Native-only fixed-list context — rejected and withdrawn
 
 The new representation removes fuel and variable-stack fields from the shared
 `LuaRegisters` projection. Its seven core fields occupy nine pointer words;
@@ -36017,6 +36017,39 @@ both production profiles and repeated original elapsed gates remain required.
 This differs from the rejected constructor-inline and optional-fuel tuple trials:
 native state is no longer part of the ordinary register-view ABI. It is **not yet
 a performance-accepted change**, and no runtime speedup is claimed.
+
+Trial `61fd2f6e` is now rejected. Its six shipping-only A/candidate/B cost
+comparisons retain all 23,760 iterations and original failed gates in
+`target/jit-evidence/hook-resume-recovery/native-list-context`. Integer and float
+compiled-Off time increased respectively **13.50% / 12.29% on CPU 0** and
+**6.18% / 5.02% on CPU 16**. Upvalue time also increased approximately
+**0.59% / 3.04%**. No-feature timing controls remain in the evidence; equal
+section sizes do not prove byte equivalence, and that equivalence was not proved.
+This was only a gross cost preselection, not the full native/resource matrix.
+
+The subsequent exact-image shipping instruction campaign is terminal zero.
+Three cases, four alternating image loads and five dumps per load reconcile
+all 13 event columns and full text-symbol attribution; all 18 parser fixtures
+pass. Representative non-warmup original/trial whole-execution counts are:
+
+| Case | Original compiled-Off | Separate context |
+| --- | ---: | ---: |
+| Integer | 3,848,937 | 3,869,532 |
+| Float | 4,109,344 | 4,129,939 |
+| Upvalue | 17,730,918 | 17,750,788 |
+
+For upvalues, the core constructor saves 200,010 self instructions, but VM
+self instructions increase 180,010 and Executor self instructions increase
+39,832. Numeric VM self instructions increase 25,635, and its text grows
+from 42,104 to 43,058 bytes. The constructor saving is therefore not an
+end-to-end instruction saving, much less a demonstrated elapsed-time gain.
+Software event counts do not establish a hardware cause for the timing changes.
+
+All trial source, helper/test constructor migrations and added Make targets
+are withdrawn together to the pre-trial `e857a5ca` state; the evidence is retained.
+Fresh source-bound correctness and original-profile image restoration checks
+must verify this withdrawal. Do not retain the representation as an optimization
+or repeat it as an inline/layout tweak. Original JIT acceptance remains open.
 
 ## 15. Primary references
 

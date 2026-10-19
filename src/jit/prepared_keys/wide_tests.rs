@@ -109,11 +109,11 @@ fn wide_compiler_matches_all_entries_budgets_and_helper_outcomes() {
                             ctx.globals().set(ctx, "other", 23).unwrap();
                             let mut canonical = vec![Value::Integer(17); snapshot.registers];
                             let mut frame_pc = pc;
-                            let report = LuaRegisters::with_test_native_frame(
+                            let report = LuaRegisters::with_test_frame(
                                 ctx,
                                 &mut frame_pc,
                                 &mut canonical,
-                                |mut registers, mut _list| {
+                                |mut registers| {
                                     let mut slots: std::vec::Vec<_> = registers
                                         .stack_frame
                                         .iter()
@@ -121,7 +121,6 @@ fn wide_compiler_matches_all_entries_budgets_and_helper_outcomes() {
                                         .map(abi::Slot::from_value)
                                         .collect();
                                     let mut frame = helpers::Frame {
-                                        list: Some(_list.reborrow()),
                                         ctx,
                                         closure,
                                         registers: &mut registers,

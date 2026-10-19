@@ -74,11 +74,11 @@ fn packed_failure_publishes_only_known_work_and_preserves_original_panic() {
                             let closure = crate::Closure::load(ctx, None, b"return 17").unwrap();
                             let mut values = [crate::Value::Integer(731)];
                             let mut pc = 9;
-                            crate::thread::LuaRegisters::with_test_native_frame(
+                            crate::thread::LuaRegisters::with_test_frame(
                                 ctx,
                                 &mut pc,
                                 &mut values,
-                                |mut registers, mut _list| {
+                                |mut registers| {
                                     let runtime = Runtime::new();
                                     runtime.0.borrow_mut().stats = JitStats {
                                         total_dispatches: baseline,
@@ -95,7 +95,6 @@ fn packed_failure_publishes_only_known_work_and_preserves_original_panic() {
                                         ..Default::default()
                                     };
                                     let mut frame = helpers::Frame {
-                                        list: Some(_list.reborrow()),
                                         ctx,
                                         closure,
                                         registers: &mut registers,

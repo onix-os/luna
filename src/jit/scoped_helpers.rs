@@ -319,28 +319,25 @@ unsafe extern "C" fn call<const KIND: u32>(
     let scoped = unsafe { &mut *(*host).data.cast::<Frame<'_, '_, '_>>() };
     let result = catch_unwind(AssertUnwindSafe(|| {
         scoped.kinds |= 1 << (KIND - 1);
-        scoped
-            .host
-            .with_native_registers(|closure, mut registers, list| {
-                let mut frame = helpers::Frame {
-                    list: Some(list),
-                    ctx: scoped.ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: std::mem::take(&mut scoped.count),
-                    slot_count: scoped.slot_count,
-                    panic: None,
-                    projection: None,
-                };
-                let mut host = abi::Host {
-                    data: std::ptr::from_mut(&mut frame).cast(),
-                    projection: std::ptr::null_mut(),
-                };
-                let result = unsafe { helpers::call::<KIND>(&mut host, slots, a, b, c, pc) };
-                scoped.count = frame.count;
-                scoped.panic = frame.panic;
-                result
-            })
+        scoped.host.with_registers(|closure, mut registers| {
+            let mut frame = helpers::Frame {
+                ctx: scoped.ctx,
+                closure,
+                registers: &mut registers,
+                count: std::mem::take(&mut scoped.count),
+                slot_count: scoped.slot_count,
+                panic: None,
+                projection: None,
+            };
+            let mut host = abi::Host {
+                data: std::ptr::from_mut(&mut frame).cast(),
+                projection: std::ptr::null_mut(),
+            };
+            let result = unsafe { helpers::call::<KIND>(&mut host, slots, a, b, c, pc) };
+            scoped.count = frame.count;
+            scoped.panic = frame.panic;
+            result
+        })
     }));
     match result {
         Ok(result) => result,
