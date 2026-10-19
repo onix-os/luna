@@ -83,10 +83,15 @@ speed-native failures are **14 then 12 / 96**, cost **56 then 86 / 216**.
 
 Rollback `de7bb40` restores all production/test/build inputs exactly to `0f09818`;
 only the independent, test-gated model remains. The reverted runtime is pushed
-on the existing `feat/native-jit` branch. Fresh focused checks and six-image exact
-restoration verification are running after the terminal timing campaigns. No
-new branch/worktree, performance claim, gate waiver or full-plan completion is
-introduced.
+on the existing `feat/native-jit` branch. Fresh formatting/check-all and **130
+focused checks / fifteen summaries** pass, zero failures, two ignored, no emitted
+warnings. All six rebuilt speed/shipping no-feature, compiled-Off and native-bench
+executables are **byte-for-byte identical to the original `218112b` controls**.
+Source/configuration/tool witnesses verify before/after rebuilding; both elapsed
+campaigns and restoration are terminal-zero, with no remaining owned jobs.
+The model remains test-only. No new branch/worktree, performance claim, gate waiver
+or full-plan completion is introduced. Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/phase-progress/restoration/`.
 
 ### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 
