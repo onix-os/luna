@@ -666,105 +666,73 @@ impl<'gc> Executor<'gc> {
                             }
                         }
                     }
-                    Some(
-                        frame @ Frame::Lua {
-                            closure: _current_function,
-                            ..
-                        },
-                    ) => {
+                    Some(frame @ Frame::Lua { .. }) => {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
                         top_state.frames.push(frame);
 
                         // One borrow of the stack for the whole VM slice, not one per opcode.
                         let stack = top_state.stack;
-                        macro_rules! ordinary {
-                            ($state:expr, $fuel:expr) => {{
-                                let top_state = &mut *$state;
-                                let fuel = &mut *$fuel;
-                                let frame_stack = stack.borrow_mut(&ctx);
-                                #[cfg(feature = "jit")]
-                                let mut frame_stack = frame_stack;
-                                let lua_frame = LuaFrame {
-                                    #[cfg(all(
-                                        feature = "jit",
-                                        not(miri),
-                                        target_os = "linux",
-                                        any(target_arch = "x86_64", target_arch = "aarch64")
-                                    ))]
-                                    pair_handoff: None,
-                                    state: top_state,
-                                    #[cfg(feature = "jit")]
-                                    stack: &mut frame_stack,
-                                    #[cfg(not(feature = "jit"))]
-                                    stack: frame_stack,
-                                    fuel,
-                                };
-                                #[cfg(all(
-                                    test,
-                                    feature = "jit",
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                ))]
-                                let mut lua_frame = lua_frame;
-                                #[cfg(all(
-                                    test,
-                                    feature = "jit",
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                ))]
-                                let result = if let Some((completed, start, count)) =
-                                    super::vm::try_scalar_activation(
-                                        ctx,
-                                        &mut lua_frame,
-                                        Self::VM_GRANULARITY,
-                                    ) {
-                                    let mut stats = ctx.jit().interpreter_stats();
-                                    stats.dispatches = 1;
-                                    let result = lua_frame
-                                        .return_upper(&ctx, start, count)
-                                        .map(|()| completed);
-                                    if result.is_ok() {
-                                        stats.reported_instructions = Some(0);
-                                    }
-                                    result
-                                } else {
-                                    super::vm::run_vm_known(
-                                        ctx,
-                                        lua_frame,
-                                        Self::VM_GRANULARITY,
-                                        _current_function,
-                                    )
-                                };
-                                #[cfg(not(all(
-                                    test,
-                                    feature = "jit",
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                )))]
-                                let result = {
-                                    #[cfg(feature = "jit")]
-                                    {
-                                        super::vm::run_vm_known(
-                                            ctx,
-                                            lua_frame,
-                                            Self::VM_GRANULARITY,
-                                            _current_function,
-                                        )
-                                    }
-                                    #[cfg(not(feature = "jit"))]
-                                    {
-                                        run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
-                                    }
-                                };
-                                result
-                            }};
-                        }
-                        #[cfg(not(feature = "jit"))]
                         let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
-                            ordinary!(top_state, fuel)
+                            let frame_stack = stack.borrow_mut(&ctx);
+                            #[cfg(feature = "jit")]
+                            let mut frame_stack = frame_stack;
+                            let lua_frame = LuaFrame {
+                                #[cfg(all(
+                                    feature = "jit",
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                ))]
+                                pair_handoff: None,
+                                state: top_state,
+                                #[cfg(feature = "jit")]
+                                stack: &mut frame_stack,
+                                #[cfg(not(feature = "jit"))]
+                                stack: frame_stack,
+                                fuel,
+                            };
+                            #[cfg(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            let mut lua_frame = lua_frame;
+                            #[cfg(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            let result = if let Some((completed, start, count)) =
+                                super::vm::try_scalar_activation(
+                                    ctx,
+                                    &mut lua_frame,
+                                    Self::VM_GRANULARITY,
+                                ) {
+                                let mut stats = ctx.jit().interpreter_stats();
+                                stats.dispatches = 1;
+                                let result = lua_frame
+                                    .return_upper(&ctx, start, count)
+                                    .map(|()| completed);
+                                if result.is_ok() {
+                                    stats.reported_instructions = Some(0);
+                                }
+                                result
+                            } else {
+                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                            };
+                            #[cfg(not(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            )))]
+                            let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                            result
                         };
                         #[cfg(all(
                             feature = "jit",
@@ -799,7 +767,7 @@ impl<'gc> Executor<'gc> {
                             step_charged = true;
                             outcome.result.map(|()| 0)
                         } else {
-                            ordinary!(top_state, fuel)
+                            ordinary(top_state, fuel)
                         };
                         #[cfg(not(all(
                             feature = "jit",
@@ -812,16 +780,7 @@ impl<'gc> Executor<'gc> {
                                 )
                             )
                         )))]
-                        let result = {
-                            #[cfg(feature = "jit")]
-                            {
-                                ordinary!(top_state, fuel)
-                            }
-                            #[cfg(not(feature = "jit"))]
-                            {
-                                ordinary(top_state, fuel)
-                            }
-                        };
+                        let result = ordinary(top_state, fuel);
                         match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
@@ -1741,6 +1700,3 @@ mod builtin_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod static_off_tests;
-
-#[cfg(all(test, feature = "jit"))]
-mod known_closure_tests;

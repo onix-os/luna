@@ -180,13 +180,7 @@ pub(super) fn run_vm<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    run_vm_slice(
-        ctx,
-        lua_frame,
-        max_instructions,
-        #[cfg(feature = "jit")]
-        None,
-    )
+    run_vm_slice(ctx, lua_frame, max_instructions)
 }
 
 #[cfg(all(
@@ -217,7 +211,6 @@ pub(super) fn resume_vm<'gc>(
             fuel: lua_frame.fuel,
         },
         max_instructions,
-        None,
     )
 }
 
@@ -225,7 +218,6 @@ fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    #[cfg(feature = "jit")] current_function: Option<Closure<'gc>>,
 ) -> Result<u32, VMError> {
     #[cfg(all(
         test,
@@ -266,9 +258,6 @@ fn run_vm_slice<'gc>(
     if resume_hook {
         lua_frame.state.frames.pop();
     }
-    #[cfg(feature = "jit")]
-    let current_function = current_function.unwrap_or_else(|| lua_frame.closure());
-    #[cfg(not(feature = "jit"))]
     let current_function = lua_frame.closure();
     let current_prototype = current_function.prototype();
     let current_upvalues = current_function.upvalues();
@@ -1299,22 +1288,6 @@ fn run_vm_slice<'gc>(
     Ok(instructions_run)
 }
 
-#[cfg(feature = "jit")]
-#[inline(always)]
-pub(super) fn run_vm_known<'gc>(
-    ctx: Context<'gc>,
-    lua_frame: LuaFrame<'gc, '_>,
-    max_instructions: u32,
-    current_function: Closure<'gc>,
-) -> Result<u32, VMError> {
-    #[cfg(test)]
-    if !known_closure::select() {
-        return run_vm(ctx, lua_frame, max_instructions);
-    }
-    debug_assert!(max_instructions == 0 || current_function == lua_frame.closure());
-    run_vm_slice(ctx, lua_frame, max_instructions, Some(current_function))
-}
-
 fn add_offset(pc: usize, offset: i16) -> usize {
     pc.checked_add_signed(isize::from(offset)).unwrap()
 }
@@ -1389,6 +1362,3 @@ mod numeric_add;
 
 #[cfg(all(test, feature = "jit"))]
 pub(super) mod static_off;
-
-#[cfg(all(test, feature = "jit"))]
-pub(super) mod known_closure;

@@ -36069,7 +36069,7 @@ reported as a new passing gate: identical restored images retain the original
 known performance gaps. Full native/resource/platform/release acceptance remains
 incomplete. No branches or worktrees were created for this trial's withdrawal.
 
-### Known current-frame closure input — implementation under validation
+### Known current-frame closure input — rejected and withdrawn
 
 The Executor ordinary Lua-frame arm already owns the just-popped frame's
 canonical closure and pushes that same frame back immediately before VM entry.
@@ -36174,6 +36174,57 @@ with zero failures, ignores or compiler warnings under `known-frame-expanded`.
 This is not another
 accepted optimization or a new performance result. If measured wrapper work
 remains, reject the family rather than continuing an inline/layout sweep.
+
+Expanded trial **`3bf37147`** removes the ordinary speed wrapper and completes
+actual native callback profiles with whole-execution instructions **9,438,782 →
+9,418,715** speed and **11,684,260 → 11,644,252** shipping. All13 events/full
+text partitions reconcile, complete printed counters/resources match, and six
+parser fixtures pass. The disappearing speed wrapper does not save155,031
+instructions end to end:75,015 move into outlined stack borrowing and Executor
+self work grows69,951. The actual speed saving is only20,067 instructions.
+
+Four additional feature-cost images and two complete original elapsed campaigns
+now finish: **288 commands / 28,512 native executions / 570,240 cost iterations**,
+all nine cases, eleven samples, twenty cost iterations, six balanced orders,
+CPU0/16 and both original profiles. Source/image/configuration/environment/tool
+witnesses verify, counter/resource mismatches are zero, and each auditor passes
+two valid/restored screens plus13 deliberate corruptions. No owned tests/builds/
+profilers overlap elapsed collection. These are contended observations; passing
+capture/audit status does not establish performance acceptance.
+
+Selected control/trial elapsed medians (above one favors trial):
+
+| Case / mode / profile | CPU | First | Repeat |
+| --- | ---: | ---: | ---: |
+| Integer / compiled-Off / speed |16|0.924419|0.938170|
+| Float / compiled-Off / speed |16|0.951198|0.965279|
+| Integer / compiled-Off / shipping |0|0.951320|0.950615|
+| Float / compiled-Off / shipping |0|0.913506|0.927903|
+| Callbacks / Auto / speed |0|0.979662|1.013989|
+| Callbacks / Auto / speed |16|1.002693|0.996233|
+| Callbacks / Auto / shipping |0|0.743148|1.055576|
+
+All four selected numeric comparisons are adverse in all six rounds of both
+campaigns; their same-image placebo medians remain near one. CPU0 speed numeric
+losses are larger and variable and remain included. Callback effects are mixed,
+including the large shipping reversal above; do not claim a repeatable gain or
+a hardware cause from these data. Candidate speed-native scored gates fail
+**22/96 then23/96**, versus controls16/96 and16/96, then13/96 and8/96. Candidate
+feature-cost failures are **97/216 then90/216**, versus controls63/216 and69/216,
+then69/216 and66/216. Aggregate counts do not cancel individual regressions.
+
+The optional strict no-feature proof refuses a non-line source-location change
+after macro expansion; that equivalence remains **unproven**, not passed. Both
+candidate no-feature controls are retained and timed. Full Force/Miri/i686 were
+not run for these performance-negative trials and are not claimed passed.
+
+**Reject the entire family** (`bf013e49`, `25c90bd3`, `3bf37147`), including its
+entry API, scoped selector/tests and added Make targets. Source and Makefile
+are restored to pre-trial `2bc71238` (source also equals`5fbe729`); immutable trial
+archives, failed checks and every measurement remain. No further wrapper/layout/
+inline variant is selected. Fresh identical-input baseline test executions and
+six original-profile image comparisons must verify restoration. Original
+performance/resource/platform/release acceptance remains incomplete.
 
 ## 15. Primary references
 
