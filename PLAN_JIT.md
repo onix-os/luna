@@ -9,6 +9,40 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Direct statistics-cell guard — rejected at work profiling, 2026-10-19
+
+Trial `691c932` starts from pre-fusion `0c054a3`. Its guard holds a shared
+reference to the manager's RefCell instead of Runtime, retaining the original
+mutable borrow only at Drop. It does not retain a borrow during execution,
+cache policy/counters, batch publication, change resource ownership, or add
+unsafe code. Foundation `5a17331` independently verifies nested guards through
+shared handles, live manager updates, exact publication points, saturation,
+panic payloads and rejection of a conflicting borrow at publication. It passes
+before changing the runtime; the same tests are retained on main in `a4bb60c`.
+
+Exact candidate focused checks pass **311 / 47 summaries**, full Force
+**2,039 / 90**, **23 ignored**, zero failures/warnings. Statistics tests pass
+**9 / one summary** under each Miri borrow model and **15 / five summaries** on
+real i686-musl; native-only i686 suites execute zero cases and are not counted as
+native validation. Miri emits existing warnings. Six production images and both
+original/direct-parent preflights verify. No-feature text and section/segment
+geometry match original; whole files differ.
+
+Eight exact-image closure profiles retain 40 executions including 16 warmups.
+All 13 exclusive events, complete text-symbol partitions and per-PC VM totals
+reconcile. Shipping destructor self work falls **480,024 → 460,023**, but VM work
+increases by exactly **20,001**, leaving image work unchanged at **17,600,113**.
+Speed image work grows **15,959,740 → 16,159,765**, entirely in the VM; VM data
+reads increase **60,008** and writes **140,012**. Frame/VM/executor entry counts
+are unchanged. The speed VM's local stack reservation shrinks 0x648 → 0x638,
+but that static shrinkage does not offset its extra executed work.
+
+Reject the runtime change without another elapsed campaign: moving the owner
+lookup to construction does not reduce whole-closure work in either profile.
+No elapsed speedup or hardware cause is claimed. Keep the independent tests,
+original gates and full acceptance scope; the trial remains unpromoted.
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-stats-cell-ref/`.
+
 ### Early operand refusal — work recovery, gates still failing, 2026-10-19
 
 Trial `c113a70` unwraps each optional numeric operand before reading the next,
