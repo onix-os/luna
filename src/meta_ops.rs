@@ -1097,3 +1097,6 @@ fn prepare_async_metaop<'gc, const N: usize>(
         }
     }
 }
+
+#[cfg(test)]
+mod binary_dispatch_tests;

@@ -9,6 +9,34 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared binary-metamethod resolution — model foundation, 2026-10-19
+
+The next investigation targets repeated generic metatable-resolution bodies in
+`meta_ops::meta_metaop`, not another VM counter, object-layout, cached-pointer or
+code-placement change. Fifteen binary operations instantiate the same table /
+userdata method selection and call validation with different scalar closures.
+The proposal keeps scalar conversion in those existing closures and shares only
+metatable selection, preserving left-before-right fallback, invalid-left-method
+errors, argument identity and live mutation. Actual code sharing, VM extent,
+whole-execution work and original timing gates must establish any benefit; no
+size, speed or acceptance result is assumed from source extraction alone.
+
+An independent test foundation exercises all fifteen methods over 2,160 ordered
+scalar/table/userdata pairs, plus 135 live mutation/removal comparisons. It checks
+selected function identity, unchanged arguments (including signed zero), error
+text and that selection never executes the metamethod. New Make lanes run both
+feature choices, public metamethod behavior in Off/Auto/Force, and compatible
+Rust-only Miri checks. Initial compile failures (invariant GC lifetimes and an
+ambiguous test `Vec::extend`) are corrected and preserved separately in the log.
+The baseline lane passes **52 checks / five summaries**, zero failures/ignored
+checks; production resolution is unchanged at this checkpoint. Evidence:
+`target/jit-evidence/hook-resume-recovery/binary-meta-dispatch/`.
+
+The preceding frame-identity-cache idea is not being implemented: a metadata-cap
+reduction resets registrations even with rooted activations alive. The earlier
+epoch-aware closure memo and scoped lease classification are already measured
+rejections, not new optimization candidates. No branch/worktree is created.
+
 ### Phase-reused VM progress — measured and rejected, 2026-10-19
 
 The historical unified-progress trial is not being replayed: it nested the
