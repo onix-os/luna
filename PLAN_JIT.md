@@ -66,6 +66,17 @@ branches or additional worktrees. A plain `git archive` source snapshot provides
 immutable provenance for diagnostic profiling before repeating expensive broad
 gates. Full Force/Miri/fallback and original repeated elapsed gates remain
 required before retaining the refinement; reordering diagnostics is not a waiver.
+Refinement `729c697` passes formatting/check-all and **68 focused checks / five
+summaries**, zero failures/ignored checks. All six production images and actual
+callback profiles verify, including printed counter/resource parity and the
+identity-corruption fixtures. Both no-feature images remain byte-identical to
+their original controls. No out-of-line `Slot::value` or `Slot::write_back`
+symbol remains in the shipping image. Whole steady callback work falls from
+**11,684,260 to 11,509,225 instructions** in shipping, but grows from **9,438,782
+to 9,463,787** in speed. This is a mixed result, not a claimed speedup or evidence
+that the speed callback gate is solved. The larger serial campaign is running:
+full Force, both Miri borrow models, real i686 fallback, then both original
+all-nine-case elapsed screens. No owned tests/builds/profilers overlap timing.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
 `slot-value-inline/`. The candidate is not performance-accepted or release-ready;
 it will be reverted if whole-workload evidence is adverse. No speedup established.
