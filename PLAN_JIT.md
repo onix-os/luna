@@ -43,9 +43,23 @@ and table-access checks pass **100 executions / eleven summaries**, zero failure
 ignored checks or warnings. This checks compatibility on the unchanged runtime,
 not the performance or correctness of an integrated hint cache.
 
-Next validate these exact models under both source-bound Miri models and real
-i686, then integrate only if the ownership, weak-reference and resource proofs
-hold. Integration must keep original helper panic/PC/counter behavior, private
+Frozen model commit **`0b7e83e`** passes **ten checks / two summaries under each
+Stacked/Tree Miri model**. All ten named fixtures execute, and the captured
+Cargo-Miri invocation points at the immutable model source. Actual i686-musl
+passes **19 checks / five summaries**, including the same ten models, five pure
+prepared-key checks and four fallback capability checks. Its executed test ELF
+is ELF32/i386. All lanes have zero failures/ignored checks; warnings remain in
+the logs. Source/tool witnesses verify before/after execution.
+
+The initial aggregate run fails only after the ten i686 models and five pure
+prepared tests pass: it mistakenly invokes the native-specific Make target's
+nine-test expectation on this unsupported platform. That failed driver/log is
+preserved. A separate corrected retry explicitly checks the five pure tests;
+the native target's nine-test requirement is not weakened. No model or raw-table
+behavior was changed to obtain the retry pass.
+
+Runtime integration is next; no hint cache is active yet. Integration must keep
+original helper panic/PC/counter behavior, private
 ABI versioning, full metadata accounting and all original timing gates. No
 production speedup, unchanged image identity, runtime implementation or full-plan
 acceptance is claimed. Evidence:
