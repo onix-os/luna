@@ -9,6 +9,45 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Absent memory-limit fast path — work reduced, timing pending, 2026-10-19
+
+Trial `a835305` follows foundation `b5918d8` on the pre-fusion runtime plus
+Oslo diagnostic. A small inlined limit-presence check returns immediately when
+no ceiling is configured. The configured path remains one non-inlined method,
+preserving the captured limit, cache retirement, both GC passes, second usage
+check and executor stop order. Both feature configurations and synchronous/
+asynchronous callers retain the same semantics; no limit cache or unsafe code
+is introduced. No-feature images intentionally change too.
+
+Before the runtime edit, **20 checks / nine summaries** pass, including new
+exact-limit/None/removal/zero/stop-state, garbage-recovery and borrowed-manager
+tests. Exact candidate focused checks pass **334 / 58**, full Force
+**2,043 / 91**, **23 ignored**, zero failures. Initial shared-cache Miri runs
+execute old tests and are excluded. A fresh candidate-specific target executes
+every required new fixture: **10 / six** under each borrow model, plus
+**14 / nine** on real i686-musl. Miri warnings remain; no native i686 claim.
+
+Six production images and original/direct-parent preflights verify. Separately,
+four diagnostic images support **16 instruction-profile processes / 80 row
+batches / 800,000 rows**, including **32 warmup batches / 320,000 rows**.
+All 13 events and text-symbol partitions reconcile; each comparison's identity
+parsers accept valid input and reject wrong hash/object identity. Mean image
+instructions per measured batch decrease in both feature configurations:
+
+| Configuration | Speed, before → after | Shipping, before → after |
+| --- | ---: | ---: |
+| JIT compiled, Off | 41.2240M → 40.7754M | 45.3412M → 44.9010M |
+| No JIT | 39.9816M → 39.5856M | 44.8284M → 44.4197M |
+
+Every candidate range lies below its corresponding control range. VM self work
+is unchanged; the empty-limit calls disappear. Allocation/GC variability is
+retained, and whole-image reductions—not the removed symbol alone—are the
+evidence. These are not elapsed-speed percentages. Four original/direct-parent
+production screens are now running after owned builds/tests/profilers finish.
+All performance and full-plan gates remain unchanged; no runtime promotion or
+performance acceptance is established. Evidence:
+`target/jit-evidence/hook-resume-recovery/limit-fast-path/`.
+
 ### Complete Oslo row lifecycle — fresh attribution, 2026-10-19
 
 `examples/jit_oslo_profile.rs` isolates the existing predicate's complete
