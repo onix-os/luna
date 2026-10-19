@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Static Off dispatch — guarded candidate, 2026-10-19
+
+Repeated helper-size changes leave compiled-Off execution sensitive to the
+native-capable VM's generated shape. This candidate makes the Off/Auto choice
+at each nonzero VM entry, allowing the compiler to eliminate native lookup /
+dispatch and pair observation from the Off instantiation. It is not another
+cached mode, per-width VM, altered counter publisher or object-layout change.
+There remains **one opcode implementation**, with two bounded const-generic
+machine-code instantiations in JIT builds; the no-feature signature and routing
+remain unchanged. Extra text size and placement costs must be measured, not
+assumed harmless because the source body is shared.
+
+Off still runs ordinary hooks, opcodes, transitions, fuel and interpreter
+statistics. Auto retains current source/mode/hook/lease/helper/pair checks; its
+extra entry-mode query is part of the measured cost. No policy or owner survives
+a callback boundary, and the next VM entry selects again. Zero-budget entry
+keeps the original path without borrowing the JIT manager or consuming a pending
+hook marker. The public API, common GC objects, resource owners, instruction
+coverage and native admission rules do not change.
+
+A test-only scoped selector compares specialized Off against the original
+dynamic-Off dispatch. **48 paired executor schedules** compare every physical
+frame, scalar stack bit pattern, PC/return shape, fuel/interruption, total
+dispatch count and result/error, collecting between steps. Cases include
+closures/varargs, tables/metamethods, protected/unprotected errors, close handlers,
+coroutines, interrupted callbacks, nested executors and count-one hooks.
+Four Auto schedules prove neither selector routes an Auto entry to Off. A mixed
+Auto→Off→Auto→Off callback fixture positively executes native code, observes
+fresh callback PC/base/fuel/mode, and compares the complete JIT statistics and
+resource record after each step, including code retirement. Selector counters
+prove the intended path executes; nested and typed-panic scopes restore state.
+
+Formatting/check-all and initial selector/mode/callback/hook/statistics validation
+pass **81 executions / fifteen summaries**, zero failures/ignored checks or
+warnings. After adding the mixed-mode fixture, repeated formatting/check-all
+and selector/hook validation pass **nine executions / four summaries**, also
+zero failures/ignored checks or warnings. New Make targets are
+`vm-static-off` and `vm-static-off-miri`.
+
+This is an **unaccepted implementation candidate**, not a performance claim.
+Actual image shape, text size, all original native/disabled controls and complete
+counter/resource parity must be measured. A faster Off denominator can make
+native paired ratios worse; a slower Off denominator cannot manufacture a native
+speedup. Full Force, source-bound safety, platform/resource/size and original
+repeated elapsed gates remain required before retention.
+Evidence: `target/jit-evidence/hook-resume-recovery/static-off-dispatch/`.
+
 ### Code-owned per-PC read hints — runtime withdrawn, 2026-10-19
 
 Current callback profiles still attribute substantial work to the prepared

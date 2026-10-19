@@ -883,6 +883,16 @@ vm-activation-tests:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 
 .PHONY: vm-mode-checks vm-mode-checks-miri
+.PHONY: vm-static-off vm-static-off-miri
+vm-static-off:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::static_off $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::static_off_tests $(ARGS)
+	@$(MAKE) --no-print-directory vm-hook-resume
+
+vm-static-off-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::static_off -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::hook_resume -- --test-threads=1
+
 .PHONY: vm-callback-chains
 vm-callback-chains:
 	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::callback_chain_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'

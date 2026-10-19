@@ -95,3 +95,18 @@ fn ordinary_entry_does_not_suppress_a_pending_count_hook() {
         assert!(matches!(state.frames[0], Frame::Lua { pc: 0, .. }));
     });
 }
+
+#[test]
+#[cfg(feature = "jit")]
+fn zero_budget_does_not_borrow_the_jit_manager() {
+    Lua::empty().enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return 42").unwrap();
+        let thread = Thread::new(ctx);
+        thread.start(ctx, closure.into(), ()).unwrap();
+        let mut state = thread.into_inner().borrow_mut(&ctx);
+        let manager = ctx.jit().0.borrow_mut();
+        assert_eq!(run(ctx, &mut state, &mut Fuel::empty(), 0).unwrap(), 0);
+        assert!(matches!(state.frames[0], Frame::Lua { pc: 0, .. }));
+        drop(manager);
+    });
+}
