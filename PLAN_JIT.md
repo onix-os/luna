@@ -9,6 +9,129 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Code-owned per-PC read hints — integrated candidate, 2026-10-19
+
+Current callback profiles still attribute substantial work to the prepared
+global-read helper. Earlier table/closure caches changed common GC object layout
+and failed disabled-mode comparisons. This investigation instead keeps only a
+bounded bucket offset in compiled-code metadata: one byte per source PC stores
+the original entry flag in bit zero and a seven-bit read hint in the remaining
+bits. It preserves the original entry-vector payload/capacity and owner size;
+there is no padding allocation, new table/closure field, cached value, GC pointer,
+registry identity or retained code lease. Atomic bytes preserve Send/Sync while
+hint writes retain the immutable native-entry bit.
+
+Each canonical read rechecks the current table's bucket bounds, occupancy and
+live/equal string key before reading the current weak-aware slot. Misses use the
+existing canonical hash lookup. Bucket offsets above 126 are deliberately
+uncached and use the same generic lookup; this is not a table-size admission or
+native-coverage restriction. Resizing, deletion, weak conversion, different
+tables/arenas and collection can make hints stale but cannot make them roots.
+The arbitrary-supplied-hash prepared API remains distinct and unchanged.
+
+The initial code-ownership and raw-read foundation was **test-only**, not an active
+cache. Formatting/check-all and **ten checks / two summaries** pass, zero failures,
+ignored checks or warnings. Models cover every byte encoding, boundary PCs,
+per-PC isolation, flag updates, concurrent hints, exact ledger charges/refusal/
+release, original header footprint, all value kinds, equal non-interned strings,
+growth/removal/shrink, weak collection and cross-arena reuse. Initial fixture API
+compile errors and the superseded whole-vector bitset model are retained as draft
+logs, not current runtime evidence.
+
+The models plus existing prepared-key, helper, dispatch/statistics, native/heap
+and table-access checks pass **100 executions / eleven summaries**, zero failures,
+ignored checks or warnings. This checks compatibility on the unchanged runtime,
+not the performance or correctness of an integrated hint cache.
+
+Frozen model commit **`0b7e83e`** passes **ten checks / two summaries under each
+Stacked/Tree Miri model**. All ten named fixtures execute, and the captured
+Cargo-Miri invocation points at the immutable model source. Actual i686-musl
+passes **19 checks / five summaries**, including the same ten models, five pure
+prepared-key checks and four fallback capability checks. Its executed test ELF
+is ELF32/i386. All lanes have zero failures/ignored checks; warnings remain in
+the logs. Source/tool witnesses verify before/after execution.
+
+The initial aggregate run fails only after the ten i686 models and five pure
+prepared tests pass: it mistakenly invokes the native-specific Make target's
+nine-test expectation on this unsupported platform. That failed driver/log is
+preserved. A separate corrected retry explicitly checks the five pure tests;
+the native target's nine-test requirement is not weakened. No model or raw-table
+behavior was changed to obtain the retry pass.
+
+The current integration replaces the native entry vector with the modeled
+atomic-byte owner and routes ordinary prepared reads through private helper
+**`luna_get_up_table_b1`**. The old arbitrary-hash Rust helper and wide `h2` entry
+remain unchanged. Both entry filtering paths preserve their original eligible PCs.
+The invocation frame borrows entry metadata through the existing code lease;
+this adds an optional stack reference, not an owner, allocation or GC-object
+field. Its actual stack/codegen cost remains part of measurement.
+
+Canonical misses use the existing compiler-verified hash arguments rather than
+rehashing string contents. In particular, large keys or uncacheable buckets must
+not introduce repeated key-length work absent from the old prepared path. The
+unchanged source/data-flow verifier still rejects corrupted hash arguments; the
+new helper is not the arbitrary-hash API. The raw models now call the production
+read implementation instead of retaining a duplicate algorithm.
+
+Formatting/check-all and **158 focused executions / eighteen summaries** pass,
+zero failures, two ignored and no warnings. The independent helper differential
+now includes generic, prepared, both wide and cached entries, preserves all eight
+helper counters/PC/results, compares borrowed-table panic and live environment /
+metatable mutations, and positively verifies hint fills and unchanged entry bits.
+Initial constructor/lifetime errors are fixed and preserved in draft logs.
+Candidate **`aff7ca3`** now passes full all-target/all-feature Force validation:
+**2,060 executions / 91 summaries**, zero failures, 23 ignored and no emitted
+warnings. Its plain source archive and the model-only baseline `7d5f817` have
+verified complete source witnesses. Twelve production image builds and four
+whole-execution profile families finish **32 alternating processes / 160 execute
+calls / 64 warmups**. Complete native counter/resource records match, all 13 events
+and text-symbol partitions reconcile, and each family accepts two positive /
+rejects four image/object corruption fixtures. All six baseline executables and
+both candidate no-feature executables match original `218112b` controls
+**byte-for-byte**. Compiled-Off float work is **4,015,310 → 4,015,926** speed and
+unchanged **4,109,344** shipping; no-feature float work is unchanged in both.
+
+The first shape does not reduce callback work: speed **9,438,782 → 9,493,756**,
+shipping **11,684,260 → 11,759,263**. Shipping now executes 5,000 outlined
+`Key::eq_string` calls, with 80,000 self instructions; speed already inlines it.
+Those instructions include the comparison body, not 80,000 removable overhead
+instructions. A one-attribute refinement forces that existing typed comparison
+inline while leaving its cold content-equality fallback outlined. Whole-execution
+measurement must verify that the boundary is removed rather than moved outward.
+Its fresh formatting/check-all and **158 focused checks / eighteen summaries**
+pass, zero failures, two ignored and no warnings. Refined commit **`197c71c`**
+also passes its own full Force suite: **2,060 executions / 91 summaries**, zero
+failures, 23 ignored and no emitted warnings. Its serial image/profile pipeline
+finishes successfully, reusing the original frozen controls with their complete
+source/image/configuration witnesses, not silently rebuilt/rebased.
+
+The refinement removes the outlined comparison rather than moving its work:
+the complete shipping callback symbol partitions differ from `aff7ca3` only by
+`Key::eq_string` losing its 80,000 instructions. Relative to the original
+production control, however, the whole callback saving is just **4,997
+instructions (0.043%)**: **11,684,260 → 11,679,263**. The cached helper saves
+20,000 instructions while VM eligibility and transport initialization add 5,001
+and 10,002 respectively. Speed remains **9,438,782 → 9,493,756**, a 54,974
+instruction increase. These are whole-execution work measurements, not elapsed
+speedups; the much larger initial comparison cost must not be advertised as the
+net cache gain.
+
+All four profile families complete again with all 13 events and text-symbol
+partitions reconciled, unchanged full native counter/resource records and
+positive/negative identity fixtures retained. Both refined no-feature images
+remain byte-identical to the original controls. Float instruction totals in
+no-feature and compiled-Off modes are identical to the first integrated shape.
+Source-bound integrated Miri and real i686 validation now run serially before
+two complete original elapsed screens. The driver refuses to start these while
+the image/profile pipeline is live; no benchmark thresholds or cases change.
+
+Integrated source-bound Miri/fallback, actual elapsed comparisons and original
+resource/platform/release gates remain required. No production speedup or
+full-plan acceptance is claimed. No branch/worktree is created.
+Evidence:
+`target/jit-evidence/hook-resume-recovery/code-owned-hint/` and
+`target/jit-evidence/hook-resume-recovery/code-hint-key-inline/`.
+
 ### Shared binary-metamethod resolution — runtime withdrawn, 2026-10-19
 
 The next investigation targets repeated generic metatable-resolution bodies in

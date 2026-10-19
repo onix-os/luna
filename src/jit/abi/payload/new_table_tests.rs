@@ -253,6 +253,7 @@ fn new_table_destinations_are_visible_through_open_upvalue_aliases() {
                     count: helpers::Counts::default(),
                     slot_count: 4,
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| unsafe {

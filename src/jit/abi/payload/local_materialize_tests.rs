@@ -87,6 +87,7 @@ fn specialized_materialization_matches_reference_bits_and_control_state() {
                             let mut observed = None;
                             LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
                                 let mut frame = helpers::Frame {
+                                    read_hints: None,
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -165,6 +166,7 @@ fn scalar_changes_keep_sibling_descriptors_live_and_refusals_untouched() {
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     with_session(&mut frame, |host, slots| unsafe {
@@ -291,6 +293,7 @@ fn initially_stopped_sessions_refuse_materialization_and_helpers() {
         let mut pc = 7;
         LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
             let mut frame = helpers::Frame {
+                read_hints: None,
                 ctx,
                 closure,
                 registers: &mut registers,

@@ -2092,6 +2092,7 @@ impl Runtime {
             slot_count: register_count,
             panic: None,
             projection,
+            read_hints: Some(&code.entries),
         };
         #[cfg(not(miri))]
         let array_prefix = if !PROJECTED && !DEFER {
@@ -3588,3 +3589,5 @@ mod slice_policy_tests;
 
 #[cfg(test)]
 mod vm_progress;
+
+pub(crate) mod entry_bytes;

@@ -823,6 +823,7 @@ mod tests {
                             count: helpers::Counts::default(),
                             slot_count: 2,
                             panic: None,
+                            read_hints: None,
                             projection: Some(bridge),
                         };
                         let frame_pointer = ptr::from_mut(&mut frame);
@@ -916,6 +917,7 @@ mod tests {
                             count: helpers::Counts::default(),
                             slot_count: 2,
                             panic: None,
+                            read_hints: None,
                             projection: Some(bridge),
                         };
                         let mut host = abi::Host {

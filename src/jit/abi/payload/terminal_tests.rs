@@ -54,6 +54,7 @@ fn terminal_materialization_retires_only_its_cell_and_refreshes_at_helpers() {
                             &mut values,
                             |mut registers| {
                                 let mut frame = helpers::Frame {
+                                    read_hints: None,
                                     ctx,
                                     closure,
                                     registers: &mut registers,

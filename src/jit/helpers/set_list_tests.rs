@@ -40,6 +40,7 @@ pub(super) fn pending_values_overflow_and_zero_count_preserve_index_and_fuel() {
                             count: Counts::default(),
                             slot_count: slots.len(),
                             panic: None,
+                            read_hints: None,
                             projection: None,
                         };
                         assert_eq!(invoke(&mut frame, &mut slots, count), abi::HELPER_COMPLETED);
@@ -121,6 +122,7 @@ pub(super) fn invalid_types_and_variable_stack_decline_without_fuel_or_effects()
                         count: Counts::default(),
                         slot_count: slots.len(),
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     assert_eq!(invoke(&mut frame, &mut slots, 1), abi::HELPER_DECLINED);
@@ -173,6 +175,7 @@ pub(super) fn readonly_panic_keeps_pending_scalars_and_charges_attempted_list_fu
                     count: Counts::default(),
                     slot_count: slots.len(),
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 assert_eq!(invoke(&mut frame, &mut slots, 1), abi::HELPER_PANICKED);
@@ -222,6 +225,7 @@ pub(super) fn partial_writes_are_not_replayed_after_a_helper_panic() {
                     count: Counts::default(),
                     slot_count: slots.len(),
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 assert_eq!(invoke(&mut frame, &mut slots, 2), abi::HELPER_PANICKED);

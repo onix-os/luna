@@ -85,6 +85,7 @@ fn table_receivers_preserve_live_tags_and_canonical_identity() {
                                     count: Counts::default(),
                                     slot_count: slots.len(),
                                     panic: None,
+                                    read_hints: None,
                                     projection: None,
                                 };
                                 let completed =
@@ -169,6 +170,7 @@ fn non_table_receivers_still_validate_all_operands_before_declining() {
                         count: Counts::default(),
                         slot_count: 3,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     let result = match bad_source {
@@ -265,6 +267,7 @@ fn table_sources_preserve_constants_pending_scalars_references_and_aliases() {
                                     count: Counts::default(),
                                     slot_count: slots.len(),
                                     panic: None,
+                                    read_hints: None,
                                     projection: None,
                                 };
                                 let b = if key_constant { key_index } else { 1 };
@@ -371,6 +374,7 @@ fn table_source_declines_preserve_slots_effects_and_counters() {
                                     count: Counts::default(),
                                     slot_count: slots.len(),
                                     panic: None,
+                                    read_hints: None,
                                     projection: None,
                                 };
                                 assert_eq!(
@@ -450,6 +454,7 @@ fn malformed_table_sources_preserve_bounds_panics_and_materialization() {
                             count: Counts::default(),
                             slot_count: slots.len(),
                             panic: None,
+                            read_hints: None,
                             projection: None,
                         };
                         let result = match bad_source {
