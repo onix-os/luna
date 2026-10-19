@@ -36243,7 +36243,7 @@ pipeline is terminal zero. No new branch/worktree was created. This proves
 removal of the rejected family, **not** repair of the original failed performance
 gates or complete native-JIT acceptance.
 
-### Remaining outer step fuel — accounting trial under validation
+### Remaining outer step fuel — rejected at instruction screening
 
 Executor currently records whether the activation host already charged its
 steps, then branches around the ordinary four-unit charge. This trial stores
@@ -36278,6 +36278,40 @@ mechanism is absent or adds work; fewer instructions alone still do not prove
 speed. Full Force/Miri/actual i686, native/disabled/resource/platform/release
 acceptance remains required for retention. Evidence:
 `target/jit-evidence/hook-resume-recovery/step-fuel-amount`.
+
+Candidate **`2d7c48f0`** is rejected before elapsed benchmarking. Its two actual
+native benchmark images complete four alternating loads/five execute dumps per
+profile, preserving all printed counters/resources. All13 event columns/full
+text-symbol partitions reconcile and six positive/identity-corruption fixtures
+pass. Whole callback instructions increase **9,438,782 → 9,488,757** speed and
+**11,684,260 → 11,709,198** shipping. All added self work is in Executor:
+49,975 /24,938 instructions; VM and native transport work are unchanged.
+
+Speed conditional-branch events are unchanged at1,058,255; shipping falls
+1,243,326 →1,238,325, insufficient to offset added work. Exact speed Executor
+assembly shows general signed saturation computing the clamp direction through
+an added LEA/shift before the conditional move, unlike the original fixed
+negative charge's MIN-only clamp. The source-level removal of a boolean branch
+does not prove a cheaper executed path. No hardware-time gain/loss is inferred,
+no new elapsed campaign is run, and no inline/layout/refinement sweep follows.
+
+The behavior checks themselves pass: four Miri checks/model (41 retained warnings
+each) and five real i686-musl checks, including the128 paired schedules. The
+fallback executable is positively ELF32 Intel80386; it is not native-JIT
+coverage on that unsupported target. Source records bind the fresh Miri target
+to the immutable candidate archive. A cheap verbose runner check confirms the
+actual `-Zmiri-tree-borrows` command argument despite older cached build-time
+environment values; model selection is not inferred from the cached environment
+or identical interpreted timing output.
+
+All trial source, selector/tests, test-only visibility and Make targets are
+withdrawn to`4f087d74`; src again matches`5fbe729`, and every compiled/test/build
+input matches baseline`b3546663` except uncompiled`PLAN_JIT.md`. Frozen candidate,
+profiles, assembly and safety evidence remain. No default-artifact/cost matrix,
+full Force or elapsed acceptance is claimed for this rejected candidate.
+Fresh identical-input focused executions and two original-profile native image
+comparisons will verify withdrawal; existing six-image/full-Force restoration
+evidence applies to the identical baseline inputs and is not relabelled fresh.
 
 ## 15. Primary references
 
