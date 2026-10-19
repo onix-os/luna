@@ -36051,6 +36051,24 @@ Fresh source-bound correctness and original-profile image restoration checks
 must verify this withdrawal. Do not retain the representation as an optimization
 or repeat it as an inline/layout tweak. Original JIT acceptance remains open.
 
+Withdrawal `b3546663` is now verified in
+`target/jit-evidence/hook-resume-recovery/native-list-withdrawal`:
+
+- All `src/` bytes again equal `5fbe729`; source and Makefile equal pre-trial
+  `e857a5ca`, with no fixed-list context migration left active.
+- Fresh formatting/check-all and focused validation pass **274 executions /
+  39 summaries**, zero failures, ignores or compiler warnings.
+- Fresh all-feature Force passes **2,065 executions / 91 summaries**, zero
+  failures, 23 existing ignores and zero compiler warnings.
+- All **six** freshly rebuilt speed/shipping no-feature, compiled-Off and native
+  benchmark executables are byte-identical to the original controls. Frozen
+  source, configuration, environment and tool witnesses verify.
+
+The restoration pipeline is terminal zero. No elapsed benchmark is rerun or
+reported as a new passing gate: identical restored images retain the original
+known performance gaps. Full native/resource/platform/release acceptance remains
+incomplete. No branches or worktrees were created for this trial's withdrawal.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
