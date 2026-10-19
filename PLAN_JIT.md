@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Main-only memory-limit isolation — validating, 2026-10-19
+### Main-only memory-limit isolation — rejected, 2026-10-19
 
 The prior trial's repeatable float regression is not promoted. Main now retains
 only its independent memory-limit tests and Make targets in **`218112b`**:
@@ -19,11 +19,46 @@ has no earlier numeric/inline-string trial changes.
 
 Independent trial **`598a82e`** adds only the ten-line memory-check split to this
 main-based control. Both heads are frozen and rebuilt at one shared builder and
-target; six fresh control images are complete. Candidate focused checks pass;
-full Force, candidate images and fresh-target Miri/i686 checks are in progress.
-Two unchanged full production timing campaigns follow only after all owned
-validation/build jobs finish. Earlier trial timings are not exact-main evidence.
-No runtime promotion or full acceptance is claimed. Evidence:
+target. Candidate focused checks pass **222 / 38**, full Force **2,044 / 91**
+with **23 ignored**, both fresh-target Miri models **10 / six** each, and real
+i686 **14 / nine**, zero failures. All required new fixture names execute.
+Twelve production images and all source/environment/configuration witnesses
+verify. Earlier trial timings are not exact-main evidence.
+
+Two unchanged full timing campaigns finish after all owned builds/tests:
+**288 commands / 28,512 native executions / 570,240 cost iterations**, zero
+counter/resource mismatches; all 13 corruption fixtures reject per screen.
+Candidate native speed failures are **18 then 16 / 96**, cost failures
+**53 then 63 / 216**. CPU0 speed integer control/candidate ratios repeat at
+**0.902569 / 0.914857**, with same-image placebos **0.999743 / 0.989601**.
+Large scheduling outliers remain visible. Oslo improvements in some settings
+do not compensate for this roughly 9–11% integer slowdown. **Do not promote
+the runtime change.** Main retains only the independent tests.
+
+The exact production integer images then undergo eight alternating instruction
+captures: **40 executions including 16 warmups**. Speed image work decreases
+**3,734,905 → 3,734,392** instructions; shipping **3,848,926 → 3,848,403**.
+VM self work stays **3,623,193 / 3,676,282**, respectively. All 12 measured
+records per profile have identical relative-PC instruction counts: 496 visited
+VM addresses in speed, 458 in shipping. All 13 events, symbol partitions and PC
+sums reconcile. Three parsers reject wrong loaded hashes/object identities.
+
+With other owned jobs finished, **72 rotated hardware-counter commands /
+7,344 integer executions**, including warmups, retain exact hashes, protocols,
+telemetry and run order. All 288 user counters are 100% scheduled. CPU0 speed
+control/candidate cycles are **0.906247**, adverse in all six rounds, versus
+same-image **0.998636**; instruction ratio is **1.000130**. Other cycle ratios
+are CPU0 shipping **0.994451**, CPU16 speed **0.995746**, CPU16 shipping
+**1.001051**. The independent auditor accepts valid/restored fixtures and rejects
+15 corruptions; raw captures remain unchanged.
+
+This confirms a hardware-cycle penalty despite slightly less work, not merely
+an instruction-count regression. The speed VM keeps size `0xd7ea` but moves
+from `0x5caee0` to `0x5caf10`; code placement is a hypothesis, not a proven cause.
+Do not repeat rejected fixed-4K/random-padding trials or treat simulated cache
+counts as hardware proof. Further diagnosis should distinguish frontend/layout
+effects before another source tweak. PMU counts include startup/warmups and
+are not elapsed acceptance. Full-plan acceptance remains open. Evidence:
 `target/jit-evidence/hook-resume-recovery/limit-main/`.
 
 ### Absent memory-limit fast path — mixed timing, not promoted, 2026-10-19
