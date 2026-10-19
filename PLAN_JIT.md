@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Shared binary-metamethod resolution — candidate under measurement, 2026-10-19
+### Shared binary-metamethod resolution — runtime withdrawn, 2026-10-19
 
 The next investigation targets repeated generic metatable-resolution bodies in
 `meta_ops::meta_metaop`, not another VM counter, object-layout, cached-pointer or
@@ -73,6 +73,12 @@ inferring an elapsed loss from instruction totals. They are explicitly marked
 identity audits. No owned build/test/profiler overlaps timing. Full Force, both
 Miri models, actual fallback and all original acceptance requirements remain
 mandatory before retention; no missing safety status is fabricated or waived.
+
+The first full original screen shows substantial disabled-mode losses and no
+consistent native callback/metamethod improvement. The runtime extraction is
+withdrawn on the existing branch while the repeat completes against immutable
+binaries. The independent tests remain; no full safety pass or final repeat
+result is claimed at this checkpoint.
 
 The preceding frame-identity-cache idea is not being implemented: a metadata-cap
 reduction resets registrations even with rooted activations alive. The earlier
