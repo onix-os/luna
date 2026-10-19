@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Independent interpreter-counter publication — isolated trial, 2026-10-19
+### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
 Unlike the rejected direct statistics-cell-reference trial, `fd4071a` removes
 the manager borrow from interpreter-guard publication. Three `Cell<u64>` counters
@@ -72,15 +72,34 @@ summaries); real i686 fallback passes **50 checks / 19 summaries** (14 nonempty)
 All have zero failures/ignored checks, explicit positive matches for the new
 counter models, borrowed-manager publication, atomic saturation, charged-owner
 layout and exact-ceiling/unwind cases. Miri and i686 do not establish generated
-native-code execution. Both repeated original elapsed screens have passed image,
-configuration and source preflight and are now running sequentially, with no
-owned build/test/profiler overlap. Performance acceptance remains pending.
+native-code execution. Both repeated original elapsed screens complete with
+**288 commands / 28,512 native executions / 570,240 feature-cost iterations**,
+zero printed counter/resource mismatches, unchanged original thresholds and
+all nine workloads on CPUs 0/16. Each auditor accepts valid/restored evidence
+and rejects all 13 deliberate corruptions. No owned builds/tests/profilers
+overlap timing. Capture/audit exit zero is not a passing performance gate.
+
+The compiled-Off shipping upvalue target improves modestly: control/trial median
+ratios are **1.013410 / 1.025234** on CPU0 and **1.009275 / 1.011832** on CPU16.
+But CPU0 shipping integer ratios are **0.880594 / 0.898874**, and float ratios
+**0.910955 / 0.919311**: roughly 11–14% and 9–10% longer trial times respectively.
+Their A/B placebo medians remain near one; the second screen retains all noisy
+rounds rather than filtering them. CPU16 shipping float also worsens in all six
+rounds of both screens (**0.942085 / 0.947512**). Speed native callbacks do not
+improve: CPU0 ratios **0.992285 / 0.978062**, CPU16 **0.969168 / 0.981144**.
+These are contended observations, not a proven hardware-cause attribution.
+
+Candidate original speed-native gates fail **19/96** in each screen, and
+compiled-Off gates fail **33/216**, then **32/216**. The small target gain does
+not justify the repeated numeric regressions: **reject the activation** and
+retain its source/evidence only on the isolated branch. No runtime change from
+this trial is promoted, no counter/threshold is removed, and no source-level
+instruction reduction is presented as a performance fix.
 
 The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
-unchanged. A helper disappearing or moving work
-to snapshot construction will not establish a speedup. Fresh Miri/fallback,
-original elapsed/compiled-Off gates and full resource/platform/release acceptance
-remain open. Evidence:
+unchanged. This candidate's focused safety/profile/elapsed runs are terminal;
+the main implementation's performance and full resource/platform/release
+acceptance remain open. Evidence:
 `target/jit-evidence/hook-resume-recovery/interpreter-counter-root/`.
 
 ### Common Lua-state prefix — measured and rejected, 2026-10-19
