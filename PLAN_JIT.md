@@ -9,7 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Independent interpreter-counter publication — isolated trial, 2026-10-19
+### Native slot-conversion call boundary — validation pending, 2026-10-19
+
+**Resumed by the user on `feat/native-jit`.** The previously interrupted
+validation output is preserved and is not claimed as a full test pass or
+performance result. The pending one-attribute conversion candidate is applied
+on the existing implementation branch. Validation uses the retained detached
+source snapshot only after confirming its runtime, test and build inputs match;
+no local/remote branch or additional worktree is created.
+Experimental branch names below are historical provenance: **59 local and 55
+remote trial/experiment branches have been removed**. Only `main`, `develop` and
+`feat/native-jit` remain locally and on origin. Their prior tips are preserved in
+a verified local Git bundle; `.git/branch-cleanup-latest` identifies its directory.
+Source/evidence worktrees are retained detached, without trial branches. Future
+work uses the existing implementation branch; creating additional branches
+requires an explicit user request, as recorded in root `AGENTS.md`.
+
+A current exact-image audit decodes every executed instruction in the original
+`218112b` seven-register native transport. Twenty captured callback executions
+retain all warmups across two control processes and both profiles. Independent
+symbol totals reconcile; the parser checks captured launch-object/image identity,
+linker range and instruction coverage. Each profile accepts valid/restored
+fixtures and rejects seven wrong-hash/object/range/disassembly/count/event cases.
+No new timing or hardware-counter capture is claimed.
+
+Steady transport self work is **1,560,341 instructions in speed / 1,580,358 in
+shipping**. Shipping executes **35,007 direct calls to `Slot::value`** and
+**5,001 direct calls to `record_native_exit`**, alongside 5,001 indirect native
+entry calls. These targets are resolved from the exact loaded image's linker map,
+not guessed from stripped disassembly names. Speed conversion is already inlined.
+The explicit stack-operand counts are not stack traffic attributable solely to
+conversion and are not a claim of removable time.
+
+Pending implementation commit `eb25372` forces the existing `Slot::value` conversion inline,
+without integer/reference shortcuts, skipped writebacks, narrowed counters,
+changed tags, altered ABI or retained pointers. Unlike earlier rejected scalar
+specializations, its hypothesis is removing the shipping aggregate-return call
+boundary while retaining the exact match body. Previous projection outlining,
+static import/writeback masks, counter publishing and callback handoffs are not
+reintroduced. Baseline ABI validation passes **10 checks**. Resumed formatting,
+all-feature checking and broad JIT validation pass **1,479 checks / 11 summaries**,
+with zero failures and **22 ignored**. The full all-target Force suite is running;
+its partial output is not a completed pass. Whole-workload profiles and both
+original speed/shipping elapsed controls must determine whether this helps.
+Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
+`slot-value-inline/`. The candidate is not performance-accepted or release-ready;
+it will be reverted if whole-workload evidence is adverse. No speedup established.
+
+### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
 Unlike the rejected direct statistics-cell-reference trial, `fd4071a` removes
 the manager borrow from interpreter-guard publication. Three `Cell<u64>` counters
@@ -45,16 +92,61 @@ zero ignored; the failed full-run logs and source revision remain preserved.
 
 The refined candidate completes full all-target Force validation: **2,047 passing
 checks / 91 summaries / 23 ignored**, with no failures. The ignored tests are not
-claimed as executed coverage. Six exact default-flag production builds are now
-running before whole-workload instruction profiling. Separate follow-up recipes
-are prepared for actual native callback profiles, both Miri borrow models and
-i686 fallback; syntax validation is not execution evidence for those gates.
+claimed as executed coverage. All six default-flag production images build and
+verify; both no-feature images remain byte-identical to the original controls.
+
+Whole-execution profiles complete for compiled-Off `closure_upvalue` and actual
+native-benchmark Auto `rust_callbacks`, each using eight alternating processes,
+40 execute calls including 16 warmups, and both speed/shipping profiles. Loaded
+image identity, all 13 event totals and full symbol partitions reconcile; each
+profile family passes two positive and four deliberate identity-corruption
+fixtures. Printed callback counters/resources match exactly, without dropping
+fields. The separately validated 24-byte runtime-owner charge is not printed by
+this benchmark and is not claimed to be unchanged.
+
+Compiled-Off upvalues reduce instructions attributed to the executable from
+**15,979,740 to 15,919,737** in speed and **17,620,113 to 17,360,101** in shipping,
+consistently across all captured calls. External-library counts remain included
+in the reconciled whole-execution totals, not silently discarded. Native callback
+steady executions are mixed: whole-execution counts change **9,438,782 to
+9,448,783** in speed (10,001 more), and **11,684,260 to 11,654,249** in shipping
+(30,011 fewer). A disappearing Drop helper alone would overstate the shipping
+savings because some work moves into the VM. These instruction results justify
+elapsed evaluation of the compiled-Off gap, not a claimed callback speedup.
+
+Both Miri borrow models now pass **40 checks / 14 summaries** each (ten nonempty
+summaries); real i686 fallback passes **50 checks / 19 summaries** (14 nonempty).
+All have zero failures/ignored checks, explicit positive matches for the new
+counter models, borrowed-manager publication, atomic saturation, charged-owner
+layout and exact-ceiling/unwind cases. Miri and i686 do not establish generated
+native-code execution. Both repeated original elapsed screens complete with
+**288 commands / 28,512 native executions / 570,240 feature-cost iterations**,
+zero printed counter/resource mismatches, unchanged original thresholds and
+all nine workloads on CPUs 0/16. Each auditor accepts valid/restored evidence
+and rejects all 13 deliberate corruptions. No owned builds/tests/profilers
+overlap timing. Capture/audit exit zero is not a passing performance gate.
+
+The compiled-Off shipping upvalue target improves modestly: control/trial median
+ratios are **1.013410 / 1.025234** on CPU0 and **1.009275 / 1.011832** on CPU16.
+But CPU0 shipping integer ratios are **0.880594 / 0.898874**, and float ratios
+**0.910955 / 0.919311**: roughly 11–14% and 9–10% longer trial times respectively.
+Their A/B placebo medians remain near one; the second screen retains all noisy
+rounds rather than filtering them. CPU16 shipping float also worsens in all six
+rounds of both screens (**0.942085 / 0.947512**). Speed native callbacks do not
+improve: CPU0 ratios **0.992285 / 0.978062**, CPU16 **0.969168 / 0.981144**.
+These are contended observations, not a proven hardware-cause attribution.
+
+Candidate original speed-native gates fail **19/96** in each screen, and
+compiled-Off gates fail **33/216**, then **32/216**. The small target gain does
+not justify the repeated numeric regressions: **reject the activation** and
+retain its source/evidence only on the isolated branch. No runtime change from
+this trial is promoted, no counter/threshold is removed, and no source-level
+instruction reduction is presented as a performance fix.
 
 The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
-unchanged. A helper disappearing or moving work
-to snapshot construction will not establish a speedup. Fresh Miri/fallback,
-original elapsed/compiled-Off gates and full resource/platform/release acceptance
-remain open. Evidence:
+unchanged. This candidate's focused safety/profile/elapsed runs are terminal;
+the main implementation's performance and full resource/platform/release
+acceptance remain open. Evidence:
 `target/jit-evidence/hook-resume-recovery/interpreter-counter-root/`.
 
 ### Common Lua-state prefix — measured and rejected, 2026-10-19
