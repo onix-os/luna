@@ -55,6 +55,27 @@ separately from measurement. This trial is **not promoted**; full performance,
 resource, platform and release acceptance remains open. Evidence:
 `target/jit-evidence/hook-resume-recovery/vm-upvalue-inline/`.
 
+Fresh float-loop instruction profiles compare frozen `0c054a3` and `2430bb8`
+images, not no-feature versus Off. Eight processes capture 40 executions with
+16 warmups; hashes, results, zero native work and all 13 exclusive events verify.
+Speed total instructions rise **3,815,310 → 3,935,323**, entirely in the VM.
+Shipping totals are nearly unchanged, **3,909,344 → 3,909,346**; VM data writes
+actually decrease **467,036 → 447,035**. Each measured execution retains 626
+VM entries, 11 executor entries and one return. Per-PC attribution reconciles
+to original profiles and mapped disassembly. This does not explain the CPU0
+shipping timing loss as extra retired work or extra stores. Collection used
+Callgrind on CPU16 while Miri ran separately; its elapsed values are not used.
+
+Follow-up `79b7f73` on `trial/jit-upvalue-outline` changes only the fusion helper
+from inline(always) to inline(never), testing isolation of the added control
+flow from the shared VM. The operand reader stays inlined; no opcode or safety
+semantics change. Focused formatting, seven tests and all-feature checks pass;
+the trial is committed/pushed. Full validation, exact images and performance
+remain pending. Shared production-builder reuse waits for the live `2430bb8`
+Miri/i686 job; the follow-up's future expanded validation uses its own frozen
+source worktree so it need not retain the production-builder path. Neither
+source isolation nor the instruction profiles prove a speedup.
+
 ### Numeric upvalue dispatch — measured regression, 2026-10-19
 
 Trial `20c980a` on `trial/jit-upvalue-dispatch` builds on `0c054a3`, with
