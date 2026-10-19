@@ -9,6 +9,235 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Absent memory-limit fast path — work reduced, timing pending, 2026-10-19
+
+Trial `a835305` follows foundation `b5918d8` on the pre-fusion runtime plus
+Oslo diagnostic. A small inlined limit-presence check returns immediately when
+no ceiling is configured. The configured path remains one non-inlined method,
+preserving the captured limit, cache retirement, both GC passes, second usage
+check and executor stop order. Both feature configurations and synchronous/
+asynchronous callers retain the same semantics; no limit cache or unsafe code
+is introduced. No-feature images intentionally change too.
+
+Before the runtime edit, **20 checks / nine summaries** pass, including new
+exact-limit/None/removal/zero/stop-state, garbage-recovery and borrowed-manager
+tests. Exact candidate focused checks pass **334 / 58**, full Force
+**2,043 / 91**, **23 ignored**, zero failures. Initial shared-cache Miri runs
+execute old tests and are excluded. A fresh candidate-specific target executes
+every required new fixture: **10 / six** under each borrow model, plus
+**14 / nine** on real i686-musl. Miri warnings remain; no native i686 claim.
+
+Six production images and original/direct-parent preflights verify. Separately,
+four diagnostic images support **16 instruction-profile processes / 80 row
+batches / 800,000 rows**, including **32 warmup batches / 320,000 rows**.
+All 13 events and text-symbol partitions reconcile; each comparison's identity
+parsers accept valid input and reject wrong hash/object identity. Mean image
+instructions per measured batch decrease in both feature configurations:
+
+| Configuration | Speed, before → after | Shipping, before → after |
+| --- | ---: | ---: |
+| JIT compiled, Off | 41.2240M → 40.7754M | 45.3412M → 44.9010M |
+| No JIT | 39.9816M → 39.5856M | 44.8284M → 44.4197M |
+
+Every candidate range lies below its corresponding control range. VM self work
+is unchanged; the empty-limit calls disappear. Allocation/GC variability is
+retained, and whole-image reductions—not the removed symbol alone—are the
+evidence. These are not elapsed-speed percentages. Four original/direct-parent
+production screens are now running after owned builds/tests/profilers finish.
+The first launch stopped before sampling: prepared control links were named
+`baseline`, while the runner expected `control`. The failed preflight is retained
+under `screen-launch-initial/`. Explicit control aliases now resolve to the same
+frozen images; all four screen layouts pass cost/native hash verification.
+The replacement launch has entered native and feature-cost sampling; no image,
+source witness or performance threshold was changed.
+All performance and full-plan gates remain unchanged; no runtime promotion or
+performance acceptance is established. Evidence:
+`target/jit-evidence/hook-resume-recovery/limit-fast-path/`.
+
+### Complete Oslo row lifecycle — fresh attribution, 2026-10-19
+
+`examples/jit_oslo_profile.rs` isolates the existing predicate's complete
+10,000-row host lifecycle: global mutation, executor creation/stashing, execution,
+result conversion and intervening collection. It reuses `PREDICATE_SOURCE`,
+requires 5,000 selected rows, and exposes one non-inlined batch boundary. Two
+warmup batches are excluded from instruction analysis. Existing benchmark
+sources, workload sizes and acceptance gates are unchanged. The old cost probe
+only supports selecting its seven warm scripts, and its boolean execute entry
+is inlined in all four retained maps; the i64 execute toggle would not isolate
+this workload correctly.
+
+Diagnostic `4ba398a` uses the pre-fusion `0c054a3` runtime, not an accepted
+optimization. Its tests pass **five executions / two summaries**, including real
+Auto native work and repeated Off results. Main retains the diagnostic in
+`40bba53`. Four shipping/speed, no-feature/compiled-Off images and exact link maps
+are frozen. These are new diagnostic images, not the original acceptance ELFs.
+
+Eight Callgrind processes capture **40 batches / 400,000 rows**, including
+**16 warmup batches / 160,000 rows**. Corrected attribution reconciles all 13
+exclusive events and text-symbol sums. Every measured batch enters the VM,
+executor, physical push and return exactly 10,000 times. Speed image work ranges
+**39.953–39.998M no-feature / 41.199–41.244M Off**; shipping ranges
+**44.802–44.851M / 45.298–45.364M**. All allocator/GC variation remains.
+
+Speed VM self work increases **3,810,000 → 4,540,000**; shipping
+**3,450,000 → 4,105,000**. Executor and frame/statistics costs also grow, while
+some formerly separate string/operand helpers inline or shrink. Registry sweep
+work is only about 10–11K instructions per batch, so it is not the dominant
+added work in these images. Separate-symbol disappearance is not free work.
+
+The initial parser treated the hardlink launch path as external because it
+expected the map file's path. Its complete but misclassified output is retained
+under `analysis-initial/` and excluded. Corrected parsers match the captured
+launch path to the per-run frozen-image hash and require nonzero VM attribution.
+Both parsers accept their valid fixture and reject altered hash/object identity
+(four negative checks). An initial fixture runner failed to redirect child
+descriptors; its log remains, and the corrected fork/exec runner passes. Original
+captures were not rerun or modified.
+
+After all owned builds/profiles finish, **72 balanced PMU commands** execute
+**73,440,000 rows**, including warmups, on CPUs 0/16 with separate shipping/speed
+images and same-image A/B controls. Four user-event counters are fully scheduled;
+protocol, result, dispatch totals, image identity and run order audit correctly.
+No native work occurs in Off. Median no-feature/Off cycle ratios are:
+
+| CPU | Profile | Cycle ratio | Same-image A/B |
+| --- | --- | ---: | ---: |
+| 0 | speed | 0.946865 | 0.980596 |
+| 16 | speed | 0.961649 | 0.995448 |
+| 0 | shipping | 0.988433 | 1.003138 |
+| 16 | shipping | 0.974791 | 1.016735 |
+
+Speed cycles are adverse in all six rounds on each CPU; shipping CPU0 is adverse
+in four, CPU16 in six. Instruction ratios are approximately 0.977/0.977 speed
+and 0.991/0.992 shipping. Contention/placebo dispersion and all branch counters
+remain in the report. These whole-process user cycles include startup and
+warmups, are not elapsed-time ratios, and do not establish release acceptance.
+
+A concrete next target is the no-limit memory check: it executes **20,000
+out-of-line calls per batch**, costing 360–380K self instructions even when
+no memory ceiling is configured. Test an inline absence check with the existing
+configured-limit/GC/stop path kept separate; retain exact limit enforcement,
+callback/finalizer behavior and no-feature comparisons. No such runtime change
+or speedup is claimed yet. Evidence:
+`target/jit-evidence/hook-resume-recovery/oslo-row-profile/`.
+
+### Direct statistics-cell guard — rejected at work profiling, 2026-10-19
+
+Trial `691c932` starts from pre-fusion `0c054a3`. Its guard holds a shared
+reference to the manager's RefCell instead of Runtime, retaining the original
+mutable borrow only at Drop. It does not retain a borrow during execution,
+cache policy/counters, batch publication, change resource ownership, or add
+unsafe code. Foundation `5a17331` independently verifies nested guards through
+shared handles, live manager updates, exact publication points, saturation,
+panic payloads and rejection of a conflicting borrow at publication. It passes
+before changing the runtime; the same tests are retained on main in `a4bb60c`.
+
+Exact candidate focused checks pass **311 / 47 summaries**, full Force
+**2,039 / 90**, **23 ignored**, zero failures/warnings. Statistics tests pass
+**9 / one summary** under each Miri borrow model and **15 / five summaries** on
+real i686-musl; native-only i686 suites execute zero cases and are not counted as
+native validation. Miri emits existing warnings. Six production images and both
+original/direct-parent preflights verify. No-feature text and section/segment
+geometry match original; whole files differ.
+
+Eight exact-image closure profiles retain 40 executions including 16 warmups.
+All 13 exclusive events, complete text-symbol partitions and per-PC VM totals
+reconcile. Shipping destructor self work falls **480,024 → 460,023**, but VM work
+increases by exactly **20,001**, leaving image work unchanged at **17,600,113**.
+Speed image work grows **15,959,740 → 16,159,765**, entirely in the VM; VM data
+reads increase **60,008** and writes **140,012**. Frame/VM/executor entry counts
+are unchanged. The speed VM's local stack reservation shrinks 0x648 → 0x638,
+but that static shrinkage does not offset its extra executed work.
+
+Reject the runtime change without another elapsed campaign: moving the owner
+lookup to construction does not reduce whole-closure work in either profile.
+No elapsed speedup or hardware cause is claimed. Keep the independent tests,
+original gates and full acceptance scope; the trial remains unpromoted.
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-stats-cell-ref/`.
+
+### Early operand refusal — work recovery, gates still failing, 2026-10-19
+
+Trial `c113a70` unwraps each optional numeric operand before reading the next,
+then matches two non-optional numeric values. It preserves numeric operation
+order and canonical fallback effects. Exact focused **268 tests / 44 summaries**
+and full Force **2,043 / 90**, **23 ignored**, pass with zero failures or warnings.
+All six production images and original/direct-parent preflights verify.
+No-feature executable text and section/segment geometry match original;
+whole files differ.
+
+Eight closure Callgrind processes retain 40 executions including 16 warmups.
+All 13 exclusive events and complete text-symbol partitions reconcile. Compared
+with direct parent `c2a7865`, measured helper self instructions drop
+**1,240,000 → 1,150,000 speed** and **1,200,000 → 1,130,000 shipping**.
+Image instruction totals drop by exactly **90,000 / 70,000**; VM self work
+is unchanged. This recovers the previous operand-handling regression, not proof
+of an accepted improvement over the original runtime or elapsed-time speedup.
+
+Four original/direct-parent timing campaigns complete after owned builds and
+profilers finish: **576 commands / 57,024 native executions / 1,140,480 cost
+iterations**, zero counter/resource mismatches. Each audit accepts its valid and
+restored screens and rejects all 13 corruptions. Original speed native failures
+are **8 then 11 / 96**, cost failures **47 then 69 / 216**. Direct-parent failures
+are **13 then 14 / 96** and **67 then 59 / 216**. Shipping native results remain
+separate. All **24 closure cost gates fail in each campaign**.
+
+Direct-parent CPU0 speed closure ratios improve **1.009459 / 1.006322**, but
+original CPU0 speed closure is **0.957492 / 0.956309** and original CPU16 speed
+closure **0.971418 / 0.974358**, adverse in all six rounds of both campaigns.
+Original CPU0 shipping float remains **0.954466 / 0.955350**, also adverse in
+every round. CPU16 shipping integer improves **1.082121 / 1.082946** against
+original, without offsetting other failed requirements. Ratios are control/trial.
+Some outcomes vary across campaigns: original Oslo cost failures change from
+zero to 24; these contended observations are retained, not pooled away.
+
+The change recovers work versus a rejected parent but does not solve the actual
+regressions. Do not promote this fusion chain or continue treating tiny helper
+reductions as the target. The next diagnosis returns to the pre-fusion working
+base `0c054a3` and the retained whole-closure VM/executor cost attribution.
+Exact-candidate Miri/i686 has not run; all full-plan gates remain unchanged and
+performance/resource/platform/release acceptance stays open.
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-upvalue-early/`.
+
+### Numeric-only operands — additional work and gate failures, 2026-10-19
+
+Trial `c2a7865`, following test foundation `2117b9b`, narrows the outlined
+helper's private operands to integer/float variants. Ten expressions cover nil,
+booleans, strings, table, Lua closure, native callback, coroutine and userdata.
+Each type is independently verified before **120 full-trace paired comparisons**
+across three operand forms, two budgets and Off/prepared modes. Nonnumeric and
+coercible-string cases execute zero fusions and preserve canonical results or
+errors. The existing numeric prefix/alias/unwind/hook/GC checks also pass.
+
+Exact focused **268 tests / 44 summaries**, full Force **2,043 / 90**, **23 ignored**,
+pass with zero failures. All six images and both preflights verify. No-feature
+text and section/segment geometry match original; whole files differ. Eight
+closure Callgrind processes retain 40 executions/16 warmups and reconcile all
+13 exclusive events plus text-symbol partitions. Contrary to the hypothesis,
+helper self work increases **1,150,000 → 1,240,000 speed / 1,200,000 shipping**
+per measured execution. VM self work and entry counts match the direct parent.
+
+Four screens complete **576 commands / 57,024 native executions / 1,140,480 cost
+iterations**, zero counter/resource mismatches, valid/restored plus 13 corruptions
+each. Original speed native failures **7 then 11 / 96**, cost **51 then 65 / 216**;
+parent native **4 then 14 / 96**, cost **63 then 67 / 216**. Shipping native
+observations remain separate. Every closure cost gate fails; each campaign also
+has six speed-profile float cost failures.
+
+Parent CPU0 speed float control/trial ratios are **0.881134 / 0.881820**; parent
+CPU16 speed float **0.914276 / 0.913554**, all rounds adverse. Original CPU0
+shipping float remains **0.954805 / 0.952884**. Original CPU16 speed closure is
+**0.970938 / 0.972888**, also adverse in every round. The runtime change is not
+accepted; exact-trial Miri/i686 has not run. No gates are relaxed.
+
+Exact helper assembly retains the first operand's optional-presence state on
+the stack while reading the second operand; the speed helper's local stack area
+grows from 0x28 to 0x38 bytes. This identifies avoidable intermediate state, not
+the cause of all timing changes. A follow-up tests refusing each missing numeric
+operand immediately, before constructing the two-numeric-value sum. Both reads
+are side-effect-free; the Get opcode and all subsequent canonical fallback
+effects must retain their original ordering. Evidence:
+`target/jit-evidence/hook-resume-recovery/vm-upvalue-numeric/`.
+
 ### Outlined upvalue fusion — float recovery with closure loss, 2026-10-19
 
 Trial `79b7f73` outlines only the fusion helper relative to `2430bb8`. Exact

@@ -386,6 +386,11 @@ jit-cost-tests:
 	@$(CARGO) test --example jit_feature_cost --no-default-features --features jit $(TARGET_ARG)
 	@$(MAKE) --no-print-directory jit-artifact-tests
 
+.PHONY: jit-oslo-profile-tests
+jit-oslo-profile-tests:
+	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features $(TARGET_ARG)
+	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features --features jit $(TARGET_ARG)
+
 .PHONY: jit-cost-verify jit-artifact-tests jit-environment-tests
 jit-cost-verify:
 	@bash examples/jit_support/verify_artifacts.sh '$(COST_DIR)'
