@@ -11,6 +11,16 @@
 
 ### Native slot-conversion call boundary — isolated investigation, 2026-10-19
 
+**Paused by the user.** The active validation pipeline was stopped before
+completion. Its partial output is not a full test pass or performance result.
+Experimental branch names below are historical provenance: **59 local and 55
+remote trial/experiment branches have been removed**. Only `main`, `develop` and
+`feat/native-jit` remain locally and on origin. Their prior tips are preserved in
+a verified local Git bundle; `.git/branch-cleanup-latest` identifies its directory.
+Source/evidence worktrees are retained detached, without trial branches. Future
+work uses the existing implementation branch; creating additional branches
+requires an explicit user request, as recorded in root `AGENTS.md`.
+
 A current exact-image audit decodes every executed instruction in the original
 `218112b` seven-register native transport. Twenty captured callback executions
 retain all warmups across two control processes and both profiles. Independent
