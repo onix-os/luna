@@ -9,6 +9,42 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Native closed-upvalue helper — candidate under validation, 2026-10-19
+
+Current callback attribution motivates a private JIT helper change, not another
+VM operand rewrite. First-stage `fb22491` forces `Frame::upvalue` inline. Sixty
+focused helper/native/heap/upvalue executions pass, but fresh instruction profiles
+show most work merely moves to a now-outlined `get_upvalue_with`: speed callback
+totals **9,448,381 → 9,433,381**, shipping **11,678,795 → 11,658,795**. Disappearance
+of the original helper symbol is not an 80,000/85,000-instruction saving.
+
+Refinement `6a06213`, formatted in `f557ebc`, reads the current upvalue state in
+the private helper, returns `Closed(value)` directly and retains the original
+canonical resolver for `Open` cells, including current-frame scratch aliases.
+There is no cached cell state, unsafe code, new storage, relaxed bounds check,
+changed counter or shared interpreter-method annotation. The first build stops
+at formatting before compilation; its failed logs remain. After repository-native
+formatting, all **60 focused executions / six summaries** pass with zero failures
+or ignored tests. Both candidates' no-feature production images are byte-identical
+to the frozen controls; flags, configuration and environment match.
+
+Each stage captures **eight processes / 40 whole-execute calls / 16 warmups**,
+alternating frozen control and candidate Auto images in speed/shipping. All
+13 exclusive events and full text-symbol partitions reconcile; both parsers
+accept valid records and reject wrong image hashes/loaded paths. Each worker
+verifies the result and **99,375 native instructions**. Measured totals repeat
+exactly within each image/profile. The refinement reduces speed totals to
+**9,383,381** and shipping to **11,603,795**, approximately **0.69% / 0.64%** less
+work. VM and native transport self work are unchanged. These are instruction
+reductions, **not elapsed speedups or performance acceptance**.
+
+Both trials are committed/pushed on separate branches; main runtime is unchanged.
+Next run full Force correctness, build matched native benchmark images and repeat
+all nine native/disabled-cost workloads on CPU0/16, including open-upvalue costs.
+Full platform/resource/release gates remain open. Evidence:
+`target/jit-evidence/hook-resume-recovery/helper-upvalue-inline/` and
+`target/jit-evidence/hook-resume-recovery/helper-closed-read/`.
+
 ### Fixed host branch-boundary policy — rejected, 2026-10-19
 
 An isolated build of unchanged production source `3f715d1` tests LLVM's fixed
