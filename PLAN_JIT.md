@@ -9,6 +9,222 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared string equality — recovery and remaining gates, 2026-10-19
+
+Trial `0c054a3` on `trial/jit-inline-byte-outline` adds a JIT-only
+`inline(never)` attribute to generic string equality on top of `eb24c3a`.
+It passes **260 focused executions / 42 summaries**, full Force **2,037 passes /
+90 summaries**, **23 ignored**, zero failures. Six stripped images and both
+original/direct-parent preflights complete. No-feature executable sections and
+section/segment geometry match original `79631fe`; whole files differ. Exact
+trial Miri/i686 checks remain pending, not inherited from its parent.
+
+The exact speed image restores a 111-byte string-equality helper and shrinks
+key equality from 508 to 300 bytes. Four Callgrind processes verify 20 profiles,
+including eight warmups, with all 13 exclusive event totals reconciled. Each
+measured execution has 4,003 key-equality entries. Combined key/string equality
+self instructions decrease **176,126 → 159,114**, conditional branches
+**21,015 → 20,015**. VM/table self instruction counts match corresponding parts;
+each matched measured pair executes **18,014 fewer total instructions** in both
+repetitions. This proves a work reduction in these profiles, not timing causality.
+
+Four full screens finish **576 commands / 57,024 native executions / 1,140,480
+feature-cost iterations**, zero execution/resource-counter mismatches, with
+valid/restored plus 13 corruption fixtures per screen. JIT-Off control/trial
+ratios retain both recovery and trade-offs:
+
+| Control | CPU/profile/workload | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | CPU16 speed metamethod | 1.025654 | 1.039869 |
+| Parent `eb24c3a` | CPU16 speed metamethod | 1.088001 | 1.086617 |
+| Parent `eb24c3a` | CPU0 shipping float | 1.060535 | 1.060430 |
+| Original | CPU0 shipping integer | 0.956329 | 0.949703 |
+| Original | CPU0 shipping float | 0.972148 | 0.962765 |
+
+Below-one ratios remain adverse. The first direct-parent CPU0 speed metamethod
+and Oslo campaigns contain strongly nonstationary rounds; their adverse medians
+are retained alongside favorable repeats, not discarded as noise. Original
+speed native gates fail **6 then 11 / 96**, and feature-cost gates **49 then 44 /
+216**. Parent screens retain **5 then 7 / 96** speed native and **45 then 43 /
+216** feature-cost failures. Shipping native observations are separate.
+
+All integer/float compiled-disabled gates pass in all four screens despite the
+comparative CPU0 losses above. The original repeat's 44 cost failures comprise
+19 closure/upvalue, 24 Oslo, and one callback failure. Next diagnosis targets
+those actual unmet gates; no universal candidate/main ratio of at least one is
+being added to the acceptance policy. The numeric trade-offs remain visible.
+This trial is a working diagnostic base, **not promoted**, and full acceptance
+remains open. Evidence: `target/jit-evidence/hook-resume-recovery/vm-inline-byte-outline/`.
+
+### Constant inline-string offsets — repeated regressions, 2026-10-19
+
+Trial `eb24c3a` on `trial/jit-inline-byte-offset` starts from `0102f37`, not the
+rejected string-identity shortcut. Test foundation `a310e3e` checks every inline
+length through 256, the 257-byte fallback, a larger allocation, static/owned
+storage, hashes, and a `Gc` round trip. The JIT-only change uses the constant
+header size for the inline byte offset, with a compile-time assertion against
+the actual constructor layout for each capacity. The non-JIT calculation,
+representation, ownership, and public API are unchanged.
+
+Exact-candidate validation passes **260 focused executions / 42 summaries**,
+all-feature Force **2,037 passes / 90 summaries**, **23 ignored**, focused Miri
+**22 passes / 5 summaries per borrow model** (stacked and tree), and real i686
+**129 passes / 20 summaries**. No failures occurred; Miri warnings are retained.
+Six stripped production images are built. Both no-feature executable sections
+and section/segment geometry match original baseline `79631fe`; whole files
+differ. Original-baseline and direct-parent source, environment, configuration,
+and immutable-image preflights pass.
+
+Exact stripped speed-image Callgrind profiles compare against `0102f37`: four
+processes, 20 Lua executions including eight warmups. All 13 exclusive event
+totals reconcile in each profile. The candidate no longer has a separately
+linked `String::eq` symbol; its work is accounted in `Key::eq`, not treated as
+free. Across all 12 measured profiles, combined key/string equality self
+instructions drop **201,150 → 176,126**, and conditional branches drop
+**35,027 → 21,015**, with 4,003 key-equality entries in both variants. VM and
+table-lookup self instruction counts remain unchanged between corresponding
+parts. Other work changes, so these local reductions are not a whole-execution
+speedup claim.
+
+Four full nine-workload screens now compare original baseline `79631fe` and
+direct parent `0102f37`, each twice: **576 commands / 57,024 native executions /
+1,140,480 feature-cost iterations**. All report zero execution/resource-counter
+mismatches and pass valid/restored plus 13 corruption fixtures. Local instruction
+savings do not translate into an acceptable runtime result:
+
+| Control | CPU/profile/workload, JIT-Off | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | CPU0 shipping float | 0.908348 | 0.907744 |
+| Parent | CPU0 shipping float | 0.909485 | 0.906167 |
+| Original | CPU16 speed metamethod | 0.949127 | 0.958099 |
+| Parent | CPU16 speed metamethod | 0.980996 | 0.976713 |
+
+Ratios are control/trial, so values below one are adverse. CPU0 shipping float
+is adverse in five initial and all six repeat rounds against both controls;
+CPU16 speed metamethod is adverse in every round of all four screens. The
+candidate fails 1 then 6 of 96 speed native gates and 48 then 46 of 216
+feature-cost gates against the original; parent screens retain 2 then 2 speed
+native and 50 then 47 feature-cost failures. Shipping native observations are
+separate: 23 then 22 threshold misses against the original, 23 then 19 against
+the parent; they are not included in the 96 speed-gate denominator. Fewer
+instructions alone are not evidence
+that the regressions are fixed. This candidate is **not promoted** and does not
+establish performance or release acceptance. Evidence is under
+`target/jit-evidence/hook-resume-recovery/vm-inline-byte-offset/`.
+
+### Combined Add and callback tuning — repeated trade-off, 2026-10-19
+
+Trial `0102f37` on `trial/jit-add-callback` combines `522976f` with the exact
+native callback setup component from `b8a77bf`. It passes **235 focused
+executions / 36 summaries** and all-feature Force **2,036 passes / 90 summaries**,
+**23 ignored**, zero failures. Six stripped production images are built at the
+established paths. Both no-feature executable sections and section/segment
+geometry match the original baseline; whole files differ. Source, environment,
+configuration, native execution and immutable image checks pass. Parent Miri and
+i686 results are not claimed as exact-composition validation.
+
+Four complete screens compare against original baseline `79631fe` twice and
+numeric-only parent `522976f` twice: **576 commands / 57,024 native executions /
+1,140,480 feature-cost iterations**. All report zero execution/resource-counter
+mismatches and pass valid/restored plus 13 corruption fixtures. Original-baseline
+speed callback control/trial ratios improve **1.010254 / 1.013133** on CPU0 and
+**1.015056 / 1.010559** on CPU16 (initial/repeat). Numeric speed JIT-Off gains
+remain, but repeated losses prevent promotion:
+
+| Control | CPU/profile/workload, JIT-Off | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | CPU16 speed metamethod | 0.973539 | 0.969282 |
+| Original | CPU16 speed Oslo | 0.974189 | 0.971133 |
+| Parent | CPU0 speed metamethod | 0.964817 | 0.966885 |
+| Parent | CPU16 speed metamethod | 0.977839 | 0.977325 |
+| Parent | CPU16 shipping float | 0.806270 | 0.794101 |
+
+Both original CPU16 losses are adverse in all six rounds of both screens.
+The parent shipping-float repeat is bimodal: three rounds give roughly 0.60–0.62,
+the other three 0.97–1.00, with same-image placebos near one. Do not describe its
+aggregate as a uniform slowdown or discard its slow rounds. The first original
+CPU0 speed campaign also shows drift in unchanged no-feature code; broad apparent
+gains there are not causal estimates. Original-baseline native speed gates fail
+22 then 20 of 96 scored windows; feature-cost gates fail 60 then 68 of 216.
+
+No runtime promotion or release acceptance. Exact-image shipping and speed
+parent/trial counter captures complete another **432 commands / 432,000
+iterations**, with all 1,728 events fully scheduled and valid/restored plus
+16 corruption fixtures per profile. Speed metamethod elapsed/cycle ratios are
+**0.964941 / 0.962925** on CPU0 and **0.971840 / 0.969908** on CPU16. CPU16
+instruction ratio is **1.001975**, branch-miss ratio **0.774519**: fewer aggregate
+instructions do not remove the cycle loss. This does not locate a causal branch.
+
+Shipping float isolated-worker results are highly variable, including same-image
+cycle placebos from roughly **0.63 to 1.70** on CPU16. They do not overturn the
+repeat full-suite regression. PMU counters cover the whole user process,
+including startup/warmups; elapsed sums 1,000 measured executions. Keep both
+contexts and diagnose the hot-path loss rather than accepting a favorable median.
+Evidence: `vm-add-callback/{timing,timing-repeat,timing-parent,timing-parent-repeat}`
+and `{shipping,speed}-parent-counters/` under hook-resume recovery.
+
+Exact-image CPU16 branch-miss sampling completes **18 processes / 18,000
+iterations / 63,051 samples**. Image, map, MMAP2/file-offset translation and VM
+instruction boundaries verify; three unknown samples remain unattributed.
+The corrected audit passes valid/restored plus 14 corruption fixtures. Its
+initial instruction-boundary mutation hit outside the checked VM range and was
+accepted; the fixture now selects an actual multi-byte VM instruction. That
+initial pipeline failure remains recorded, separate from successful collection.
+
+The numeric-only parent has zero sampled PCs in `String::eq` across twelve
+captures; the composition has **4,466** across six. Normalize unequal capture
+counts. These are skid-prone sampled PCs, not proof of a particular failing
+branch. Four exact-image instruction profiles cover twenty Lua executions,
+including eight warmups. Every measured execution has **4,003 String::eq entry
+instructions**, **117,087 String::eq instructions**, and **27,021 conditional
+branches** in both variants. All thirteen exclusive event sums verify. Thus the
+sample difference is not explained by more string comparisons in these profiles.
+
+Follow-up `2f2f9a5` on `trial/jit-add-callback-identity` checks live string-key
+GC identity before decoding buffers, only in JIT-enabled builds. Distinct
+allocations retain content comparison; weak/dead-key and non-string paths,
+hashing, layout and ownership are unchanged. The older unconditional identity
+trial was withdrawn; this new composition is not accepted by analogy. It tests
+a work reduction at the newly observed hotspot while preserving no-feature
+source behavior. The isolated change is committed/pushed and passes **258 focused
+executions / 40 summaries**, full Force **2,036 / 90**, **23 ignored**, twenty
+Miri tests under each borrowing model, and **127 real i686 executions / 18
+summaries**. No failures; Miri warnings remain recorded and generated code is not
+Miri-covered. Six production images finish; both no-feature `.text` sections and
+ELF section/segment geometry match the original baseline, not whole-file bytes.
+
+Four exact-image instruction profiles verify twenty Lua executions including
+eight warmups. Each measured execution reduces String::eq entries **4,003 →
+1,000**, self instructions **117,087 → 30,000**, and total instructions by
+exactly **82,081**. VM and table-get self instruction counts match. All thirteen
+exclusive event sums and image/source/tool manifests verify. This establishes
+the work reduction, not its elapsed benefit.
+
+Four complete original-baseline/direct-parent screens finish **576 commands /
+57,024 native executions / 1,140,480 feature-cost iterations** with zero
+execution/resource-counter mismatches and valid/restored plus 13 corruption
+fixtures per screen. Original-baseline CPU16 speed JIT-Off metamethod ratios are
+**1.049788 / 1.049036**, Oslo **1.011135 / 1.007833** (initial/repeat). Direct
+`0102f37` parent metamethod ratios are **1.074109 / 1.073154**, Oslo **1.040746 /
+1.044664**. The targeted losses recover in those lanes, but shipping CPU0 numeric
+regressions prevent promotion:
+
+| Control | Shipping CPU0 JIT-Off | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | Integer | 0.965793 | 0.964084 |
+| Original | Float | 0.973005 | 0.972268 |
+| Parent `0102f37` | Integer | 0.939780 | 0.956618 |
+| Parent `0102f37` | Float | 0.965656 | 0.972574 |
+
+Those lanes are adverse in six then five rounds each. Original-baseline CPU0
+speed metamethod also remains below one (**0.985016 / 0.984379**). Original
+native speed gates fail **17 then 24 of 96** scored windows; feature-cost gates
+fail **45 then 50 of 216**. Fewer failed cost gates do not erase the new losses.
+All distributions and placebos remain retained. No runtime promotion or full
+performance/resource/platform/release acceptance. Evidence:
+`vm-add-callback/meta-branch-samples/` and `vm-add-callback-identity/`, especially
+`meta-instructions/` and the four `timing*` directories.
+
 ### Single Add result store — shipping recovery, acceptance open, 2026-10-19
 
 Trial `f0a3406` on `trial/jit-add-result-store` retains the same-kind numeric
@@ -109,9 +325,9 @@ previously reduced callback work and repeatedly improved elapsed callbacks,
 but regressed Off float. The new numeric path targets that trade-off without
 changing ordinary interpreter callback routing. This is a measured-composition
 hypothesis, not permission to multiply independent speedups or overlook losses.
-The isolated trial is committed/pushed; its focused/full Force validation and
-six-image production build are running under `vm-add-callback/`. Its performance
-has not yet been measured. The remaining native callback gates are not fixed
+The isolated trial is committed/pushed; its validation, production build and
+four elapsed comparisons are recorded above under `vm-add-callback/`.
+The remaining native callback gates are not fixed
 by declaring the paths separate.
 
 ### Stripped scalar-guard production comparison — not accepted, 2026-10-19
