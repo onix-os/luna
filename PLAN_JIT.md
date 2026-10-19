@@ -9,7 +9,44 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Native closed-upvalue helper — candidate under validation, 2026-10-19
+### Prepared-table disabled-mode attribution — no promotion, 2026-10-19
+
+The rejected `79f1498` candidate and original `218112b` control undergo fresh
+hardware-counter capture using the exact shipping feature-cost images from both
+completed timing campaigns. Integer and float campaigns each retain six rotated
+A/candidate/B rounds and four separately grouped user-event sets: starvation,
+fetch, delivery and prediction. One verified launch path and CPU0 affinity are
+used throughout. No source rebuild, owned profiler or other owned test overlaps
+capture; external contention remains recorded.
+
+Both pipelines finish successfully: **144 commands / 14,688 executions including
+warmups / 576 counters**, all **100% scheduled**. Image/source/tool hashes,
+worker results, zero native work, event identities, telemetry and complete run
+order verify. Each independent audit accepts two valid fixtures and rejects
+16 corruptions, including identity, scheduling, mode and workload mutations.
+These grouped whole-process events are diagnostic, not elapsed acceptance.
+
+Across the four groups, integer control/candidate cycle ratios are
+**0.903135–0.905547**, float **0.869289–0.871719**; corresponding median A/B
+cycle ratios remain **0.997496–1.001138 / 0.996057–1.003572**. Instructions and
+retired branches stay approximately equal. Branch-miss ratios are
+**0.998226 / 0.998710**, rather than a corresponding large increase. Undelivered
+IDQ-uop ratios are **0.239014 / 0.303129**, versus A/B **1.004680 / 1.018748**.
+Instruction-cache, instruction-TLB and DSB-to-MITE penalties do not show a
+similarly large repeated increase; all raw counts and outliers remain.
+
+The exact feature-cost link maps place the VM at **0x39b306 / 0x39b316** with
+equal **0xa478-byte** extent. This is a placement observation, not a proof of
+identical executed instructions or alignment causality. Counter evidence directs
+further investigation toward instruction delivery rather than another helper
+rewrite or an assertion that disabled mode executes more work. The previously
+rejected static-mask import, matched-4K placement and fixed branch-boundary
+policies remain exclusions, not fresh optimization candidates. Runtime and
+acceptance gates are unchanged. Evidence:
+`target/jit-evidence/hook-resume-recovery/helper-prepared-table/disabled-attribution/`
+and sibling `disabled-float-attribution/`.
+
+### Native closed-upvalue helper — measured trials, 2026-10-19
 
 Current callback attribution motivates a private JIT helper change, not another
 VM operand rewrite. First-stage `fb22491` forces `Frame::upvalue` inline. Sixty
