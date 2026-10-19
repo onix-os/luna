@@ -9,6 +9,28 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Non-fall-through block alignment — isolated experiment, 2026-10-19
+
+Current hardware evidence motivates a distinct, fixed compiler-policy experiment:
+`RUSTFLAGS='-C llvm-args=-align-all-nofallthru-blocks=5'`. Pinned rustc 1.97.1 /
+LLVM 22.1.6 advertises this option as log2 alignment of blocks without fall-through
+predecessors, avoiding padding on fall-through execution paths. This is not the
+previous whole-VM 4K placement or branch-crossing policy, not an offset sweep,
+and not a change to Cranelift's generated native-code alignment. No default flag
+or runtime change is promoted.
+
+The frozen source is `218112b`, identical to the timed control. Current main's
+production `src` remains identical, excluding the independent test-only
+prepared-key fixtures. Six new production images are being built at the existing
+shared builder/target with the declared flag as the only intended environment
+difference. Full original nine-case, CPU0/16, speed/shipping comparisons and their
+controls remain required; smaller instruction-delivery counts alone cannot
+establish acceptance. A static direct-target parser passes six positive and six
+negative fixtures, including duplicate/indirect/external targets and incomplete,+overlapping or mid-instruction targets. It does not classify block hotness or
+prove all branch targets require alignment.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/block-target-align/`.
+
 ### Prepared-table disabled-mode attribution — no promotion, 2026-10-19
 
 The rejected `79f1498` candidate and original `218112b` control undergo fresh
