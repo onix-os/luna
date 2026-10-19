@@ -67,8 +67,14 @@ steady executions are mixed: whole-execution counts change **9,438,782 to
 savings because some work moves into the VM. These instruction results justify
 elapsed evaluation of the compiled-Off gap, not a claimed callback speedup.
 
-Both Miri borrow models and real i686 fallback are now running sequentially;
-their completion and original repeated elapsed gates are still pending.
+Both Miri borrow models now pass **40 checks / 14 summaries** each (ten nonempty
+summaries); real i686 fallback passes **50 checks / 19 summaries** (14 nonempty).
+All have zero failures/ignored checks, explicit positive matches for the new
+counter models, borrowed-manager publication, atomic saturation, charged-owner
+layout and exact-ceiling/unwind cases. Miri and i686 do not establish generated
+native-code execution. Both repeated original elapsed screens have passed image,
+configuration and source preflight and are now running sequentially, with no
+owned build/test/profiler overlap. Performance acceptance remains pending.
 
 The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
 unchanged. A helper disappearing or moving work
