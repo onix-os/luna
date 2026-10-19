@@ -45,10 +45,30 @@ zero ignored; the failed full-run logs and source revision remain preserved.
 
 The refined candidate completes full all-target Force validation: **2,047 passing
 checks / 91 summaries / 23 ignored**, with no failures. The ignored tests are not
-claimed as executed coverage. Six exact default-flag production builds are now
-running before whole-workload instruction profiling. Separate follow-up recipes
-are prepared for actual native callback profiles, both Miri borrow models and
-i686 fallback; syntax validation is not execution evidence for those gates.
+claimed as executed coverage. All six default-flag production images build and
+verify; both no-feature images remain byte-identical to the original controls.
+
+Whole-execution profiles complete for compiled-Off `closure_upvalue` and actual
+native-benchmark Auto `rust_callbacks`, each using eight alternating processes,
+40 execute calls including 16 warmups, and both speed/shipping profiles. Loaded
+image identity, all 13 event totals and full symbol partitions reconcile; each
+profile family passes two positive and four deliberate identity-corruption
+fixtures. Printed callback counters/resources match exactly, without dropping
+fields. The separately validated 24-byte runtime-owner charge is not printed by
+this benchmark and is not claimed to be unchanged.
+
+Compiled-Off upvalues reduce instructions attributed to the executable from
+**15,979,740 to 15,919,737** in speed and **17,620,113 to 17,360,101** in shipping,
+consistently across all captured calls. External-library counts remain included
+in the reconciled whole-execution totals, not silently discarded. Native callback
+steady executions are mixed: whole-execution counts change **9,438,782 to
+9,448,783** in speed (10,001 more), and **11,684,260 to 11,654,249** in shipping
+(30,011 fewer). A disappearing Drop helper alone would overstate the shipping
+savings because some work moves into the VM. These instruction results justify
+elapsed evaluation of the compiled-Off gap, not a claimed callback speedup.
+
+Both Miri borrow models and real i686 fallback are now running sequentially;
+their completion and original repeated elapsed gates are still pending.
 
 The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
 unchanged. A helper disappearing or moving work
