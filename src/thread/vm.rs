@@ -345,7 +345,9 @@ fn run_vm_slice<'gc>(
     #[cfg(not(feature = "jit"))]
     let native_dispatch = dispatch::Dispatch::interpreted(hook_enabled);
     #[cfg(feature = "jit")]
-    let mut interpreter_stats = ctx.jit().vm_progress(prefix_instructions);
+    let mut native_instructions = prefix_instructions;
+    #[cfg(feature = "jit")]
+    let mut interpreter_stats = ctx.jit().interpreter_stats();
     #[cfg(feature = "jit")]
     if hook_enabled && ctx.jit().active() {
         let mut manager = ctx.jit().0.borrow_mut();
@@ -371,7 +373,7 @@ fn run_vm_slice<'gc>(
     #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
     #[cfg(feature = "jit")]
-    let mut unreported;
+    let mut instructions_run = prefix_instructions;
 
     #[cfg_attr(feature = "jit", inline(always))]
     fn get_rc<'gc>(
@@ -385,24 +387,7 @@ fn run_vm_slice<'gc>(
         }
     }
 
-    macro_rules! completed_instructions {
-        () => {{
-            #[cfg(feature = "jit")]
-            {
-                interpreter_stats.dispatches
-            }
-            #[cfg(not(feature = "jit"))]
-            {
-                instructions_run
-            }
-        }};
-    }
-
     loop {
-        #[cfg(feature = "jit")]
-        {
-            unreported = 0;
-        }
         #[cfg(feature = "jit")]
         let run_native = {
             #[cfg(test)]
@@ -420,7 +405,8 @@ fn run_vm_slice<'gc>(
             if let Some(snapshot) = &mock {
                 let completed = ctx.jit().run_mock(snapshot, &mut registers);
                 interpreter_stats.dispatches += completed;
-                if completed_instructions!() >= max_instructions {
+                instructions_run += completed;
+                if instructions_run >= max_instructions {
                     break;
                 }
                 if completed != 0 {
@@ -436,10 +422,11 @@ fn run_vm_slice<'gc>(
                     ctx,
                     current_function,
                     &mut registers,
-                    max_instructions - completed_instructions!(),
+                    max_instructions - instructions_run,
                 );
-                interpreter_stats.add_native(completed);
-                if completed_instructions!() >= max_instructions {
+                instructions_run += completed;
+                native_instructions += completed;
+                if instructions_run >= max_instructions {
                     break;
                 }
                 #[cfg(test)]
@@ -476,7 +463,6 @@ fn run_vm_slice<'gc>(
                     }
                     *registers.pc += 1;
                     interpreter_stats.dispatches += 1;
-                    unreported = 1;
                     match transition {
                         crate::opcode::CallTransition::Call {
                             func,
@@ -503,12 +489,7 @@ fn run_vm_slice<'gc>(
                         }
                         crate::opcode::CallTransition::TailCall { func, args } => {
                             #[cfg(all(test, feature = "jit"))]
-                            lua_frame.tail_call_builtin(
-                                ctx,
-                                func,
-                                args,
-                                completed_instructions!() - 1,
-                            )?;
+                            lua_frame.tail_call_builtin(ctx, func, args, instructions_run)?;
                             #[cfg(not(all(test, feature = "jit")))]
                             lua_frame.tail_call_function(ctx, func, args)?;
                         }
@@ -527,7 +508,7 @@ fn run_vm_slice<'gc>(
                     &mut lua_frame,
                     &current_prototype,
                     resume_hook,
-                    completed_instructions!(),
+                    instructions_run,
                 )? {
                     break;
                 }
@@ -542,7 +523,6 @@ fn run_vm_slice<'gc>(
         #[cfg(feature = "jit")]
         {
             interpreter_stats.dispatches += 1;
-            unreported = 1;
         }
         *registers.pc += 1;
 
@@ -683,7 +663,6 @@ fn run_vm_slice<'gc>(
                         if lua_frame.pair_fixed_stack() {
                             *lua_frame.registers().pc = pc;
                             interpreter_stats.dispatches -= 1;
-                            unreported = 0;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                             break;
                         }
@@ -1297,20 +1276,15 @@ fn run_vm_slice<'gc>(
             }
         }
 
-        #[cfg(not(feature = "jit"))]
-        {
-            instructions_run += 1;
-        }
-        #[cfg(feature = "jit")]
-        {
-            unreported = 0;
-        }
-        if completed_instructions!() >= max_instructions {
+        instructions_run += 1;
+        if instructions_run >= max_instructions {
             break;
         }
     }
     #[cfg(feature = "jit")]
-    let instructions_run = interpreter_stats.finish(unreported);
+    {
+        interpreter_stats.reported_instructions = Some(instructions_run - native_instructions);
+    }
     Ok(instructions_run)
 }
 

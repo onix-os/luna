@@ -9,7 +9,127 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Phase-reused VM progress — integration under validation, 2026-10-19
+### Shared binary-metamethod resolution — runtime withdrawn, 2026-10-19
+
+The next investigation targets repeated generic metatable-resolution bodies in
+`meta_ops::meta_metaop`, not another VM counter, object-layout, cached-pointer or
+code-placement change. Fifteen binary operations instantiate the same table /
+userdata method selection and call validation with different scalar closures.
+The proposal keeps scalar conversion in those existing closures and shares only
+metatable selection, preserving left-before-right fallback, invalid-left-method
+errors, argument identity and live mutation. Actual code sharing, VM extent,
+whole-execution work and original timing gates must establish any benefit; no
+size, speed or acceptance result is assumed from source extraction alone.
+
+An independent test foundation exercises all fifteen methods over 2,160 ordered
+scalar/table/userdata pairs, plus 135 live mutation/removal comparisons. It checks
+selected function identity, unchanged arguments (including signed zero), error
+text and that selection never executes the metamethod. New Make lanes run both
+feature choices, public metamethod behavior in Off/Auto/Force, and compatible
+Rust-only Miri checks. Initial compile failures (invariant GC lifetimes and an
+ambiguous test `Vec::extend`) are corrected and preserved separately in the log.
+The baseline lane passes **52 checks / five summaries**, zero failures/ignored
+checks; production resolution is unchanged at this checkpoint. Evidence:
+`target/jit-evidence/hook-resume-recovery/binary-meta-dispatch/`.
+
+The candidate extracts only metatable selection/call validation into one
+non-generic, non-inlined function; scalar closures and public interfaces remain
+unchanged. It introduces no state fields, retained identities, unsafe code,
+allocation policy, counter change, cold-path assumption or compiler flags.
+Formatting/check-all and **219 checks / twenty summaries** pass with zero
+failures, two ignored and no emitted warnings. Coverage includes both feature
+choices, all fifteen binary methods, public Off/Auto/Force metamethod tests,
+numeric conversion/coercion boundaries, hooks, callback chains and native regions.
+Fresh production builds/profiles and original repeated elapsed screens follow
+below. Full Force/Miri/fallback and original resource/platform/release acceptance
+are not established for this rejected candidate.
+
+The frozen builder's repeated focused lane passes **127 checks / fourteen
+summaries**, zero failures, two ignored. All twelve fresh production images
+build; the model-only baseline reproduces all six original `218112b` controls
+byte-for-byte. All six candidate hashes differ, including no-feature images;
+no identity is assumed for those changed images. Exact native-image link maps
+show one shared selector (**649 bytes speed / 594 shipping**) and VM body extents
+**55,558 → 46,512 / 41,820 → 38,750 bytes**. That confirms code sharing, not
+reduced whole-program size, instruction work or elapsed time.
+
+Four full-execution diagnostic families finish **32 alternating processes / 160
+execute calls / 64 warmups**: native callbacks, native metamethods, and no-feature /
+compiled-Off float in both profiles. Full printed native counter/resource records
+match; all 13 events and full text-symbol partitions reconcile. Each family
+accepts two valid and rejects four image/object-identity corruption fixtures.
+Callback instructions instead rise **9,438,782 → 9,478,789** speed and
+**11,684,260 → 11,704,262** shipping. Compiled-Off float rises
+**4,015,310 → 4,314,068 / 4,109,344 → 4,349,332**. No-feature float falls
+**4,081,046 → 3,999,759** speed but grows **4,375,155 → 4,495,149** shipping.
+Metamethod totals also grow; allocator/GC variation and every complete capture
+remain in the profile records. Smaller VM code does not mean less executed work.
+
+Because this hypothesis concerns instruction delivery, the unchanged original
+all-nine-case timing screens run before additional broad validation rather than
+inferring an elapsed loss from instruction totals. They are explicitly marked
+`early-` diagnostic campaigns, retaining original gates, samples, controls and
+identity audits. No owned build/test/profiler overlaps timing. Full Force, both
+Miri models, actual fallback and all original acceptance requirements remain
+mandatory before retention; no missing safety status is fabricated or waived.
+
+Both diagnostic elapsed campaigns finish **288 commands / 28,512 native
+executions / 570,240 cost iterations**, zero complete printed counter/resource
+mismatches. Each accepts two valid audit fixtures and rejects all thirteen
+corruptions. Original cases, gates, controls, affinity, configuration, contention
+and outliers remain; no owned build/test/profiler overlaps either campaign.
+
+Reject the extraction. CPU0 speed compiled-Off integer control/candidate ratios
+are **0.464084 / 0.464946**, float **0.634413 / 0.635198**; shipping integer
+**0.496898 / 0.495814**, float **0.653214 / 0.652445**. Every corresponding
+round is adverse and median A/B controls remain near one: roughly **2.0–2.2 times
+the integer elapsed time / 53–58% longer float time**. CPU16 speed integer also
+loses all twelve rounds (**0.708890 / 0.704791**). Speed-native callback ratios
+are **0.988542 / 0.997818** CPU0 and **0.979396 / 0.977531** CPU16; speed
+metamethod ratios **0.963713 / 0.960509** and **0.980147 / 0.982943**. Smaller VM
+code did not repair these workloads. No specific hardware cause is inferred.
+
+Candidate scored native failures fall to **four then five / 96**, while cost
+failures rise to **65 then 76 / 216**. That native failure-count reduction is
+not proof of acceleration: native gates compare Auto against the candidate's
+own Off execution, which this change slows dramatically. The direct controlled
+Auto comparisons and the unchanged disabled-cost gates prevent that false win.
+
+Rollback **`ec83531`** restores all source/test/build inputs exactly to model-only
+baseline **`a49f25f`**, preserving independent tests. It is pushed on the existing
+branch; no new branch/worktree is created. Fresh formatting/check-all and **219
+focused checks / twenty summaries** pass, zero failures, two ignored and no
+emitted warnings. All six rebuilt speed/shipping no-feature, compiled-Off and
+native-bench executables match original `218112b` controls **byte-for-byte**.
+Source/configuration/tool witnesses verify. Both elapsed campaigns and restoration
+are terminal-zero. Full Force/Miri/fallback was not run for the rejected extraction;
+no full-safety or performance pass is claimed.
+
+Extra validation of the **retained tests on restored production** initially
+catches a source-cache mismatch: reusing the earlier snapshot's Cargo-Miri target
+replays an invocation whose recorded `current_dir` still points at that snapshot.
+Both new filters execute zero tests even though Cargo returns zero. The explicit
+positive-fixture gate correctly fails the pipeline before Tree/fallback; those
+initial logs/statuses remain failed evidence. The corrected run uses fresh target
+directories for this immutable source, requires each fixture twice in each lane,
+and checks recorded Cargo-Miri source directories independently. No successful
+Miri or fallback result is inferred from the initial empty runs.
+The corrected run now finishes terminal-zero: **four retained-test executions /
+two summaries under each Stacked/Tree model**, **56 checks / seven summaries on
+actual i686-musl**, zero failures/ignored checks. Both new fixture names execute
+under each feature choice; both Cargo-Miri invocation records point to the exact
+immutable restored source. Source/tool witnesses verify, and emitted warnings
+remain in the logs. These validate the retained tests and fallback, not native
+machine code under Miri/i686 or full-plan safety/performance acceptance. No owned
+build, test, profile or timing job remains live. Evidence:
+`target/jit-evidence/hook-resume-recovery/binary-meta-dispatch/restoration/`.
+
+The preceding frame-identity-cache idea is not being implemented: a metadata-cap
+reduction resets registrations even with rooted activations alive. The earlier
+epoch-aware closure memo and scoped lease classification are already measured
+rejections, not new optimization candidates. No branch/worktree is created.
+
+### Phase-reused VM progress — measured and rejected, 2026-10-19
 
 The historical unified-progress trial is not being replayed: it nested the
 original interpreter publisher in a larger wrapper with a second destructor.
@@ -27,19 +147,13 @@ terminal adjustments, native prefixes, rollback, typed unwinding, held-manager
 refusal and full-width counters. State transitions compute their results before
 mutating fields, preserving unwinding publication if a checked build traps.
 
-The original runtime remains active during the initial test-only model. Model plus
+The original runtime was active during the initial test-only model. Model plus
 existing statistics/native/heap checks pass **55 checks / six summaries**, zero
-failures/ignored checks; the refined model passes **four / one summary**. VM
-integration, hook/slice/error parity and actual work/elapsed measurement remain
-pending at that checkpoint. The integrated VM now uses this guard's dispatch
-field as its single loop-progress counter. Native increments remain partitioned;
-terminal, yielded-hook and provisional rollback exits retain their original
-reported counts. The existing guard remains unchanged for other publishers.
-Formatting/check-all and **61 focused checks / ten summaries** pass, zero
-failures/ignored checks, including public dispatch totals, native/heap behavior,
-hook resumption and callback-visible fuel/state. This is focused correctness,
-not full Force, Miri, platform or performance acceptance. All original
-performance/resource/platform/release requirements stay
+failures/ignored checks; the refined model passes **four / one summary**. Integration
+`bd4064f` uses the guard's dispatch field as the loop-progress counter, preserving
+terminal adjustments and provisional rollback without changing break scopes.
+Formatting/check-all and **61 focused checks / ten summaries** pass with zero
+failures/ignored checks. All original performance/resource/platform/release requirements stay
 open. Work stays on `feat/native-jit`, without new branches or worktrees.
 Evidence: `target/jit-evidence/hook-resume-recovery/phase-progress/`.
 
@@ -63,9 +177,41 @@ shipping. Compiled-Off float counts fall **4,015,310 → 3,936,535** and
 **9,438,782 → 9,448,784** in speed and **11,684,260 → 11,754,274** in shipping.
 The callback cost is retained, not hidden behind the interpreter saving. These
 are modeled instruction counts, not a measured speedup or original-gate pass.
-Full Force, configured Miri borrow-model runs, real i686 fallback and both
-original all-nine-case elapsed screens are running sequentially. No owned
-tests/builds/profilers overlap elapsed timing; all acceptance requirements remain.
+Full Force validation passes **2,048 executions / 91 summaries**, zero failures
+and **23 ignored**. Configured Stacked/Tree Miri each pass **19 checks / six
+summaries**, real i686-musl **25 / eight**, zero failures/ignored checks. All four
+named phase-model fixtures execute in each Rust-only lane. These checks do not
+establish native execution under Miri/i686 or full platform acceptance.
+
+Both original elapsed campaigns finish **288 commands / 28,512 native executions /
+570,240 cost iterations**, preserving all nine cases, CPU0/16, speed/shipping,
+six rotated A/candidate/B rounds and original gates. Complete printed native
+counter/resource records match, source/image/tool witnesses verify, and each
+audit accepts two valid fixtures and rejects all 13 corruption cases. No owned
+build/test/profiler overlaps timing. All contention/outliers remain recorded;
+terminal-zero capture statuses are not passing performance gates.
+
+Reject the integration. CPU0 shipping compiled-Off integer control/candidate
+ratios are **0.892655 / 0.890417**, float **0.856934 / 0.859078**, approximately
+**12% / 16–17% longer elapsed time**. Corresponding median A/B controls remain
+near one; float loses five of six rounds in each campaign. CPU16 speed integer
+also loses all twelve rounds (**0.958640 / 0.958301**). CPU0 speed float improves
+**1.036474 / 1.032563**, and shipping callbacks **1.031023 / 1.031229**, but these
+do not compensate for disabled-mode regressions. Speed callbacks do not show
+a consistent improvement on CPU16 (**1.001333 / 0.988613**). Candidate scored
+speed-native failures are **14 then 12 / 96**, cost **56 then 86 / 216**.
+
+Rollback `de7bb40` restores all production/test/build inputs exactly to `0f09818`;
+only the independent, test-gated model remains. The reverted runtime is pushed
+on the existing `feat/native-jit` branch. Fresh formatting/check-all and **130
+focused checks / fifteen summaries** pass, zero failures, two ignored, no emitted
+warnings. All six rebuilt speed/shipping no-feature, compiled-Off and native-bench
+executables are **byte-for-byte identical to the original `218112b` controls**.
+Source/configuration/tool witnesses verify before/after rebuilding; both elapsed
+campaigns and restoration are terminal-zero, with no remaining owned jobs.
+The model remains test-only. No new branch/worktree, performance claim, gate waiver
+or full-plan completion is introduced. Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/phase-progress/restoration/`.
 
 ### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 

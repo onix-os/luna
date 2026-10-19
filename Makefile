@@ -2609,3 +2609,15 @@ jit-preferred-entry-time-run: jit-profile-cpu-check
 
 jit-preferred-entry-time-audit:
 	@perl examples/jit_support/strided_timing_audit.pl '$(PREFERRED_TIMING_DIR)'
+
+.PHONY: binary-metamethods binary-metamethods-miri
+binary-metamethods:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) meta_ops::binary_dispatch_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) meta_ops::binary_dispatch_tests
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test metamethods $(TARGET_ARG) || exit $$?; \
+	done
+
+binary-metamethods-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' meta_ops::binary_dispatch_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' meta_ops::binary_dispatch_tests -- --test-threads=1
