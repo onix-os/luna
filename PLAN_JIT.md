@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Numeric upvalue dispatch — implementation under validation, 2026-10-19
+### Numeric upvalue dispatch — measured regression, 2026-10-19
 
 Trial `20c980a` on `trial/jit-upvalue-dispatch` builds on `0c054a3`, with
 independent test foundation `558a15a`. It fuses an immediate numeric
@@ -45,8 +45,31 @@ Eight Callgrind processes capture 40 executions including 16 warmups, with
 image identities, zero native work, and all 13 exclusive event sums verified.
 Fewer dispatched branches do not by themselves make the fused path cheaper.
 
-Four repeated original/direct-parent timing campaigns are now running without
-owned builds, tests or profilers alongside them. Exact Miri/i686 remains pending.
+All four original/direct-parent campaigns complete: **576 commands / 57,024
+native executions / 1,140,480 feature-cost iterations**, zero execution/resource
+counter mismatches, valid/restored plus 13 corruption fixtures per campaign.
+Original speed native failures are **11 then 7 / 96**, feature-cost failures
+**81 then 83 / 216**; parent failures are **7 then 13 / 96** and **94 then 92 /
+216**, respectively. Shipping native diagnostics remain separate. Numeric
+speed feature-cost gates fail in all 12 observations per workload per campaign.
+
+CPU16 closure Off control/trial ratios are consistently adverse: original speed
+**0.950108 / 0.956151**, shipping **0.963401 / 0.963081**; direct-parent speed
+**0.954838 / 0.950214**, shipping **0.957246 / 0.956753**. All six rounds in each
+of these lanes are adverse. Nonstationary CPU0 rounds remain in the evidence.
+This candidate is rejected for promotion, not declared fixed from correctness.
+
+Exact text-symbol attribution reconciles to all original profile event/cost
+partitions. New separately executed operand-closure work is 200,000 instructions
+per measured execution in both profiles. The upvalue setter becomes a separately
+executed 250,000-instruction speed / 270,000-instruction shipping symbol; shipping
+also executes 330,000 instructions in an Option::map decoder. These counts are
+not pure call overhead: equivalent setter work was previously inlined. The full
+instruction increase and elapsed losses are the rejection evidence. A follow-up
+can remove the introduced abstraction boundaries without changing opcode,
+operand, barrier, or prefix semantics. Exact Miri/i686 is not run for this rejected
+candidate, and no validation is implied by its parent's results.
+
 No speedup, regression fix, runtime promotion or full-plan acceptance is claimed.
 Evidence:
 `target/jit-evidence/hook-resume-recovery/vm-upvalue-dispatch/`.
