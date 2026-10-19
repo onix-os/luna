@@ -38,10 +38,27 @@ exactly within each image/profile. The refinement reduces speed totals to
 work. VM and native transport self work are unchanged. These are instruction
 reductions, **not elapsed speedups or performance acceptance**.
 
+Full Force validation of the refinement now passes **2,044 executions / 91
+summaries**, zero failures and **23 ignored**. Matched native benchmark images
+and two complete elapsed campaigns finish **288 commands / 28,512 native
+executions / 570,240 cost iterations**. Full counter/resource records match;
+both audits reject all 13 corruption fixtures. No owned build/test/profiler
+overlaps timing. CPU0 speed callback control/trial ratios are **1.026247 /
+1.010922**, while shipping callbacks give **0.992509 / 0.992738**. CPU16 speed
+callbacks give **0.997211 / 1.005904**, shipping **0.982621 / 0.993871**. CPU0
+speed array Auto initially gives **0.956599** without a repeated greater-than-2%
+adverse median. Large favorable repeat excursions also remain unaccepted as
+causal gains. Candidate speed native failures are **nine then 13 / 96**, cost
+failures **48 then 54 / 216**; fewer aggregate failures do not prove acceptance.
+
 Both trials are committed/pushed on separate branches; main runtime is unchanged.
-Next run full Force correctness, build matched native benchmark images and repeat
-all nine native/disabled-cost workloads on CPU0/16, including open-upvalue costs.
-Full platform/resource/release gates remain open. Evidence:
+Mixed elapsed evidence motivates a third, **201-native-sample** campaign retaining
+the same images, all nine cases, CPUs, rotated controls and original thresholds;
+cost comparisons remain at 11 samples / 20 iterations. Its audit explicitly
+requires 260,496 native executions and 285,120 cost iterations, with corresponding
+sample/configuration mutation fixtures. That campaign is in progress, not a
+completed performance result. Full platform/resource/release gates remain open.
+Evidence:
 `target/jit-evidence/hook-resume-recovery/helper-upvalue-inline/` and
 `target/jit-evidence/hook-resume-recovery/helper-closed-read/`.
 
