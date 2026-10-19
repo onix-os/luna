@@ -35986,6 +35986,263 @@ design question, not an adopted change or an accepted optimization. Its exact
 call sites, borrow/fuel contracts and prior rejected view work must be inspected
 before implementation. Full original acceptance remains open.
 
+### Native-only fixed-list context — rejected and withdrawn
+
+The new representation removes fuel and variable-stack fields from the shared
+`LuaRegisters` projection. Its seven core fields occupy nine pointer words;
+`NativeList` separately holds the fuel borrow and variable-stack snapshot in
+two words. No persistent frame, runtime owner, allocator, cache, mode API or
+statistics contract changes, and neither representation requires a heap allocation.
+
+Ordinary VM register construction now projects only the core state. The VM
+constructs fixed-list context only for a compiled dispatch, rebuilds its snapshot
+when register views are reacquired, and releases its fuel borrow before whole-frame
+operations or hook dispatch. Native activation hosts construct the corresponding
+context from their actual frame and fuel. Helper frames receive an explicit
+optional capability; a missing capability declines fixed-list work rather than
+executing it without charging fuel.
+
+Fixed-list helpers preserve variable-stack rejection, operand validation before
+effects, four units per call and one per requested item, saturation, index overflow,
+partial errors and panic materialization. The scoped test ABI projects the separate
+capability, not fuel fields through a register view with outstanding value loans.
+Stateful test constructors pass both the core projection and its original fuel/
+variable context; the native test migration does not substitute unmetered views.
+
+Host focused checks cover the core layout, mutable value loans during independent
+fuel charges, missing-capability decline, fixed/variable lists, overflow, fuel,
+native call regions and scoped payload behavior. Compilation and these focused
+checks pass, but full Force, Miri, actual i686, source/default-artifact equivalence,
+both production profiles and repeated original elapsed gates remain required.
+This differs from the rejected constructor-inline and optional-fuel tuple trials:
+native state is no longer part of the ordinary register-view ABI. It is **not yet
+a performance-accepted change**, and no runtime speedup is claimed.
+
+Trial `61fd2f6e` is now rejected. Its six shipping-only A/candidate/B cost
+comparisons retain all 23,760 iterations and original failed gates in
+`target/jit-evidence/hook-resume-recovery/native-list-context`. Integer and float
+compiled-Off time increased respectively **13.50% / 12.29% on CPU 0** and
+**6.18% / 5.02% on CPU 16**. Upvalue time also increased approximately
+**0.59% / 3.04%**. No-feature timing controls remain in the evidence; equal
+section sizes do not prove byte equivalence, and that equivalence was not proved.
+This was only a gross cost preselection, not the full native/resource matrix.
+
+The subsequent exact-image shipping instruction campaign is terminal zero.
+Three cases, four alternating image loads and five dumps per load reconcile
+all 13 event columns and full text-symbol attribution; all 18 parser fixtures
+pass. Representative non-warmup original/trial whole-execution counts are:
+
+| Case | Original compiled-Off | Separate context |
+| --- | ---: | ---: |
+| Integer | 3,848,937 | 3,869,532 |
+| Float | 4,109,344 | 4,129,939 |
+| Upvalue | 17,730,918 | 17,750,788 |
+
+For upvalues, the core constructor saves 200,010 self instructions, but VM
+self instructions increase 180,010 and Executor self instructions increase
+39,832. Numeric VM self instructions increase 25,635, and its text grows
+from 42,104 to 43,058 bytes. The constructor saving is therefore not an
+end-to-end instruction saving, much less a demonstrated elapsed-time gain.
+Software event counts do not establish a hardware cause for the timing changes.
+
+All trial source, helper/test constructor migrations and added Make targets
+are withdrawn together to the pre-trial `e857a5ca` state; the evidence is retained.
+Fresh source-bound correctness and original-profile image restoration checks
+must verify this withdrawal. Do not retain the representation as an optimization
+or repeat it as an inline/layout tweak. Original JIT acceptance remains open.
+
+Withdrawal `b3546663` is now verified in
+`target/jit-evidence/hook-resume-recovery/native-list-withdrawal`:
+
+- All `src/` bytes again equal `5fbe729`; source and Makefile equal pre-trial
+  `e857a5ca`, with no fixed-list context migration left active.
+- Fresh formatting/check-all and focused validation pass **274 executions /
+  39 summaries**, zero failures, ignores or compiler warnings.
+- Fresh all-feature Force passes **2,065 executions / 91 summaries**, zero
+  failures, 23 existing ignores and zero compiler warnings.
+- All **six** freshly rebuilt speed/shipping no-feature, compiled-Off and native
+  benchmark executables are byte-identical to the original controls. Frozen
+  source, configuration, environment and tool witnesses verify.
+
+The restoration pipeline is terminal zero. No elapsed benchmark is rerun or
+reported as a new passing gate: identical restored images retain the original
+known performance gaps. Full native/resource/platform/release acceptance remains
+incomplete. No branches or worktrees were created for this trial's withdrawal.
+
+### Known current-frame closure input — rejected and withdrawn
+
+The Executor ordinary Lua-frame arm already owns the just-popped frame's
+canonical closure and pushes that same frame back immediately before VM entry.
+This trial forwards that closure to the existing VM instead of rediscovering
+it through a second frame-stack inspection. Hook-resume and activation-host
+entries keep canonical discovery when they do not already own the frame value.
+The single opcode implementation, zero-budget ordering, source/mode/hook checks,
+leases, frame/fuel transitions and native accounting remain unchanged.
+
+This is an ephemeral call argument, not a cached closure or mode, persistent
+frame field, register-view rewrite, accessor inline annotation or second VM.
+Each Executor invocation supplies the currently matched frame; no value is
+retained across a callback or frame transition. Debug entry rejects a stale
+nonzero argument. Zero-budget entry still preserves a pending hook marker and
+does not resolve the frame or borrow the JIT manager, including when a manager
+borrow is already held.
+
+A test-only scoped selector compares known and original resolved entries through
+the public Executor. Eight scripts, both Off/Auto and four fuel budgets give
+64 paired schedules, comparing every existing physical-frame/scalar-stack,
+fuel/interruption/dispatch/result trace with collection between steps. Positive
+route counts require both paths to execute. Nested and typed-panic restoration,
+zero-budget/hook-marker and stale-closure guards have dedicated fixtures.
+Make targets are `vm-known-closure` and `vm-known-closure-miri`.
+
+Compilation and the initial focused execution pass; exact-image whole-path
+evaluation remains required. Prior closure-accessor/constructor trials remain rejected. This new
+call-boundary trial is **not performance accepted**; full correctness, safety,
+actual unsupported-platform fallback, original native/disabled/resource and
+release gates remain required before retention. Evidence:
+`target/jit-evidence/hook-resume-recovery/known-frame-closure`.
+
+Initial candidate **`bf013e49`** passes formatting/check-all and **66 executions /
+13 summaries**, zero failures/ignores/compiler warnings. This includes the
+64 paired schedules above, native/heap/statistics and callback-mode/hook checks.
+The Nix dirty-checkout notice is retained, not counted as a compiler warning.
+
+Shipping compiled-Off profiles complete for integer, float and upvalues, with
+all thirteen events/full text attribution reconciled and eighteen parser fixtures
+passing. Executable instructions fall **3,848,926 → 3,845,796** integer,
+**4,109,333 → 4,106,203** float and **17,620,113 → 17,520,108** upvalues. The
+upvalue closure accessor removes240,012 self instructions, offset by Executor
+80,004 and VM60,003. VM text grows only34 bytes. External upvalue variation is
+retained in whole-execution reports rather than subtracted as an optimization.
+
+The gross shipping cost screen retains23,760 iterations, followed by six
+balanced order permutations retaining142,560 more. CPU0 same-image placebo
+variation is extremely large (the first upvalue A/B ratio is2.1767), and
+no-feature controls drift too. In the repeat CPU16 compiled-Off control/trial
+medians are1.02860 integer,0.98880 float,0.99240 upvalue and0.99854 callback;
+their placebos are1.00769,1.00079,0.98975 and1.00036. All raw samples and failed
+1.05 gates remain. These cost-only diagnostic screens establish neither a
+repeatable end-to-end gain nor full native/resource acceptance.
+
+Both no-feature executables differ solely in **87 verified source-location
+line fields** (68 VM,19 Executor). Text, literals, section layouts and every
+other ELF byte match originals. The strict proof maps only unchanged source
+lines through exact diff hunks; it does not allow arbitrary line changes.
+Each profile passes two valid/restored and five code/literal/location/header
+corruptions. The initial fixed-file/delta parser refusal and a Perl read-only
+iterator error are preserved; corrected parsing uses a lexical input variable.
+
+Actual native benchmark callback profiles are mixed: speed whole-execution
+instructions **9,438,782 → 9,533,491**, shipping **11,684,260 → 11,659,255**.
+All non-timing statistics/resources match; both profiles reconcile all thirteen
+events/text partitions and pass six shared parser fixtures. An initial parser
+expected the withdrawn two-VM symbol set and refused; its logs/tools remain.
+The completed speed capture is reused, not rerun, with the validated single-VM
+parsers, and only unfinished shipping capture runs. The completed campaign's
+terminal zero is not a performance pass.
+
+The speed increase includes **55,011** new Executor closure-wrapper self
+instructions and **49,700** added Executor instructions, outweighing VM savings
+of10,002. The first form introduced an extra capturing entry closure inside the
+ordinary Executor closure. A bounded refinement removes that extra closure and
+calls the known-frame entry directly at its two JIT sites. Fresh formatting,
+check-all and the same **66 executions / 13 summaries** pass with zero failures,
+ignores or compiler warnings under `known-frame-direct`; the refinement is not yet measured or
+accepted, and no initial timing result is attributed to it. Full Force/Miri/
+i686 and complete original repeated acceptance remain unrun for these trials.
+
+Direct refinement `25c90bd3` completes six original-profile builds and both
+actual-image callback instruction campaigns. The strict no-feature proof again
+permits only87 corresponding source-line fields, with all other ELF bytes
+identical and fourteen valid/corruption fixtures passing. Native counters and
+resources match, all thirteen events/text partitions reconcile and six parser
+fixtures pass. Whole callback instructions are **9,438,782 → 9,513,487** speed
+and **11,684,260 → 11,644,252** shipping. Removing the inner entry closure saves
+20,004 speed instructions relative to `bf013e49`, but the remaining ordinary
+Executor closure still adds35,007, and Executor self work adds49,700 relative
+to original. No elapsed speedup or retention follows from the mixed profiles.
+
+The final bounded wrapper refinement expands the existing ordinary frame-entry
+body directly in JIT branches through one local macro. The no-feature lane
+retains its closure wrapper around the same body; opcode implementation, native
+admission, accounting and physical frame/fuel behavior do not change. It adds
+no persistent field, unsafe projection, cached mode or forced inline annotation.
+Macro arguments need explicit short mutable reborrows: the initial expansion
+moved references and failed compilation; that error and patch remain retained.
+Fresh formatting/check-all and the same66 focused executions/13 summaries pass
+with zero failures, ignores or compiler warnings under `known-frame-expanded`.
+This is not another
+accepted optimization or a new performance result. If measured wrapper work
+remains, reject the family rather than continuing an inline/layout sweep.
+
+Expanded trial **`3bf37147`** removes the ordinary speed wrapper and completes
+actual native callback profiles with whole-execution instructions **9,438,782 →
+9,418,715** speed and **11,684,260 → 11,644,252** shipping. All13 events/full
+text partitions reconcile, complete printed counters/resources match, and six
+parser fixtures pass. The disappearing speed wrapper does not save155,031
+instructions end to end:75,015 move into outlined stack borrowing and Executor
+self work grows69,951. The actual speed saving is only20,067 instructions.
+
+Four additional feature-cost images and two complete original elapsed campaigns
+now finish: **288 commands / 28,512 native executions / 570,240 cost iterations**,
+all nine cases, eleven samples, twenty cost iterations, six balanced orders,
+CPU0/16 and both original profiles. Source/image/configuration/environment/tool
+witnesses verify, counter/resource mismatches are zero, and each auditor passes
+two valid/restored screens plus13 deliberate corruptions. No owned tests/builds/
+profilers overlap elapsed collection. These are contended observations; passing
+capture/audit status does not establish performance acceptance.
+
+Selected control/trial elapsed medians (above one favors trial):
+
+| Case / mode / profile | CPU | First | Repeat |
+| --- | ---: | ---: | ---: |
+| Integer / compiled-Off / speed |16|0.924419|0.938170|
+| Float / compiled-Off / speed |16|0.951198|0.965279|
+| Integer / compiled-Off / shipping |0|0.951320|0.950615|
+| Float / compiled-Off / shipping |0|0.913506|0.927903|
+| Callbacks / Auto / speed |0|0.979662|1.013989|
+| Callbacks / Auto / speed |16|1.002693|0.996233|
+| Callbacks / Auto / shipping |0|0.743148|1.055576|
+
+All four selected numeric comparisons are adverse in all six rounds of both
+campaigns; their same-image placebo medians remain near one. CPU0 speed numeric
+losses are larger and variable and remain included. Callback effects are mixed,
+including the large shipping reversal above; do not claim a repeatable gain or
+a hardware cause from these data. Candidate speed-native scored gates fail
+**22/96 then23/96**, versus controls16/96 and16/96, then13/96 and8/96. Candidate
+feature-cost failures are **97/216 then90/216**, versus controls63/216 and69/216,
+then69/216 and66/216. Aggregate counts do not cancel individual regressions.
+
+The optional strict no-feature proof refuses a non-line source-location change
+after macro expansion; that equivalence remains **unproven**, not passed. Both
+candidate no-feature controls are retained and timed. Full Force/Miri/i686 were
+not run for these performance-negative trials and are not claimed passed.
+
+**Reject the entire family** (`bf013e49`, `25c90bd3`, `3bf37147`), including its
+entry API, scoped selector/tests and added Make targets. Source and Makefile
+are restored to pre-trial `2bc71238` (source also equals`5fbe729`); immutable trial
+archives, failed checks and every measurement remain. No further wrapper/layout/
+inline variant is selected. Fresh identical-input baseline test executions and
+six original-profile image comparisons must verify restoration. Original
+performance/resource/platform/release acceptance remains incomplete.
+
+Withdrawal **`2a5ae789`** is verified in `known-frame-withdrawal`. All tracked
+compiled/test/build inputs match immutable baseline`b3546663`; only uncompiled
+`PLAN_JIT.md` differs. Fresh test executions therefore use that identical-input
+archive and its existing build cache, not a claim of recompilation from the
+new documentation archive. Formatting/check-all and **274 focused executions /
+39 summaries** pass without failures, ignores or compiler warnings. Fresh
+all-feature Force passes **2,065 executions / 91 summaries**, zero failures,
+23 existing ignores and zero compiler warnings; both immutable source witnesses
+verify before and after execution.
+
+All **six freshly rebuilt** speed/shipping no-feature, compiled-Off and native
+benchmark images are byte-identical to the original controls. New source,
+configuration, environment, test-input and tool witnesses verify; the restoration
+pipeline is terminal zero. No new branch/worktree was created. This proves
+removal of the rejected family, **not** repair of the original failed performance
+gates or complete native-JIT acceptance.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
