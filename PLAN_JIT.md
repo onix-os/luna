@@ -9,6 +9,35 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Native slot-conversion call boundary — isolated investigation, 2026-10-19
+
+A current exact-image audit decodes every executed instruction in the original
+`218112b` seven-register native transport. Twenty captured callback executions
+retain all warmups across two control processes and both profiles. Independent
+symbol totals reconcile; the parser checks captured launch-object/image identity,
+linker range and instruction coverage. Each profile accepts valid/restored
+fixtures and rejects seven wrong-hash/object/range/disassembly/count/event cases.
+No new timing or hardware-counter capture is claimed.
+
+Steady transport self work is **1,560,341 instructions in speed / 1,580,358 in
+shipping**. Shipping executes **35,007 direct calls to `Slot::value`** and
+**5,001 direct calls to `record_native_exit`**, alongside 5,001 indirect native
+entry calls. These targets are resolved from the exact loaded image's linker map,
+not guessed from stripped disassembly names. Speed conversion is already inlined.
+The explicit stack-operand counts are not stack traffic attributable solely to
+conversion and are not a claim of removable time.
+
+The next isolated trial forces the existing `Slot::value` conversion inline,
+without integer/reference shortcuts, skipped writebacks, narrowed counters,
+changed tags, altered ABI or retained pointers. Unlike earlier rejected scalar
+specializations, its hypothesis is removing the shipping aggregate-return call
+boundary while retaining the exact match body. Previous projection outlining,
+static import/writeback masks, counter publishing and callback handoffs are not
+reintroduced. Baseline ABI checks precede activation; whole-workload profiles and
+both original speed/shipping elapsed controls must determine whether it helps.
+Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
+`slot-value-inline/`. No runtime change is promoted or speedup established.
+
 ### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
 Unlike the rejected direct statistics-cell-reference trial, `fd4071a` removes
