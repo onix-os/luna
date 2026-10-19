@@ -114,6 +114,15 @@ initial logs/statuses remain failed evidence. The corrected run uses fresh targe
 directories for this immutable source, requires each fixture twice in each lane,
 and checks recorded Cargo-Miri source directories independently. It is running;
 no successful Miri or fallback result is inferred from the initial empty runs.
+The corrected run now finishes terminal-zero: **four retained-test executions /
+two summaries under each Stacked/Tree model**, **56 checks / seven summaries on
+actual i686-musl**, zero failures/ignored checks. Both new fixture names execute
+under each feature choice; both Cargo-Miri invocation records point to the exact
+immutable restored source. Source/tool witnesses verify, and emitted warnings
+remain in the logs. These validate the retained tests and fallback, not native
+machine code under Miri/i686 or full-plan safety/performance acceptance. No owned
+build, test, profile or timing job remains live. Evidence:
+`target/jit-evidence/hook-resume-recovery/binary-meta-dispatch/restoration/`.
 
 The preceding frame-identity-cache idea is not being implemented: a metadata-cap
 reduction resets registrations even with rooted activations alive. The earlier
