@@ -32,9 +32,15 @@ Both layouts retain their original total sizes. Four candidate layout checks
 pass across the feature choices, including a common-prefix assertion; baseline
 diagnostics pass twice. This tests feature-dependent data layout, not another
 function/branch alignment policy or an established explanation for the slowdown.
-Focused validation and six exact production builds are running on the isolated
-branch. Full Force, fresh Miri/fallback checks and original repeated elapsed
-comparisons remain required. Main runtime and compiler flags are unchanged.
+Focused validation now passes **198 executions / 32 summaries**, zero failures
+or ignored tests, including configuration, memory limits, hooks and GC requests.
+All six exact production images build and verify. Both no-feature executables
+are **byte-identical to the frozen controls**; flags/configurations/environments
+match. Candidate diagnostic output verifies equal common-field offsets across
+feature choices. Full Force, fresh Miri/fallback checks and two original repeated
+elapsed comparisons are now queued serially in one live pipeline; timings start
+only after validation finishes. These are not yet performance or full-platform
+acceptance. Main runtime and compiler flags are unchanged.
 Evidence: `target/jit-evidence/hook-resume-recovery/state-core-prefix/`.
 
 ### Non-fall-through block alignment — rejected, 2026-10-19
