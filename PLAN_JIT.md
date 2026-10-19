@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Shared string equality — recovery and remaining gates, 2026-10-19
+
+Trial `0c054a3` on `trial/jit-inline-byte-outline` adds a JIT-only
+`inline(never)` attribute to generic string equality on top of `eb24c3a`.
+It passes **260 focused executions / 42 summaries**, full Force **2,037 passes /
+90 summaries**, **23 ignored**, zero failures. Six stripped images and both
+original/direct-parent preflights complete. No-feature executable sections and
+section/segment geometry match original `79631fe`; whole files differ. Exact
+trial Miri/i686 checks remain pending, not inherited from its parent.
+
+The exact speed image restores a 111-byte string-equality helper and shrinks
+key equality from 508 to 300 bytes. Four Callgrind processes verify 20 profiles,
+including eight warmups, with all 13 exclusive event totals reconciled. Each
+measured execution has 4,003 key-equality entries. Combined key/string equality
+self instructions decrease **176,126 → 159,114**, conditional branches
+**21,015 → 20,015**. VM/table self instruction counts match corresponding parts;
+each matched measured pair executes **18,014 fewer total instructions** in both
+repetitions. This proves a work reduction in these profiles, not timing causality.
+
+Four full screens finish **576 commands / 57,024 native executions / 1,140,480
+feature-cost iterations**, zero execution/resource-counter mismatches, with
+valid/restored plus 13 corruption fixtures per screen. JIT-Off control/trial
+ratios retain both recovery and trade-offs:
+
+| Control | CPU/profile/workload | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | CPU16 speed metamethod | 1.025654 | 1.039869 |
+| Parent `eb24c3a` | CPU16 speed metamethod | 1.088001 | 1.086617 |
+| Parent `eb24c3a` | CPU0 shipping float | 1.060535 | 1.060430 |
+| Original | CPU0 shipping integer | 0.956329 | 0.949703 |
+| Original | CPU0 shipping float | 0.972148 | 0.962765 |
+
+Below-one ratios remain adverse. The first direct-parent CPU0 speed metamethod
+and Oslo campaigns contain strongly nonstationary rounds; their adverse medians
+are retained alongside favorable repeats, not discarded as noise. Original
+speed native gates fail **6 then 11 / 96**, and feature-cost gates **49 then 44 /
+216**. Parent screens retain **5 then 7 / 96** speed native and **45 then 43 /
+216** feature-cost failures. Shipping native observations are separate.
+
+All integer/float compiled-disabled gates pass in all four screens despite the
+comparative CPU0 losses above. The original repeat's 44 cost failures comprise
+19 closure/upvalue, 24 Oslo, and one callback failure. Next diagnosis targets
+those actual unmet gates; no universal candidate/main ratio of at least one is
+being added to the acceptance policy. The numeric trade-offs remain visible.
+This trial is a working diagnostic base, **not promoted**, and full acceptance
+remains open. Evidence: `target/jit-evidence/hook-resume-recovery/vm-inline-byte-outline/`.
+
 ### Constant inline-string offsets — repeated regressions, 2026-10-19
 
 Trial `eb24c3a` on `trial/jit-inline-byte-offset` starts from `0102f37`, not the
