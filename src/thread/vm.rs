@@ -324,7 +324,7 @@ fn run_vm_slice<'gc, #[cfg(feature = "jit")] const NATIVE: bool>(
         .flatten();
 
     #[cfg(feature = "jit")]
-    let native_id = if NATIVE && !hook_enabled && ctx.jit().active() {
+    let native_id = if NATIVE && !hook_enabled && (!cfg!(test) || ctx.jit().active()) {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
     } else {
         None

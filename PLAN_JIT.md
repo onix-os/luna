@@ -56,6 +56,48 @@ speedup. Full Force, source-bound safety, platform/resource/size and original
 repeated elapsed gates remain required before retention.
 Evidence: `target/jit-evidence/hook-resume-recovery/static-off-dispatch/`.
 
+The first frozen shape, **`06062af`**, completes six original-flag image builds
+and all four whole-execution profile families. All 13 events and full symbol
+partitions reconcile; complete native counter/resource records match and each
+family passes its image/object corruption fixtures. The separate source-bound
+prefix passes **74 executions / thirteen summaries**, no failures, ignores or
+warnings. Smaller VM symbols are **not** a saving: callback work increases
+**9,438,782 → 9,528,798** speed and **11,684,260 → 11,734,268** shipping.
+Compiled-Off float increases **4,015,310 → 4,724,064** speed and
+**4,109,344 → 4,896,831** shipping, approximately **18–19% more instructions**.
+No elapsed acceptance run or speedup is claimed for this initial shape.
+
+The complete symbol differences explain the false apparent VM improvement.
+Speed VM self work falls 176,302, but newly outlined canonical `meta_ops::add`
+executes 20,000 times / 880,000 instructions; executor bookkeeping adds 5,008
+and outlined subtraction adds 48. These sum exactly to the 708,754-instruction
+whole-path increase. Shipping similarly adds 940,000 in canonical add, offset
+by 156,975 less VM self work; executor, subtraction and constant conversion add
+4,382 / 52 / 28, exactly explaining the 787,487-instruction increase.
+
+The refinement forces the **unchanged canonical addition body** inline only in
+JIT builds; it introduces no new numeric shortcut or coercion/metamethod policy.
+It also removes the redundant production mode query inside the native-capable
+slice: that private instantiation is reachable only through the just-checked
+Auto selector, and zero-budget entry returns before native lookup. No user code
+can run between those points. Tests retain the inner query because the scoped
+dynamic-Off reference deliberately enters that instantiation while Off; native
+integration tests still exercise the production predicate. Callback boundaries
+continue to return to the selector, without retaining policy or a code lease.
+Fresh validation, image/profile evidence and every original acceptance gate
+remain required; this is not acceptance of the initial instruction regression.
+
+The no-feature images are not whole-file identical: moving feature-only source
+lines changes 68 VM panic-location line fields by fifteen. A strict ELF audit
+proves `.text`, `.rodata`, all section layouts and **every other ELF byte** match
+the original controls, with each changed filename/column/source statement
+validated against both immutable sources. Two valid/restored fixtures pass and
+five code/literal/location/ELF-header corruptions are rejected per profile. The
+initial whole-file identity refusal is retained rather than changed to a pass.
+The first float identity-fixture driver also omits its child-directory parser
+links; its failure is retained, the links are restored, and only unfinished
+analysis/captures run. All source/tool/image witnesses reverify after completion.
+
 ### Code-owned per-PC read hints — runtime withdrawn, 2026-10-19
 
 Current callback profiles still attribute substantial work to the prepared
