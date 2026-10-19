@@ -51,7 +51,9 @@ counter mismatches, valid/restored plus 13 corruption fixtures per campaign.
 Original speed native failures are **11 then 7 / 96**, feature-cost failures
 **81 then 83 / 216**; parent failures are **7 then 13 / 96** and **94 then 92 /
 216**, respectively. Shipping native diagnostics remain separate. Numeric
-speed feature-cost gates fail in all 12 observations per workload per campaign.
+speed feature-cost gates fail 11/12 observations per workload in each initial
+campaign and 12/12 in each repeat; each initial campaign also has one shipping
+failure per numeric workload.
 
 CPU16 closure Off control/trial ratios are consistently adverse: original speed
 **0.950108 / 0.956151**, shipping **0.963401 / 0.963081**; direct-parent speed
