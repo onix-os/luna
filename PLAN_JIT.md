@@ -50,8 +50,11 @@ rejected parent are not proof of an accepted improvement over the working base.
 
 The original repeat's 45 cost failures comprise 18 closure, 24 Oslo, two cold
 and one callback failure. Native speed failures remain in array/table,
-metamethod and callback workloads. Exact Miri/i686 validation is now running
-separately from measurement. This trial is **not promoted**; full performance,
+metamethod and callback workloads. Exact validation now passes both Miri borrow
+models (**28 tests / 8 summaries each**) and real i686 (**136 tests / 22 summaries**),
+zero failures or ignored tests. Miri covers both prefix/alias feature variants
+and the dedicated collected-reference-write executor test, not the full native
+executor matrix. This trial is **not promoted**; full performance,
 resource, platform and release acceptance remains open. Evidence:
 `target/jit-evidence/hook-resume-recovery/vm-upvalue-inline/`.
 
@@ -71,8 +74,9 @@ from inline(always) to inline(never), testing isolation of the added control
 flow from the shared VM. The operand reader stays inlined; no opcode or safety
 semantics change. Focused formatting, seven tests and all-feature checks pass;
 the trial is committed/pushed. Full validation, exact images and performance
-remain pending. Shared production-builder reuse waits for the live `2430bb8`
-Miri/i686 job; the follow-up's future expanded validation uses its own frozen
+remain pending. The `2430bb8` Miri/i686 job has passed; a guarded dependency
+handoff now owns the follow-up's production build and profiling. The follow-up's
+future expanded validation uses its own frozen
 source worktree so it need not retain the production-builder path. Neither
 source isolation nor the instruction profiles prove a speedup.
 
