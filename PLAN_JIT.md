@@ -9,6 +9,44 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Fixed host branch-boundary policy — rejected, 2026-10-19
+
+An isolated build of unchanged production source `3f715d1` tests LLVM's fixed
+32-byte `fused+jcc+jmp` branch-boundary policy. This is not a selected function
+address, offset sweep, memory-limit rewrite or default configuration change.
+The pinned compiler advertises these options; six fresh stripped opt3/opts
+images pass all-nine-workload output/native-work smoke checks. Frozen `218112b`
+controls have identical production sources, examples and build inputs. Hashes,
+source manifests and configuration verify; the exact declared `RUSTFLAGS` is
+the only retained environment difference. No full Force suite, Miri or other
+platform validation is claimed for this rejected compiler-policy experiment.
+
+Complete VM disassembly confirms direct/conditional branches crossing or ending
+at a 32-byte boundary fall **256 → zero** in speed and **197 → zero** in shipping.
+VM size grows **55,274 → 56,682** and **42,104 → 43,443** bytes. Adjacent cmp/test
+and conditional-jump spans still have 37/20 such boundaries: adjacency alone
+does not establish hardware macro fusion. Five positive and five negative parser
+fixtures pass. These are static facts, not proof of hotness or a speedup.
+
+Two full screens complete **288 commands / 28,512 native executions / 570,240
+cost iterations**, preserving all nine workloads, original thresholds, six
+rotated A/trial/B rounds, CPU0/16 and identical launch paths. Full counter/resource
+records match; each audit rejects all 13 corruption fixtures. No owned build,
+test or profiler overlaps measurements. Large placebo excursions remain in
+the evidence, including repeat extrema **0.4824 / 1.8757** across all rows.
+
+Reject the policy. CPU0 speed callback control/trial ratios are **0.970513 /
+0.970558**, adverse in all six rounds of both screens; metamethod ratios are
+**0.957815 / 0.949274**. CPU0 shipping callbacks improve **1.034682 / 1.033350**,
+but shipping compiled-Off integer falls **0.888131 / 0.885901**, float
+**0.909943 / 0.907677**, with corresponding median A/B controls near one.
+CPU16 speed callbacks also regress (**0.975420 / 0.971971**). Candidate speed
+native failures are **17 then 14 / 96**, disabled-cost failures **44 then 52 /
+216**; these counts do not cancel individual regressions. No flag, runtime
+change or performance acceptance is promoted. Eliminating these static branch
+boundary crossings is not a sufficient remedy for the current regressions.
+Evidence: `target/jit-evidence/hook-resume-recovery/branch-boundary/`.
+
 ### Production callback mode attribution — current hotspot, 2026-10-19
 
 Fresh profiling uses the **same frozen `218112b` executable** for compiled-Off
