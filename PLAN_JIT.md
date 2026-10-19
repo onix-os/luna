@@ -9,6 +9,34 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Production callback mode attribution — current hotspot, 2026-10-19
+
+Fresh profiling uses the **same frozen `218112b` executable** for compiled-Off
+and Auto within each profile; no runtime candidate or link-layout comparison
+is involved. Eight alternating processes capture **40 executions / 16 warmups**
+of the existing Rust-callback workload at the `Lua::execute<i64>` boundary.
+Results/native-work proofs and hashes verify, all 13 events and text-symbol
+partitions reconcile, and both identity parsers reject wrong hashes/objects.
+
+Measured instruction totals are identical across repetitions within each mode:
+speed **7,791,256 Off → 9,448,381 Auto**, shipping **9,536,547 → 11,678,795**.
+VM self work falls **2,595,693 → 1,780,331** and **2,390,657 → 1,320,246**,
+respectively, but native entry/helper work outweighs it. Auto's
+`invoke_transport<7, true, false>` costs **1,560,341 / 1,580,358** self instructions,
+`call_prehashed` **845,000 / 740,000**, and code lookup **270,054** in each profile.
+Shipping also exposes slot conversion, registry identity and exit-statistics
+work as separate symbols; their absence as separate speed symbols is not free
+work. Actual Rust callback-body and common physical-call setup costs remain
+unchanged between modes. Non-ELF totals include anonymous generated native
+code and must not be described as only system-library overhead.
+
+This identifies native transport/global-read helpers as the next optimization
+targets, rather than another absent-memory-limit rewrite. Historical test-only
+canonical transports and rejected sparse/payload/statistics variants must not
+be conflated with this production `<7, true, false>` path. Instruction profiling
+is not elapsed acceptance; all original full-plan gates remain open. Evidence:
+`target/jit-evidence/hook-resume-recovery/callback-mode-profile/`.
+
 ### Memory-limit call-site isolation — rejected at counter screen, 2026-10-19
 
 Trial **`c250227`** starts from main and short-circuits absent limits at all six
