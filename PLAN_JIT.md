@@ -36151,6 +36151,30 @@ ignores or compiler warnings under `known-frame-direct`; the refinement is not y
 accepted, and no initial timing result is attributed to it. Full Force/Miri/
 i686 and complete original repeated acceptance remain unrun for these trials.
 
+Direct refinement `25c90bd3` completes six original-profile builds and both
+actual-image callback instruction campaigns. The strict no-feature proof again
+permits only87 corresponding source-line fields, with all other ELF bytes
+identical and fourteen valid/corruption fixtures passing. Native counters and
+resources match, all thirteen events/text partitions reconcile and six parser
+fixtures pass. Whole callback instructions are **9,438,782 → 9,513,487** speed
+and **11,684,260 → 11,644,252** shipping. Removing the inner entry closure saves
+20,004 speed instructions relative to `bf013e49`, but the remaining ordinary
+Executor closure still adds35,007, and Executor self work adds49,700 relative
+to original. No elapsed speedup or retention follows from the mixed profiles.
+
+The final bounded wrapper refinement expands the existing ordinary frame-entry
+body directly in JIT branches through one local macro. The no-feature lane
+retains its closure wrapper around the same body; opcode implementation, native
+admission, accounting and physical frame/fuel behavior do not change. It adds
+no persistent field, unsafe projection, cached mode or forced inline annotation.
+Macro arguments need explicit short mutable reborrows: the initial expansion
+moved references and failed compilation; that error and patch remain retained.
+Fresh formatting/check-all and the same66 focused executions/13 summaries pass
+with zero failures, ignores or compiler warnings under `known-frame-expanded`.
+This is not another
+accepted optimization or a new performance result. If measured wrapper work
+remains, reject the family rather than continuing an inline/layout sweep.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
