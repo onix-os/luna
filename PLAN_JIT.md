@@ -45,8 +45,18 @@ gains there are not causal estimates. Original-baseline native speed gates fail
 22 then 20 of 96 scored windows; feature-cost gates fail 60 then 68 of 216.
 
 No runtime promotion or release acceptance. Exact-image shipping and speed
-parent/trial hardware-counter diagnosis is running serially after elapsed
-collection. Its isolated workers cannot replace the full-suite context.
+parent/trial counter captures complete another **432 commands / 432,000
+iterations**, with all 1,728 events fully scheduled and valid/restored plus
+16 corruption fixtures per profile. Speed metamethod elapsed/cycle ratios are
+**0.964941 / 0.962925** on CPU0 and **0.971840 / 0.969908** on CPU16. CPU16
+instruction ratio is **1.001975**, branch-miss ratio **0.774519**: fewer aggregate
+instructions do not remove the cycle loss. This does not locate a causal branch.
+
+Shipping float isolated-worker results are highly variable, including same-image
+cycle placebos from roughly **0.63 to 1.70** on CPU16. They do not overturn the
+repeat full-suite regression. PMU counters cover the whole user process,
+including startup/warmups; elapsed sums 1,000 measured executions. Keep both
+contexts and diagnose the hot-path loss rather than accepting a favorable median.
 Evidence: `vm-add-callback/{timing,timing-repeat,timing-parent,timing-parent-repeat}`
 and `{shipping,speed}-parent-counters/` under hook-resume recovery.
 
