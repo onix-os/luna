@@ -9,7 +9,111 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Non-fall-through block alignment — isolated experiment, 2026-10-19
+### Independent interpreter-counter publication — isolated trial, 2026-10-19
+
+Unlike the rejected direct statistics-cell-reference trial, `fd4071a` removes
+the manager borrow from interpreter-guard publication. Three `Cell<u64>` counters
+live in the existing charged runtime owner, separately from the cache/configuration
+`RefCell`. Each guard still publishes at its original Drop boundary; no frame,
+callback, error or suspension boundary is batched away. Public snapshots merge
+these counters with manager-owned native/pair counts using saturating addition.
+There is no extra allocation, unsafe code, retained GC pointer or cached mode.
+
+The owner grows **24 bytes**, explicitly included in `HeaderCharge` and checked
+against the previous owner layout. No zero-cost resource claim is made. Two
+independent counter models (`7ad6fca`) cover interleaved updates, saturation and
+non-consuming snapshots; the unchanged-runtime baseline passes **53 checks /
+six summaries**. The activated candidate passes **110 checks / 17 summaries**,
+zero ignored, including public dispatch, native/heap, nested guards, typed panic
+unwinding, callback observations, owner quotas and reclamation.
+
+One private behavior deliberately changes with the storage separation: publishing
+interpreter counts no longer conflicts with a borrowed cache/config manager.
+The old panic assertion is replaced by exact publication and unchanged manager
+storage checks under both shared and mutable manager borrows. Public snapshot
+borrowing and all counter/value assertions remain. Test-only resets clear both
+stores; internal trace readers now observe the merged snapshot. This is not an
+unchecked bypass of a borrow on the same storage.
+
+The first full Force run stops at **1,492 passing / one failing / 23 ignored**
+library tests: the atomic-call oracle still compares manager-only storage after
+interpreter counts move out of it. `fc0d660` releases that manager borrow and
+compares the merged snapshot, retaining every expected value. It also extends
+the independent-publication fixture to typed unwinding while the manager is
+mutably borrowed. Refined focused validation passes **111 checks / 18 summaries**,
+zero ignored; the failed full-run logs and source revision remain preserved.
+
+The refined candidate completes full all-target Force validation: **2,047 passing
+checks / 91 summaries / 23 ignored**, with no failures. The ignored tests are not
+claimed as executed coverage. Six exact default-flag production builds are now
+running before whole-workload instruction profiling. Separate follow-up recipes
+are prepared for actual native callback profiles, both Miri borrow models and
+i686 fallback; syntax validation is not execution evidence for those gates.
+
+The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
+unchanged. A helper disappearing or moving work
+to snapshot construction will not establish a speedup. Fresh Miri/fallback,
+original elapsed/compiled-Off gates and full resource/platform/release acceptance
+remain open. Evidence:
+`target/jit-evidence/hook-resume-recovery/interpreter-counter-root/`.
+
+### Common Lua-state prefix — measured and rejected, 2026-10-19
+
+The completed long prepared-table campaigns' unchanged-control observations
+place speed callback Off/Auto medians near **0.8142 / 0.8178** on CPU0/16,
+below the original **1/1.2** minimum. Compiled-Off upvalue medians are about
+**1.0877 / 1.2121** in shipping, above the original **1.05** ceiling. These
+pooled contended observations prioritize remaining gaps; they are not new gates
+or evidence of a candidate improvement.
+
+A baseline-only layout diagnostic (`9f9615a`) passes with and without JIT. It
+confirms that enabling the feature shifts every shared `State` field by **16
+bytes**: ordinary state is **128 bytes**, JIT state **144 bytes**. Isolated trial
+`14ed51c` gives the private state an explicit C field order and places the two
+optional JIT handles after the common fields. This preserves shared-field
+offsets across feature builds without padding the interpreter-only state,
+changing `Value` representation, adding allocations/caches/unsafe code, or
+changing initialization order. Derived GC tracing still covers all fields;
+its traversal order changes and must be validated rather than assumed harmless.
+
+Both layouts retain their original total sizes. Four candidate layout checks
+pass across the feature choices, including a common-prefix assertion; baseline
+diagnostics pass twice. This tests feature-dependent data layout, not another
+function/branch alignment policy or an established explanation for the slowdown.
+Focused validation now passes **198 executions / 32 summaries**, zero failures
+or ignored tests, including configuration, memory limits, hooks and GC requests.
+All six exact production images build and verify. Both no-feature executables
+are **byte-identical to the frozen controls**; flags/configurations/environments
+match. Candidate diagnostic output verifies equal common-field offsets across
+feature choices. Full Force validation now passes **2,046 executions / 91
+summaries**, zero failures and **23 ignored**. Fresh-target Stacked/Tree Miri
+each pass **18 checks**, covering both feature choices for state layout, hook
+resumption and memory-limit behavior; emitted warnings remain in the logs.
+Real i686-musl passes **24 checks** across layout, hooks, memory and fallback.
+Zero-case workspace summaries are not counted as test executions. These are
+Rust-state/fallback checks, not native execution under Miri/i686 or complete
+platform certification.
+
+Both original elapsed campaigns now finish **288 commands / 28,512 native
+executions / 570,240 cost iterations**, after all owned validation work. Full
+native counter/resource records match, source/image/tool witnesses verify, and
+each audit rejects all 13 corruption fixtures. All contention and outliers remain.
+These terminal-zero audit/capture statuses are not passing performance gates.
+
+Reject this runtime change. CPU0 shipping compiled-Off integer control/trial
+ratios are **0.924502 / 0.906888**, float **0.895598 / 0.850165**, approximately
+**8–10% / 12–18% longer elapsed time**. Corresponding median A/B controls stay
+near one. CPU16 shipping upvalue Off ratios **0.980619 / 0.979056** worsen the
+targeted overhead rather than remove it. CPU0 speed callback ratios improve
+**1.019269 / 1.008399**, but shipping callbacks instead give **0.989714 /
+0.974384**. Preserving common state offsets is therefore not a sufficient remedy
+for these workloads. This does not prove which hardware effect caused the losses.
+The runtime and layout fixtures remain isolated on `trial/jit-state-core-prefix`;
+candidate speed-native failures are **17 then 13 / 96**, cost **43 then 63 / 216**.
+Main runtime/default flags are unchanged and full-plan acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/state-core-prefix/`.
+
+### Non-fall-through block alignment — rejected, 2026-10-19
 
 Current hardware evidence motivates a distinct, fixed compiler-policy experiment:
 `RUSTFLAGS='-C llvm-args=-align-all-nofallthru-blocks=5'`. Pinned rustc 1.97.1 /
@@ -35,10 +139,30 @@ Static VM disassembly verifies complete instruction coverage in all four images.
 Speed VM extent grows **55,274 → 71,333 bytes**, shipping **42,104 → 57,061**;
 unique internal direct targets stay **952 / 745**, while targets on 32-byte
 boundaries rise **43 → 495 / 34 → 376**. These counts include cold blocks and
-do not establish dynamic instruction savings. Both complete elapsed campaigns
-are running sequentially after all owned build/test work finishes. The code-size
-increase remains a cost to evaluate; no performance or release acceptance follows
-from successful build/preflight/static checks.
+do not establish dynamic instruction savings.
+
+Both elapsed campaigns now finish **288 commands / 28,512 native executions /
+570,240 cost iterations**, with matching complete native counter/resource records,
+verified source/image/tool witnesses and all 13 corruption fixtures rejected per
+audit. No owned build/test/profiler overlaps measurement. All external contention
+and outliers remain; terminal-zero capture/audit statuses are not passing gates.
+
+Reject the policy. CPU0 shipping compiled-Off integer control/candidate ratios
+are **0.735378 / 0.818875**, float **0.709204 / 0.819659**, adverse in six then
+five of six rounds for each workload. Corresponding A/B medians stay between
+**0.996813 and 1.002013**. This is approximately **22–36% / 22–41% longer
+elapsed time**, not a fix. CPU16 shipping float also loses in all six rounds of
+each campaign (**0.961197 / 0.969500**). CPU0 shipping callback gains
+**1.027100 / 1.024900** do not compensate. No-feature numeric results vary
+substantially between CPU0 campaigns and remain recorded rather than normalized
+away. Candidate speed-native gate failures are **21 then 23 / 96**, cost
+**34 then 51 / 216**. These counts do not cancel individual regressions.
+
+The fixed alignment policy increases VM code size about **29% / 36%** and fails
+the end-to-end comparison. No flag or runtime change is promoted. This excluded
+compiler policy does not identify the hardware cause or justify another offset
+search. No full Force, Miri or cross-platform certification is claimed for this
+rejected experiment; full native-JIT acceptance remains incomplete.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/block-target-align/`.
 
