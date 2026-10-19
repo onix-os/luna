@@ -3585,3 +3585,5 @@ mod scheduled_import_tests;
 
 #[cfg(test)]
 mod slice_policy_tests;
+
+mod vm_progress;

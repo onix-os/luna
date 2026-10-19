@@ -72,7 +72,6 @@ impl Slot {
         *dest = self.value(*dest);
     }
 
-    #[inline(always)]
     pub fn value<'gc>(self, reference: Value<'gc>) -> Value<'gc> {
         match self.tag {
             NIL => Value::Nil,

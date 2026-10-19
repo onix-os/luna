@@ -1521,6 +1521,13 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-phase-progress jit-phase-progress-miri
+jit-phase-progress:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::vm_progress::tests
+
+jit-phase-progress-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::vm_progress::tests -- --test-threads=1
+
 .PHONY: jit-strided jit-strided-miri jit-strided-frame jit-strided-frame-miri
 jit-strided-frame:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) strided_frame_ -- --test-threads=1

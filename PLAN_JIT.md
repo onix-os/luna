@@ -9,12 +9,70 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Native slot-conversion call boundary — validation pending, 2026-10-19
+### Phase-reused VM progress — integration under validation, 2026-10-19
+
+The historical unified-progress trial is not being replayed: it nested the
+original interpreter publisher in a larger wrapper with a second destructor.
+The new model stores either in-flight native progress or the final report in
+one enum occupying the original `Option<u32>` storage. Its total-dispatch field
+can serve as VM progress until finishing; one destructor publishes only the
+interpreted partition, at the original boundary and through the original
+manager borrow. No extra allocation, cached policy, batched publication or
+unsafe code is introduced.
+
+Layout checks require the phase enum and complete guard to match the old report
+and guard sizes, and the historical wrapper to be larger. Independent comparisons
+against the unchanged publisher cover 378 saturation/partition/report scenarios,
+terminal adjustments, native prefixes, rollback, typed unwinding, held-manager
+refusal and full-width counters. State transitions compute their results before
+mutating fields, preserving unwinding publication if a checked build traps.
+
+The original runtime remains active during the initial test-only model. Model plus
+existing statistics/native/heap checks pass **55 checks / six summaries**, zero
+failures/ignored checks; the refined model passes **four / one summary**. VM
+integration, hook/slice/error parity and actual work/elapsed measurement remain
+pending at that checkpoint. The integrated VM now uses this guard's dispatch
+field as its single loop-progress counter. Native increments remain partitioned;
+terminal, yielded-hook and provisional rollback exits retain their original
+reported counts. The existing guard remains unchanged for other publishers.
+Formatting/check-all and **61 focused checks / ten summaries** pass, zero
+failures/ignored checks, including public dispatch totals, native/heap behavior,
+hook resumption and callback-visible fuel/state. This is focused correctness,
+not full Force, Miri, platform or performance acceptance. All original
+performance/resource/platform/release requirements stay
+open. Work stays on `feat/native-jit`, without new branches or worktrees.
+Evidence: `target/jit-evidence/hook-resume-recovery/phase-progress/`.
+
+Native-prefix/region validation adds **79 checks / ten summaries / two ignored**,
+with no failures. Fresh baseline builds at test-only-model commit `0f09818`
+reproduce all six original `218112b` images byte-for-byte. Candidate `bd4064f`
+changes all six image hashes, including no-feature images after the VM source
+edit; that difference is recorded, not represented as identity or waived from
+comparison.
+
+Three whole-execution profile families cover native callbacks and compiled-Off /
+no-feature float loops in both profiles: **24 alternating processes / 120 execute
+calls / 48 warmups**. Printed callback statistics match; image/object identity,
+all 13 event totals and full text-symbol partitions reconcile. Each family
+accepts two valid and rejects four identity-corruption fixtures. Float diagnostics
+attribute the VM and the full image, not a selected subset of whole-workload work.
+
+No-feature float counts remain identical: **4,081,046** speed and **4,375,155**
+shipping. Compiled-Off float counts fall **4,015,310 → 3,936,535** and
+**4,109,344 → 4,033,702** respectively. Actual native callbacks increase
+**9,438,782 → 9,448,784** in speed and **11,684,260 → 11,754,274** in shipping.
+The callback cost is retained, not hidden behind the interpreter saving. These
+are modeled instruction counts, not a measured speedup or original-gate pass.
+Full Force, configured Miri borrow-model runs, real i686 fallback and both
+original all-nine-case elapsed screens are running sequentially. No owned
+tests/builds/profilers overlap elapsed timing; all acceptance requirements remain.
+
+### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 
 **Resumed by the user on `feat/native-jit`.** The previously interrupted
 validation output is preserved and is not claimed as a full test pass or
-performance result. The pending one-attribute conversion candidate is applied
-on the existing implementation branch. Validation uses the retained detached
+performance result. The conversion candidates are tested and reverted
+on the existing implementation branch. Initial validation uses the retained detached
 source snapshot only after confirming its runtime, test and build inputs match;
 no local/remote branch or additional worktree is created.
 Experimental branch names below are historical provenance: **59 local and 55
@@ -41,7 +99,7 @@ not guessed from stripped disassembly names. Speed conversion is already inlined
 The explicit stack-operand counts are not stack traffic attributable solely to
 conversion and are not a claim of removable time.
 
-Pending implementation commit `eb25372` forces the existing `Slot::value` conversion inline,
+Initial candidate `eb25372` forces the existing `Slot::value` conversion inline,
 without integer/reference shortcuts, skipped writebacks, narrowed counters,
 changed tags, altered ABI or retained pointers. Unlike earlier rejected scalar
 specializations, its hypothesis is removing the shipping aggregate-return call
@@ -49,12 +107,64 @@ boundary while retaining the exact match body. Previous projection outlining,
 static import/writeback masks, counter publishing and callback handoffs are not
 reintroduced. Baseline ABI validation passes **10 checks**. Resumed formatting,
 all-feature checking and broad JIT validation pass **1,479 checks / 11 summaries**,
-with zero failures and **22 ignored**. The full all-target Force suite is running;
-its partial output is not a completed pass. Whole-workload profiles and both
-original speed/shipping elapsed controls must determine whether this helps.
+with zero failures and **22 ignored**. The full all-target Force suite completes
+with **2,044 passing checks / 91 summaries / 23 ignored**, zero failures. The
+six production images build, retaining byte-identical no-feature controls. Actual
+native callback profiles and their two positive/four identity-corruption fixtures
+complete, with all 13 events and full symbol partitions reconciled. The proposed
+boundary removal **does not occur**: speed stays at **9,438,782** whole-execution
+instructions and shipping stays at **11,684,260**. Shipping loses the 315,062-
+instruction `Slot::value` symbol but gains a 390,077-instruction `Slot::write_back`
+symbol; transport self work drops by exactly 75,015. This is relocated work, not
+a performance improvement, and does not justify a timing campaign for that form.
+
+The refinement also forces the existing outer `write_back` method inline. It
+keeps the exact conversion body and tests on `feat/native-jit`, without creating
+branches or additional worktrees. A plain `git archive` source snapshot provides
+immutable provenance for diagnostic profiling before repeating expensive broad
+gates. Full Force/Miri/fallback and original repeated elapsed gates remain
+required before retaining the refinement; reordering diagnostics is not a waiver.
+Refinement `729c697` passes formatting/check-all and **68 focused checks / five
+summaries**, zero failures/ignored checks. All six production images and actual
+callback profiles verify, including printed counter/resource parity and the
+identity-corruption fixtures. Both no-feature images remain byte-identical to
+their original controls. No out-of-line `Slot::value` or `Slot::write_back`
+symbol remains in the shipping image. Whole steady callback work falls from
+**11,684,260 to 11,509,225 instructions** in shipping, but grows from **9,438,782
+to 9,463,787** in speed. This is a mixed result, not a claimed speedup or evidence
+that the speed callback gate is solved. The larger serial campaign completes:
+full Force, both Miri borrow models, real i686 fallback, then both original
+all-nine-case elapsed screens. No owned tests/builds/profilers overlap timing.
+
+The refined source passes full Force **2,044 / 91 summaries / 23 ignored**, both
+Miri borrow models **23 / two summaries each**, and real i686 fallback **25 /
+three summaries**. Miri/fallback do not establish generated-code execution.
+Two original elapsed screens complete **288 commands / 28,512 native executions /
+570,240 feature-cost iterations**, with zero printed counter/resource mismatches.
+Both pass source/image/tool verification and valid/restored plus 13-corruption
+audits. Capture/audit exit zero does not mean passing performance acceptance.
+
+Shipping native callbacks improve: control/trial median ratios are **1.043601 /
+1.043206** on CPU0 and **1.039909 / 1.042847** on CPU16. Speed callbacks do not
+improve repeatably (**1.000736 / 0.993187**, **0.995250 / 0.987493**). More
+importantly, CPU0 shipping compiled-Off integer ratios are **0.888304 / 0.889048**
+and float **0.924176 / 0.925253**, adverse in every round of both screens with
+A/B medians near one. These are roughly 12.5% and 8% longer elapsed times;
+instruction reduction does not justify the regression. All noisy samples remain,
+and changed code placement is not claimed as a proven hardware cause.
+
+Original speed-native candidate gates fail **19/96**, then **18/96**; compiled-Off
+gates fail **49/216**, then **35/216**. **Reject both annotations and restore the
+pre-candidate runtime**, retaining the complete evidence and no new branches.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
-`slot-value-inline/`. The candidate is not performance-accepted or release-ready;
-it will be reverted if whole-workload evidence is adverse. No speedup established.
+`slot-value-inline/complete-boundary/` (the first form remains in its parent).
+No candidate performance gain is retained; full native-JIT acceptance remains open.
+Restoration passes formatting/check-all and **68 focused checks / five summaries**,
+zero failures/ignored checks. All six rebuilt production images are **byte-identical
+to the original `218112b` controls**: no-feature, compiled-Off and native benchmark,
+in both speed and shipping. This confirms artifact restoration, not merely source
+equality; the frozen controls are still valid for the restored production code.
+Restoration evidence is in `slot-value-inline/restoration/`; all jobs are terminal.
 
 ### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
