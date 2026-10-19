@@ -83,10 +83,44 @@ allocations retain content comparison; weak/dead-key and non-string paths,
 hashing, layout and ownership are unchanged. The older unconditional identity
 trial was withdrawn; this new composition is not accepted by analogy. It tests
 a work reduction at the newly observed hotspot while preserving no-feature
-source behavior. The isolated change is committed/pushed; focused/full Force
-validation and six production builds are running. Exact Miri/i686 and elapsed
-acceptance remain open. Evidence: `vm-add-callback/meta-branch-samples/` and
-`vm-add-callback-identity/`.
+source behavior. The isolated change is committed/pushed and passes **258 focused
+executions / 40 summaries**, full Force **2,036 / 90**, **23 ignored**, twenty
+Miri tests under each borrowing model, and **127 real i686 executions / 18
+summaries**. No failures; Miri warnings remain recorded and generated code is not
+Miri-covered. Six production images finish; both no-feature `.text` sections and
+ELF section/segment geometry match the original baseline, not whole-file bytes.
+
+Four exact-image instruction profiles verify twenty Lua executions including
+eight warmups. Each measured execution reduces String::eq entries **4,003 →
+1,000**, self instructions **117,087 → 30,000**, and total instructions by
+exactly **82,081**. VM and table-get self instruction counts match. All thirteen
+exclusive event sums and image/source/tool manifests verify. This establishes
+the work reduction, not its elapsed benefit.
+
+Four complete original-baseline/direct-parent screens finish **576 commands /
+57,024 native executions / 1,140,480 feature-cost iterations** with zero
+execution/resource-counter mismatches and valid/restored plus 13 corruption
+fixtures per screen. Original-baseline CPU16 speed JIT-Off metamethod ratios are
+**1.049788 / 1.049036**, Oslo **1.011135 / 1.007833** (initial/repeat). Direct
+`0102f37` parent metamethod ratios are **1.074109 / 1.073154**, Oslo **1.040746 /
+1.044664**. The targeted losses recover in those lanes, but shipping CPU0 numeric
+regressions prevent promotion:
+
+| Control | Shipping CPU0 JIT-Off | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | Integer | 0.965793 | 0.964084 |
+| Original | Float | 0.973005 | 0.972268 |
+| Parent `0102f37` | Integer | 0.939780 | 0.956618 |
+| Parent `0102f37` | Float | 0.965656 | 0.972574 |
+
+Those lanes are adverse in six then five rounds each. Original-baseline CPU0
+speed metamethod also remains below one (**0.985016 / 0.984379**). Original
+native speed gates fail **17 then 24 of 96** scored windows; feature-cost gates
+fail **45 then 50 of 216**. Fewer failed cost gates do not erase the new losses.
+All distributions and placebos remain retained. No runtime promotion or full
+performance/resource/platform/release acceptance. Evidence:
+`vm-add-callback/meta-branch-samples/` and `vm-add-callback-identity/`, especially
+`meta-instructions/` and the four `timing*` directories.
 
 ### Single Add result store — shipping recovery, acceptance open, 2026-10-19
 
