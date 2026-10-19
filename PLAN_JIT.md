@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Absent memory-limit fast path — work reduced, timing pending, 2026-10-19
+### Absent memory-limit fast path — mixed timing, not promoted, 2026-10-19
 
 Trial `a835305` follows foundation `b5918d8` on the pre-fusion runtime plus
 Oslo diagnostic. A small inlined limit-presence check returns immediately when
@@ -50,8 +50,26 @@ under `screen-launch-initial/`. Explicit control aliases now resolve to the same
 frozen images; all four screen layouts pass cost/native hash verification.
 The replacement launch has entered native and feature-cost sampling; no image,
 source witness or performance threshold was changed.
-All performance and full-plan gates remain unchanged; no runtime promotion or
-performance acceptance is established. Evidence:
+All four screens finish: **576 commands / 57,024 native executions /
+1,140,480 feature-cost iterations**, zero counter/resource mismatches, all
+13 corruption fixtures rejected per screen. Original-control candidate native
+speed failures are **22 then 22 / 96**, cost failures **48 then 45 / 216**;
+direct-parent failures are **19 then 20 / 96** and **51 then 47 / 216**.
+Successful audit status does not mean successful performance acceptance.
+
+Against the direct parent, CPU0 speed float control/candidate ratios repeat at
+**0.957570 / 0.956095**, adverse in five of six rounds both times, with same-image
+placebos **0.996208 / 1.000079**. That roughly 4.5% slowdown prevents promotion
+of this trial. Oslo itself is mixed: CPU16 speed ratios **1.018569 / 1.016324**,
+CPU0 speed **0.996137 / 0.999391**, CPU0 shipping **1.006272 / 1.003969**, and
+CPU16 shipping **0.992793 / 0.996300**. All outliers remain; instruction savings
+do not establish a universal elapsed-time gain.
+
+The next isolation applies only this memory-limit change to main, without the
+trial's earlier numeric/inline-string runtime changes, and measures fresh exact
+images before deciding whether to retain it. All performance and full-plan gates
+remain unchanged; no runtime promotion or performance acceptance is established.
+Evidence:
 `target/jit-evidence/hook-resume-recovery/limit-fast-path/`.
 
 ### Complete Oslo row lifecycle — fresh attribution, 2026-10-19
