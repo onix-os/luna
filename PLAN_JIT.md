@@ -49,9 +49,10 @@ boundary while retaining the exact match body. Previous projection outlining,
 static import/writeback masks, counter publishing and callback handoffs are not
 reintroduced. Baseline ABI validation passes **10 checks**. Resumed formatting,
 all-feature checking and broad JIT validation pass **1,479 checks / 11 summaries**,
-with zero failures and **22 ignored**. The full all-target Force suite is running;
-its partial output is not a completed pass. Whole-workload profiles and both
-original speed/shipping elapsed controls must determine whether this helps.
+with zero failures and **22 ignored**. The full all-target Force suite completes
+with **2,044 passing checks / 91 summaries / 23 ignored**, zero failures. The
+optimized production images are building before whole-workload profiling; both
+original speed/shipping elapsed controls must still determine whether this helps.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
 `slot-value-inline/`. The candidate is not performance-accepted or release-ready;
 it will be reverted if whole-workload evidence is adverse. No speedup established.
