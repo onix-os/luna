@@ -35,8 +35,16 @@ borrowing and all counter/value assertions remain. Test-only resets clear both
 stores; internal trace readers now observe the merged snapshot. This is not an
 unchecked bypass of a borrow on the same storage.
 
+The first full Force run stops at **1,492 passing / one failing / 23 ignored**
+library tests: the atomic-call oracle still compares manager-only storage after
+interpreter counts move out of it. `fc0d660` releases that manager borrow and
+compares the merged snapshot, retaining every expected value. It also extends
+the independent-publication fixture to typed unwinding while the manager is
+mutably borrowed. Refined focused validation passes **111 checks / 18 summaries**,
+zero ignored; the failed full-run logs and source revision remain preserved.
+
 The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
-unchanged. Full Force validation is running before six exact production builds
+unchanged. Full Force validation is rerunning before six exact production builds
 and whole-workload instruction profiling. A helper disappearing or moving work
 to snapshot construction will not establish a speedup. Fresh Miri/fallback,
 original elapsed/compiled-Off gates and full resource/platform/release acceptance
