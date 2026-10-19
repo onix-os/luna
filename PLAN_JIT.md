@@ -175,8 +175,15 @@ asserts native execution, fresh callback observations and complete code retireme
 before returning from each configuration-changing callback, with no recompilation
 during later manual steps. Fresh formatting/check-all and **274 executions /
 39 summaries** pass, zero failures, ignored checks or warnings. Six original-image
-comparisons follow; they are not assumed from source inspection. No branch/worktree
-is created.
+comparisons now finish successfully at **`0419303`**. Its immutable source repeats
+the same **274 / 39** focused validation and passes its own all-feature Force
+suite: **2,065 executions / 91 summaries**, zero failures, 23 ignored and no
+warnings. All six rebuilt speed/shipping no-feature, compiled-Off and native
+executables are **byte-for-byte identical to the original controls**, not merely
+metadata-equivalent. Environment/configuration/source/tool witnesses verify.
+No branch/worktree is created; all withdrawal jobs are terminal.
+Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/static-off-refinement/withdrawal/`.
 
 ### Code-owned per-PC read hints — runtime withdrawn, 2026-10-19
 
