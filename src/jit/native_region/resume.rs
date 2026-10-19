@@ -208,7 +208,7 @@ mod tests {
                             ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                             host.run(ctx, 1, start as u32, 4).result.unwrap();
                             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                            ctx.jit().0.borrow_mut().stats = Default::default();
+                            ctx.jit().set_stats(Default::default());
                             let result = if mode == 0 { host.run(ctx, 1, budget, 4).result }
                             else {
                                 let (code, count, pc) = prefix(ctx, closure, host, region.source, budget);
@@ -252,7 +252,7 @@ mod tests {
                                 host.run(ctx, 1, start as u32, 4).result.unwrap();
                                 host.test_fuel(Fuel::with(fuel));
                                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                                ctx.jit().0.borrow_mut().stats = Default::default();
+                                ctx.jit().set_stats(Default::default());
                                 let (code, count, pc) = prefix(ctx, closure, host, region.source, budget);
                                 let mut scope = crate::jit::PairScope::default();
                                 let result = if count == budget { Ok(count) }
@@ -294,7 +294,7 @@ mod tests {
                             host.run(ctx, 1, start as u32, 4).result.unwrap();
                             host.test_fuel(Fuel::with(fuel));
                             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                            ctx.jit().0.borrow_mut().stats = Default::default();
+                            ctx.jit().set_stats(Default::default());
                             let result = host.run(ctx, slices, budget, 4).result;
                             (trace(ctx, host, (0, 0)), result.err().map(|e| e.to_string()))
                         });
@@ -412,7 +412,7 @@ mod tests {
                         host.run(ctx, 1, start as u32, 4).result.unwrap();
                         ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                         ctx.jit().0.borrow_mut().config.hot_threshold = 1;
-                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        ctx.jit().set_stats(Default::default());
                         let (code, count, pc) = prefix(ctx, closure, host, region.source, 64);
                         match change {
                             0 => {
