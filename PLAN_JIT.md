@@ -70,8 +70,29 @@ The preceding instruction profiles used feature-cost executables, not these
 native-benchmark executables; their counts cannot identify this loss's cause.
 Next recover link maps with **whole-file identity** to the actual measured
 native images and attribute those exact images before another source change.
+The four map recaptures now reproduce those measured native-benchmark ELFs
+byte-for-byte. Fresh single-mode Auto profiles complete eight processes / 40
+executions / 16 warmups, with full non-timing record equality, reconciled events
+and text symbols, and both identity-parser fixture sets passing. Native-image
+speed totals are **9,438,782 → 9,373,782**, shipping **11,684,260 → 11,609,260**.
+VM/transport self work remains unchanged. Shipping VM address/size and several
+physical-frame symbols also stay identical; the prepared helper grows from
+`0x480` to `0x4be` bytes at the same address. These findings do not establish a
+hardware cause or cancel the elapsed shipping loss.
+
+Independent test foundation **`b43d9ce`** adds closure, callback, thread and
+userdata environments to the generic/prepared differential model. All nine
+prepared-key tests and formatting pass on the unchanged runtime. New isolated
+trial **`79f1498`** specializes only the prepared string-key table read: a fresh
+`Closed(Table)` state yields its table directly, other closed kinds decline,
+and open cells retain the original resolver. Generic upvalue helpers and their
+inlining policy are unchanged. This tests a narrower typed result path instead
+of repeating the general helper annotation; its focused validation and image
+build are in progress, not a passing performance result. Evidence root:
+`target/jit-evidence/hook-resume-recovery/helper-prepared-table/`.
+
 No runtime promotion or full performance/platform/resource/release acceptance
-is established. Evidence:
+is established. Earlier candidate evidence:
 `target/jit-evidence/hook-resume-recovery/helper-upvalue-inline/` and
 `target/jit-evidence/hook-resume-recovery/helper-closed-read/`.
 
