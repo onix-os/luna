@@ -9,6 +9,41 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Constant inline-string offsets — validation, 2026-10-19
+
+Trial `eb24c3a` on `trial/jit-inline-byte-offset` starts from `0102f37`, not the
+rejected string-identity shortcut. Test foundation `a310e3e` checks every inline
+length through 256, the 257-byte fallback, a larger allocation, static/owned
+storage, hashes, and a `Gc` round trip. The JIT-only change uses the constant
+header size for the inline byte offset, with a compile-time assertion against
+the actual constructor layout for each capacity. The non-JIT calculation,
+representation, ownership, and public API are unchanged.
+
+Exact-candidate validation passes **260 focused executions / 42 summaries**,
+all-feature Force **2,037 passes / 90 summaries**, **23 ignored**, focused Miri
+**22 passes / 5 summaries per borrow model** (stacked and tree), and real i686
+**129 passes / 20 summaries**. No failures occurred; Miri warnings are retained.
+Six stripped production images are built. Both no-feature executable sections
+and section/segment geometry match original baseline `79631fe`; whole files
+differ. Original-baseline and direct-parent source, environment, configuration,
+and immutable-image preflights pass.
+
+Exact stripped speed-image Callgrind profiles compare against `0102f37`: four
+processes, 20 Lua executions including eight warmups. All 13 exclusive event
+totals reconcile in each profile. The candidate no longer has a separately
+linked `String::eq` symbol; its work is accounted in `Key::eq`, not treated as
+free. Across all 12 measured profiles, combined key/string equality self
+instructions drop **201,150 → 176,126**, and conditional branches drop
+**35,027 → 21,015**, with 4,003 key-equality entries in both variants. VM and
+table-lookup self instruction counts remain unchanged between corresponding
+parts. Other work changes, so these local reductions are not a whole-execution
+speedup claim.
+
+Full nine-workload elapsed screens against both baselines are running; repeats
+and timing analysis remain outstanding. This candidate is **not promoted** and
+does not establish performance or release acceptance. Evidence is under
+`target/jit-evidence/hook-resume-recovery/vm-inline-byte-offset/`.
+
 ### Combined Add and callback tuning — repeated trade-off, 2026-10-19
 
 Trial `0102f37` on `trial/jit-add-callback` combines `522976f` with the exact
