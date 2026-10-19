@@ -44,6 +44,12 @@ is unchanged; the empty-limit calls disappear. Allocation/GC variability is
 retained, and whole-image reductions—not the removed symbol alone—are the
 evidence. These are not elapsed-speed percentages. Four original/direct-parent
 production screens are now running after owned builds/tests/profilers finish.
+The first launch stopped before sampling: prepared control links were named
+`baseline`, while the runner expected `control`. The failed preflight is retained
+under `screen-launch-initial/`. Explicit control aliases now resolve to the same
+frozen images; all four screen layouts pass cost/native hash verification.
+The replacement launch has entered native and feature-cost sampling; no image,
+source witness or performance threshold was changed.
 All performance and full-plan gates remain unchanged; no runtime promotion or
 performance acceptance is established. Evidence:
 `target/jit-evidence/hook-resume-recovery/limit-fast-path/`.
