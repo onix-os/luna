@@ -9,6 +9,29 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Early operand refusal — work reduction, timing pending, 2026-10-19
+
+Trial `c113a70` unwraps each optional numeric operand before reading the next,
+then matches two non-optional numeric values. It preserves numeric operation
+order and canonical fallback effects. Exact focused **268 tests / 44 summaries**
+and full Force **2,043 / 90**, **23 ignored**, pass with zero failures or warnings.
+All six production images and original/direct-parent preflights verify.
+No-feature executable text and section/segment geometry match original;
+whole files differ.
+
+Eight closure Callgrind processes retain 40 executions including 16 warmups.
+All 13 exclusive events and complete text-symbol partitions reconcile. Compared
+with direct parent `c2a7865`, measured helper self instructions drop
+**1,240,000 → 1,150,000 speed** and **1,200,000 → 1,130,000 shipping**.
+Image instruction totals drop by exactly **90,000 / 70,000**; VM self work
+is unchanged. This recovers the previous operand-handling regression, not proof
+of an accepted improvement over the original runtime or elapsed-time speedup.
+
+Four original/direct-parent timing campaigns are running after owned builds and
+profilers finished. Their gates remain unchanged. Exact-candidate Miri/i686 and
+full performance/release acceptance remain open; this trial is not promoted.
+Evidence: `target/jit-evidence/hook-resume-recovery/vm-upvalue-early/`.
+
 ### Numeric-only operands — additional work and gate failures, 2026-10-19
 
 Trial `c2a7865`, following test foundation `2117b9b`, narrows the outlined
