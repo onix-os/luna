@@ -354,19 +354,3 @@ impl<'gc> fmt::Debug for TableState<'gc> {
             .finish()
     }
 }
-
-#[cfg(feature = "jit")]
-impl<'gc> Table<'gc> {
-    pub(crate) fn get_code_string(
-        self,
-        ctx: Context<'gc>,
-        key: crate::String<'gc>,
-        canonical_hash: super::PreparedStringHash,
-        hint: Option<crate::jit::entry_bytes::Hint<'_>>,
-    ) -> Value<'gc> {
-        self.0
-            .borrow()
-            .raw_table
-            .get_code_string(&ctx, key, canonical_hash, hint)
-    }
-}

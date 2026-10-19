@@ -85,7 +85,6 @@ fn closed_constant_table_reads_keep_sibling_pointers_live() {
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     for value in kinds {
@@ -160,7 +159,6 @@ fn closed_reads_refresh_control_pointers_after_fallback_and_preserve_declines() 
                 count: helpers::Counts::default(),
                 slot_count: 4,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {
@@ -266,7 +264,6 @@ fn narrow_table_read_panics_preserve_direct_writes_and_stop_reentry() {
                 count: helpers::Counts::default(),
                 slot_count: 2,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {

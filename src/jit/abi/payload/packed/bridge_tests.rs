@@ -93,7 +93,6 @@ fn packed_c_bridge_matches_all_ten_real_helper_effects() {
                                 count: helpers::Counts::default(),
                                 slot_count: 5,
                                 panic: None,
-                                read_hints: None,
                                 projection: None,
                             };
                             let result =
@@ -166,7 +165,6 @@ fn packed_c_bridge_contains_helper_panics_and_preserves_pending_payload() {
                 &mut values,
                 |mut registers| {
                     let mut frame = helpers::Frame {
-                        read_hints: None,
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -220,7 +218,6 @@ fn packed_c_bridge_retains_refusal_without_fabricating_panic() {
                 count: helpers::Counts::default(),
                 slot_count: 1,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             let result = with_bridge::<1, _>(&mut frame, |_, bridge| unsafe {
@@ -258,7 +255,6 @@ fn packed_c_bridge_refuses_failed_refresh_without_replaying_effects() {
                 count: helpers::Counts::default(),
                 slot_count: 1,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             let result = with_bridge::<2, _>(&mut frame, |_, bridge| unsafe {
@@ -300,7 +296,6 @@ fn packed_c_boundary_preserves_original_unwind_payload_and_direct_writes() {
                 count: helpers::Counts::default(),
                 slot_count: 1,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_bridge::<1, _>(&mut frame, |slots, bridge| unsafe {
@@ -344,7 +339,6 @@ fn packed_c_bridge_declines_without_poisoning_fresh_descriptor_reads() {
                 count: helpers::Counts::default(),
                 slot_count: 2,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_bridge::<2, _>(&mut frame, |slots, bridge| unsafe {

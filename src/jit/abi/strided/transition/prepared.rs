@@ -281,7 +281,6 @@ fn compare(native: bool) {
                                         count: helpers::Counts::default(),
                                         slot_count: 4,
                                         panic: None,
-                                        read_hints: None,
                                         projection: None,
                                     };
                                     let inner = table.into_inner();

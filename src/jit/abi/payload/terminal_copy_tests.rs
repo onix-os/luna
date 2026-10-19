@@ -65,7 +65,6 @@ pub(super) fn check_native(
                             count: counts(),
                             slot_count: 3,
                             panic: None,
-                            read_hints: None,
                             projection: None,
                         };
                         with_bridge::<256>(&mut frame, |slots, host| unsafe {
@@ -184,7 +183,6 @@ fn copy_cases<const RETIRE_SOURCE: bool>() {
                                     count: counts(),
                                     slot_count: count,
                                     panic: None,
-                                    read_hints: None,
                                     projection: None,
                                 };
                                 with_session(&mut frame, |host, slots| unsafe {
@@ -260,7 +258,6 @@ fn stopped_and_invalid_copies_leave_canonical_values_and_descriptors_unchanged()
                     let mut pc = 19;
                     LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
                         let mut frame = helpers::Frame {
-                            read_hints: None,
                             ctx,
                             closure,
                             registers: &mut registers,

@@ -102,7 +102,6 @@ fn check_kinds(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u32)
                                 count: helpers::Counts::default(),
                                 slot_count: 3,
                                 panic: None,
-                                read_hints: None,
                                 projection: None,
                             };
                             with_bridge::<3, _>(&mut frame, |slots, bridge| unsafe {
@@ -196,7 +195,6 @@ fn check_bounds(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u32
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     with_bridge::<256, _>(&mut frame, |slots, bridge| unsafe {
@@ -266,7 +264,6 @@ fn check_reentry(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u3
                         count: helpers::Counts::default(),
                         slot_count: 2,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     with_bridge::<2, _>(&mut frame, |slots, bridge| unsafe {
@@ -326,7 +323,6 @@ fn check_stopped(entry: impl Fn(*mut Packed, &Bridge, bool, u32, u64, u64) -> u3
                 &mut values,
                 |mut registers| {
                     let mut frame = helpers::Frame {
-                        read_hints: None,
                         ctx,
                         closure,
                         registers: &mut registers,

@@ -47,7 +47,6 @@ fn strided_frame_all_kinds_survive_helpers_materialization_and_neighbors() {
                         count: helpers::Counts::default(),
                         slot_count: 3,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     with_frame(&mut frame, false, |header, host| unsafe {
@@ -196,7 +195,6 @@ fn strided_frame_tracks_open_alias_kinds_inside_and_outside_prefix() {
                         count: helpers::Counts::default(),
                         slot_count: 3,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     with_frame(&mut frame, false, |header, host| unsafe {

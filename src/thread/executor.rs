@@ -1697,3 +1697,6 @@ mod callback_chain_tests;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod builtin_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod static_off_tests;

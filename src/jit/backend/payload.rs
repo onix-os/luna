@@ -1227,7 +1227,6 @@ fn run<'gc>(
             count: helpers::Counts::default(),
             slot_count: code.registers,
             panic: None,
-            read_hints: None,
             projection: None,
         };
         let exit = if let Some(payload) = payload {

@@ -9,7 +9,183 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Code-owned per-PC read hints — integrated candidate, 2026-10-19
+### Static Off dispatch — runtime withdrawn, 2026-10-19
+
+**Outcome: rejected by two complete original elapsed campaigns.** The refined
+two-instantiation VM and JIT-only addition inline hint are removed; production
+returns to the single-function `c4ac605` runtime. Only independent test models
+and strengthened Off/Auto boundary, zero-budget and callback-retirement
+regressions remain. Original native/disabled/resource/platform/release acceptance
+is still open; removing this trial does not resolve the baseline performance
+failures.
+
+Repeated helper-size changes leave compiled-Off execution sensitive to the
+native-capable VM's generated shape. This candidate makes the Off/Auto choice
+at each nonzero VM entry, allowing the compiler to eliminate native lookup /
+dispatch and pair observation from the Off instantiation. It is not another
+cached mode, per-width VM, altered counter publisher or object-layout change.
+There remains **one opcode implementation**, with two bounded const-generic
+machine-code instantiations in JIT builds; the no-feature signature and routing
+remain unchanged. Extra text size and placement costs must be measured, not
+assumed harmless because the source body is shared.
+
+Off still runs ordinary hooks, opcodes, transitions, fuel and interpreter
+statistics. Auto retains current source/mode/hook/lease/helper/pair checks; its
+extra entry-mode query is part of the measured cost. No policy or owner survives
+a callback boundary, and the next VM entry selects again. Zero-budget entry
+keeps the original path without borrowing the JIT manager or consuming a pending
+hook marker. The public API, common GC objects, resource owners, instruction
+coverage and native admission rules do not change.
+
+A test-only scoped selector compares specialized Off against the original
+dynamic-Off dispatch. **48 paired executor schedules** compare every physical
+frame, scalar stack bit pattern, PC/return shape, fuel/interruption, total
+dispatch count and result/error, collecting between steps. Cases include
+closures/varargs, tables/metamethods, protected/unprotected errors, close handlers,
+coroutines, interrupted callbacks, nested executors and count-one hooks.
+Four Auto schedules prove neither selector routes an Auto entry to Off. A mixed
+Auto→Off→Auto→Off callback fixture positively executes native code, observes
+fresh callback PC/base/fuel/mode, and compares the complete JIT statistics and
+resource record after each step, including code retirement. Selector counters
+prove the intended path executes; nested and typed-panic scopes restore state.
+
+Formatting/check-all and initial selector/mode/callback/hook/statistics validation
+pass **81 executions / fifteen summaries**, zero failures/ignored checks or
+warnings. After adding the mixed-mode fixture, repeated formatting/check-all
+and selector/hook validation pass **nine executions / four summaries**, also
+zero failures/ignored checks or warnings. New Make targets are
+`vm-static-off` and `vm-static-off-miri`.
+
+This is an **unaccepted implementation candidate**, not a performance claim.
+Actual image shape, text size, all original native/disabled controls and complete
+counter/resource parity must be measured. A faster Off denominator can make
+native paired ratios worse; a slower Off denominator cannot manufacture a native
+speedup. Full Force, source-bound safety, platform/resource/size and original
+repeated elapsed gates remain required before retention.
+Evidence: `target/jit-evidence/hook-resume-recovery/static-off-dispatch/`.
+
+The first frozen shape, **`06062af`**, completes six original-flag image builds
+and all four whole-execution profile families. All 13 events and full symbol
+partitions reconcile; complete native counter/resource records match and each
+family passes its image/object corruption fixtures. The separate source-bound
+prefix passes **74 executions / thirteen summaries**, no failures, ignores or
+warnings. Smaller VM symbols are **not** a saving: callback work increases
+**9,438,782 → 9,528,798** speed and **11,684,260 → 11,734,268** shipping.
+Compiled-Off float increases **4,015,310 → 4,724,064** speed and
+**4,109,344 → 4,896,831** shipping, approximately **18–19% more instructions**.
+No elapsed acceptance run or speedup is claimed for this initial shape.
+
+The complete symbol differences explain the false apparent VM improvement.
+Speed VM self work falls 176,302, but newly outlined canonical `meta_ops::add`
+executes 20,000 times / 880,000 instructions; executor bookkeeping adds 5,008
+and outlined subtraction adds 48. These sum exactly to the 708,754-instruction
+whole-path increase. Shipping similarly adds 940,000 in canonical add, offset
+by 156,975 less VM self work; executor, subtraction and constant conversion add
+4,382 / 52 / 28, exactly explaining the 787,487-instruction increase.
+
+The refinement forces the **unchanged canonical addition body** inline only in
+JIT builds; it introduces no new numeric shortcut or coercion/metamethod policy.
+It also removes the redundant production mode query inside the native-capable
+slice: that private instantiation is reachable only through the just-checked
+Auto selector, and zero-budget entry returns before native lookup. No user code
+can run between those points. Tests retain the inner query because the scoped
+dynamic-Off reference deliberately enters that instantiation while Off; native
+integration tests still exercise the production predicate. Callback boundaries
+continue to return to the selector, without retaining policy or a code lease.
+Fresh validation, image/profile evidence and every original acceptance gate
+remain required; this is not acceptance of the initial instruction regression.
+
+The no-feature images are not whole-file identical: moving feature-only source
+lines changes 68 VM panic-location line fields by fifteen. A strict ELF audit
+proves `.text`, `.rodata`, all section layouts and **every other ELF byte** match
+the original controls, with each changed filename/column/source statement
+validated against both immutable sources. Two valid/restored fixtures pass and
+five code/literal/location/ELF-header corruptions are rejected per profile. The
+initial whole-file identity refusal is retained rather than changed to a pass.
+The first float identity-fixture driver also omits its child-directory parser
+links; its failure is retained, the links are restored, and only unfinished
+analysis/captures run. All source/tool/image witnesses reverify after completion.
+
+Refinement **`9c65de5`** passes fresh formatting/check-all and **274 executions /
+39 summaries**, zero failures, ignored checks or warnings; its immutable archive
+passes the same validation again. Six original-flag images and all four profile
+families complete with all thirteen events/text partitions, complete native
+counter/resource parity and the original identity fixtures. The addition call
+boundary is removed, but overall callback work remains above baseline:
+**9,438,782 → 9,498,792** speed and **11,684,260 → 11,704,262** shipping.
+Compiled-Off float improves relative to the failed initial split, not the
+original control: **4,015,310 → 4,124,062** speed and **4,109,344 → 4,257,457**
+shipping, still **2.71% / 3.60% more instructions**.
+
+Actual refined no-feature images differ only in **82 source-location line
+fields** (68 VM, fourteen MetaOps); every other ELF byte remains identical.
+The original low-bit line-corruption fixture accidentally restores line 949
+to the original allowed coordinate 948, rather than producing an invalid
+metadata change. Its failed rejection expectation and accepted JSON are
+preserved. A separate fixture version uses a genuinely invalid coordinate
+and asserts that a mutation never restores an allowed baseline byte. Both
+profiles pass two valid/restored and five invalid mutations; the strict
+equivalence parser is unchanged, not weakened to make the fixture pass.
+
+Diagnostic elapsed measurement runs before broad safety on this prototype,
+after the frozen 274-test behavioral prefix and complete real-image profiles.
+That ordering does **not** waive safety: it avoids expensive full validation
+of a performance-negative candidate. Prepared full Force/Stacked-Tree Miri/
+i686/native Memcheck scripts are **not run or claimed passed** for this rejected
+refinement. Full original gates remain required for any retained replacement.
+
+Both original elapsed campaigns finish **288 commands / 28,512 native executions /
+570,240 feature-cost iterations**, all nine cases, eleven samples, twenty cost
+iterations, six rotated A/candidate/B rounds, CPU0/16 and both profiles. Full
+counter/resource records match, source/image/tool hashes verify, and each audit
+passes two valid screens / thirteen corruption cases. Raw cost medians are
+recomputed; native printed medians are audited, not mislabelled raw samples.
+No owned build/test/profiler overlaps timing; all contention/outliers are retained.
+Capture/audit statuses are zero, but **both performance acceptances are false**.
+
+Selected control/trial elapsed medians (above one favors the candidate):
+
+| Case / mode / profile | CPU | First | Repeat |
+| --- | ---: | ---: | ---: |
+| Integer / compiled-Off / speed | 0 | 0.47624 | 0.79631 |
+| Integer / compiled-Off / shipping | 0 | 0.49818 | 0.53593 |
+| Float / compiled-Off / shipping | 0 | 0.66081 | 0.65838 |
+| Integer / compiled-Off / speed | 16 | 0.71934 | 0.76033 |
+| Integer / compiled-Off / shipping | 16 | 0.80058 | 0.83112 |
+| Metamethods / Auto / speed | 0 | 0.95987 | 0.93924 |
+| Callbacks / Auto / shipping | 0 | 1.01579 | 1.00720 |
+| Callbacks / Auto / shipping | 16 | 0.97793 | 0.99695 |
+
+CPU0 shipping float is **51–52% slower** with placebo medians **0.99900 /
+0.99782**. Shipping integer is roughly twice as slow in the first campaign,
+and still 87% slower in the repeat. Large speed-profile integer variation and
+its adverse repeat placebo are retained, not omitted. Small/inconsistent
+callback observations cannot compensate for these costs. No hardware cause is
+claimed from instruction counts, function extents or this timing pattern.
+Candidate scored speed-native failures are **17/96 then 21/96**, versus controls
+**14/96 and 10/96**, then **14/96 and 11/96**. Feature-cost failures are
+**130/216 then 128/216**, versus controls **56/216 and 53/216**, then
+**82/216 and 82/216**. Original thresholds are not relaxed.
+
+Withdrawal restores the production VM and canonical addition to `c4ac605`;
+the only changes in production source files are test-module declarations at EOF.
+The retained twelve-case / four-budget differential now compares actual Off and
+Auto execution rather than a withdrawn selector. The mixed-mode regression
+asserts native execution, fresh callback observations and complete code retirement
+before returning from each configuration-changing callback, with no recompilation
+during later manual steps. Fresh formatting/check-all and **274 executions /
+39 summaries** pass, zero failures, ignored checks or warnings. Six original-image
+comparisons now finish successfully at **`0419303`**. Its immutable source repeats
+the same **274 / 39** focused validation and passes its own all-feature Force
+suite: **2,065 executions / 91 summaries**, zero failures, 23 ignored and no
+warnings. All six rebuilt speed/shipping no-feature, compiled-Off and native
+executables are **byte-for-byte identical to the original controls**, not merely
+metadata-equivalent. Environment/configuration/source/tool witnesses verify.
+No branch/worktree is created; all withdrawal jobs are terminal.
+Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/static-off-refinement/withdrawal/`.
+
+### Code-owned per-PC read hints — runtime withdrawn, 2026-10-19
 
 Current callback profiles still attribute substantial work to the prepared
 global-read helper. Earlier table/closure caches changed common GC object layout
@@ -125,9 +301,61 @@ Source-bound integrated Miri and real i686 validation now run serially before
 two complete original elapsed screens. The driver refuses to start these while
 the image/profile pipeline is live; no benchmark thresholds or cases change.
 
-Integrated source-bound Miri/fallback, actual elapsed comparisons and original
-resource/platform/release gates remain required. No production speedup or
-full-plan acceptance is claimed. No branch/worktree is created.
+Integrated safety passes **41 executions / seven summaries under each
+Stacked/Tree Miri model**, and **42 executions / eleven summaries on actual
+i686-musl**, with zero failures or ignored checks. Toolchain/dead-code warnings
+remain in the logs. All ten hint fixtures and the five-path prepared helper
+differential execute positively; both recorded Cargo-Miri invocation directories
+match the immutable integrated source. The executed fallback unit test binary
+has an ELF32/i386 header. This is pure-helper/fallback safety evidence, not native
+machine-code execution under Miri or i686.
+
+Two complete elapsed campaigns finish **288 commands / 28,512 native executions /
+570,240 feature-cost iterations**, using all nine cases, eleven samples, twenty
+cost iterations, six rotated A/candidate/B rounds, CPUs 0/16 and both profiles.
+Both audits report zero counter/resource mismatches, recompute all raw cost
+medians and pass two valid-screen / thirteen corruption fixtures each. Native
+raw samples are not available; their printed medians are audited instead.
+Original thresholds and every failed/outlier/control observation remain intact.
+The capture/audit drivers finish successfully; **performance acceptance fails**.
+
+Selected direct control/trial medians are below; values above one favor the
+candidate. They are contended observations, not isolated-host estimates.
+
+| Case / mode / profile | CPU | First | Repeat |
+| --- | ---: | ---: | ---: |
+| Callbacks / Auto / speed | 0 | 0.9950 | 0.9984 |
+| Callbacks / Auto / speed | 16 | 0.9929 | 0.9889 |
+| Callbacks / Auto / shipping | 0 | 1.0413 | 1.0336 |
+| Callbacks / Auto / shipping | 16 | 1.0142 | 1.0218 |
+| Metamethods / Auto / speed | 0 | 0.9646 | 0.9692 |
+| Integer / compiled-Off / shipping | 0 | 0.9291 | 0.9259 |
+| Float / compiled-Off / shipping | 0 | 0.8816 | 0.8762 |
+| Float / compiled-Off / shipping | 16 | 0.9627 | 0.9663 |
+
+Shipping callbacks improve modestly, but CPU0 compiled-Off integer time increases
+7.6–8.0% and float time 13.4–14.1%; their paired placebo medians stay within
+0.15% of one. Speed-profile CPU0 metamethod time increases 3.2–3.7%. Candidate
+speed native gates fail **18/96**, then **12/96**; the two unchanged controls
+fail **16/96 and 15/96**, then **11/96 and 13/96**. Candidate feature-cost gates
+fail **35/216**, then **55/216**, versus controls **41/216 and 42/216**, then
+**52/216 and 51/216**. Neither favorable shipping callback observations nor
+changing failure counts justify weakening disabled-mode or native acceptance.
+
+Both runtime changes (`aff7ca3`, `197c71c`) are withdrawn directly on
+`feat/native-jit`. The retained test-only foundation remains; the resulting `src`
+tree is exactly the pre-integration `7d5f817` tree. Fresh focused validation and
+six-image identity restoration follow. The full native-JIT performance,
+resource/platform and release requirements remain open. No branch/worktree is
+created.
+
+The first elapsed driver fails before any benchmark command: inherited
+`checks.mk` runs `git diff -- src` from a plain source archive and discovers the
+parent repository with the wrong relative pathspec. That failed aggregate and
+its logs remain preserved. A separate corrected driver anchors Git to an
+explicit repository-root witness included in the tool hashes; three working
+directory fixtures pass and three corrupted runtime patches are rejected. The
+original frozen safety/driver files are not rewritten to conceal the failure.
 Evidence:
 `target/jit-evidence/hook-resume-recovery/code-owned-hint/` and
 `target/jit-evidence/hook-resume-recovery/code-hint-key-inline/`.
@@ -35576,6 +35804,187 @@ The inactive predecessor remains separately named `native-slice-*`.
 Next work must reduce measured per-entry/helper costs rather than assume that
 moving native entry outside the VM dispatch body is sufficient. Callback,
 metamethod, shipping-array and compiled-Off/size acceptance remain open.
+
+### Repeated original controls and execution-counter storage trial
+
+The control-only population under
+`target/jit-evidence/hook-resume-recovery/baseline-control-population` pools
+ten complete historical screens, using only their A/B controls. All six control
+images in each screen were checked against the restored original images before
+pooling. The population contains 95,040 native executions and 1,900,800 cost
+iterations, with 120 control windows for each case/profile/CPU/method group.
+These remain contended observations, not causal estimates or quiet-host proof.
+Candidate rows are excluded, failed windows are retained, and no gate changes.
+
+The estimator uses whole-screen clustered bootstrap resampling rather than
+treating all within-screen windows as independent observations. Its fixed seed,
+known medians and clustered bounds, deterministic repeat, and rejection of
+missing/duplicate controls, invalid ratios, resource mismatches, duplicate
+cohorts and changed iteration counts are checked by nine method fixtures.
+Raw cost medians were recomputed by the original audits; native observations
+remain the original printed medians, not reconstructed raw samples.
+
+CPU16 shipping compiled-Off closure/upvalue execution has pooled median cost
+ratio **1.211654**, with clustered 2.5/97.5 percentiles **1.206478–1.221999**;
+all 120 windows fail the unchanged **1.05** limit. Reaching that limit from
+this point estimate would require about **13.34% less compiled-Off time**.
+Native speed-profile callback medians are **0.813477** on CPU0 and **0.823966**
+on CPU16, below the unchanged **1/1.2** threshold. These observations prioritize
+work; neither pooling nor an interval replaces the individual acceptance gates.
+
+The next production trial moves the three existing execution counters outside
+the manager's `RefCell` and removes those same fields from its private statistics
+payload. Public `JitStats` fields and independent saturating total-dispatch
+accumulation remain unchanged. Publication still happens at every original
+guard drop, including unwinding; it is not batched across callbacks or VM slices.
+The implementation uses separate safe `Cell` fields, not references retained
+inside a borrowed manager, cached modes, new allocations, or shared GC fields.
+Compile-time size/alignment checks compare the new owner payload against
+`RefCell<Manager<JitStats>>`; a host test also compares the complete charged
+allocation layout. Independent old-publication and exclusive-manager-borrow
+tests exercise the new storage. This trial is **not performance-accepted**;
+full correctness, repeated original elapsed screens, platform and release gates
+must still be checked, and regressions remain grounds for withdrawal.
+
+### Counter-storage elapsed results and bounded-publication follow-up
+
+The initial storage split at `e2e0d507` is **rejected as-is**, not accepted on
+its correctness results. Its source-bound Force run passed **2,068 executions
+across 91 summaries**, with zero failures, 23 existing ignored tests and no
+compiler warnings. Both no-feature production images remained byte-identical
+to the original controls. Two complete original elapsed screens then ran
+**28,512 native executions and 570,240 cost iterations**, with zero
+counter/resource mismatches; all failed gates and original controls remain.
+
+Shipping CPU0 integer control/trial medians were **0.882477 / 0.884338** in the
+two screens, and float medians were **0.835366 / 0.836556**: approximately
+13–20% more trial time. Control-placebo medians stayed near one. CPU16 shipping
+upvalue control/trial medians improved only to **1.012761 / 1.011117**, far short
+of closing the original compiled-Off gap. Neither screen meets acceptance.
+The second screen includes two brief Perl syntax checks while timing was active;
+both screens are retained as contended observations, not isolation claims.
+
+After elapsed collection ended, the exact frozen images were profiled for
+compiled-Off integer, float and upvalue execution in both profiles. Four
+alternating image loads per group produced five execution dumps each. All 13
+event partitions and complete text-symbol attribution reconcile; all 18
+positive/corrupt-image parser fixtures pass. Numeric non-warmup instruction
+totals repeat exactly. Upvalue external instruction counts vary slightly and
+are retained rather than reported as a single invariant whole-program total.
+
+In the shipping float capture, the original standalone interpreter-statistics
+destructor accounts for **15,024 instructions**; the trial inlines publication
+into the VM. The VM body grows from **42,104 to 43,711 bytes**, with changed
+load/store and branch behavior. Whole-execution instructions increase only
+from **4,109,344 to 4,119,957**, which does not establish a hardware cause for
+the much larger CPU0 elapsed regression.
+
+The follow-up bounds this code-generation effect by outlining only
+`ExecutionStats::publish`, leaving `InterpreterStats::drop` inlinable and its
+guard fields available for scalar optimization. Counter storage, publication
+timing, independent saturation, owner layout and public APIs are unchanged.
+This is a measured follow-up hypothesis, **not a proven performance fix**;
+fresh correctness checks, original-profile images and repeated elapsed screens
+are required before retention, followed by the outstanding safety/platform gates.
+
+### Scalar-publication outline rejected; original-call-boundary probe
+
+The scalar-publication outline at `f714961d` is also **rejected**. Its focused
+host gates passed 142 executions across 23 summaries, but both complete original
+elapsed screens reproduced worse numeric and upvalue results. CPU0 shipping
+integer control/trial medians are **0.831626 / 0.834239**, and float medians are
+**0.786461 / 0.785348**. CPU16 shipping float medians are **0.858838 / 0.859451**.
+Validation succeeds with zero counter/resource mismatches; performance does not.
+
+Exact-image profiling after timing confirms that the scalar publisher is a
+separate function, but the caller still changes: shipping float whole-execution
+instructions rise from **4,109,344 to 4,203,119**, with VM reads/writes changing
+from **1,006,551/487,036 to 1,067,207/423,266**. The publisher itself uses only
+11,268 instructions versus 15,024 in the original destructor. Reducing callee
+instructions is therefore not evidence that the full execution improves.
+
+The final narrow boundary probe instead keeps the original destructor's
+single-pointer call boundary: outline `InterpreterStats::drop` and let the
+scalar publisher inline inside it. Storage and counter semantics are unchanged.
+Use a shipping-only, cost-only gross-regression preselection before spending
+another full native/profile matrix on this probe. Such preselection is not
+performance acceptance; any retained candidate still needs the original full
+screens and all remaining correctness, safety, platform and release gates.
+
+### Counter-storage trials withdrawn
+
+The destructor-boundary probe at `9f19b3e6` also fails gross-regression
+preselection. Its 142 focused host executions pass, and six shipping cost
+comparisons retain all nine cases, 11 samples, 20 iterations and both CPUs:
+**23,760 cost iterations**, with raw medians recomputed. The partial parser
+matches the corresponding complete-screen gates exactly on a known fixture and
+rejects missing samples, changed medians and changed iteration counts.
+This cost-only check is explicitly **not** the original full native/resource
+acceptance matrix.
+
+CPU0 integer/float control-over-trial ratios are **0.862396 / 0.875420**;
+CPU16 ratios are **0.923467 / 0.902695**. Upvalue gains are negligible or
+negative. Preserving the destructor call boundary does not remove the regression.
+
+All production and test-source changes from these storage trials are therefore
+withdrawn, restoring `src/` exactly to `5fbe729`. The old controls, all four full
+screens, both instruction campaigns and the limited boundary probe remain
+available under their named evidence roots. No Miri or i686 pass is claimed for
+any rejected storage candidate. The initial trial's host-only owner-layout
+cross-check does show both actual non-test owner allocations at **1,216 bytes,
+alignment 8**; zero footprint alone did not establish acceptable performance.
+
+Fresh source-bound correctness and original-profile byte-identity checks must
+verify this withdrawal. Restoring the original runtime removes these experimental
+changes; it does **not** close the original callback, metamethod, compiled-Off,
+platform or release acceptance gaps, and the full JIT goal remains incomplete.
+
+### Verified withdrawal and original interpreter-overhead attribution
+
+Withdrawal `8844322e` is source-bound and verified under
+`target/jit-evidence/hook-resume-recovery/execution-counter-withdrawal`:
+
+- All `src/` bytes equal `5fbe729`; no storage trial remains active.
+- Fresh focused gates: **274 executions / 39 summaries**, zero failures/ignores.
+- Fresh all-feature Force: **2,065 executions / 91 summaries**, zero failures,
+  23 existing ignores, zero compiler warnings.
+- All **six** rebuilt speed/shipping no-jit, jit-off and native-bench images
+  are byte-identical to the original controls. Configurations, environments,
+  frozen source witnesses and tool hashes verify. This restores the old code;
+  it does not constitute new performance acceptance.
+
+A separate six-group campaign now compares the **original no-feature image
+directly with original compiled-Off**, rather than testing another storage
+candidate. In `baseline-interpreter-overhead`, baseline labels mean no-jit and
+candidate labels mean original jit-off; the latter is not a proposed runtime.
+Headers independently require compiled-feature flags 0/1, both mode Off and
+zero native instructions. Four alternating loads and five dumps per group
+reconcile all 13 event columns and complete text attribution; all 18 parser
+fixtures pass. No elapsed acceptance is inferred from this campaign.
+
+Representative non-warmup whole-execution instruction counts:
+
+| Case/profile | No feature | Original compiled-Off |
+| --- | ---: | ---: |
+| Integer/shipping | 4,054,764 | 3,848,937 |
+| Float/shipping | 4,375,155 | 4,109,344 |
+| Upvalue/speed | 14,198,359 | 16,090,583 |
+| Upvalue/shipping | 15,769,385 | 17,730,859 |
+
+External/allocator upvalue variation is retained. For the shipping upvalue
+sample, added self instructions include VM **990,063**, the statistics destructor
+**480,024**, Executor **320,814**, closure accessor **240,012** and register-view
+constructor **200,010**; other symbols offset part of their sum. Counts alone
+do not explain the contended CPU timing or imply every feature-on path is slower:
+the numeric instruction totals above are actually lower with JIT compiled in.
+
+Do not repeat the already withdrawn closure-accessor or register-constructor
+inlining, optional-fuel tuple view, or counter-storage trials. Native-only fuel
+and variable-stack state are still materialized by the shared register-view
+constructor; separating that work from ordinary interpretation is an unproven
+design question, not an adopted change or an accepted optimization. Its exact
+call sites, borrow/fuel contracts and prior rejected view work must be inspected
+before implementation. Full original acceptance remains open.
 
 ## 15. Primary references
 

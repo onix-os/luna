@@ -205,7 +205,6 @@ fn observe<'gc>(
                 count: Counts::default(),
                 slot_count: if scenario == 4 { 3 } else { 7 },
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             let mut host = abi::Host {

@@ -341,7 +341,6 @@ fn native_terminal_stores_preserve_canonical_values_at_budget_and_call_exits() {
                         count: helpers::Counts::default(),
                         slot_count: snapshot.registers,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     type Entry =

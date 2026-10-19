@@ -1359,3 +1359,6 @@ mod for_controls;
 
 #[cfg(test)]
 mod numeric_add;
+
+#[cfg(all(test, feature = "jit"))]
+pub(super) mod static_off;

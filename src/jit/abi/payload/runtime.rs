@@ -143,7 +143,6 @@ pub(crate) fn check_native_write_binding(entry: BoundEntry, count: usize, masks:
                     count: helpers::Counts::default(),
                     slot_count: count,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 let mut exit = abi::Exit::default();
@@ -314,7 +313,6 @@ pub(crate) fn check_bound_scalar_transitions(entry: unsafe extern "C" fn(*const 
                         count: helpers::Counts::default(),
                         slot_count: 2,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     with_binding::<2>(&mut frame, |binding| unsafe {
@@ -388,7 +386,6 @@ fn check_native_bound_read(
                     count: helpers::Counts::default(),
                     slot_count: 1,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_binding::<1>(&mut frame, |binding| {
@@ -558,7 +555,6 @@ pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut 
                             count: helpers::Counts::default(),
                             slot_count: 2,
                             panic: None,
-                            read_hints: None,
                             projection: None,
                         };
                         with_bridge::<256>(&mut frame, |slots, host| unsafe {
@@ -671,7 +667,6 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
                 count: helpers::Counts::default(),
                 slot_count: 2,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_bridge::<256>(&mut frame, |slots, host| unsafe {
@@ -1364,7 +1359,6 @@ fn initialized_prefix_bounds_hold_for_empty_small_and_full_frames() {
                     count: helpers::Counts::default(),
                     slot_count: count,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| unsafe {
@@ -1442,7 +1436,6 @@ fn scalar_materialization_preserves_current_aliases_without_transport_counters()
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     with_session(&mut frame, |host, slots| unsafe {
@@ -1549,7 +1542,6 @@ fn generated_code_calls_production_helpers_and_exits_on_real_bounds_panic() {
                     count: helpers::Counts::default(),
                     slot_count: 3,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| {
@@ -1598,7 +1590,6 @@ fn production_helpers_observe_direct_writes_and_rebind_current_frame_upvalues() 
                 count: helpers::Counts::default(),
                 slot_count: 4,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {
@@ -1691,7 +1682,6 @@ fn production_helpers_preserve_closed_reference_roots_and_table_effects() {
                 count: helpers::Counts::default(),
                 slot_count: 4,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {
@@ -1783,7 +1773,6 @@ fn production_helper_panic_keeps_direct_writes_and_stops_reentry() {
                     count: helpers::Counts::default(),
                     slot_count: 3,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| unsafe {

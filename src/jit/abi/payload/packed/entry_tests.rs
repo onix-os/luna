@@ -80,7 +80,6 @@ fn with_frame_slots(count: usize, mut body: impl FnMut(&mut helpers::Frame<'_, '
                 count: helpers::Counts::default(),
                 slot_count: count,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             body(&mut frame);

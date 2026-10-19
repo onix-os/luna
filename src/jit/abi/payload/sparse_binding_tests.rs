@@ -21,7 +21,6 @@ fn sparse_binding_upvalue_alias_reads_canonical_omitted_cells() {
                 count: helpers::Counts::default(),
                 slot_count: 3,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             unsafe {
@@ -101,7 +100,6 @@ fn sparse_binding_preserves_canonical_reads_all_kinds_and_prefixes() {
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     unsafe {
@@ -148,7 +146,6 @@ fn sparse_binding_refreshes_destinations_preserves_siblings_and_full_helpers() {
                 count: helpers::Counts::default(),
                 slot_count: 3,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             unsafe {
@@ -212,7 +209,6 @@ fn sparse_binding_preserves_unwind_payload_writes_and_admission() {
                     count: helpers::Counts::default(),
                     slot_count: count,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {

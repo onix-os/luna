@@ -127,7 +127,6 @@ fn wide_compiler_matches_all_entries_budgets_and_helper_outcomes() {
                                         count: helpers::Counts::default(),
                                         slot_count: slots.len(),
                                         panic: None,
-                                        read_hints: None,
                                         projection: None,
                                     };
                                     let mut host = abi::Host {

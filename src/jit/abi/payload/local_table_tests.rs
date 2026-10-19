@@ -36,7 +36,6 @@ fn local_table_destination_updates_current_frame_upvalue_aliases() {
                     count: helpers::Counts::default(),
                     slot_count: 4,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| unsafe {
@@ -112,7 +111,6 @@ fn local_table_reads_cover_all_value_kinds_sizes_and_receiver_aliases() {
                                     count: helpers::Counts::default(),
                                     slot_count: count,
                                     panic: None,
-                                    read_hints: None,
                                     projection: None,
                                 };
                                 with_session(&mut frame, |host, slots| unsafe {
@@ -185,7 +183,6 @@ fn local_table_partial_refresh_preserves_retirement_and_full_fallbacks() {
                 count: helpers::Counts::default(),
                 slot_count: 6,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {
@@ -280,7 +277,6 @@ fn local_table_invalid_operands_and_borrow_panics_stop_reentry() {
                     count: helpers::Counts::default(),
                     slot_count: 3,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| unsafe {
@@ -362,7 +358,6 @@ fn local_constant_table_preserves_live_sibling_field_pointers() {
                     count: helpers::Counts::default(),
                     slot_count: 4,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(&mut frame, |host, slots| unsafe {

@@ -129,7 +129,6 @@ pub(super) struct Frame<'gc, 'a, 'b, 'p> {
     pub slot_count: usize,
     pub panic: Option<Box<dyn Any + Send>>,
     pub projection: Option<&'p mut dyn projection::Bridge<'gc>>,
-    pub read_hints: Option<&'a super::entry_bytes::EntryBytes>,
 }
 
 #[inline(always)]
@@ -209,53 +208,6 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
             self.ctx,
             key,
             crate::table::PreparedStringHash::from_bits(hash),
-        );
-        if value.is_nil()
-            && table
-                .metatable()
-                .is_some_and(|mt| !mt.get_value(self.ctx, MetaMethod::Index).is_nil())
-        {
-            return false;
-        }
-        self.store(slots, dest, value);
-        self.count.table_reads += 1;
-        self.count.upvalue_reads += 1;
-        true
-    }
-
-    fn cached_up_table(
-        &mut self,
-        slots: &mut (impl Transport<'gc> + ?Sized),
-        packed: u32,
-        canonical_hash: u64,
-        pc: u32,
-    ) -> bool {
-        if packed >> 24 != 0 {
-            return false;
-        }
-        let dest = packed >> 16;
-        let upvalue = (packed >> 8) & 255;
-        let index = packed & 255;
-        let Some(crate::Constant::String(key)) = self
-            .closure
-            .prototype()
-            .constants
-            .get(index as usize)
-            .copied()
-        else {
-            return false;
-        };
-        let Value::Table(table) = self.upvalue(slots, upvalue) else {
-            return false;
-        };
-        let hint = self
-            .read_hints
-            .and_then(|entries| entries.hint(pc as usize));
-        let value = table.get_code_string(
-            self.ctx,
-            key,
-            crate::table::PreparedStringHash::from_bits(canonical_hash),
-            hint,
         );
         if value.is_nil()
             && table
@@ -484,23 +436,6 @@ pub(super) fn call_transport_selected<'gc, const KIND: u32, const PREHASHED: boo
     }
 }
 
-#[derive(Clone, Copy)]
-enum HelperMode {
-    Plain,
-    Prepared,
-    Cached,
-}
-
-impl From<bool> for HelperMode {
-    fn from(prepared: bool) -> Self {
-        if prepared {
-            Self::Prepared
-        } else {
-            Self::Plain
-        }
-    }
-}
-
 macro_rules! helper_entry {
     ($name:ident, [$($abi:tt)*], [$($params:tt)*], $kind:expr, $prepared:expr) => {
         helper_entry!(@body $name, [$($abi)*], [$($params)*],
@@ -527,10 +462,10 @@ macro_rules! helper_entry {
                 }
                 let completed = {
                     let slots = unsafe { std::slice::from_raw_parts_mut($slots, frame.slot_count) };
-                    match HelperMode::from($prepared) {
-                        HelperMode::Cached => frame.cached_up_table(slots, $a, u64::from($b) | (u64::from($c) << 32), $pc),
-                        HelperMode::Prepared => frame.prehashed_up_table(slots, $a, u64::from($b) | (u64::from($c) << 32)),
-                        HelperMode::Plain => frame.operation::<{ $kind }>(slots, $a, $b, $c),
+                    if $prepared {
+                        frame.prehashed_up_table(slots, $a, u64::from($b) | (u64::from($c) << 32))
+                    } else {
+                        frame.operation::<{ $kind }>(slots, $a, $b, $c)
                     }
                 };
                 if let Some(projection) = frame.projection.as_deref_mut() {
@@ -573,10 +508,8 @@ macro_rules! helper_entry {
 
 helper_entry!(call, [extern "C"], [<const KIND: u32>], KIND, false);
 helper_entry!(call_selected, [], [<const KIND: u32, const PREHASHED: bool>], KIND, PREHASHED);
-helper_entry!(call_cached, [extern "C"], [], abi::HELPER_GET_UP_TABLE, HelperMode::Cached);
 
 pub(super) const PREHASHED_ENTRY: abi::HelperEntry = call_prehashed;
-pub(super) const CACHED_ENTRY: abi::HelperEntry = call_cached;
 
 #[cfg(test)]
 pub(super) mod wide;
@@ -787,7 +720,6 @@ mod tests {
                         slot_count: 4,
                         projection: None,
                         panic: None,
-                        read_hints: None,
                     };
                     for destination in [0, 1] {
                         assert_eq!(
@@ -880,7 +812,6 @@ mod tests {
                     slot_count: 2,
                     projection: None,
                     panic: None,
-                    read_hints: None,
                 };
                 for value in values {
                     frame.registers.stack_frame[0] = value;
@@ -945,7 +876,6 @@ mod tests {
                     slot_count: 2,
                     projection: None,
                     panic: None,
-                    read_hints: None,
                 };
                 assert_eq!(
                     invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, 1, 0, 0, 7),
@@ -1009,7 +939,6 @@ mod tests {
                     slot_count: 3,
                     projection: None,
                     panic: None,
-                    read_hints: None,
                 };
                 assert_eq!(
                     invoke::<{ abi::HELPER_GET_UP_TABLE }>(&mut frame, &mut slots, 1, 0, 2, 7),
@@ -1077,7 +1006,6 @@ mod tests {
                     slot_count: 2,
                     projection: None,
                     panic: None,
-                    read_hints: None,
                 };
                 assert_eq!(
                     invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, 1, 0, 0, 7),
@@ -1132,7 +1060,6 @@ mod tests {
 slot_count: slots.len(),
                     projection: None,
                     panic: None,
-                    read_hints: None,
                 };
                 macro_rules! complete {
                     ($kind:expr, $a:expr, $b:expr, $c:expr) => {
@@ -1201,7 +1128,6 @@ slot_count: slots.len(),
                     slot_count: 8,
                     projection: None,
                     panic: None,
-                    read_hints: None,
                 };
                 assert_eq!(
                     invoke::<{ abi::HELPER_GET_TABLE }>(&mut frame, &mut slots, 0, 1, 2, 17),
@@ -1282,7 +1208,6 @@ slot_count: slots.len(),
                             slot_count: width,
                             projection: None,
                             panic: None,
-                            read_hints: None,
                         };
                         let mut host = abi::Host {
                             data: (&mut frame as *mut Frame<'_, '_, '_, '_>).cast(),
@@ -1384,7 +1309,6 @@ slot_count: slots.len(),
                         slot_count: slots.len(),
                         projection: None,
                         panic: None,
-                        read_hints: None,
                     };
                     let status = if kind == abi::HELPER_GET_UPVALUE {
                         invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, a, b, 0, 17)
@@ -1464,7 +1388,6 @@ slot_count: slots.len(),
                                         slot_count: slots.len(),
                                         projection: None,
                                         panic: None,
-                                        read_hints: None,
                                     };
                                     assert_eq!(
                                         invoke::<{ abi::HELPER_SET_TABLE }>(
@@ -1543,7 +1466,6 @@ slot_count: slots.len(),
                         slot_count: slots.len(),
                         projection: None,
                         panic: None,
-                        read_hints: None,
                     };
                     let read_declined = hooks && !existing;
                     assert_eq!(

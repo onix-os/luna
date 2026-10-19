@@ -17,7 +17,6 @@ pub(super) fn scope<'gc>(
             count: helpers::Counts::default(),
             slot_count: count,
             panic: None,
-            read_hints: None,
             projection: None,
         };
         with_session(&mut frame, body);
@@ -344,7 +343,6 @@ fn table_writes_preserve_non_table_receivers_and_current_frame_captures() {
                 count: helpers::Counts::default(),
                 slot_count: 4,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {

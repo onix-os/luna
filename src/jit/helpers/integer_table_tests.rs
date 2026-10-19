@@ -108,7 +108,6 @@ fn integer_helper_reads_keep_pending_keys_aliases_and_miss_semantics() {
                         count: Counts::default(),
                         slot_count: slots.len(),
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     let expected = table.get_raw(&ctx, key);

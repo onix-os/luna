@@ -20,7 +20,6 @@ fn check_foreign<'gc>(
                     count: helpers::Counts::default(),
                     slot_count: 3,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 let status = if partial {
@@ -141,7 +140,6 @@ fn upvalue_prefix_fallback_preserves_original_full_frame_access() {
                             count: helpers::Counts::default(),
                             slot_count: 2,
                             panic: None,
-                            read_hints: None,
                             projection: None,
                         };
                         with_session(&mut frame, |host, slots| unsafe {
@@ -245,7 +243,6 @@ fn upvalue_reads_preserve_values_aliases_and_sibling_field_loans() {
                                     count: helpers::Counts::default(),
                                     slot_count: count,
                                     panic: None,
-                                    read_hints: None,
                                     projection: None,
                                 };
                                 with_session(&mut frame, |host, slots| unsafe {
@@ -302,7 +299,6 @@ fn upvalue_reads_observe_retired_sources_closing_and_joining() {
                 count: helpers::Counts::default(),
                 slot_count: 3,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(&mut frame, |host, slots| unsafe {

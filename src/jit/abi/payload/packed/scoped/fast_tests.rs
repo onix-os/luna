@@ -49,7 +49,6 @@ fn frame<'gc, R>(
             count: helpers::Counts::default(),
             slot_count: count,
             panic: None,
-            read_hints: None,
             projection: None,
         })
     });
@@ -119,7 +118,6 @@ fn packed_fast_upvalues_preserve_all_values_aliases_and_sibling_loans() {
                                     count: helpers::Counts::default(),
                                     slot_count: count,
                                     panic: None,
-                                    read_hints: None,
                                     projection: None,
                                 };
                                 let (status, refusal, result) =
@@ -591,7 +589,6 @@ fn packed_fast_upvalue_prefix_fallback_matches_full_frame_partial_effects() {
                                 count: helpers::Counts::default(),
                                 slot_count: 2,
                                 panic: None,
-                                read_hints: None,
                                 projection: None,
                             };
                             let status = if packed {
