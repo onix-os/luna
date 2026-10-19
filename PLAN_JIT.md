@@ -51,8 +51,21 @@ reintroduced. Baseline ABI validation passes **10 checks**. Resumed formatting,
 all-feature checking and broad JIT validation pass **1,479 checks / 11 summaries**,
 with zero failures and **22 ignored**. The full all-target Force suite completes
 with **2,044 passing checks / 91 summaries / 23 ignored**, zero failures. The
-optimized production images are building before whole-workload profiling; both
-original speed/shipping elapsed controls must still determine whether this helps.
+six production images build, retaining byte-identical no-feature controls. Actual
+native callback profiles and their two positive/four identity-corruption fixtures
+complete, with all 13 events and full symbol partitions reconciled. The proposed
+boundary removal **does not occur**: speed stays at **9,438,782** whole-execution
+instructions and shipping stays at **11,684,260**. Shipping loses the 315,062-
+instruction `Slot::value` symbol but gains a 390,077-instruction `Slot::write_back`
+symbol; transport self work drops by exactly 75,015. This is relocated work, not
+a performance improvement, and does not justify a timing campaign for that form.
+
+The refinement also forces the existing outer `write_back` method inline. It
+keeps the exact conversion body and tests on `feat/native-jit`, without creating
+branches or additional worktrees. A plain `git archive` source snapshot provides
+immutable provenance for diagnostic profiling before repeating expensive broad
+gates. Full Force/Miri/fallback and original repeated elapsed gates remain
+required before retaining the refinement; reordering diagnostics is not a waiver.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
 `slot-value-inline/`. The candidate is not performance-accepted or release-ready;
 it will be reverted if whole-workload evidence is adverse. No speedup established.
