@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Common Lua-state prefix — isolated runtime trial, 2026-10-19
+### Common Lua-state prefix — measured and rejected, 2026-10-19
 
 The completed long prepared-table campaigns' unchanged-control observations
 place speed callback Off/Auto medians near **0.8142 / 0.8178** on CPU0/16,
@@ -44,9 +44,25 @@ resumption and memory-limit behavior; emitted warnings remain in the logs.
 Real i686-musl passes **24 checks** across layout, hooks, memory and fallback.
 Zero-case workspace summaries are not counted as test executions. These are
 Rust-state/fallback checks, not native execution under Miri/i686 or complete
-platform certification. Both original elapsed campaigns are now running serially
-after validation finishes. Main runtime and compiler flags remain unchanged;
-elapsed-performance acceptance is still unproven.
+platform certification.
+
+Both original elapsed campaigns now finish **288 commands / 28,512 native
+executions / 570,240 cost iterations**, after all owned validation work. Full
+native counter/resource records match, source/image/tool witnesses verify, and
+each audit rejects all 13 corruption fixtures. All contention and outliers remain.
+These terminal-zero audit/capture statuses are not passing performance gates.
+
+Reject this runtime change. CPU0 shipping compiled-Off integer control/trial
+ratios are **0.924502 / 0.906888**, float **0.895598 / 0.850165**, approximately
+**8–10% / 12–18% longer elapsed time**. Corresponding median A/B controls stay
+near one. CPU16 shipping upvalue Off ratios **0.980619 / 0.979056** worsen the
+targeted overhead rather than remove it. CPU0 speed callback ratios improve
+**1.019269 / 1.008399**, but shipping callbacks instead give **0.989714 /
+0.974384**. Preserving common state offsets is therefore not a sufficient remedy
+for these workloads. This does not prove which hardware effect caused the losses.
+The runtime and layout fixtures remain isolated on `trial/jit-state-core-prefix`;
+candidate speed-native failures are **17 then 13 / 96**, cost **43 then 63 / 216**.
+Main runtime/default flags are unchanged and full-plan acceptance remains open.
 Evidence: `target/jit-evidence/hook-resume-recovery/state-core-prefix/`.
 
 ### Non-fall-through block alignment — rejected, 2026-10-19
