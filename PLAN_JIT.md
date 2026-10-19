@@ -79,8 +79,14 @@ now includes generic, prepared, both wide and cached entries, preserves all eigh
 helper counters/PC/results, compares borrowed-table panic and live environment /
 metatable mutations, and positively verifies hint fills and unchanged entry bits.
 Initial constructor/lifetime errors are fixed and preserved in draft logs.
-Full Force, integrated source-bound Miri/fallback, actual image/work/elapsed
-comparisons and original resource/platform/release gates remain required. No
+Candidate **`aff7ca3`** now passes full all-target/all-feature Force validation:
+**2,060 executions / 91 summaries**, zero failures, 23 ignored and no emitted
+warnings. Its plain source archive and the model-only baseline `7d5f817` have
+verified complete source witnesses. Twelve production image builds and full
+callback/metamethod/no-feature/compiled-Off instruction profiles are running
+sequentially at the existing detached builder, without new branches/worktrees.
+Integrated source-bound Miri/fallback, actual image/work/elapsed comparisons
+and original resource/platform/release gates remain required. No
 production speedup, unchanged image identity or full-plan acceptance is claimed.
 Evidence:
 `target/jit-evidence/hook-resume-recovery/code-owned-hint/`.
