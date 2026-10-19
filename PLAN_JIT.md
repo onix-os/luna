@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Native slot-conversion call boundary — isolated investigation, 2026-10-19
+### Native slot-conversion call boundary — validation pending, 2026-10-19
 
 **Resumed by the user on `feat/native-jit`.** The previously interrupted
 validation output is preserved and is not claimed as a full test pass or
@@ -41,16 +41,20 @@ not guessed from stripped disassembly names. Speed conversion is already inlined
 The explicit stack-operand counts are not stack traffic attributable solely to
 conversion and are not a claim of removable time.
 
-The next isolated trial forces the existing `Slot::value` conversion inline,
+Pending implementation commit `eb25372` forces the existing `Slot::value` conversion inline,
 without integer/reference shortcuts, skipped writebacks, narrowed counters,
 changed tags, altered ABI or retained pointers. Unlike earlier rejected scalar
 specializations, its hypothesis is removing the shipping aggregate-return call
 boundary while retaining the exact match body. Previous projection outlining,
 static import/writeback masks, counter publishing and callback handoffs are not
-reintroduced. Baseline ABI checks precede activation; whole-workload profiles and
-both original speed/shipping elapsed controls must determine whether it helps.
+reintroduced. Baseline ABI validation passes **10 checks**. Resumed formatting,
+all-feature checking and broad JIT validation pass **1,479 checks / 11 summaries**,
+with zero failures and **22 ignored**. The full all-target Force suite is running;
+its partial output is not a completed pass. Whole-workload profiles and both
+original speed/shipping elapsed controls must determine whether this helps.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
-`slot-value-inline/`. No runtime change is promoted or speedup established.
+`slot-value-inline/`. The candidate is not performance-accepted or release-ready;
+it will be reverted if whole-workload evidence is adverse. No speedup established.
 
 ### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
