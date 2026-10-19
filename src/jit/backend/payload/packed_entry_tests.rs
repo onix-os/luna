@@ -73,7 +73,7 @@ fn packed_runtime_failure_dispatch_preserves_effects_counts_and_panic_payloads()
                 assert_eq!(*registers.pc, match mode { 1 => 1, 2 | 4 => 8, _ => 7 });
                 assert!(matches!(registers.stack_frame[0], crate::Value::Integer(value) if value == if mode == 1 { 731 } else { 17 }));
                 assert!(if mode >= 2 { matches!(registers.stack_frame[1], crate::Value::Integer(17)) } else { matches!(registers.stack_frame[1], crate::Value::Nil) });
-                let stats = runtime.stats();
+                let stats = runtime.0.borrow().stats;
                 let count = if matches!(mode, 2 | 4) { 4 } else { 3 };
                 assert_eq!(stats.total_dispatches, count);
                 assert_eq!(stats.native_instructions, count);
@@ -114,7 +114,7 @@ fn packed_zero_register_entry_preserves_empty_frame_and_unknown_pc() {
                         );
                         assert_eq!(*registers.pc, pc);
                         assert!(registers.stack_frame.is_empty());
-                        let stats = runtime.stats();
+                        let stats = runtime.0.borrow().stats;
                         assert_eq!(stats.native_entries, 1);
                         assert_eq!(stats.total_dispatches, 0);
                         assert_eq!(stats.helper_calls, 0);

@@ -53,8 +53,8 @@ impl Drop for VmProgress<'_> {
             Phase::InFlight(native) => (self.dispatches - native, None),
             Phase::Reported(instructions) => (self.dispatches, Some(instructions)),
         };
-        let manager = self.runtime.0.borrow_mut();
-        let mut stats = manager.stats.snapshot(&self.runtime.0.execution);
+        let mut manager = self.runtime.0.borrow_mut();
+        let stats = &mut manager.stats;
         stats.total_dispatches = stats.total_dispatches.saturating_add(u64::from(dispatches));
         if let Some(instructions) = report {
             stats.interpreted_slices = stats
@@ -64,8 +64,6 @@ impl Drop for VmProgress<'_> {
                 .interpreted_instructions
                 .saturating_add(u64::from(instructions));
         }
-        drop(manager);
-        self.runtime.set_stats(stats);
     }
 }
 
@@ -118,7 +116,7 @@ mod tests {
                                     ..Default::default()
                                 };
                                 let reference = Runtime::new();
-                                reference.set_stats(seed);
+                                reference.0.borrow_mut().stats = seed;
                                 {
                                     let mut original = reference.interpreter_stats();
                                     original.dispatches = interpreted;
@@ -126,23 +124,23 @@ mod tests {
                                         reported.then_some(interpreted - terminal);
                                 }
                                 let actual = Runtime::new();
-                                actual.set_stats(seed);
+                                actual.0.borrow_mut().stats = seed;
                                 {
                                     let mut progress = actual.vm_progress(prefix);
                                     progress.dispatches += interpreted;
                                     progress.add_native(native);
                                     assert_eq!(progress.dispatches, prefix + native + interpreted);
-                                    assert_eq!(actual.stats(), seed);
+                                    assert_eq!(actual.0.borrow().stats, seed);
                                     if reported {
                                         assert_eq!(
                                             progress.finish(terminal),
                                             prefix + native + interpreted - terminal
                                         );
                                         assert_eq!(progress.dispatches, interpreted);
-                                        assert_eq!(actual.stats(), seed);
+                                        assert_eq!(actual.0.borrow().stats, seed);
                                     }
                                 }
-                                assert_eq!(actual.stats(), reference.stats());
+                                assert_eq!(actual.0.borrow().stats, reference.0.borrow().stats);
                             }
                         }
                     }
@@ -165,7 +163,7 @@ mod tests {
                 }));
                 assert_eq!(*result.unwrap_err().downcast::<u64>().unwrap(), 83);
                 assert_eq!(
-                    runtime.stats(),
+                    runtime.0.borrow().stats,
                     JitStats {
                         total_dispatches: u64::from(interpreted),
                         ..Default::default()
@@ -197,7 +195,7 @@ mod tests {
                 );
             }
             let interpreted = u32::MAX - native;
-            let stats = runtime.stats();
+            let stats = runtime.0.borrow().stats;
             assert_eq!(stats.total_dispatches, u64::from(interpreted));
             assert_eq!(stats.interpreted_slices, u64::from(interpreted != 0));
             assert_eq!(

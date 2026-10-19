@@ -399,7 +399,7 @@ mod tests {
                             ctx.fetch(&closure),
                             &mut Fuel::with(4096),
                             |host| {
-                                ctx.jit().set_stats(Default::default());
+                                ctx.jit().0.borrow_mut().stats = Default::default();
                                 if mode == JitMode::Auto {
                                     let width = host.with_registers(|_, r| r.stack_frame.len());
                                     let outcome =
@@ -444,13 +444,13 @@ mod tests {
                     ctx.fetch(&closure),
                     &mut Fuel::with(4096),
                     |host| {
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         if mode == JitMode::Auto {
                             let outcome =
                                 Driver::default().run_sized::<true, 16>(ctx, host, 16, 64);
                             outcome.result.unwrap();
                             assert_eq!(outcome.shadow_captures, 1);
-                            assert!(ctx.jit().stats().native_instructions > 0);
+                            assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
                         } else {
                             host.run_canonical(ctx, 16, 64, 4).result.unwrap();
                         }
@@ -589,13 +589,13 @@ mod tests {
                             ));
                         });
                         host.test_fuel(Fuel::with(4096));
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         if mode == JitMode::Auto {
                             let outcome = Driver::default().run_shadow(ctx, host, 8, 64);
                             outcome.result.unwrap();
                             assert_eq!(outcome.slices, 1);
                             assert_eq!(outcome.shadow_recoveries, 1);
-                            assert_eq!(ctx.jit().stats().native_pair_calls, 1);
+                            assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls, 1);
                         } else {
                             host.run_canonical(ctx, 8, 64, 4).result.unwrap();
                         }
@@ -633,7 +633,7 @@ mod tests {
                                 host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                             }
                             host.test_fuel(Fuel::with(remaining));
-                            ctx.jit().set_stats(Default::default());
+                            ctx.jit().0.borrow_mut().stats = Default::default();
                             if mode == JitMode::Auto {
                                 let outcome =
                                     Driver::default().run_shadow(ctx, host, limit, budget);
@@ -670,7 +670,7 @@ mod tests {
 
     fn trace(ctx: Context<'_>, host: &ActivationHost<'_, '_>) -> Trace {
         let (frames, values, open, fuel) = host.test_trace();
-        let stats = ctx.jit().stats();
+        let stats = ctx.jit().0.borrow().stats;
         Trace {
             frames,
             slots: values
@@ -723,13 +723,13 @@ mod tests {
                                 for _ in 0..2 {
                                     host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                                 }
-                                ctx.jit().set_stats(Default::default());
+                                ctx.jit().0.borrow_mut().stats = Default::default();
                                 if mode == JitMode::Auto {
                                     let mut driver = Driver::default();
                                     let outcome = driver.run(ctx, host, limit, budget);
                                     outcome.result.unwrap();
                                     assert_eq!(outcome.slices, limit);
-                                    assert!(ctx.jit().stats().native_instructions != 0);
+                                    assert!(ctx.jit().0.borrow().stats.native_instructions != 0);
                                     if limit >= 2 {
                                         assert!(outcome.pairs != 0);
                                     }
@@ -756,14 +756,14 @@ mod tests {
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 let fuel_before = host.fuel().remaining();
-                let before = ctx.jit().stats().native_instructions;
+                let before = ctx.jit().0.borrow().stats.native_instructions;
                 let partial = prefix(ctx, host, 64).unwrap();
                 let instructions = partial.instructions;
                 assert!(partial.transition.is_none());
                 assert!(partial.resume.is_some());
                 assert!(instructions > 0);
                 assert_eq!(
-                    ctx.jit().stats().native_instructions - before,
+                    ctx.jit().0.borrow().stats.native_instructions - before,
                     u64::from(instructions)
                 );
                 assert_eq!(host.fuel().remaining(), fuel_before);
@@ -797,7 +797,7 @@ mod tests {
                                 host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                             }
                             host.test_fuel(Fuel::with(remaining));
-                            ctx.jit().set_stats(Default::default());
+                            ctx.jit().0.borrow_mut().stats = Default::default();
                             if mode == JitMode::Auto {
                                 let outcome = Driver::default().run(ctx, host, 8, 64);
                                 outcome.result.unwrap();
@@ -889,7 +889,7 @@ mod tests {
                     thread,
                     &mut fuel,
                     |host| {
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         let before = trace(ctx, host);
                         assert!(prefix(ctx, host, 64).is_none());
                         assert_eq!(trace(ctx, host), before);
@@ -897,7 +897,7 @@ mod tests {
                         let outcome = driver.run_mode::<DEFER>(ctx, host, 16, 64);
                         outcome.result.unwrap();
                         assert!(outcome.slices > 0);
-                        assert_eq!(ctx.jit().stats().native_instructions, 0);
+                        assert_eq!(ctx.jit().0.borrow().stats.native_instructions, 0);
                         assert_eq!(std::mem::size_of_val(&driver), 0);
                     },
                 );
@@ -1026,7 +1026,7 @@ mod tests {
                     };
                     base.0 as usize
                 });
-                let before = ctx.jit().stats().native_pair_calls;
+                let before = ctx.jit().0.borrow().stats.native_pair_calls;
                 let globals = ctx.globals().into_inner();
                 let lock = globals.borrow_mut(&ctx);
                 let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1034,7 +1034,7 @@ mod tests {
                 }));
                 assert!(caught.is_err());
                 drop(lock);
-                assert_eq!(ctx.jit().stats().native_pair_calls - before, 1);
+                assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls - before, 1);
                 host.with_registers(|_, registers| {
                     assert!(matches!(registers.stack_frame[0], crate::Value::Integer(3)));
                     assert!(matches!(
@@ -1073,17 +1073,17 @@ mod tests {
                         thread,
                         &mut fuel,
                         |host| {
-                            ctx.jit().set_stats(Default::default());
+                            ctx.jit().0.borrow_mut().stats = Default::default();
                             if resume {
                                 let outcome = Driver::default().run(ctx, host, 1, budget);
                                 outcome.result.unwrap();
                                 assert_eq!(outcome.slices, 1);
-                                assert!(ctx.jit().stats().native_instructions > 0);
+                                assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
                             } else {
                                 host.run_canonical(ctx, 1, budget, 4).result.unwrap();
                             }
                             traces.push(trace(ctx, host));
-                            statistics.push(ctx.jit().stats());
+                            statistics.push(ctx.jit().0.borrow().stats);
                         },
                     );
                 });
@@ -1137,7 +1137,7 @@ mod tests {
                     thread,
                     &mut fuel,
                     |host| {
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         let result = if resume {
                             let outcome = Driver::default().run(ctx, host, 1, 64);
                             assert_eq!(outcome.slices, 1);
@@ -1146,7 +1146,7 @@ mod tests {
                             host.run_canonical(ctx, 1, 64, 4).result
                         };
                         errors.push(result.unwrap_err().to_string());
-                        let stats = ctx.jit().stats();
+                        let stats = ctx.jit().0.borrow().stats;
                         assert_eq!(stats.native_entries, 1);
                         assert_eq!(stats.guard_exits, 1);
                         assert_eq!(stats.interpreted_instructions, 0);
@@ -1196,7 +1196,7 @@ mod tests {
                     thread,
                     &mut fuel,
                     |host| {
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         if resume {
                             let outcome = Driver::default().run(ctx, host, 1, 64);
                             outcome.result.unwrap();
@@ -1204,7 +1204,7 @@ mod tests {
                         } else {
                             host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                         }
-                        let stats = ctx.jit().stats();
+                        let stats = ctx.jit().0.borrow().stats;
                         assert_eq!(stats.helper_declines, 1);
                         assert_eq!(stats.native_table_writes, 1);
                         assert_eq!(calls.get(), 0);
@@ -1248,7 +1248,7 @@ mod tests {
                     |host| {
                         host.run_canonical(ctx, 16, 4, 4).result.unwrap();
                         host.test_fuel(Fuel::with(4096));
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         if driver {
                             let outcome = Driver::default().run(ctx, host, 1, 64);
                             outcome.result.unwrap();
@@ -1288,7 +1288,7 @@ mod tests {
                             thread,
                             &mut fuel,
                             |host| {
-                                ctx.jit().set_stats(Default::default());
+                                ctx.jit().0.borrow_mut().stats = Default::default();
                                 if driver != 0 {
                                     let outcome = if driver == 1 {
                                         Driver::default().run(ctx, host, limit, budget)
@@ -1300,9 +1300,9 @@ mod tests {
                                 } else {
                                     host.run_canonical(ctx, limit, budget, 4).result.unwrap();
                                 }
-                                assert_eq!(ctx.jit().stats().native_entries, 0);
+                                assert_eq!(ctx.jit().0.borrow().stats.native_entries, 0);
                                 traces.push(trace(ctx, host));
-                                statistics.push(ctx.jit().stats());
+                                statistics.push(ctx.jit().0.borrow().stats);
                             },
                         );
                     });
@@ -1330,7 +1330,7 @@ mod tests {
             thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
-                ctx.jit().set_stats(Default::default());
+                ctx.jit().0.borrow_mut().stats = Default::default();
                 host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                 trace(ctx, host)
             })
@@ -1347,7 +1347,7 @@ mod tests {
                     thread,
                     &mut fuel,
                     |host| {
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         let prefix = prefix(ctx, host, 64).unwrap();
                         let instructions = prefix.instructions;
                         assert!(instructions > 0);
@@ -1368,11 +1368,11 @@ mod tests {
                                 assert!(manager.code.remove(&id).is_some());
                             }
                         }
-                        let before = ctx.jit().stats();
+                        let before = ctx.jit().0.borrow().stats;
                         let completed =
                             host.resume_native(ctx, 64, prefix.resume.unwrap()).unwrap();
                         host.charge_native_slice(completed);
-                        let after = ctx.jit().stats();
+                        let after = ctx.jit().0.borrow().stats;
                         assert_eq!(after.native_entries, before.native_entries);
                         assert_eq!(after.native_instructions, before.native_instructions);
                         assert!(after.interpreted_instructions > before.interpreted_instructions);
@@ -1407,13 +1407,13 @@ mod tests {
                             prefix.instructions
                         };
                         let before = trace(ctx, host);
-                        let statistics = ctx.jit().stats();
+                        let statistics = ctx.jit().0.borrow().stats;
                         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             host.resume_native(ctx, budget, prefix.resume.unwrap())
                         }));
                         assert!(caught.is_err());
                         assert_eq!(trace(ctx, host), before);
-                        assert_eq!(ctx.jit().stats(), statistics);
+                        assert_eq!(ctx.jit().0.borrow().stats, statistics);
                     },
                 );
             });

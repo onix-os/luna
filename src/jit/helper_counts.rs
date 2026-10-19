@@ -1,6 +1,6 @@
-use super::{helpers::Counts, ManagedStats};
+use super::{helpers::Counts, JitStats};
 
-pub(super) fn publish(stats: &mut ManagedStats, counts: Counts, read_only: bool) {
+pub(super) fn publish(stats: &mut JitStats, counts: Counts, read_only: bool) {
     stats.helper_calls = stats.helper_calls.saturating_add(counts.calls);
     stats.helper_instructions = stats.helper_instructions.saturating_add(counts.completed);
     stats.helper_declines = stats.helper_declines.saturating_add(counts.declined);
@@ -34,7 +34,7 @@ mod tests {
 
     #[test]
     fn publication_preserves_whole_statistics_at_saturation() {
-        let fields: [fn(&mut ManagedStats) -> &mut u64; 8] = [
+        let fields: [fn(&mut JitStats) -> &mut u64; 8] = [
             |s| &mut s.helper_calls,
             |s| &mut s.helper_instructions,
             |s| &mut s.helper_declines,
@@ -47,8 +47,9 @@ mod tests {
         for read_only in [false, true] {
             for mask in 0u16..256 {
                 for delta in [0, 1, 64, u64::MAX] {
-                    let mut actual = ManagedStats {
+                    let mut actual = JitStats {
                         native_entries: 13,
+                        interpreted_instructions: 17,
                         metadata_bytes: 23,
                         metadata_peak_bytes: 29,
                         guard_exits: 31,
@@ -65,8 +66,6 @@ mod tests {
                             increments[index] = delta;
                         }
                     }
-                    let execution = super::super::ExecutionStats::default();
-                    execution.interpreted_instructions.set(17);
                     let mut expected = actual;
                     for (field, increment) in fields.into_iter().zip(increments) {
                         let value = field(&mut expected);
@@ -87,7 +86,6 @@ mod tests {
                         read_only,
                     );
                     assert_eq!(actual, expected);
-                    assert_eq!(actual.snapshot(&execution).interpreted_instructions, 17);
                 }
             }
         }

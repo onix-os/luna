@@ -22,10 +22,10 @@ fn inline_regions_match_original_regions_and_interpreter_at_slice_boundaries() {
                                 host.test_fuel(Fuel::with(fuel));
                                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                                 let before = stats(ctx);
-                                let pairs = ctx.jit().stats().native_pair_returns;
+                                let pairs = ctx.jit().0.borrow().stats.native_pair_returns;
                                 let outcome = region.run(ctx, host, limit, budget).unwrap();
                                 assert!(outcome.slices > 0 && outcome.slices <= limit);
-                                assert_eq!(ctx.jit().stats().native_pair_returns - pairs, outcome.pairs as u64);
+                                assert_eq!(ctx.jit().0.borrow().stats.native_pair_returns - pairs, outcome.pairs as u64);
                                 assert!(ctx.jit().0.borrow().resume_scope.is_none());
                                 (trace(ctx, host, before), outcome.slices, outcome.result.err().map(|e| e.to_string()))
                             });

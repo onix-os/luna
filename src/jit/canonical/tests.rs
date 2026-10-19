@@ -360,7 +360,7 @@ fn generated_caller_callee_caller_preserves_pending_values_and_full_trace() {
                     with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                         position(host, ctx, start);
                         let before = stats(ctx);
-                        let native_before = ctx.jit().stats().native_instructions;
+                        let native_before = ctx.jit().0.borrow().stats.native_instructions;
                         if native {
                             let mut shadow = host.with_registers(|caller, registers| {
                                 crate::jit::caller_shadow::Shadow::<256>::capture(
@@ -440,7 +440,7 @@ fn generated_caller_callee_caller_preserves_pending_values_and_full_trace() {
                             ));
                             host.native_transition(ctx, transition, suffix).unwrap();
                             assert_eq!(
-                                ctx.jit().stats().native_instructions - native_before,
+                                ctx.jit().0.borrow().stats.native_instructions - native_before,
                                 u64::from(prefix + 3 + suffix)
                             );
                         } else {
@@ -658,12 +658,12 @@ fn caller_shadow_transfer_refreshes_after_real_native_call_and_return() {
                             )
                             .unwrap()
                     });
-                    let before = ctx.jit().stats().native_instructions;
+                    let before = ctx.jit().0.borrow().stats.native_instructions;
                     let before_stats = stats(ctx);
                     let outcome = invoke_result(ctx, host, &site, &code, 64, 0).unwrap();
                     outcome.result.unwrap();
                     assert_eq!((outcome.calls, outcome.returns), (1, 1));
-                    assert_eq!(ctx.jit().stats().native_instructions - before, 3);
+                    assert_eq!(ctx.jit().0.borrow().stats.native_instructions - before, 3);
                     assert!(host
                         .with_registers(|caller, registers| transfer.resume(caller, &registers)));
                     assert!(host.with_registers(
@@ -815,7 +815,7 @@ struct Trace {
 
 fn trace(ctx: Context<'_>, host: &ActivationHost<'_, '_>, before: (u64, u64)) -> Trace {
     let (frames, values, open, fuel) = host.test_trace();
-    let stats = &ctx.jit().stats();
+    let stats = &ctx.jit().0.borrow().stats;
     Trace {
         frames,
         slots: values
@@ -833,7 +833,7 @@ fn trace(ctx: Context<'_>, host: &ActivationHost<'_, '_>, before: (u64, u64)) ->
 }
 
 fn stats(ctx: Context<'_>) -> (u64, u64) {
-    let stats = &ctx.jit().stats();
+    let stats = &ctx.jit().0.borrow().stats;
     (
         stats.total_dispatches,
         stats.native_instructions + stats.interpreted_instructions,
@@ -1475,7 +1475,7 @@ fn host_releases_before_collection_callbacks_and_nested_executor_steps() {
                             };
                             assert!(matches!(open.get(&ctx), Value::Integer(9)));
                             let before = stats(ctx);
-                            assert!(ctx.jit().stats().native_upvalue_writes > 0);
+                            assert!(ctx.jit().0.borrow().stats.native_upvalue_writes > 0);
                             let executor = Executor::start(ctx, (*nested).into(), ());
                             let mut fuel = Fuel::with(65536);
                             while !executor.step(ctx, &mut fuel).unwrap() {}
@@ -1920,7 +1920,7 @@ fn resident_failure_path(failure: ResidentFailure, connected: bool, fallback: bo
                     with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                         position(host, ctx, start);
                         let before = stats(ctx);
-                        let native_before = ctx.jit().stats().native_instructions;
+                        let native_before = ctx.jit().0.borrow().stats.native_instructions;
                         let result = if native {
                             ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Auto;
                             let mut shadow = (!connected).then(|| {
@@ -1990,7 +1990,7 @@ fn resident_failure_path(failure: ResidentFailure, connected: bool, fallback: bo
                                 leases
                             );
                             assert_eq!(
-                                ctx.jit().stats().native_instructions - native_before,
+                                ctx.jit().0.borrow().stats.native_instructions - native_before,
                                 u64::from(
                                     prefix - u32::from(fallback)
                                         + if matches!(
@@ -2015,7 +2015,10 @@ fn resident_failure_path(failure: ResidentFailure, connected: bool, fallback: bo
                                 ResidentFailure::ReturnedPanic => host.run(ctx, 1, 64, 4).result,
                                 _ => Ok(()),
                             };
-                            assert_eq!(ctx.jit().stats().native_instructions, native_before);
+                            assert_eq!(
+                                ctx.jit().0.borrow().stats.native_instructions,
+                                native_before
+                            );
                             result
                         };
                         match failure {

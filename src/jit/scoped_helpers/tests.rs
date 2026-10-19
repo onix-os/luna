@@ -358,7 +358,7 @@ fn compiled_scoped_code_does_not_root_sources_or_cross_runtime_identities() {
             .borrow()
             .resolve(ctx, code.source)
             .is_none());
-        assert_eq!(ctx.jit().stats().registered_prototypes, 0);
+        assert_eq!(ctx.jit().0.borrow().stats.registered_prototypes, 0);
         let replacement = Closure::load(ctx, None, b"local n=41 return n+1").unwrap();
         assert!(code.bind(ctx, replacement).is_none());
     });

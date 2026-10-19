@@ -49,7 +49,7 @@ fn paired_region_cost() {
                         } else {
                             JitMode::Auto
                         };
-                        let before = ctx.jit().stats();
+                        let before = ctx.jit().0.borrow().stats;
                         let timer = Instant::now();
                         let mut pairs = 0;
                         let mut fragments = 0;
@@ -70,7 +70,7 @@ fn paired_region_cost() {
                             assert!(host.fuel().should_continue());
                         }
                         elapsed += timer.elapsed().as_nanos();
-                        let after = ctx.jit().stats();
+                        let after = ctx.jit().0.borrow().stats;
                         let state = trace(
                             ctx,
                             host,
@@ -185,9 +185,9 @@ fn region_cost_profile() {
                 } else {
                     JitMode::Auto
                 };
-                let before = ctx.jit().stats();
+                let before = ctx.jit().0.borrow().stats;
                 let counts = profile_region(ctx, host, &region, &mode);
-                let after = ctx.jit().stats();
+                let after = ctx.jit().0.borrow().stats;
                 assert_eq!(
                     trace(
                         ctx,

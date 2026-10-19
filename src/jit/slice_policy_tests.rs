@@ -41,12 +41,12 @@ fn slice_policy_tracks_live_mode_and_pair_admission_without_effects() {
             JitMode::Off,
         ] {
             runtime.0.borrow_mut().config.mode = mode;
-            let before = runtime.stats();
+            let before = runtime.0.borrow().stats;
             let expected = (mode == JitMode::Auto, mode == JitMode::Auto && pairs);
             for owner in [&runtime, &alias] {
                 assert_eq!(observed(owner), expected);
                 let manager = owner.0.try_borrow_mut().unwrap();
-                assert_eq!(manager.stats.snapshot(&owner.0.execution), before);
+                assert_eq!(manager.stats, before);
                 assert_eq!(manager.config.mode, mode);
             }
         }

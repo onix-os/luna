@@ -208,7 +208,7 @@ mod tests {
                             ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                             host.run(ctx, 1, start as u32, 4).result.unwrap();
                             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                            ctx.jit().set_stats(Default::default());
+                            ctx.jit().0.borrow_mut().stats = Default::default();
                             let result = if mode == 0 { host.run(ctx, 1, budget, 4).result }
                             else {
                                 let (code, count, pc) = prefix(ctx, closure, host, region.source, budget);
@@ -224,7 +224,7 @@ mod tests {
                                 result.map(|_| ())
                             };
                             assert!(ctx.jit().0.borrow().resume_scope.is_none());
-                            (trace(ctx, host, (0, 0)), result.err().map(|error| error.to_string()), ctx.jit().stats())
+                            (trace(ctx, host, (0, 0)), result.err().map(|error| error.to_string()), ctx.jit().0.borrow().stats)
                         });
                         if let Some(expected) = &expected { assert_eq!(&actual, expected, "mode={mode} budget={budget}"); }
                         else { expected = Some(actual); }
@@ -252,7 +252,7 @@ mod tests {
                                 host.run(ctx, 1, start as u32, 4).result.unwrap();
                                 host.test_fuel(Fuel::with(fuel));
                                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                                ctx.jit().set_stats(Default::default());
+                                ctx.jit().0.borrow_mut().stats = Default::default();
                                 let (code, count, pc) = prefix(ctx, closure, host, region.source, budget);
                                 let mut scope = crate::jit::PairScope::default();
                                 let result = if count == budget { Ok(count) }
@@ -281,9 +281,9 @@ mod tests {
                                 if budget == 64 && fuel == 10000 {
                                     assert_eq!(handoff, succeeds);
                                     assert_eq!(slices, if succeeds { 2 } else { 1 });
-                                    assert_eq!(ctx.jit().stats().native_pair_returns, u64::from(succeeds));
+                                    assert_eq!(ctx.jit().0.borrow().stats.native_pair_returns, u64::from(succeeds));
                                 }
-                                (trace(ctx, host, (0, 0)), result.err().map(|e| e.to_string()), ctx.jit().stats(), slices, handoff)
+                                (trace(ctx, host, (0, 0)), result.err().map(|e| e.to_string()), ctx.jit().0.borrow().stats, slices, handoff)
                             });
                             if let Some(expected) = &expected {
                                 assert_eq!(&actual, expected, "budget={budget} fuel={fuel}");
@@ -294,7 +294,7 @@ mod tests {
                             host.run(ctx, 1, start as u32, 4).result.unwrap();
                             host.test_fuel(Fuel::with(fuel));
                             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-                            ctx.jit().set_stats(Default::default());
+                            ctx.jit().0.borrow_mut().stats = Default::default();
                             let result = host.run(ctx, slices, budget, 4).result;
                             (trace(ctx, host, (0, 0)), result.err().map(|e| e.to_string()))
                         });
@@ -343,7 +343,7 @@ mod tests {
                         code,
                     );
                     let before = trace(ctx, host, (0, 0));
-                    let stats = ctx.jit().stats();
+                    let stats = ctx.jit().0.borrow().stats;
                     assert!(catch_unwind(AssertUnwindSafe(|| token.run_paired(
                         ctx,
                         host,
@@ -352,7 +352,7 @@ mod tests {
                     )))
                     .is_err());
                     assert_eq!(trace(ctx, host, (0, 0)), before);
-                    assert_eq!(ctx.jit().stats(), stats);
+                    assert_eq!(ctx.jit().0.borrow().stats, stats);
                     assert!(ctx.jit().0.borrow().resume_scope.is_none());
                     assert_eq!(scope.resume.is_some(), legacy);
                     assert_eq!(scope.handoff.is_some(), !legacy);
@@ -412,7 +412,7 @@ mod tests {
                         host.run(ctx, 1, start as u32, 4).result.unwrap();
                         ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                         ctx.jit().0.borrow_mut().config.hot_threshold = 1;
-                        ctx.jit().set_stats(Default::default());
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         let (code, count, pc) = prefix(ctx, closure, host, region.source, 64);
                         match change {
                             0 => {
@@ -431,7 +431,7 @@ mod tests {
                             }
                             _ => unreachable!(),
                         }
-                        let before = ctx.jit().stats().native_instructions;
+                        let before = ctx.jit().0.borrow().stats.native_instructions;
                         let result = if scoped {
                             Token::new(
                                 ctx,
@@ -457,9 +457,9 @@ mod tests {
                         };
                         let error = result.as_ref().err().map(|error| error.to_string());
                         host.charge_native_slice(result.unwrap_or(0));
-                        assert_eq!(ctx.jit().stats().native_instructions, before);
+                        assert_eq!(ctx.jit().0.borrow().stats.native_instructions, before);
                         assert!(ctx.jit().0.borrow().resume_scope.is_none());
-                        let actual = (trace(ctx, host, (0, 0)), error, ctx.jit().stats());
+                        let actual = (trace(ctx, host, (0, 0)), error, ctx.jit().0.borrow().stats);
                         if let Some(expected) = &expected {
                             assert_eq!(&actual, expected, "change={change}");
                         } else {

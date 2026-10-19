@@ -105,13 +105,10 @@ pub(super) fn invoke<'gc>(
     let mut manager = ctx.jit().0.borrow_mut();
     manager.stats.native_upvalue_reads = manager.stats.native_upvalue_reads.saturating_add(1);
     manager.stats.native_upvalue_writes = manager.stats.native_upvalue_writes.saturating_add(1);
-    manager.stats.record_native_exit(
-        &Exit {
-            pc: 3,
-            instructions: 3,
-            reason: Kind::Interpreter as u32,
-        },
-        &ctx.jit().0.execution,
-    );
+    manager.stats.record_native_exit(&Exit {
+        pc: 3,
+        instructions: 3,
+        reason: Kind::Interpreter as u32,
+    });
     true
 }

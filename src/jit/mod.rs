@@ -1,9 +1,6 @@
 //! Optional native execution configuration and per-state diagnostics.
 
-use std::{
-    cell::{Cell, RefCell},
-    sync::atomic::Ordering,
-};
+use std::{cell::RefCell, sync::atomic::Ordering};
 
 use ahash::RandomState;
 use allocator_api2::vec::Vec;
@@ -286,42 +283,13 @@ impl JitCapabilities {
     }
 }
 
-macro_rules! define_stats {
-    ($($(#[$attr:meta])* pub $field:ident: $ty:ty,)*) => {
-        /// Monotonic execution counters and current JIT resource usage.
-        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-        pub struct JitStats {
-            /// Completed native bytecodes plus interpreted opcode dispatches, including errors and transitions.
-            pub total_dispatches: u64,
-            pub interpreted_slices: u64,
-            pub interpreted_instructions: u64,
-            $($(#[$attr])* pub $field: $ty,)*
-        }
-
-        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-        pub(crate) struct ManagedStats {
-            $(pub $field: $ty,)*
-        }
-
-        impl ManagedStats {
-            fn snapshot(&self, execution: &ExecutionStats) -> JitStats {
-                JitStats {
-                    total_dispatches: execution.total_dispatches.get(),
-                    interpreted_slices: execution.interpreted_slices.get(),
-                    interpreted_instructions: execution.interpreted_instructions.get(),
-                    $($field: self.$field,)*
-                }
-            }
-
-            #[cfg(test)]
-            fn from_public(stats: JitStats) -> Self {
-                Self { $($field: stats.$field,)* }
-            }
-        }
-    };
-}
-
-define_stats! {
+/// Monotonic execution counters and current JIT resource usage.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct JitStats {
+    /// Completed native bytecodes plus interpreted opcode dispatches, including errors and transitions.
+    pub total_dispatches: u64,
+    pub interpreted_slices: u64,
+    pub interpreted_instructions: u64,
     pub native_entries: u64,
     pub native_pair_calls: u64,
     pub native_pair_returns: u64,
@@ -377,7 +345,6 @@ define_stats! {
     pub queued_requests: usize,
 }
 
-#[cfg(test)]
 impl JitStats {
     #[cfg(any(
         test,
@@ -410,119 +377,6 @@ impl JitStats {
 #[cfg(test)]
 mod stats_tests {
     use super::*;
-
-    #[test]
-    fn split_execution_storage_preserves_owner_layout() {
-        type OriginalOwner =
-            global_owner::GlobalShared<RefCell<Manager<JitStats>>, resources::HeaderCharge>;
-        assert_eq!(
-            RuntimeOwner::allocation_layout(),
-            OriginalOwner::allocation_layout()
-        );
-        assert_eq!(
-            std::mem::size_of::<JitStats>(),
-            std::mem::size_of::<ManagedStats>() + std::mem::size_of::<ExecutionStats>()
-        );
-        assert_eq!(
-            std::mem::size_of::<Runtime>(),
-            std::mem::size_of::<OriginalOwner>()
-        );
-    }
-
-    #[test]
-    fn split_execution_matches_independent_publication() {
-        for initial in [0, 1, u64::MAX - 2, u64::MAX - 1, u64::MAX] {
-            for reason in [
-                exits::Kind::Interpreter,
-                exits::Kind::Guard,
-                exits::Kind::Budget,
-                exits::Kind::Panic,
-            ] {
-                for native in [0, 1, u32::MAX] {
-                    for dispatches in [0, 1, u32::MAX] {
-                        for report in [None, Some(0), Some(7), Some(u32::MAX)] {
-                            let runtime = Runtime::new();
-                            let mut expected = JitStats {
-                                total_dispatches: initial,
-                                interpreted_slices: initial.saturating_sub(1),
-                                interpreted_instructions: u64::MAX - initial,
-                                native_instructions: u64::MAX - initial,
-                                native_entries: initial,
-                                native_interpreter_exits: initial,
-                                guard_exits: initial,
-                                native_budget_exits: initial,
-                                native_panic_exits: initial,
-                                helper_calls: 17,
-                                registered_prototypes: 19,
-                                metadata_bytes: 23,
-                                bootstrap_bytes: 29,
-                                queued_requests: 31,
-                                ..Default::default()
-                            };
-                            runtime.set_stats(expected);
-                            let exit = abi::Exit {
-                                pc: 7,
-                                instructions: native,
-                                reason: reason as u32,
-                            };
-                            runtime
-                                .0
-                                .borrow_mut()
-                                .stats
-                                .record_native_exit(&exit, &runtime.0.execution);
-                            expected.record_native_exit(&exit);
-                            assert_eq!(runtime.stats(), expected);
-                            let mut slice = runtime.interpreter_stats();
-                            slice.dispatches = dispatches;
-                            slice.reported_instructions = report;
-                            assert_eq!(runtime.stats(), expected);
-                            drop(slice);
-                            expected.total_dispatches = expected
-                                .total_dispatches
-                                .saturating_add(u64::from(dispatches));
-                            if let Some(instructions) = report {
-                                expected.interpreted_slices = expected
-                                    .interpreted_slices
-                                    .saturating_add(u64::from(dispatches != 0));
-                                expected.interpreted_instructions = expected
-                                    .interpreted_instructions
-                                    .saturating_add(u64::from(instructions));
-                            }
-                            assert_eq!(runtime.stats(), expected);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn split_execution_publishes_during_exclusive_manager_borrow() {
-        let runtime = Runtime::new();
-        let shared = runtime.clone();
-        let mut slice = runtime.interpreter_stats();
-        slice.dispatches = 5;
-        slice.reported_instructions = Some(3);
-        let mut manager = shared.0.borrow_mut();
-        manager.stats.compilation_requests = 17;
-        drop(slice);
-        let stats = manager.stats.snapshot(&runtime.0.execution);
-        assert_eq!(stats.total_dispatches, 5);
-        assert_eq!(stats.interpreted_slices, 1);
-        assert_eq!(stats.interpreted_instructions, 3);
-        assert_eq!(stats.compilation_requests, 17);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut slice = shared.interpreter_stats();
-            slice.dispatches = 7;
-            std::panic::panic_any(29u64);
-        }));
-        assert_eq!(*result.unwrap_err().downcast::<u64>().unwrap(), 29);
-        let stats = manager.stats.snapshot(&shared.0.execution);
-        assert_eq!(stats.total_dispatches, 12);
-        assert_eq!(stats.interpreted_slices, 1);
-        assert_eq!(stats.interpreted_instructions, 3);
-        assert_eq!(stats.compilation_requests, 17);
-    }
 
     #[test]
     fn zero_work_exits_still_count_native_entries() {
@@ -614,7 +468,7 @@ mod stats_tests {
             panic!("dispatch unwind sentinel");
         }));
         assert!(result.is_err());
-        let stats = runtime.stats();
+        let stats = runtime.0.borrow().stats;
         assert_eq!(stats.total_dispatches, 12);
         assert_eq!(stats.interpreted_slices, 1);
         assert_eq!(stats.interpreted_instructions, 2);
@@ -634,15 +488,17 @@ mod stats_tests {
                     guard_exits: 11,
                     ..Default::default()
                 };
+                let mut manager = shared.0.borrow_mut();
                 let mut outer = runtime.interpreter_stats();
-                shared.set_stats(before);
+                manager.stats = before;
+                drop(manager);
                 outer.dispatches = 3;
                 outer.reported_instructions = Some(2);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut inner = shared.interpreter_stats();
                     inner.dispatches = 5;
                     shared.0.borrow_mut().stats.compilation_requests = 7;
-                    assert_eq!(runtime.stats().total_dispatches, initial);
+                    assert_eq!(runtime.0.borrow().stats.total_dispatches, initial);
                     if unwind {
                         std::panic::panic_any(19u32);
                     }
@@ -659,19 +515,19 @@ mod stats_tests {
                     expected.interpreted_slices = initial.saturating_add(1);
                     expected.interpreted_instructions = initial.saturating_add(4);
                 }
-                assert_eq!(runtime.stats(), expected);
+                assert_eq!(runtime.0.borrow().stats, expected);
                 drop(outer);
                 expected.total_dispatches = initial.saturating_add(8);
                 expected.interpreted_slices = expected.interpreted_slices.saturating_add(1);
                 expected.interpreted_instructions =
                     expected.interpreted_instructions.saturating_add(2);
-                assert_eq!(shared.stats(), expected);
+                assert_eq!(shared.0.borrow().stats, expected);
             }
         }
     }
 
     #[test]
-    fn interpreter_guard_publishes_with_manager_borrowed() {
+    fn interpreter_guard_checks_manager_borrow_at_publication() {
         let runtime = Runtime::new();
         let mut slice = runtime.interpreter_stats();
         slice.dispatches = 3;
@@ -679,12 +535,8 @@ mod stats_tests {
         let manager = runtime.0.borrow();
         let before = manager.stats;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(slice)));
-        assert!(result.is_ok());
+        assert!(result.is_err());
         assert_eq!(manager.stats, before);
-        let stats = runtime.stats();
-        assert_eq!(stats.total_dispatches, 3);
-        assert_eq!(stats.interpreted_slices, 1);
-        assert_eq!(stats.interpreted_instructions, 2);
     }
 
     #[test]
@@ -694,23 +546,20 @@ mod stats_tests {
                 for interpreted in [0u32, 1, 3, 64] {
                     for report in [None, Some(interpreted.saturating_sub(1)), Some(interpreted)] {
                         let runtime = Runtime::new();
-                        runtime.0.execution.total_dispatches.set(initial);
+                        runtime.0.borrow_mut().stats.total_dispatches = initial;
                         if native != 0 {
-                            runtime.0.borrow_mut().stats.record_native_exit(
-                                &abi::Exit {
-                                    pc: 3,
-                                    instructions: native,
-                                    reason: exits::Kind::Budget as u32,
-                                },
-                                &runtime.0.execution,
-                            );
+                            runtime.0.borrow_mut().stats.record_native_exit(&abi::Exit {
+                                pc: 3,
+                                instructions: native,
+                                reason: exits::Kind::Budget as u32,
+                            });
                         }
                         {
                             let mut slice = runtime.interpreter_stats();
                             slice.dispatches = interpreted;
                             slice.reported_instructions = report;
                         }
-                        let stats = runtime.stats();
+                        let stats = runtime.0.borrow().stats;
                         assert_eq!(
                             stats.total_dispatches,
                             initial.saturating_add(u64::from(native + interpreted))
@@ -734,21 +583,18 @@ mod stats_tests {
     #[test]
     fn mixed_unwind_preserves_unreported_interpreter_dispatches() {
         let runtime = Runtime::new();
-        runtime.0.borrow_mut().stats.record_native_exit(
-            &abi::Exit {
-                pc: 5,
-                instructions: 5,
-                reason: exits::Kind::Interpreter as u32,
-            },
-            &runtime.0.execution,
-        );
+        runtime.0.borrow_mut().stats.record_native_exit(&abi::Exit {
+            pc: 5,
+            instructions: 5,
+            reason: exits::Kind::Interpreter as u32,
+        });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut slice = runtime.interpreter_stats();
             slice.dispatches = 3;
             panic!("mixed dispatch unwind sentinel");
         }));
         assert!(result.is_err());
-        let stats = runtime.stats();
+        let stats = runtime.0.borrow().stats;
         assert_eq!(stats.total_dispatches, 8);
         assert_eq!(stats.native_instructions, 5);
         assert_eq!(stats.native_entries, 1);
@@ -760,22 +606,22 @@ mod stats_tests {
     fn interpreter_dispatches_saturate_without_counting_empty_slices() {
         let runtime = Runtime::new();
         for initial in [0, u64::MAX - 1, u64::MAX] {
-            runtime.set_stats(JitStats {
+            runtime.0.borrow_mut().stats = JitStats {
                 total_dispatches: initial,
                 ..Default::default()
-            });
+            };
             {
                 let mut slice = runtime.interpreter_stats();
                 slice.reported_instructions = Some(0);
             }
-            assert_eq!(runtime.stats().total_dispatches, initial);
-            assert_eq!(runtime.stats().interpreted_slices, 0);
+            assert_eq!(runtime.0.borrow().stats.total_dispatches, initial);
+            assert_eq!(runtime.0.borrow().stats.interpreted_slices, 0);
             {
                 let mut slice = runtime.interpreter_stats();
                 slice.dispatches = 3;
                 slice.reported_instructions = Some(2);
             }
-            let stats = runtime.stats();
+            let stats = runtime.0.borrow().stats;
             assert_eq!(stats.total_dispatches, initial.saturating_add(3));
             assert_eq!(stats.interpreted_slices, 1);
             assert_eq!(stats.interpreted_instructions, 2);
@@ -802,13 +648,13 @@ mod stats_tests {
                     Closure::load(ctx, None, b"local n=0 for i=1,7 do n=n+i end return n").unwrap();
                 let callback =
                     Callback::from_fn_with(&ctx, child, move |child, ctx, _, mut stack| {
-                        let before = ctx.jit().stats().total_dispatches;
+                        let before = ctx.jit().0.borrow().stats.total_dispatches;
                         assert!(before > 0);
                         let nested = Executor::start(ctx, (*child).into(), ());
                         let mut fuel = Fuel::with(65536);
                         while !nested.step(ctx, &mut fuel).unwrap() {}
                         assert_eq!(nested.take_result::<i64>(ctx).unwrap().unwrap(), 28);
-                        let after = ctx.jit().stats().total_dispatches;
+                        let after = ctx.jit().0.borrow().stats.total_dispatches;
                         assert!(after > before);
                         snapshots.borrow_mut().push((before, after));
                         stack.clear();
@@ -850,7 +696,7 @@ pub enum JitError {
     Compilation(String),
 }
 
-pub(crate) struct Manager<S = ManagedStats> {
+pub(crate) struct Manager {
     #[cfg(all(
         not(miri),
         target_os = "linux",
@@ -886,7 +732,7 @@ pub(crate) struct Manager<S = ManagedStats> {
     #[cfg(all(test, not(miri)))]
     scalar_activation_entries: u64,
     pub(crate) config: JitConfig,
-    pub(crate) stats: S,
+    pub(crate) stats: JitStats,
     pub(crate) next_id: u64,
     pub(crate) tracked: MetadataMap<u64, Tracking>,
     queue: Vec<u64, BudgetAllocator>,
@@ -961,7 +807,7 @@ impl Default for Manager {
             #[cfg(all(test, not(miri)))]
             scalar_activation_entries: 0,
             config,
-            stats: ManagedStats::default(),
+            stats: JitStats::default(),
             next_id: 0,
             tracked: metadata_map(metadata.clone()),
             queue: Vec::new_in(metadata.clone()),
@@ -1384,84 +1230,8 @@ impl Manager {
 #[collect(require_static)]
 pub(crate) struct Runtime(pub(crate) RuntimeOwner);
 
-pub(crate) type RuntimeOwner = global_owner::GlobalShared<RuntimeState, resources::HeaderCharge>;
-
-#[derive(Default)]
-struct ExecutionStats {
-    total_dispatches: Cell<u64>,
-    interpreted_slices: Cell<u64>,
-    interpreted_instructions: Cell<u64>,
-}
-
-impl ExecutionStats {
-    fn add_dispatches(&self, dispatches: u64) {
-        self.total_dispatches
-            .set(self.total_dispatches.get().saturating_add(dispatches));
-    }
-
-    fn publish(&self, dispatches: u32, reported: Option<u32>) {
-        self.add_dispatches(u64::from(dispatches));
-        if let Some(instructions) = reported {
-            self.interpreted_slices.set(
-                self.interpreted_slices
-                    .get()
-                    .saturating_add(u64::from(dispatches != 0)),
-            );
-            self.interpreted_instructions.set(
-                self.interpreted_instructions
-                    .get()
-                    .saturating_add(u64::from(instructions)),
-            );
-        }
-    }
-}
-
-pub(crate) struct RuntimeState {
-    manager: RefCell<Manager>,
-    execution: ExecutionStats,
-}
-
-const _: () = assert!(
-    std::mem::size_of::<RuntimeState>() == std::mem::size_of::<RefCell<Manager<JitStats>>>()
-);
-const _: () = assert!(
-    std::mem::align_of::<RuntimeState>() == std::mem::align_of::<RefCell<Manager<JitStats>>>()
-);
-
-impl std::ops::Deref for RuntimeState {
-    type Target = RefCell<Manager>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.manager
-    }
-}
-
-impl ManagedStats {
-    #[cfg(any(
-        test,
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
-    fn record_native_exit(&mut self, exit: &abi::Exit, execution: &ExecutionStats) {
-        execution.add_dispatches(u64::from(exit.instructions));
-        self.native_entries = self.native_entries.saturating_add(1);
-        self.native_instructions = self
-            .native_instructions
-            .saturating_add(u64::from(exit.instructions));
-        let counter = match exit.reason {
-            reason if reason == exits::Kind::Interpreter as u32 => {
-                &mut self.native_interpreter_exits
-            }
-            reason if reason == exits::Kind::Guard as u32 => &mut self.guard_exits,
-            reason if reason == exits::Kind::Budget as u32 => &mut self.native_budget_exits,
-            reason if reason == exits::Kind::Panic as u32 => &mut self.native_panic_exits,
-            _ => panic!("invalid native exit reason"),
-        };
-        *counter = counter.saturating_add(1);
-    }
-}
+pub(crate) type RuntimeOwner =
+    global_owner::GlobalShared<RefCell<Manager>, resources::HeaderCharge>;
 
 pub(crate) struct Prepared {
     #[cfg(all(
@@ -1545,12 +1315,20 @@ pub(crate) struct InterpreterStats<'a> {
 }
 
 impl Drop for InterpreterStats<'_> {
-    #[inline(never)]
     fn drop(&mut self) {
-        self.runtime
-            .0
-            .execution
-            .publish(self.dispatches, self.reported_instructions);
+        let mut manager = self.runtime.0.borrow_mut();
+        let stats = &mut manager.stats;
+        stats.total_dispatches = stats
+            .total_dispatches
+            .saturating_add(u64::from(self.dispatches));
+        if let Some(instructions) = self.reported_instructions {
+            stats.interpreted_slices = stats
+                .interpreted_slices
+                .saturating_add(u64::from(self.dispatches != 0));
+            stats.interpreted_instructions = stats
+                .interpreted_instructions
+                .saturating_add(u64::from(instructions));
+        }
     }
 }
 
@@ -1643,35 +1421,7 @@ impl Runtime {
             manager.host.clone(),
             RuntimeOwner::allocation_bytes(),
         )?;
-        RuntimeOwner::try_new(
-            RuntimeState {
-                manager: RefCell::new(manager),
-                execution: ExecutionStats::default(),
-            },
-            charge,
-        )
-        .map(Self)
-    }
-
-    pub(crate) fn stats(&self) -> JitStats {
-        self.0.borrow().stats.snapshot(&self.0.execution)
-    }
-
-    #[cfg(test)]
-    fn set_stats(&self, stats: JitStats) {
-        self.0.borrow_mut().stats = ManagedStats::from_public(stats);
-        self.0
-            .execution
-            .total_dispatches
-            .set(stats.total_dispatches);
-        self.0
-            .execution
-            .interpreted_slices
-            .set(stats.interpreted_slices);
-        self.0
-            .execution
-            .interpreted_instructions
-            .set(stats.interpreted_instructions);
+        RuntimeOwner::try_new(RefCell::new(manager), charge).map(Self)
     }
 
     pub(crate) fn interpreter_stats(&self) -> InterpreterStats<'_> {
@@ -2273,7 +2023,7 @@ impl Runtime {
             .stats
             .native_upvalue_writes
             .saturating_add(u64::from(delta.writes));
-        manager.stats.record_native_exit(&exit, &self.0.execution);
+        manager.stats.record_native_exit(&exit);
         exit.instructions
     }
 
@@ -2564,7 +2314,7 @@ impl Runtime {
             .stats
             .native_allocations
             .saturating_add(counts.allocations);
-        manager.stats.record_native_exit(&exit, &self.0.execution);
+        manager.stats.record_native_exit(&exit);
         if let Some(payload) = frame.panic.take() {
             drop(manager);
             std::panic::resume_unwind(payload);
@@ -3096,15 +2846,21 @@ mod eviction_tests {
         request(&runtime, 1).unwrap();
         let bytes = runtime.usage();
         let old = runtime.lookup(1).unwrap();
-        let before = runtime.stats();
+        let before = runtime.0.borrow().stats;
         for _ in 0..16 {
             let lease = runtime.lookup(1).unwrap();
             assert!(owner::Shared::ptr_eq(&lease.code, &old.code));
             assert_eq!(owner::Shared::strong_count(&old.code), 3);
         }
         assert_eq!(owner::Shared::strong_count(&old.code), 2);
-        assert_eq!(runtime.stats().code_lookups, before.code_lookups + 16);
-        assert_eq!(runtime.stats().code_leases, before.code_leases + 16);
+        assert_eq!(
+            runtime.0.borrow().stats.code_lookups,
+            before.code_lookups + 16
+        );
+        assert_eq!(
+            runtime.0.borrow().stats.code_leases,
+            before.code_leases + 16
+        );
         runtime.0.borrow_mut().config.mode = JitMode::Off;
         assert!(runtime.lookup(1).is_none());
         runtime.0.borrow_mut().config.mode = JitMode::Auto;
@@ -3718,7 +3474,7 @@ mod runtime_projection_tests {
                 }
                 assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
             });
-            let stats = runtime.stats();
+            let stats = runtime.0.borrow().stats;
             assert_eq!(
                 (stats.native_upvalue_reads, stats.native_upvalue_writes),
                 (1, 1)
@@ -3770,7 +3526,7 @@ mod runtime_projection_tests {
                             assert_eq!(result, table);
                         }
                     });
-                    let stats = runtime.stats();
+                    let stats = runtime.0.borrow().stats;
                     assert_eq!(
                         (
                             stats.native_instructions,

@@ -1424,7 +1424,7 @@ mod tests {
                                 assert!(
                                     matches!(actual, Value::Integer(value) if value == expected)
                                 );
-                                let stats = runtime.stats();
+                                let stats = runtime.0.borrow().stats;
                                 assert_eq!(
                                     (stats.native_upvalue_reads, stats.native_upvalue_writes),
                                     (1, 1)
@@ -1487,7 +1487,7 @@ mod tests {
                         assert!(
                             matches!(registers.stack_frame[0], Value::Table(actual) if actual == table)
                         );
-                        let stats = runtime.stats();
+                        let stats = runtime.0.borrow().stats;
                         assert_eq!(
                             (stats.native_upvalue_reads, stats.native_upvalue_writes),
                             (1, 0)

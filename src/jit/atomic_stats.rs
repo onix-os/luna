@@ -19,7 +19,7 @@ mod tests {
 
     fn compare(initial: JitStats) {
         let runtime = Runtime::new();
-        runtime.set_stats(initial);
+        runtime.0.borrow_mut().stats = initial;
         for _ in 0..2 {
             let mut slice = runtime.interpreter_stats();
             slice.dispatches = 1;
@@ -28,18 +28,14 @@ mod tests {
         let mut manager = runtime.0.borrow_mut();
         manager.stats.native_upvalue_reads = manager.stats.native_upvalue_reads.saturating_add(1);
         manager.stats.native_upvalue_writes = manager.stats.native_upvalue_writes.saturating_add(1);
-        manager.stats.record_native_exit(
-            &Exit {
-                pc: 3,
-                instructions: 3,
-                reason: Kind::Interpreter as u32,
-            },
-            &runtime.0.execution,
-        );
+        manager.stats.record_native_exit(&Exit {
+            pc: 3,
+            instructions: 3,
+            reason: Kind::Interpreter as u32,
+        });
         let mut actual = initial;
         actual.record_atomic_call();
-        drop(manager);
-        assert_eq!(actual, runtime.stats());
+        assert_eq!(actual, manager.stats);
     }
 
     #[test]

@@ -33,7 +33,7 @@ fn rooted_native_calls_match_physical_calls_with_pending_values() {
                                         if site.arguments != 0 { slots[usize::from(site.function.0) + 1] = Slot::from_value(Value::Integer(3)); }
                                     }
                                     let before = stats(ctx);
-                                    let before_counts = ctx.jit().stats();
+                                    let before_counts = ctx.jit().0.borrow().stats;
                                     let mut success = false;
                                     if virtual_call {
                                         let prior = trace(ctx, host, before);
@@ -55,7 +55,7 @@ fn rooted_native_calls_match_physical_calls_with_pending_values() {
                                         session.invoke_compact(&code, budget);
                                         session.finish().result.unwrap();
                                     }
-                                    let after = ctx.jit().stats();
+                                    let after = ctx.jit().0.borrow().stats;
                                     roots.clear();
                                     (trace(ctx, host, before), after.interpreted_slices - before_counts.interpreted_slices,
                                         after.native_entries - before_counts.native_entries,

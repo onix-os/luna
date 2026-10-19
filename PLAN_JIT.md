@@ -35911,6 +35911,34 @@ another full native/profile matrix on this probe. Such preselection is not
 performance acceptance; any retained candidate still needs the original full
 screens and all remaining correctness, safety, platform and release gates.
 
+### Counter-storage trials withdrawn
+
+The destructor-boundary probe at `9f19b3e6` also fails gross-regression
+preselection. Its 142 focused host executions pass, and six shipping cost
+comparisons retain all nine cases, 11 samples, 20 iterations and both CPUs:
+**23,760 cost iterations**, with raw medians recomputed. The partial parser
+matches the corresponding complete-screen gates exactly on a known fixture and
+rejects missing samples, changed medians and changed iteration counts.
+This cost-only check is explicitly **not** the original full native/resource
+acceptance matrix.
+
+CPU0 integer/float control-over-trial ratios are **0.862396 / 0.875420**;
+CPU16 ratios are **0.923467 / 0.902695**. Upvalue gains are negligible or
+negative. Preserving the destructor call boundary does not remove the regression.
+
+All production and test-source changes from these storage trials are therefore
+withdrawn, restoring `src/` exactly to `5fbe729`. The old controls, all four full
+screens, both instruction campaigns and the limited boundary probe remain
+available under their named evidence roots. No Miri or i686 pass is claimed for
+any rejected storage candidate. The initial trial's host-only owner-layout
+cross-check does show both actual non-test owner allocations at **1,216 bytes,
+alignment 8**; zero footprint alone did not establish acceptable performance.
+
+Fresh source-bound correctness and original-profile byte-identity checks must
+verify this withdrawal. Restoring the original runtime removes these experimental
+changes; it does **not** close the original callback, metamethod, compiled-Off,
+platform or release acceptance gaps, and the full JIT goal remains incomplete.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
