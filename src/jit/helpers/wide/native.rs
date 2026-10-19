@@ -195,6 +195,7 @@ fn generated_wide_calls_match_current_values_guards_and_panics() {
                                 count: Counts::default(),
                                 slot_count: slots.len(),
                                 panic: None,
+                                read_hints: None,
                                 projection: None,
                             };
                             let mut host = abi::Host {
@@ -308,6 +309,7 @@ fn profile_generated_helper_calls() {
                 count: Counts::default(),
                 slot_count: slots.len(),
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             let mut host = abi::Host {

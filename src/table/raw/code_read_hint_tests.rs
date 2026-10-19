@@ -8,28 +8,7 @@ fn cached<'gc>(
     key: String<'gc>,
     hint: &AtomicU8,
 ) -> Value<'gc> {
-    let hint = Hint::new(hint);
-    let raw = table.map.raw_table();
-    if let Some(index) = hint.load() {
-        if index < raw.buckets() && unsafe { raw.is_bucket_full(index) } {
-            // The live bucket belongs to the borrowed current table.
-            let bucket = unsafe { raw.bucket(index).as_ref() };
-            if bucket.0.eq_string(key) {
-                return bucket.1 .0.get(mc);
-            }
-        }
-    }
-    let hash = PreparedStringHash::new(key).bits();
-    if let Some(bucket) = raw.find(hash, |(stored, _)| stored.eq_string(key)) {
-        // The index is derived from this table's successful canonical lookup.
-        let index = unsafe { raw.bucket_index(&bucket) };
-        hint.remember(Some(index));
-        // The found bucket remains live under the current immutable borrow.
-        unsafe { bucket.as_ref().1 .0.get(mc) }
-    } else {
-        hint.remember(None);
-        Value::Nil
-    }
+    table.get_code_string(mc, key, PreparedStringHash::new(key), Some(Hint::new(hint)))
 }
 
 fn same<'gc>(actual: Value<'gc>, expected: Value<'gc>) {

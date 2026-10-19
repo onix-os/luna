@@ -361,6 +361,7 @@ fn packed_real_frame_helpers_refresh_retired_values_and_canonical_writes() {
                         count: helpers::Counts::default(),
                         slot_count: 3,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     with_frame_scope::<3, _>(&mut frame, |bound| {
@@ -432,6 +433,7 @@ fn packed_real_frame_declines_refresh_and_panics_stop_helper_reentry() {
                 &mut values,
                 |mut registers| {
                     let mut frame = helpers::Frame {
+                        read_hints: None,
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -514,6 +516,7 @@ fn packed_stopped_scope_does_not_invent_a_frame_panic() {
                 count: helpers::Counts::default(),
                 slot_count: 2,
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             with_frame_scope::<2, _>(&mut frame, |bound| {
@@ -572,6 +575,7 @@ fn packed_descriptor_array_pointer_survives_control_reborrows() {
                         count: helpers::Counts::default(),
                         slot_count: 3,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     with_frame_scope::<3, _>(&mut frame, |bound| {

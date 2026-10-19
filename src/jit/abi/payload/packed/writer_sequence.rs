@@ -41,6 +41,7 @@ pub(super) fn check(entry: impl Fn(*mut Packed, &Bridge, bool, u64, u64) -> u32)
                         false,
                         |mut registers| {
                             let mut frame = helpers::Frame {
+                                read_hints: None,
                                 ctx,
                                 closure,
                                 registers: &mut registers,

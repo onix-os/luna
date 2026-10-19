@@ -1132,3 +1132,6 @@ mod prehashed_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod code_read_hint_tests;
+
+#[cfg(feature = "jit")]
+mod code_read_hint;

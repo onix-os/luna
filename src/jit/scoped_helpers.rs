@@ -327,6 +327,7 @@ unsafe extern "C" fn call<const KIND: u32>(
                 count: std::mem::take(&mut scoped.count),
                 slot_count: scoped.slot_count,
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             let mut host = abi::Host {

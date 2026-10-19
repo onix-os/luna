@@ -188,6 +188,10 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
         unsafe { helpers::PREHASHED_ENTRY(std::ptr::null_mut(), std::ptr::null_mut(), 0, 0, 0, 0) },
         abi::HELPER_DECLINED
     );
+    assert_eq!(
+        unsafe { helpers::CACHED_ENTRY(std::ptr::null_mut(), std::ptr::null_mut(), 0, 0, 0, 0) },
+        abi::HELPER_DECLINED
+    );
     crate::Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, b"return target").unwrap();
         let snapshot = Snapshot::new(&closure.prototype(), 4096, 1 << 20).unwrap();
@@ -203,6 +207,10 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
         let hash = snapshot.prepared_keys.as_ref().unwrap().hash(index.0);
         let replacement = crate::Table::new(&ctx);
         replacement.set(ctx, "target", -19).unwrap();
+        let hints = crate::jit::entry_bytes::EntryBytes::try_new(
+            snapshot.operations.iter().map(|_| true),
+            BudgetAllocator(Ledger::new(4096)),
+        ).unwrap();
         for metamethod in [false, true] {
             let mt = crate::Table::new(&ctx);
             mt.set(ctx, "__index", crate::Table::new(&ctx)).unwrap();
@@ -243,7 +251,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                         &ctx,
                         crate::closure::UpValueState::Closed(environment),
                     );
-                    let results = [0, 1, 2, 3].map(|prepared| {
+                    let results = [0, 1, 2, 3, 4].map(|prepared| {
                         let mut canonical = std::vec![Value::Integer(73); snapshot.registers];
                         let mut pc = 0;
                         let result = LuaRegisters::with_test_frame(
@@ -264,6 +272,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                     count: helpers::Counts::default(),
                                     slot_count: slots.len(),
                                     panic: None,
+                                    read_hints: Some(&hints),
                                     projection: None,
                                 };
                                 let mut host = abi::Host {
@@ -273,7 +282,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                 let global_table = ctx.globals().into_inner();
                                 let guard = borrowed.then(|| global_table.borrow_mut(&ctx));
                                 let status = unsafe {
-                                    if prepared >= 2 {
+                                    if prepared == 2 || prepared == 3 {
                                         let entry = if prepared == 2 {
                                             helpers::wide::call
                                         } else {
@@ -285,8 +294,9 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                             helpers::wide::operands(packed, 0),
                                             hash,
                                         )
-                                    } else if prepared == 1 {
-                                        helpers::PREHASHED_ENTRY(
+                                    } else if prepared == 1 || prepared == 4 {
+                                        let entry = if prepared == 4 { helpers::CACHED_ENTRY } else { helpers::PREHASHED_ENTRY };
+                                        entry(
                                             &mut host,
                                             slots.as_mut_ptr(),
                                             packed,
@@ -318,6 +328,9 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                     frame.count.declined,
                                     frame.count.table_reads,
                                     frame.count.upvalue_reads,
+                                    frame.count.table_writes,
+                                    frame.count.upvalue_writes,
+                                    frame.count.allocations,
                                 )
                             },
                         );
@@ -329,6 +342,10 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                             equal(a, b);
                         }
                     }
+                    if results[4].0.0 == abi::HELPER_COMPLETED && !results[4].1[dest.0 as usize].is_nil() {
+                        assert!(hints.hint(0).unwrap().load().is_some());
+                    }
+                    assert!(hints.iter().all(|entry| *entry));
                 }
             }
         }

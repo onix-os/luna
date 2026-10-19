@@ -48,6 +48,7 @@ fn full_binding_preserves_mixed_prefixes_and_reentry_after_type_changes() {
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     for replacement in [Value::Number(-0.0), Value::Integer(i64::MAX)] {

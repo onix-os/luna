@@ -58,11 +58,31 @@ preserved. A separate corrected retry explicitly checks the five pure tests;
 the native target's nine-test requirement is not weakened. No model or raw-table
 behavior was changed to obtain the retry pass.
 
-Runtime integration is next; no hint cache is active yet. Integration must keep
-original helper panic/PC/counter behavior, private
-ABI versioning, full metadata accounting and all original timing gates. No
-production speedup, unchanged image identity, runtime implementation or full-plan
-acceptance is claimed. Evidence:
+The current integration replaces the native entry vector with the modeled
+atomic-byte owner and routes ordinary prepared reads through private helper
+**`luna_get_up_table_b1`**. The old arbitrary-hash Rust helper and wide `h2` entry
+remain unchanged. Both entry filtering paths preserve their original eligible PCs.
+The invocation frame borrows entry metadata through the existing code lease;
+this adds an optional stack reference, not an owner, allocation or GC-object
+field. Its actual stack/codegen cost remains part of measurement.
+
+Canonical misses use the existing compiler-verified hash arguments rather than
+rehashing string contents. In particular, large keys or uncacheable buckets must
+not introduce repeated key-length work absent from the old prepared path. The
+unchanged source/data-flow verifier still rejects corrupted hash arguments; the
+new helper is not the arbitrary-hash API. The raw models now call the production
+read implementation instead of retaining a duplicate algorithm.
+
+Formatting/check-all and **158 focused executions / eighteen summaries** pass,
+zero failures, two ignored and no warnings. The independent helper differential
+now includes generic, prepared, both wide and cached entries, preserves all eight
+helper counters/PC/results, compares borrowed-table panic and live environment /
+metatable mutations, and positively verifies hint fills and unchanged entry bits.
+Initial constructor/lifetime errors are fixed and preserved in draft logs.
+Full Force, integrated source-bound Miri/fallback, actual image/work/elapsed
+comparisons and original resource/platform/release gates remain required. No
+production speedup, unchanged image identity or full-plan acceptance is claimed.
+Evidence:
 `target/jit-evidence/hook-resume-recovery/code-owned-hint/`.
 
 ### Shared binary-metamethod resolution — runtime withdrawn, 2026-10-19
