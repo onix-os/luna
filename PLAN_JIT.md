@@ -45,6 +45,35 @@ metamethod and Off-float profiles are next. Full Force/Miri/fallback and origina
 repeated elapsed/resource/platform/release gates remain unproven; this candidate
 is not an accepted performance improvement.
 
+The frozen builder's repeated focused lane passes **127 checks / fourteen
+summaries**, zero failures, two ignored. All twelve fresh production images
+build; the model-only baseline reproduces all six original `218112b` controls
+byte-for-byte. All six candidate hashes differ, including no-feature images;
+no identity is assumed for those changed images. Exact native-image link maps
+show one shared selector (**649 bytes speed / 594 shipping**) and VM body extents
+**55,558 → 46,512 / 41,820 → 38,750 bytes**. That confirms code sharing, not
+reduced whole-program size, instruction work or elapsed time.
+
+Four full-execution diagnostic families finish **32 alternating processes / 160
+execute calls / 64 warmups**: native callbacks, native metamethods, and no-feature /
+compiled-Off float in both profiles. Full printed native counter/resource records
+match; all 13 events and full text-symbol partitions reconcile. Each family
+accepts two valid and rejects four image/object-identity corruption fixtures.
+Callback instructions instead rise **9,438,782 → 9,478,789** speed and
+**11,684,260 → 11,704,262** shipping. Compiled-Off float rises
+**4,015,310 → 4,314,068 / 4,109,344 → 4,349,332**. No-feature float falls
+**4,081,046 → 3,999,759** speed but grows **4,375,155 → 4,495,149** shipping.
+Metamethod totals also grow; allocator/GC variation and every complete capture
+remain in the profile records. Smaller VM code does not mean less executed work.
+
+Because this hypothesis concerns instruction delivery, the unchanged original
+all-nine-case timing screens run before additional broad validation rather than
+inferring an elapsed loss from instruction totals. They are explicitly marked
+`early-` diagnostic campaigns, retaining original gates, samples, controls and
+identity audits. No owned build/test/profiler overlaps timing. Full Force, both
+Miri models, actual fallback and all original acceptance requirements remain
+mandatory before retention; no missing safety status is fabricated or waived.
+
 The preceding frame-identity-cache idea is not being implemented: a metadata-cap
 reduction resets registrations even with rooted activations alive. The earlier
 epoch-aware closure memo and scoped lease classification are already measured
