@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Memory-limit call-site isolation — validating, 2026-10-19
+### Memory-limit call-site isolation — rejected at counter screen, 2026-10-19
 
 Trial **`c250227`** starts from main and short-circuits absent limits at all six
 synchronous/asynchronous enforcement call sites. The existing enforcement
@@ -18,8 +18,28 @@ new fields, unsafe code or changed GC/finalizer boundaries. This is not a claim
 that machine-code placement stays identical; exact images must be measured.
 The frozen `218112b` controls remain valid: all tracked production sources,
 examples, dependency inputs and Make/Nix files match the new main parent.
-Candidate validation/builds and two unchanged full timing screens are prepared.
-No runtime promotion or acceptance is established. Evidence:
+Candidate focused checks pass **222 / 38**, full Force **2,044 / 91** with
+**23 ignored**, each fresh-target Miri model **10 / six**, real i686 **14 / nine**,
+zero failures. Six fresh candidate images and source/config/environment
+preflights verify. The speed VM still moves to `0x5caf10`, size `0xd7ea`:
+preserving the helper source did not preserve machine-code placement.
+
+An early CPU0 speed screen finishes **54 hardware-counter commands / 5,508
+integer executions**, including warmups, without owned build/test/profiler
+overlap. All **216 counters are 100% scheduled**, identity/result/order audits
+pass, and all **16 negative fixtures** reject. Control/candidate cycles are
+**0.917749 / 0.920282 / 0.918753** in the three groups, against same-image
+placebos **0.994104 / 1.001538 / 1.001156**. Losses occur in five, six and five
+of six rounds. Instructions remain slightly lower (ratios about **1.000136**),
+but undelivered IDQ uops again increase, ratio **0.230092**.
+
+Reject this form too: it preserves the known roughly 9% hardware-cycle penalty.
+The two prepared full timing screens are deliberately **not run** after this
+early rejection; no new CPU16, full timing, or instruction-profile result is
+claimed. No runtime promotion or acceptance is established. The memory-limit
+micro-optimization is set aside rather than continuing equivalent rewrites.
+Next prioritize fresh attribution of native Rust-callback overhead, one of the
+still-failing full-suite gates in the frozen main controls. Evidence:
 `target/jit-evidence/hook-resume-recovery/limit-callsite/`.
 
 ### Main-only memory-limit frontend attribution — no promotion, 2026-10-19
