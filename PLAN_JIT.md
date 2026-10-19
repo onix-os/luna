@@ -37,10 +37,16 @@ or ignored tests, including configuration, memory limits, hooks and GC requests.
 All six exact production images build and verify. Both no-feature executables
 are **byte-identical to the frozen controls**; flags/configurations/environments
 match. Candidate diagnostic output verifies equal common-field offsets across
-feature choices. Full Force, fresh Miri/fallback checks and two original repeated
-elapsed comparisons are now queued serially in one live pipeline; timings start
-only after validation finishes. These are not yet performance or full-platform
-acceptance. Main runtime and compiler flags are unchanged.
+feature choices. Full Force validation now passes **2,046 executions / 91
+summaries**, zero failures and **23 ignored**. Fresh-target Stacked/Tree Miri
+each pass **18 checks**, covering both feature choices for state layout, hook
+resumption and memory-limit behavior; emitted warnings remain in the logs.
+Real i686-musl passes **24 checks** across layout, hooks, memory and fallback.
+Zero-case workspace summaries are not counted as test executions. These are
+Rust-state/fallback checks, not native execution under Miri/i686 or complete
+platform certification. Both original elapsed campaigns are now running serially
+after validation finishes. Main runtime and compiler flags remain unchanged;
+elapsed-performance acceptance is still unproven.
 Evidence: `target/jit-evidence/hook-resume-recovery/state-core-prefix/`.
 
 ### Non-fall-through block alignment — rejected, 2026-10-19
