@@ -9,6 +9,44 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Memory-limit call-site isolation — validating, 2026-10-19
+
+Trial **`c250227`** starts from main and short-circuits absent limits at all six
+synchronous/asynchronous enforcement call sites. The existing enforcement
+helper keeps its body and name, without forced inline attributes, cached limits,
+new fields, unsafe code or changed GC/finalizer boundaries. This is not a claim
+that machine-code placement stays identical; exact images must be measured.
+The frozen `218112b` controls remain valid: all tracked production sources,
+examples, dependency inputs and Make/Nix files match the new main parent.
+Candidate validation/builds and two unchanged full timing screens are prepared.
+No runtime promotion or acceptance is established. Evidence:
+`target/jit-evidence/hook-resume-recovery/limit-callsite/`.
+
+### Main-only memory-limit frontend attribution — no promotion, 2026-10-19
+
+The rejected `598a82e` images receive **54 further rotated hardware-counter
+commands / 5,508 integer executions**, including warmups, on CPU0 speed. Three
+event groups independently retain cycles/instructions plus starvation, fetch,
+or delivery counters. All **216 events are 100% scheduled**. Exact image/source
+hashes, result protocols, requested events, telemetry and run order verify;
+the auditor accepts valid/restored data and rejects **16 corruptions**.
+
+Control/candidate cycle ratios are **0.909452 / 0.908568 / 0.907560** across
+the groups, while instruction ratios stay about **1.000136**. Undelivered IDQ
+uops have ratio **0.207585** (about 4.8 times more in the candidate), versus a
+same-image placebo **1.096492**. DSB-to-MITE penalty-cycle ratio is **1.243653**,
+I-cache-data stalls **1.033709**, instruction-TLB walk-active cycles **1.080423**,
+DSB-delivered uops **1.012815**, and MITE-delivered uops **1.023257**. These
+events do not show a comparable increase in cache/translation/switch penalties.
+Local perf event descriptions are retained with the captures; hardware events
+are not simulated-cache counts or elapsed acceptance.
+
+This supports investigating instruction-delivery throughput, not a claim of
+proven alignment causality. The earlier canonical-string delivery evidence and
+failed matched-4K placement experiment remain exclusions. No offset search,
+compiler flag change or new production placement rule follows. Evidence:
+`target/jit-evidence/hook-resume-recovery/limit-main/frontend/`.
+
 ### Main-only memory-limit isolation — rejected, 2026-10-19
 
 The prior trial's repeatable float regression is not promoted. Main now retains
