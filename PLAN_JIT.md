@@ -60,6 +60,34 @@ contexts and diagnose the hot-path loss rather than accepting a favorable median
 Evidence: `vm-add-callback/{timing,timing-repeat,timing-parent,timing-parent-repeat}`
 and `{shipping,speed}-parent-counters/` under hook-resume recovery.
 
+Exact-image CPU16 branch-miss sampling completes **18 processes / 18,000
+iterations / 63,051 samples**. Image, map, MMAP2/file-offset translation and VM
+instruction boundaries verify; three unknown samples remain unattributed.
+The corrected audit passes valid/restored plus 14 corruption fixtures. Its
+initial instruction-boundary mutation hit outside the checked VM range and was
+accepted; the fixture now selects an actual multi-byte VM instruction. That
+initial pipeline failure remains recorded, separate from successful collection.
+
+The numeric-only parent has zero sampled PCs in `String::eq` across twelve
+captures; the composition has **4,466** across six. Normalize unequal capture
+counts. These are skid-prone sampled PCs, not proof of a particular failing
+branch. Four exact-image instruction profiles cover twenty Lua executions,
+including eight warmups. Every measured execution has **4,003 String::eq entry
+instructions**, **117,087 String::eq instructions**, and **27,021 conditional
+branches** in both variants. All thirteen exclusive event sums verify. Thus the
+sample difference is not explained by more string comparisons in these profiles.
+
+Follow-up `2f2f9a5` on `trial/jit-add-callback-identity` checks live string-key
+GC identity before decoding buffers, only in JIT-enabled builds. Distinct
+allocations retain content comparison; weak/dead-key and non-string paths,
+hashing, layout and ownership are unchanged. The older unconditional identity
+trial was withdrawn; this new composition is not accepted by analogy. It tests
+a work reduction at the newly observed hotspot while preserving no-feature
+source behavior. The isolated change is committed/pushed; focused/full Force
+validation and six production builds are running. Exact Miri/i686 and elapsed
+acceptance remain open. Evidence: `vm-add-callback/meta-branch-samples/` and
+`vm-add-callback-identity/`.
+
 ### Single Add result store — shipping recovery, acceptance open, 2026-10-19
 
 Trial `f0a3406` on `trial/jit-add-result-store` retains the same-kind numeric
