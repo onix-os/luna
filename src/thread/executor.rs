@@ -678,10 +678,6 @@ impl<'gc> Executor<'gc> {
                         // One borrow of the stack for the whole VM slice, not one per opcode.
                         let stack = top_state.stack;
                         let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
-                            #[cfg(feature = "jit")]
-                            let run_vm = |ctx, frame, budget| {
-                                super::vm::run_vm_known(ctx, frame, budget, _current_function)
-                            };
                             let frame_stack = stack.borrow_mut(&ctx);
                             #[cfg(feature = "jit")]
                             let mut frame_stack = frame_stack;
@@ -731,7 +727,12 @@ impl<'gc> Executor<'gc> {
                                 }
                                 result
                             } else {
-                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                                super::vm::run_vm_known(
+                                    ctx,
+                                    lua_frame,
+                                    Self::VM_GRANULARITY,
+                                    _current_function,
+                                )
                             };
                             #[cfg(not(all(
                                 test,
@@ -740,7 +741,21 @@ impl<'gc> Executor<'gc> {
                                 target_os = "linux",
                                 any(target_arch = "x86_64", target_arch = "aarch64")
                             )))]
-                            let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                            let result = {
+                                #[cfg(feature = "jit")]
+                                {
+                                    super::vm::run_vm_known(
+                                        ctx,
+                                        lua_frame,
+                                        Self::VM_GRANULARITY,
+                                        _current_function,
+                                    )
+                                }
+                                #[cfg(not(feature = "jit"))]
+                                {
+                                    run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                                }
+                            };
                             result
                         };
                         #[cfg(all(

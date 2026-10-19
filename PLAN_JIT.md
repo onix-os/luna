@@ -36102,6 +36102,55 @@ actual unsupported-platform fallback, original native/disabled/resource and
 release gates remain required before retention. Evidence:
 `target/jit-evidence/hook-resume-recovery/known-frame-closure`.
 
+Initial candidate **`bf013e49`** passes formatting/check-all and **66 executions /
+13 summaries**, zero failures/ignores/compiler warnings. This includes the
+64 paired schedules above, native/heap/statistics and callback-mode/hook checks.
+The Nix dirty-checkout notice is retained, not counted as a compiler warning.
+
+Shipping compiled-Off profiles complete for integer, float and upvalues, with
+all thirteen events/full text attribution reconciled and eighteen parser fixtures
+passing. Executable instructions fall **3,848,926 → 3,845,796** integer,
+**4,109,333 → 4,106,203** float and **17,620,113 → 17,520,108** upvalues. The
+upvalue closure accessor removes240,012 self instructions, offset by Executor
+80,004 and VM60,003. VM text grows only34 bytes. External upvalue variation is
+retained in whole-execution reports rather than subtracted as an optimization.
+
+The gross shipping cost screen retains23,760 iterations, followed by six
+balanced order permutations retaining142,560 more. CPU0 same-image placebo
+variation is extremely large (the first upvalue A/B ratio is2.1767), and
+no-feature controls drift too. In the repeat CPU16 compiled-Off control/trial
+medians are1.02860 integer,0.98880 float,0.99240 upvalue and0.99854 callback;
+their placebos are1.00769,1.00079,0.98975 and1.00036. All raw samples and failed
+1.05 gates remain. These cost-only diagnostic screens establish neither a
+repeatable end-to-end gain nor full native/resource acceptance.
+
+Both no-feature executables differ solely in **87 verified source-location
+line fields** (68 VM,19 Executor). Text, literals, section layouts and every
+other ELF byte match originals. The strict proof maps only unchanged source
+lines through exact diff hunks; it does not allow arbitrary line changes.
+Each profile passes two valid/restored and five code/literal/location/header
+corruptions. The initial fixed-file/delta parser refusal and a Perl read-only
+iterator error are preserved; corrected parsing uses a lexical input variable.
+
+Actual native benchmark callback profiles are mixed: speed whole-execution
+instructions **9,438,782 → 9,533,491**, shipping **11,684,260 → 11,659,255**.
+All non-timing statistics/resources match; both profiles reconcile all thirteen
+events/text partitions and pass six shared parser fixtures. An initial parser
+expected the withdrawn two-VM symbol set and refused; its logs/tools remain.
+The completed speed capture is reused, not rerun, with the validated single-VM
+parsers, and only unfinished shipping capture runs. The completed campaign's
+terminal zero is not a performance pass.
+
+The speed increase includes **55,011** new Executor closure-wrapper self
+instructions and **49,700** added Executor instructions, outweighing VM savings
+of10,002. The first form introduced an extra capturing entry closure inside the
+ordinary Executor closure. A bounded refinement removes that extra closure and
+calls the known-frame entry directly at its two JIT sites. Fresh formatting,
+check-all and the same **66 executions / 13 summaries** pass with zero failures,
+ignores or compiler warnings under `known-frame-direct`; the refinement is not yet measured or
+accepted, and no initial timing result is attributed to it. Full Force/Miri/
+i686 and complete original repeated acceptance remain unrun for these trials.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
