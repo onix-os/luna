@@ -9,6 +9,73 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Complete Oslo row lifecycle — fresh attribution, 2026-10-19
+
+`examples/jit_oslo_profile.rs` isolates the existing predicate's complete
+10,000-row host lifecycle: global mutation, executor creation/stashing, execution,
+result conversion and intervening collection. It reuses `PREDICATE_SOURCE`,
+requires 5,000 selected rows, and exposes one non-inlined batch boundary. Two
+warmup batches are excluded from instruction analysis. Existing benchmark
+sources, workload sizes and acceptance gates are unchanged. The old cost probe
+only supports selecting its seven warm scripts, and its boolean execute entry
+is inlined in all four retained maps; the i64 execute toggle would not isolate
+this workload correctly.
+
+Diagnostic `4ba398a` uses the pre-fusion `0c054a3` runtime, not an accepted
+optimization. Its tests pass **five executions / two summaries**, including real
+Auto native work and repeated Off results. Main retains the diagnostic in
+`40bba53`. Four shipping/speed, no-feature/compiled-Off images and exact link maps
+are frozen. These are new diagnostic images, not the original acceptance ELFs.
+
+Eight Callgrind processes capture **40 batches / 400,000 rows**, including
+**16 warmup batches / 160,000 rows**. Corrected attribution reconciles all 13
+exclusive events and text-symbol sums. Every measured batch enters the VM,
+executor, physical push and return exactly 10,000 times. Speed image work ranges
+**39.953–39.998M no-feature / 41.199–41.244M Off**; shipping ranges
+**44.802–44.851M / 45.298–45.364M**. All allocator/GC variation remains.
+
+Speed VM self work increases **3,810,000 → 4,540,000**; shipping
+**3,450,000 → 4,105,000**. Executor and frame/statistics costs also grow, while
+some formerly separate string/operand helpers inline or shrink. Registry sweep
+work is only about 10–11K instructions per batch, so it is not the dominant
+added work in these images. Separate-symbol disappearance is not free work.
+
+The initial parser treated the hardlink launch path as external because it
+expected the map file's path. Its complete but misclassified output is retained
+under `analysis-initial/` and excluded. Corrected parsers match the captured
+launch path to the per-run frozen-image hash and require nonzero VM attribution.
+Both parsers accept their valid fixture and reject altered hash/object identity
+(four negative checks). An initial fixture runner failed to redirect child
+descriptors; its log remains, and the corrected fork/exec runner passes. Original
+captures were not rerun or modified.
+
+After all owned builds/profiles finish, **72 balanced PMU commands** execute
+**73,440,000 rows**, including warmups, on CPUs 0/16 with separate shipping/speed
+images and same-image A/B controls. Four user-event counters are fully scheduled;
+protocol, result, dispatch totals, image identity and run order audit correctly.
+No native work occurs in Off. Median no-feature/Off cycle ratios are:
+
+| CPU | Profile | Cycle ratio | Same-image A/B |
+| --- | --- | ---: | ---: |
+| 0 | speed | 0.946865 | 0.980596 |
+| 16 | speed | 0.961649 | 0.995448 |
+| 0 | shipping | 0.988433 | 1.003138 |
+| 16 | shipping | 0.974791 | 1.016735 |
+
+Speed cycles are adverse in all six rounds on each CPU; shipping CPU0 is adverse
+in four, CPU16 in six. Instruction ratios are approximately 0.977/0.977 speed
+and 0.991/0.992 shipping. Contention/placebo dispersion and all branch counters
+remain in the report. These whole-process user cycles include startup and
+warmups, are not elapsed-time ratios, and do not establish release acceptance.
+
+A concrete next target is the no-limit memory check: it executes **20,000
+out-of-line calls per batch**, costing 360–380K self instructions even when
+no memory ceiling is configured. Test an inline absence check with the existing
+configured-limit/GC/stop path kept separate; retain exact limit enforcement,
+callback/finalizer behavior and no-feature comparisons. No such runtime change
+or speedup is claimed yet. Evidence:
+`target/jit-evidence/hook-resume-recovery/oslo-row-profile/`.
+
 ### Direct statistics-cell guard — rejected at work profiling, 2026-10-19
 
 Trial `691c932` starts from pre-fusion `0c054a3`. Its guard holds a shared
