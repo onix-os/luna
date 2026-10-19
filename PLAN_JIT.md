@@ -9,6 +9,32 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Phase-reused VM progress — independent model, 2026-10-19
+
+The historical unified-progress trial is not being replayed: it nested the
+original interpreter publisher in a larger wrapper with a second destructor.
+The new model stores either in-flight native progress or the final report in
+one enum occupying the original `Option<u32>` storage. Its total-dispatch field
+can serve as VM progress until finishing; one destructor publishes only the
+interpreted partition, at the original boundary and through the original
+manager borrow. No extra allocation, cached policy, batched publication or
+unsafe code is introduced.
+
+Layout checks require the phase enum and complete guard to match the old report
+and guard sizes, and the historical wrapper to be larger. Independent comparisons
+against the unchanged publisher cover 378 saturation/partition/report scenarios,
+terminal adjustments, native prefixes, rollback, typed unwinding, held-manager
+refusal and full-width counters. State transitions compute their results before
+mutating fields, preserving unwinding publication if a checked build traps.
+
+The original runtime remains active while this module is test-only. Model plus
+existing statistics/native/heap checks pass **55 checks / six summaries**, zero
+failures/ignored checks; the refined model passes **four / one summary**. VM
+integration, hook/slice/error parity and actual work/elapsed measurement remain
+pending. All original performance/resource/platform/release requirements stay
+open. Work stays on `feat/native-jit`, without new branches or worktrees.
+Evidence: `target/jit-evidence/hook-resume-recovery/phase-progress/`.
+
 ### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 
 **Resumed by the user on `feat/native-jit`.** The previously interrupted
