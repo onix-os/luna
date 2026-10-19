@@ -9,6 +9,23 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Main-only memory-limit isolation — validating, 2026-10-19
+
+The prior trial's repeatable float regression is not promoted. Main now retains
+only its independent memory-limit tests and Make targets in **`218112b`**:
+fresh exact-tree validation passes **222 checks / 38 summaries**, zero failures
+or ignores, with explicit execution checks for the new fixtures. That control
+has no earlier numeric/inline-string trial changes.
+
+Independent trial **`598a82e`** adds only the ten-line memory-check split to this
+main-based control. Both heads are frozen and rebuilt at one shared builder and
+target; six fresh control images are complete. Candidate focused checks pass;
+full Force, candidate images and fresh-target Miri/i686 checks are in progress.
+Two unchanged full production timing campaigns follow only after all owned
+validation/build jobs finish. Earlier trial timings are not exact-main evidence.
+No runtime promotion or full acceptance is claimed. Evidence:
+`target/jit-evidence/hook-resume-recovery/limit-main/`.
+
 ### Absent memory-limit fast path — mixed timing, not promoted, 2026-10-19
 
 Trial `a835305` follows foundation `b5918d8` on the pre-fusion runtime plus
@@ -43,7 +60,7 @@ Every candidate range lies below its corresponding control range. VM self work
 is unchanged; the empty-limit calls disappear. Allocation/GC variability is
 retained, and whole-image reductions—not the removed symbol alone—are the
 evidence. These are not elapsed-speed percentages. Four original/direct-parent
-production screens are now running after owned builds/tests/profilers finish.
+production screens were launched after owned builds/tests/profilers finished.
 The first launch stopped before sampling: prepared control links were named
 `baseline`, while the runner expected `control`. The failed preflight is retained
 under `screen-launch-initial/`. Explicit control aliases now resolve to the same
