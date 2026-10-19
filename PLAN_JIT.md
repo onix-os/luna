@@ -11,8 +11,12 @@
 
 ### Native slot-conversion call boundary — isolated investigation, 2026-10-19
 
-**Paused by the user.** The active validation pipeline was stopped before
-completion. Its partial output is not a full test pass or performance result.
+**Resumed by the user on `feat/native-jit`.** The previously interrupted
+validation output is preserved and is not claimed as a full test pass or
+performance result. The pending one-attribute conversion candidate is applied
+on the existing implementation branch. Validation uses the retained detached
+source snapshot only after confirming its runtime, test and build inputs match;
+no local/remote branch or additional worktree is created.
 Experimental branch names below are historical provenance: **59 local and 55
 remote trial/experiment branches have been removed**. Only `main`, `develop` and
 `feat/native-jit` remain locally and on origin. Their prior tips are preserved in
