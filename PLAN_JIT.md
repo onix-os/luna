@@ -9,6 +9,46 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Numeric-only operands — additional work and gate failures, 2026-10-19
+
+Trial `c2a7865`, following test foundation `2117b9b`, narrows the outlined
+helper's private operands to integer/float variants. Ten expressions cover nil,
+booleans, strings, table, Lua closure, native callback, coroutine and userdata.
+Each type is independently verified before **120 full-trace paired comparisons**
+across three operand forms, two budgets and Off/prepared modes. Nonnumeric and
+coercible-string cases execute zero fusions and preserve canonical results or
+errors. The existing numeric prefix/alias/unwind/hook/GC checks also pass.
+
+Exact focused **268 tests / 44 summaries**, full Force **2,043 / 90**, **23 ignored**,
+pass with zero failures. All six images and both preflights verify. No-feature
+text and section/segment geometry match original; whole files differ. Eight
+closure Callgrind processes retain 40 executions/16 warmups and reconcile all
+13 exclusive events plus text-symbol partitions. Contrary to the hypothesis,
+helper self work increases **1,150,000 → 1,240,000 speed / 1,200,000 shipping**
+per measured execution. VM self work and entry counts match the direct parent.
+
+Four screens complete **576 commands / 57,024 native executions / 1,140,480 cost
+iterations**, zero counter/resource mismatches, valid/restored plus 13 corruptions
+each. Original speed native failures **7 then 11 / 96**, cost **51 then 65 / 216**;
+parent native **4 then 14 / 96**, cost **63 then 67 / 216**. Shipping native
+observations remain separate. Every closure cost gate fails; each campaign also
+has six speed-profile float cost failures.
+
+Parent CPU0 speed float control/trial ratios are **0.881134 / 0.881820**; parent
+CPU16 speed float **0.914276 / 0.913554**, all rounds adverse. Original CPU0
+shipping float remains **0.954805 / 0.952884**. Original CPU16 speed closure is
+**0.970938 / 0.972888**, also adverse in every round. The runtime change is not
+accepted; exact-trial Miri/i686 has not run. No gates are relaxed.
+
+Exact helper assembly retains the first operand's optional-presence state on
+the stack while reading the second operand; the speed helper's local stack area
+grows from 0x28 to 0x38 bytes. This identifies avoidable intermediate state, not
+the cause of all timing changes. A follow-up tests refusing each missing numeric
+operand immediately, before constructing the two-numeric-value sum. Both reads
+are side-effect-free; the Get opcode and all subsequent canonical fallback
+effects must retain their original ordering. Evidence:
+`target/jit-evidence/hook-resume-recovery/vm-upvalue-numeric/`.
+
 ### Outlined upvalue fusion — float recovery with closure loss, 2026-10-19
 
 Trial `79b7f73` outlines only the fusion helper relative to `2430bb8`. Exact
