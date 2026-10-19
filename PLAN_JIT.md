@@ -40,10 +40,9 @@ Formatting/check-all and **219 checks / twenty summaries** pass with zero
 failures, two ignored and no emitted warnings. Coverage includes both feature
 choices, all fifteen binary methods, public Off/Auto/Force metamethod tests,
 numeric conversion/coercion boundaries, hooks, callback chains and native regions.
-Fresh baseline/candidate speed/shipping builds and whole-execution callback,
-metamethod and Off-float profiles are next. Full Force/Miri/fallback and original
-repeated elapsed/resource/platform/release gates remain unproven; this candidate
-is not an accepted performance improvement.
+Fresh production builds/profiles and original repeated elapsed screens follow
+below. Full Force/Miri/fallback and original resource/platform/release acceptance
+are not established for this rejected candidate.
 
 The frozen builder's repeated focused lane passes **127 checks / fourteen
 summaries**, zero failures, two ignored. All twelve fresh production images
@@ -74,11 +73,34 @@ identity audits. No owned build/test/profiler overlaps timing. Full Force, both
 Miri models, actual fallback and all original acceptance requirements remain
 mandatory before retention; no missing safety status is fabricated or waived.
 
-The first full original screen shows substantial disabled-mode losses and no
-consistent native callback/metamethod improvement. The runtime extraction is
-withdrawn on the existing branch while the repeat completes against immutable
-binaries. The independent tests remain; no full safety pass or final repeat
-result is claimed at this checkpoint.
+Both diagnostic elapsed campaigns finish **288 commands / 28,512 native
+executions / 570,240 cost iterations**, zero complete printed counter/resource
+mismatches. Each accepts two valid audit fixtures and rejects all thirteen
+corruptions. Original cases, gates, controls, affinity, configuration, contention
+and outliers remain; no owned build/test/profiler overlaps either campaign.
+
+Reject the extraction. CPU0 speed compiled-Off integer control/candidate ratios
+are **0.464084 / 0.464946**, float **0.634413 / 0.635198**; shipping integer
+**0.496898 / 0.495814**, float **0.653214 / 0.652445**. Every corresponding
+round is adverse and median A/B controls remain near one: roughly **2.0–2.2 times
+the integer elapsed time / 53–58% longer float time**. CPU16 speed integer also
+loses all twelve rounds (**0.708890 / 0.704791**). Speed-native callback ratios
+are **0.988542 / 0.997818** CPU0 and **0.979396 / 0.977531** CPU16; speed
+metamethod ratios **0.963713 / 0.960509** and **0.980147 / 0.982943**. Smaller VM
+code did not repair these workloads. No specific hardware cause is inferred.
+
+Candidate scored native failures fall to **four then five / 96**, while cost
+failures rise to **65 then 76 / 216**. That native failure-count reduction is
+not proof of acceleration: native gates compare Auto against the candidate's
+own Off execution, which this change slows dramatically. The direct controlled
+Auto comparisons and the unchanged disabled-cost gates prevent that false win.
+
+Rollback **`ec83531`** restores all source/test/build inputs exactly to model-only
+baseline **`a49f25f`**, preserving independent tests. It is pushed on the existing
+branch; no new branch/worktree is created. Fresh focused checks and exact six-image
+restoration are running after both timing campaigns. Full Force/Miri/fallback
+was not run for the rejected extraction; no full-safety or performance pass is
+claimed.
 
 The preceding frame-identity-cache idea is not being implemented: a metadata-cap
 reduction resets registrations even with rooted activations alive. The earlier
