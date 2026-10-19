@@ -9,6 +9,34 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Numeric upvalue dispatch — implementation under validation, 2026-10-19
+
+Trial `20c980a` on `trial/jit-upvalue-dispatch` builds on `0c054a3`, with
+independent test foundation `558a15a`. It fuses an immediate numeric
+GetUpValue/Add/SetUpValue sequence inside an existing interpreted VM slice.
+It does not batch across frames, hooks, calls, returns, or host boundaries.
+Get remains canonical; Add and Set retain their individual PC/dispatch updates,
+intermediate writes, current capture lookup, and canonical upvalue barrier.
+Insufficient budgets, nonnumeric operands, other opcode shapes and observing or
+native dispatch retain ordinary execution. No production allocation, cached
+policy, unsafe code, bytecode format, or native ABI is added. Non-JIT runtime
+source remains unchanged; binary preservation still requires measurement.
+
+The frozen candidate passes **267 focused executions / 44 summaries**, zero
+failures. Its independent numeric model checks 2,800 prefix/alias scenarios in
+each of no-feature, enabled-JIT and disabled-JIT configurations (**8,400**
+checks); enabled-JIT verifies 700 actual fusions. Integrated comparisons cover
+12 scripts, four budgets and two modes, plus an actual fused reference write
+surviving collection. Full stack/frame/fuel/statistics traces, foreign-write
+unwind ordering, hook handling, callback interruption and fallback arithmetic
+are checked. These are correctness results, not elapsed performance evidence.
+
+Both commits are pushed separately. Full Force validation and production image
+builds are running; exact Miri/i686, instruction-work comparison, and repeated
+original/direct-parent timing remain pending. No speedup, regression fix,
+runtime promotion or full-plan acceptance is claimed. Evidence:
+`target/jit-evidence/hook-resume-recovery/vm-upvalue-dispatch/`.
+
 ### Shared string equality — recovery and remaining gates, 2026-10-19
 
 Trial `0c054a3` on `trial/jit-inline-byte-outline` adds a JIT-only
@@ -17,7 +45,8 @@ It passes **260 focused executions / 42 summaries**, full Force **2,037 passes /
 90 summaries**, **23 ignored**, zero failures. Six stripped images and both
 original/direct-parent preflights complete. No-feature executable sections and
 section/segment geometry match original `79631fe`; whole files differ. Exact
-trial Miri/i686 checks remain pending, not inherited from its parent.
+trial checks now pass: both Miri borrow models **22 passes / 5 summaries** each,
+and real i686 **129 passes / 20 summaries**, zero failures or ignored tests.
 
 The exact speed image restores a 111-byte string-equality helper and shrinks
 key equality from 508 to 300 bytes. Four Callgrind processes verify 20 profiles,
@@ -85,8 +114,8 @@ data-section aliases are excluded and text-range overlaps rejected. Other
 functions become cheaper, so these are not independent total deltas or elapsed
 shares. This refreshes the earlier disabled VM/frame/accounting finding; it does
 not justify blindly repeating rejected adapter/register-view inlining, optional
-fuel, or statistics-finalization trials. Exact-trial Miri/i686 validation is now
-running separately from measurement. Evidence: `closure-cost-profile/` below the
+fuel, or statistics-finalization trials. Exact-trial Miri/i686 validation has
+completed separately from measurement. Evidence: `closure-cost-profile/` below the
 trial root, including original profiles, detail/symbol reconciliations and the
 retained failed map/analysis attempts.
 
