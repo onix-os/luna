@@ -101,6 +101,12 @@ pre-candidate runtime**, retaining the complete evidence and no new branches.
 Evidence: `target/jit-evidence/hook-resume-recovery/bridge-cost-audit/` and
 `slot-value-inline/complete-boundary/` (the first form remains in its parent).
 No candidate performance gain is retained; full native-JIT acceptance remains open.
+Restoration passes formatting/check-all and **68 focused checks / five summaries**,
+zero failures/ignored checks. All six rebuilt production images are **byte-identical
+to the original `218112b` controls**: no-feature, compiled-Off and native benchmark,
+in both speed and shipping. This confirms artifact restoration, not merely source
+equality; the frozen controls are still valid for the restored production code.
+Restoration evidence is in `slot-value-inline/restoration/`; all jobs are terminal.
 
 ### Independent interpreter-counter publication — measured and rejected, 2026-10-19
 
