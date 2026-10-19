@@ -31,10 +31,24 @@ surviving collection. Full stack/frame/fuel/statistics traces, foreign-write
 unwind ordering, hook handling, callback interruption and fallback arithmetic
 are checked. These are correctness results, not elapsed performance evidence.
 
-Both commits are pushed separately. Full Force validation and production image
-builds are running; exact Miri/i686, instruction-work comparison, and repeated
-original/direct-parent timing remain pending. No speedup, regression fix,
-runtime promotion or full-plan acceptance is claimed. Evidence:
+Both commits are pushed separately. Full Force validation passes **2,042 tests /
+90 summaries**, with **23 ignored** and zero failures. All six production images
+are frozen. No-feature executable text and section/segment geometry match the
+original images; whole files differ. Original and direct-parent artifact,
+source, configuration and environment preflights pass.
+
+The first exact-image closure profiles contradict the intended work reduction:
+JIT-Off total instructions increase about **3.7% speed / 6.0% shipping** versus
+`0c054a3`. Speed VM self work increases **7,850,914 → 8,000,991**; shipping
+**7,010,838 → 7,270,878**. Call/push/return and VM entry counts are unchanged.
+Eight Callgrind processes capture 40 executions including 16 warmups, with
+image identities, zero native work, and all 13 exclusive event sums verified.
+Fewer dispatched branches do not by themselves make the fused path cheaper.
+
+Four repeated original/direct-parent timing campaigns are now running without
+owned builds, tests or profilers alongside them. Exact Miri/i686 remains pending.
+No speedup, regression fix, runtime promotion or full-plan acceptance is claimed.
+Evidence:
 `target/jit-evidence/hook-resume-recovery/vm-upvalue-dispatch/`.
 
 ### Shared string equality — recovery and remaining gates, 2026-10-19
