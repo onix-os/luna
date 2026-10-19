@@ -567,6 +567,29 @@ pub fn equal<'gc>(
     })
 }
 
+#[inline(never)]
+fn binary_metamethod<'gc>(
+    ctx: Context<'gc>,
+    lhs: Value<'gc>,
+    rhs: Value<'gc>,
+    method: MetaMethod,
+) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
+    let selected = match (lhs, rhs) {
+        (Value::Table(_) | Value::UserData(_), Value::Table(_) | Value::UserData(_)) => {
+            get_metamethod(ctx, lhs, method).or_else(|| get_metamethod(ctx, rhs, method))
+        }
+        (Value::Table(_) | Value::UserData(_), _) => get_metamethod(ctx, lhs, method),
+        (_, Value::Table(_) | Value::UserData(_)) => get_metamethod(ctx, rhs, method),
+        _ => None,
+    };
+    let selected = selected
+        .ok_or_else(|| MetaOperatorError::Binary(method, lhs.type_name(), rhs.type_name()))?;
+    Ok(MetaResult::Call(MetaCall {
+        function: call(ctx, selected).map_err(|error| MetaOperatorError::Call(method, error))?,
+        args: [lhs, rhs],
+    }))
+}
+
 fn meta_metaop<'gc>(
     ctx: Context<'gc>,
     lhs: Value<'gc>,
@@ -575,52 +598,8 @@ fn meta_metaop<'gc>(
     const_op: impl Fn(Context<'gc>, Value<'gc>, Value<'gc>) -> Option<Value<'gc>>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
     Ok(match (lhs, rhs) {
-        (Value::Table(_) | Value::UserData(_), Value::Table(_) | Value::UserData(_)) => {
-            if let Some(m) = get_metamethod(ctx, lhs, method) {
-                MetaResult::Call(MetaCall {
-                    function: call(ctx, m).map_err(|e| MetaOperatorError::Call(method, e))?,
-                    args: [lhs, rhs],
-                })
-            } else if let Some(m) = get_metamethod(ctx, rhs, method) {
-                MetaResult::Call(MetaCall {
-                    function: call(ctx, m).map_err(|e| MetaOperatorError::Call(method, e))?,
-                    args: [lhs, rhs],
-                })
-            } else {
-                return Err(MetaOperatorError::Binary(
-                    method,
-                    lhs.type_name(),
-                    rhs.type_name(),
-                ));
-            }
-        }
-        (Value::Table(_) | Value::UserData(_), _) => {
-            if let Some(m) = get_metamethod(ctx, lhs, method) {
-                MetaResult::Call(MetaCall {
-                    function: call(ctx, m).map_err(|e| MetaOperatorError::Call(method, e))?,
-                    args: [lhs, rhs],
-                })
-            } else {
-                return Err(MetaOperatorError::Binary(
-                    method,
-                    lhs.type_name(),
-                    rhs.type_name(),
-                ));
-            }
-        }
-        (_, Value::Table(_) | Value::UserData(_)) => {
-            if let Some(m) = get_metamethod(ctx, rhs, method) {
-                MetaResult::Call(MetaCall {
-                    function: call(ctx, m).map_err(|e| MetaOperatorError::Call(method, e))?,
-                    args: [lhs, rhs],
-                })
-            } else {
-                return Err(MetaOperatorError::Binary(
-                    method,
-                    lhs.type_name(),
-                    rhs.type_name(),
-                ));
-            }
+        (Value::Table(_) | Value::UserData(_), _) | (_, Value::Table(_) | Value::UserData(_)) => {
+            return binary_metamethod(ctx, lhs, rhs, method);
         }
         (a, b) => const_op(ctx, a, b)
             .ok_or_else(|| {

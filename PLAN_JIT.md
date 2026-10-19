@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Shared binary-metamethod resolution — model foundation, 2026-10-19
+### Shared binary-metamethod resolution — candidate under measurement, 2026-10-19
 
 The next investigation targets repeated generic metatable-resolution bodies in
 `meta_ops::meta_metaop`, not another VM counter, object-layout, cached-pointer or
@@ -31,6 +31,19 @@ ambiguous test `Vec::extend`) are corrected and preserved separately in the log.
 The baseline lane passes **52 checks / five summaries**, zero failures/ignored
 checks; production resolution is unchanged at this checkpoint. Evidence:
 `target/jit-evidence/hook-resume-recovery/binary-meta-dispatch/`.
+
+The candidate extracts only metatable selection/call validation into one
+non-generic, non-inlined function; scalar closures and public interfaces remain
+unchanged. It introduces no state fields, retained identities, unsafe code,
+allocation policy, counter change, cold-path assumption or compiler flags.
+Formatting/check-all and **219 checks / twenty summaries** pass with zero
+failures, two ignored and no emitted warnings. Coverage includes both feature
+choices, all fifteen binary methods, public Off/Auto/Force metamethod tests,
+numeric conversion/coercion boundaries, hooks, callback chains and native regions.
+Fresh baseline/candidate speed/shipping builds and whole-execution callback,
+metamethod and Off-float profiles are next. Full Force/Miri/fallback and original
+repeated elapsed/resource/platform/release gates remain unproven; this candidate
+is not an accepted performance improvement.
 
 The preceding frame-identity-cache idea is not being implemented: a metadata-cap
 reduction resets registrations even with rooted activations alive. The earlier
