@@ -99,15 +99,38 @@ instructions. A one-attribute refinement forces that existing typed comparison
 inline while leaving its cold content-equality fallback outlined. Whole-execution
 measurement must verify that the boundary is removed rather than moved outward.
 Its fresh formatting/check-all and **158 focused checks / eighteen summaries**
-pass, zero failures, two ignored and no warnings. The independent full Force
-and diagnostic pipeline follows; original frozen controls are reused with their
-complete source/image/configuration witnesses, not silently rebuilt/rebased.
+pass, zero failures, two ignored and no warnings. Refined commit **`197c71c`**
+also passes its own full Force suite: **2,060 executions / 91 summaries**, zero
+failures, 23 ignored and no emitted warnings. Its serial image/profile pipeline
+finishes successfully, reusing the original frozen controls with their complete
+source/image/configuration witnesses, not silently rebuilt/rebased.
+
+The refinement removes the outlined comparison rather than moving its work:
+the complete shipping callback symbol partitions differ from `aff7ca3` only by
+`Key::eq_string` losing its 80,000 instructions. Relative to the original
+production control, however, the whole callback saving is just **4,997
+instructions (0.043%)**: **11,684,260 → 11,679,263**. The cached helper saves
+20,000 instructions while VM eligibility and transport initialization add 5,001
+and 10,002 respectively. Speed remains **9,438,782 → 9,493,756**, a 54,974
+instruction increase. These are whole-execution work measurements, not elapsed
+speedups; the much larger initial comparison cost must not be advertised as the
+net cache gain.
+
+All four profile families complete again with all 13 events and text-symbol
+partitions reconciled, unchanged full native counter/resource records and
+positive/negative identity fixtures retained. Both refined no-feature images
+remain byte-identical to the original controls. Float instruction totals in
+no-feature and compiled-Off modes are identical to the first integrated shape.
+Source-bound integrated Miri and real i686 validation now run serially before
+two complete original elapsed screens. The driver refuses to start these while
+the image/profile pipeline is live; no benchmark thresholds or cases change.
 
 Integrated source-bound Miri/fallback, actual elapsed comparisons and original
 resource/platform/release gates remain required. No production speedup or
 full-plan acceptance is claimed. No branch/worktree is created.
 Evidence:
-`target/jit-evidence/hook-resume-recovery/code-owned-hint/`.
+`target/jit-evidence/hook-resume-recovery/code-owned-hint/` and
+`target/jit-evidence/hook-resume-recovery/code-hint-key-inline/`.
 
 ### Shared binary-metamethod resolution — runtime withdrawn, 2026-10-19
 
