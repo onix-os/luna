@@ -45,7 +45,6 @@ fn check(mut entry: impl FnMut(*mut Packed, *mut (), Helper, [u32; 4]) -> u32) {
                         count: helpers::Counts::default(),
                         slot_count: 3,
                         panic: None,
-                        read_hints: None,
                         projection: None,
                     };
                     let expected = [

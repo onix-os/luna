@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Code-owned per-PC read hints — integrated candidate, 2026-10-19
+### Code-owned per-PC read hints — runtime withdrawn, 2026-10-19
 
 Current callback profiles still attribute substantial work to the prepared
 global-read helper. Earlier table/closure caches changed common GC object layout
@@ -125,9 +125,61 @@ Source-bound integrated Miri and real i686 validation now run serially before
 two complete original elapsed screens. The driver refuses to start these while
 the image/profile pipeline is live; no benchmark thresholds or cases change.
 
-Integrated source-bound Miri/fallback, actual elapsed comparisons and original
-resource/platform/release gates remain required. No production speedup or
-full-plan acceptance is claimed. No branch/worktree is created.
+Integrated safety passes **41 executions / seven summaries under each
+Stacked/Tree Miri model**, and **42 executions / eleven summaries on actual
+i686-musl**, with zero failures or ignored checks. Toolchain/dead-code warnings
+remain in the logs. All ten hint fixtures and the five-path prepared helper
+differential execute positively; both recorded Cargo-Miri invocation directories
+match the immutable integrated source. The executed fallback unit test binary
+has an ELF32/i386 header. This is pure-helper/fallback safety evidence, not native
+machine-code execution under Miri or i686.
+
+Two complete elapsed campaigns finish **288 commands / 28,512 native executions /
+570,240 feature-cost iterations**, using all nine cases, eleven samples, twenty
+cost iterations, six rotated A/candidate/B rounds, CPUs 0/16 and both profiles.
+Both audits report zero counter/resource mismatches, recompute all raw cost
+medians and pass two valid-screen / thirteen corruption fixtures each. Native
+raw samples are not available; their printed medians are audited instead.
+Original thresholds and every failed/outlier/control observation remain intact.
+The capture/audit drivers finish successfully; **performance acceptance fails**.
+
+Selected direct control/trial medians are below; values above one favor the
+candidate. They are contended observations, not isolated-host estimates.
+
+| Case / mode / profile | CPU | First | Repeat |
+| --- | ---: | ---: | ---: |
+| Callbacks / Auto / speed | 0 | 0.9950 | 0.9984 |
+| Callbacks / Auto / speed | 16 | 0.9929 | 0.9889 |
+| Callbacks / Auto / shipping | 0 | 1.0413 | 1.0336 |
+| Callbacks / Auto / shipping | 16 | 1.0142 | 1.0218 |
+| Metamethods / Auto / speed | 0 | 0.9646 | 0.9692 |
+| Integer / compiled-Off / shipping | 0 | 0.9291 | 0.9259 |
+| Float / compiled-Off / shipping | 0 | 0.8816 | 0.8762 |
+| Float / compiled-Off / shipping | 16 | 0.9627 | 0.9663 |
+
+Shipping callbacks improve modestly, but CPU0 compiled-Off integer time increases
+7.6–8.0% and float time 13.4–14.1%; their paired placebo medians stay within
+0.15% of one. Speed-profile CPU0 metamethod time increases 3.2–3.7%. Candidate
+speed native gates fail **18/96**, then **12/96**; the two unchanged controls
+fail **16/96 and 15/96**, then **11/96 and 13/96**. Candidate feature-cost gates
+fail **35/216**, then **55/216**, versus controls **41/216 and 42/216**, then
+**52/216 and 51/216**. Neither favorable shipping callback observations nor
+changing failure counts justify weakening disabled-mode or native acceptance.
+
+Both runtime changes (`aff7ca3`, `197c71c`) are withdrawn directly on
+`feat/native-jit`. The retained test-only foundation remains; the resulting `src`
+tree is exactly the pre-integration `7d5f817` tree. Fresh focused validation and
+six-image identity restoration follow. The full native-JIT performance,
+resource/platform and release requirements remain open. No branch/worktree is
+created.
+
+The first elapsed driver fails before any benchmark command: inherited
+`checks.mk` runs `git diff -- src` from a plain source archive and discovers the
+parent repository with the wrong relative pathspec. That failed aggregate and
+its logs remain preserved. A separate corrected driver anchors Git to an
+explicit repository-root witness included in the tool hashes; three working
+directory fixtures pass and three corrupted runtime patches are rejected. The
+original frozen safety/driver files are not rewritten to conceal the failure.
 Evidence:
 `target/jit-evidence/hook-resume-recovery/code-owned-hint/` and
 `target/jit-evidence/hook-resume-recovery/code-hint-key-inline/`.

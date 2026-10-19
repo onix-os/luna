@@ -24,18 +24,13 @@ performance gates still fail and some collateral measurements remain adverse.
 This is incremental experimental functionality, not performance acceptance;
 `PLAN_JIT.md` records the controls, rejected variants and remaining work.
 
-Candidate `197c71c` also uses a bounded bucket hint per native source PC. The
-original entry byte holds eligibility in bit zero and the hint in its other
-seven bits, without growing common Lua objects or allocating a cache owner.
-Private helper `luna_get_up_table_b1` checks current bucket bounds, occupancy,
-string identity/equality and weak-aware values; larger offsets fall back to the
-existing verified canonical hash. The arbitrary-supplied-hash helper remains
-separate. Hints contain no GC pointers or values, and the invocation only borrows
-them through the existing code lease. Its own full Force checks pass. Inlining
-the existing key comparison removes an outlined boundary, but net shipping
-callback work falls only 0.043% against the original control, and speed-profile
-work increases. This is not an elapsed-speedup claim; integrated safety,
-platform/resource and original performance acceptance remain open.
+A per-PC bucket-hint cache passes full Force, both Miri models and actual i686
+fallback checks, but is withdrawn after two complete controlled benchmark
+campaigns. Modest shipping callback gains do not offset 13–14% slower CPU0
+shipping compiled-Off float execution and speed-profile metamethod regressions.
+Production retains the original prepared-key path; only the test-only cache
+foundation and investigation evidence remain. Original performance and release
+acceptance stay open; `PLAN_JIT.md` records all controls and failures.
 
 Current production Auto includes scoped paired-code execution, lease reuse and
 indexed caller-region execution. Successful hot pairs queue region promotion;

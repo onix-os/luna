@@ -230,7 +230,7 @@ pub(super) struct Code {
     pub(super) preferred_entry: bool,
     pub(super) relocations: usize,
     pub registers: usize,
-    pub entries: super::entry_bytes::EntryBytes,
+    pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
     #[cfg(test)]
     pub continuations: Option<super::continuations::Continuations>,
@@ -955,12 +955,11 @@ fn compile_selected_rooted(
         .try_reserve_exact(snapshot.operations.len())
         .map_err(|_| JitError::ResourceLimit("frontend block map"))?;
     let mut paths = super::entry_flow::Paths::new(snapshot)?;
-    let entries = super::entry_bytes::EntryBytes::try_new(
-        graph.nodes.iter().map(|node| node.lowering.native()),
-        metadata.clone(),
-    )?;
-    #[cfg(test)]
-    let mut entries = entries;
+    let mut entries = BudgetVec::new_in(metadata.clone());
+    entries
+        .try_reserve_exact(snapshot.operations.len())
+        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    entries.extend(graph.nodes.iter().map(|node| node.lowering.native()));
     let status = MemoryStatus::try_new(metadata.clone())?;
     #[cfg(test)]
     if failure == Failure::DetectHostSetup {
@@ -1045,13 +1044,9 @@ fn compile_selected_rooted(
             if wide_prepared {
                 "luna_get_up_table_h2"
             } else {
-                "luna_get_up_table_b1"
+                "luna_get_up_table_h1"
             },
-            if wide_prepared {
-                helpers::PREHASHED_ENTRY
-            } else {
-                helpers::CACHED_ENTRY
-            },
+            helpers::PREHASHED_ENTRY,
         );
         stores.helper_calls.prepared_keys = true;
         #[cfg(test)]
@@ -1890,7 +1885,9 @@ fn compile_selected_rooted(
                 .sum(),
             context.func.layout.blocks().count(),
         )?;
-        entries.retain_only(pc as usize);
+        for (index, entry) in entries.iter_mut().enumerate() {
+            *entry &= index == pc as usize;
+        }
     }
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
@@ -2099,8 +2096,8 @@ fn compile_selected_rooted(
                 .and_then(|count| count.checked_add(projection_blocks))
                 .ok_or(JitError::ResourceLimit("integer template blocks"))?,
         )?;
-        for pc in 0..entries.len() {
-            entries.set(pc, pc == 0);
+        for (pc, entry) in entries.iter_mut().enumerate() {
+            *entry = pc == 0;
         }
     }
     #[cfg(test)]
@@ -6541,12 +6538,6 @@ mod memory_tests {
                 metadata,
                 "helper=prehashed_get_up_table address={:#x}",
                 helpers::PREHASHED_ENTRY as usize
-            )
-            .unwrap();
-            writeln!(
-                metadata,
-                "helper=cached_get_up_table address={:#x}",
-                helpers::CACHED_ENTRY as usize
             )
             .unwrap();
             for (pc, operation) in snapshot.operations.iter().enumerate() {

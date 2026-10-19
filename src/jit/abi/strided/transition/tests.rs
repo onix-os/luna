@@ -15,7 +15,6 @@ fn strided_helpers_retire_on_panic_and_refuse_reentry() {
                 count: helpers::Counts::default(),
                 slot_count: 4,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(
@@ -92,7 +91,6 @@ fn transitions(native: bool) {
                     count: helpers::Counts::default(),
                     slot_count: 4,
                     panic: None,
-                    read_hints: None,
                     projection: None,
                 };
                 with_session(
@@ -147,7 +145,6 @@ fn strided_helpers_retire_on_decline_without_reexecuting() {
                 count: helpers::Counts::default(),
                 slot_count: 4,
                 panic: None,
-                read_hints: None,
                 projection: None,
             };
             with_session(
