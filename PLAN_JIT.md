@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Non-fall-through block alignment — isolated experiment, 2026-10-19
+### Non-fall-through block alignment — rejected, 2026-10-19
 
 Current hardware evidence motivates a distinct, fixed compiler-policy experiment:
 `RUSTFLAGS='-C llvm-args=-align-all-nofallthru-blocks=5'`. Pinned rustc 1.97.1 /
@@ -35,10 +35,30 @@ Static VM disassembly verifies complete instruction coverage in all four images.
 Speed VM extent grows **55,274 → 71,333 bytes**, shipping **42,104 → 57,061**;
 unique internal direct targets stay **952 / 745**, while targets on 32-byte
 boundaries rise **43 → 495 / 34 → 376**. These counts include cold blocks and
-do not establish dynamic instruction savings. Both complete elapsed campaigns
-are running sequentially after all owned build/test work finishes. The code-size
-increase remains a cost to evaluate; no performance or release acceptance follows
-from successful build/preflight/static checks.
+do not establish dynamic instruction savings.
+
+Both elapsed campaigns now finish **288 commands / 28,512 native executions /
+570,240 cost iterations**, with matching complete native counter/resource records,
+verified source/image/tool witnesses and all 13 corruption fixtures rejected per
+audit. No owned build/test/profiler overlaps measurement. All external contention
+and outliers remain; terminal-zero capture/audit statuses are not passing gates.
+
+Reject the policy. CPU0 shipping compiled-Off integer control/candidate ratios
+are **0.735378 / 0.818875**, float **0.709204 / 0.819659**, adverse in six then
+five of six rounds for each workload. Corresponding A/B medians stay between
+**0.996813 and 1.002013**. This is approximately **22–36% / 22–41% longer
+elapsed time**, not a fix. CPU16 shipping float also loses in all six rounds of
+each campaign (**0.961197 / 0.969500**). CPU0 shipping callback gains
+**1.027100 / 1.024900** do not compensate. No-feature numeric results vary
+substantially between CPU0 campaigns and remain recorded rather than normalized
+away. Candidate speed-native gate failures are **21 then 23 / 96**, cost
+**34 then 51 / 216**. These counts do not cancel individual regressions.
+
+The fixed alignment policy increases VM code size about **29% / 36%** and fails
+the end-to-end comparison. No flag or runtime change is promoted. This excluded
+compiler policy does not identify the hardware cause or justify another offset
+search. No full Force, Miri or cross-platform certification is claimed for this
+rejected experiment; full native-JIT acceptance remains incomplete.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/block-target-align/`.
 
