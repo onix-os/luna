@@ -55,9 +55,12 @@ savings do not translate into an acceptable runtime result:
 Ratios are control/trial, so values below one are adverse. CPU0 shipping float
 is adverse in five initial and all six repeat rounds against both controls;
 CPU16 speed metamethod is adverse in every round of all four screens. The
-candidate fails 24 then 28 of 96 speed native gates and 48 then 46 of 216
-feature-cost gates against the original; parent screens retain 25 then 21 native
-and 50 then 47 feature-cost failures. Fewer instructions alone are not evidence
+candidate fails 1 then 6 of 96 speed native gates and 48 then 46 of 216
+feature-cost gates against the original; parent screens retain 2 then 2 speed
+native and 50 then 47 feature-cost failures. Shipping native observations are
+separate: 23 then 22 threshold misses against the original, 23 then 19 against
+the parent; they are not included in the 96 speed-gate denominator. Fewer
+instructions alone are not evidence
 that the regressions are fixed. This candidate is **not promoted** and does not
 establish performance or release acceptance. Evidence is under
 `target/jit-evidence/hook-resume-recovery/vm-inline-byte-offset/`.
