@@ -32,6 +32,13 @@ Production retains the original prepared-key path; only the test-only cache
 foundation and investigation evidence remain. Original performance and release
 acceptance stay open; `PLAN_JIT.md` records all controls and failures.
 
+A separate two-instantiation VM trial is also withdrawn. Two complete original
+benchmark campaigns find 51–52% slower CPU0 shipping compiled-Off float execution
+and large integer regressions despite fewer outlined addition calls. Production
+keeps the original single VM function and canonical addition policy. Off/Auto
+frame/fuel/GC and callback mode-change/retirement regressions remain as tests;
+`PLAN_JIT.md` records the rejected code and unchanged acceptance requirements.
+
 Current production Auto includes scoped paired-code execution, lease reuse and
 indexed caller-region execution. Successful hot pairs queue region promotion;
 `Lua::service_jit()` prepares and compiles it outside executor steps. The existing

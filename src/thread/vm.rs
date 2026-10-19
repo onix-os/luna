@@ -180,21 +180,6 @@ pub(super) fn run_vm<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    #[cfg(feature = "jit")]
-    {
-        if max_instructions != 0 && !ctx.jit().active() {
-            #[cfg(test)]
-            if static_off::reference_enabled() {
-                static_off::record(false);
-                return run_vm_slice::<true>(ctx, lua_frame, max_instructions);
-            }
-            #[cfg(test)]
-            static_off::record(true);
-            return run_vm_slice::<false>(ctx, lua_frame, max_instructions);
-        }
-        run_vm_slice::<true>(ctx, lua_frame, max_instructions)
-    }
-    #[cfg(not(feature = "jit"))]
     run_vm_slice(ctx, lua_frame, max_instructions)
 }
 
@@ -217,7 +202,7 @@ pub(super) fn resume_vm<'gc>(
     assert!(scope.resume.is_none());
     assert!(scope.handoff.is_none());
     scope.resume = Some(resume);
-    run_vm_slice::<true>(
+    run_vm_slice(
         ctx,
         LuaFrame {
             pair_handoff: Some(scope),
@@ -229,7 +214,7 @@ pub(super) fn resume_vm<'gc>(
     )
 }
 
-fn run_vm_slice<'gc, #[cfg(feature = "jit")] const NATIVE: bool>(
+fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
@@ -324,7 +309,7 @@ fn run_vm_slice<'gc, #[cfg(feature = "jit")] const NATIVE: bool>(
         .flatten();
 
     #[cfg(feature = "jit")]
-    let native_id = if NATIVE && !hook_enabled && (!cfg!(test) || ctx.jit().active()) {
+    let native_id = if !hook_enabled && ctx.jit().active() {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
     } else {
         None
@@ -375,7 +360,7 @@ fn run_vm_slice<'gc, #[cfg(feature = "jit")] const NATIVE: bool>(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    let observe_pairs = NATIVE && !hook_enabled && ctx.jit().call_pairs_enabled();
+    let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
 
     #[cfg(all(
         feature = "jit",

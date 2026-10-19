@@ -662,7 +662,6 @@ fn meta_unary_metaop<'gc>(
     })
 }
 
-#[cfg_attr(feature = "jit", inline(always))]
 pub fn add<'gc>(
     ctx: Context<'gc>,
     lhs: Value<'gc>,

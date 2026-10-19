@@ -1,9 +1,8 @@
 use super::activation_tests::run;
-use crate::thread::vm::static_off::scoped;
 
 #[test]
 #[cfg(not(miri))]
-fn static_off_matches_dynamic_dispatch_at_every_executor_boundary() {
+fn off_and_auto_match_at_every_executor_boundary() {
     let scripts = [
         "local n=0 for i=1,12 do n=n+i end return n",
         "local n=0 local function f(x) n=n+x end for i=1,12 do f(1) end return n",
@@ -20,12 +19,9 @@ fn static_off_matches_dynamic_dispatch_at_every_executor_boundary() {
     ];
     for (case, source) in scripts.into_iter().enumerate() {
         for budget in [0, 1, 17, 4096] {
-            let (expected, ordinary) = scoped(true, || run(source, budget, false));
-            let (actual, selected) = scoped(false, || run(source, budget, false));
+            let expected = run(source, budget, false);
+            let actual = run(source, budget, true);
             assert_eq!(expected, actual, "case={case} budget={budget}");
-            assert!(ordinary.0 > 0 && ordinary.1 == 0);
-            assert!(selected.0 == 0 && selected.1 > 0);
-            assert_eq!(ordinary.0, selected.1);
         }
     }
 }
@@ -36,14 +32,12 @@ fn static_off_matches_dynamic_dispatch_at_every_executor_boundary() {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-fn static_off_selector_does_not_restrict_auto_native_dispatch() {
+fn auto_matches_interpreter_across_multiple_vm_slices() {
     let source = "local n=0 for i=1,128 do n=n+i end return n";
     for budget in [0, 1, 17, 4096] {
-        let (expected, first) = scoped(true, || run(source, budget, true));
-        let (actual, second) = scoped(false, || run(source, budget, true));
+        let expected = run(source, budget, false);
+        let actual = run(source, budget, true);
         assert_eq!(expected, actual);
-        assert_eq!(first, (0, 0));
-        assert_eq!(second, (0, 0));
     }
 }
 
@@ -53,7 +47,7 @@ fn static_off_selector_does_not_restrict_auto_native_dispatch() {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-fn static_off_reselects_after_callback_mode_changes_and_cache_retirement() {
+fn callback_mode_changes_retire_code_before_execution_resumes() {
     use crate::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode, Lua};
     use std::{cell::RefCell, rc::Rc};
 
@@ -85,6 +79,7 @@ fn static_off_reselects_after_callback_mode_changes_and_cache_retirement() {
                     config.mode = if enabled { JitMode::Auto } else { JitMode::Off };
                     manager.configure(config);
                     drop(manager);
+                    assert_eq!(ctx.jit().usage(), 0);
                     Ok(CallbackReturn::Return)
                 }),
             );
@@ -123,10 +118,11 @@ fn static_off_reselects_after_callback_mode_changes_and_cache_retirement() {
         }
         panic!("mode transition did not finish");
     };
-    let (expected, reference) = scoped(true, run);
-    let (actual, selected) = scoped(false, run);
-    assert_eq!(expected, actual);
-    assert!(reference.0 > 0 && reference.1 == 0);
-    assert!(selected.0 == 0 && selected.1 > 0);
-    assert_eq!(reference.0, selected.1);
+    let (trace, _, _) = run();
+    let retired = trace
+        .iter()
+        .position(|step| step.3.code_bytes == 0)
+        .unwrap();
+    assert!(retired > 0);
+    assert!(trace[retired..].iter().all(|step| step.3.code_bytes == 0));
 }
