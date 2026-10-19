@@ -391,6 +391,16 @@ jit-oslo-profile-tests:
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features $(TARGET_ARG)
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features --features jit $(TARGET_ARG)
 
+.PHONY: lua-memory-limit lua-memory-limit-miri
+lua-memory-limit:
+	@$(CARGO) test --locked --no-default-features --lib $(TARGET_ARG) lua::memory_tests
+	@$(CARGO) test --locked --no-default-features --test memory_accounting $(TARGET_ARG)
+	@$(CARGO) test --locked --features jit --lib $(TARGET_ARG) lua::memory_tests
+	@$(CARGO) test --locked --all-features --test memory_accounting --test jit_memory $(TARGET_ARG)
+lua-memory-limit-miri:
+	@$(CARGO) miri test --locked --no-default-features --lib --target '$(MIRI_TARGET)' lua::memory_tests -- --test-threads=1
+	@$(CARGO) miri test --locked --features jit --lib --target '$(MIRI_TARGET)' lua::memory_tests -- --test-threads=1
+
 .PHONY: jit-cost-verify jit-artifact-tests jit-environment-tests
 jit-cost-verify:
 	@bash examples/jit_support/verify_artifacts.sh '$(COST_DIR)'

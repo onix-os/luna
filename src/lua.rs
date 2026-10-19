@@ -1252,6 +1252,79 @@ mod memory_tests {
     use super::*;
 
     #[test]
+    fn enforcement_reads_current_limit_and_preserves_exact_boundary() {
+        let mut lua = Lua::empty();
+        lua.gc_stop();
+        let executor = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            ctx.stash(crate::Executor::start(ctx, closure.into(), ()))
+        });
+        let usage = lua.accounted_memory();
+        for limit in [None, Some(usize::MAX), Some(usage), None] {
+            lua.set_memory_limit(limit);
+            assert!(!lua.enforce_memory_limit(&executor));
+            assert_eq!(lua.accounted_memory(), usage);
+            assert_eq!(
+                lua.enter(|ctx| ctx.fetch(&executor).mode()),
+                crate::ExecutorMode::Normal
+            );
+        }
+        lua.set_memory_limit(Some(0));
+        lua.set_memory_limit(None);
+        assert!(!lua.enforce_memory_limit(&executor));
+        lua.set_memory_limit(Some(0));
+        assert!(lua.enforce_memory_limit(&executor));
+        assert_eq!(
+            lua.enter(|ctx| ctx.fetch(&executor).mode()),
+            crate::ExecutorMode::Stopped
+        );
+        lua.set_memory_limit(None);
+        assert!(!lua.enforce_memory_limit(&executor));
+        assert_eq!(
+            lua.enter(|ctx| ctx.fetch(&executor).mode()),
+            crate::ExecutorMode::Stopped
+        );
+    }
+
+    #[test]
+    fn enforcement_recovers_collectable_usage_without_stopping_execution() {
+        let mut lua = Lua::empty();
+        lua.gc_stop();
+        let executor = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            ctx.stash(crate::Executor::start(ctx, closure.into(), ()))
+        });
+        let limit = lua.accounted_memory() + 8192;
+        lua.enter(|ctx| {
+            let _garbage = crate::String::from_slice(&ctx, vec![42; 65536]);
+        });
+        assert!(lua.accounted_memory() > limit);
+        lua.set_memory_limit(Some(limit));
+        assert!(!lua.enforce_memory_limit(&executor));
+        assert!(lua.accounted_memory() <= limit);
+        assert_eq!(
+            lua.enter(|ctx| ctx.fetch(&executor).mode()),
+            crate::ExecutorMode::Normal
+        );
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn absent_limit_does_not_borrow_the_jit_manager() {
+        let mut lua = Lua::empty();
+        let executor = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            ctx.stash(crate::Executor::start(ctx, closure.into(), ()))
+        });
+        let runtime = lua.jit.clone();
+        let manager = runtime.0.borrow_mut();
+        assert!(!lua.enforce_memory_limit(&executor));
+        drop(manager);
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+    }
+
+    #[test]
     fn gc_metric_is_preserved_with_additive_accounted_usage() {
         let lua = Lua::empty();
         assert_eq!(lua.total_memory(), lua.gc_metrics().total_allocation());
