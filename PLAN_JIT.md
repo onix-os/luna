@@ -9,6 +9,34 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Common Lua-state prefix — isolated runtime trial, 2026-10-19
+
+The completed long prepared-table campaigns' unchanged-control observations
+place speed callback Off/Auto medians near **0.8142 / 0.8178** on CPU0/16,
+below the original **1/1.2** minimum. Compiled-Off upvalue medians are about
+**1.0877 / 1.2121** in shipping, above the original **1.05** ceiling. These
+pooled contended observations prioritize remaining gaps; they are not new gates
+or evidence of a candidate improvement.
+
+A baseline-only layout diagnostic (`9f9615a`) passes with and without JIT. It
+confirms that enabling the feature shifts every shared `State` field by **16
+bytes**: ordinary state is **128 bytes**, JIT state **144 bytes**. Isolated trial
+`14ed51c` gives the private state an explicit C field order and places the two
+optional JIT handles after the common fields. This preserves shared-field
+offsets across feature builds without padding the interpreter-only state,
+changing `Value` representation, adding allocations/caches/unsafe code, or
+changing initialization order. Derived GC tracing still covers all fields;
+its traversal order changes and must be validated rather than assumed harmless.
+
+Both layouts retain their original total sizes. Four candidate layout checks
+pass across the feature choices, including a common-prefix assertion; baseline
+diagnostics pass twice. This tests feature-dependent data layout, not another
+function/branch alignment policy or an established explanation for the slowdown.
+Focused validation and six exact production builds are running on the isolated
+branch. Full Force, fresh Miri/fallback checks and original repeated elapsed
+comparisons remain required. Main runtime and compiler flags are unchanged.
+Evidence: `target/jit-evidence/hook-resume-recovery/state-core-prefix/`.
+
 ### Non-fall-through block alignment — rejected, 2026-10-19
 
 Current hardware evidence motivates a distinct, fixed compiler-policy experiment:
