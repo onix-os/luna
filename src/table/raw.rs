@@ -1104,6 +1104,7 @@ mod access_tests;
 
 #[cfg(any(test, feature = "jit"))]
 impl<'gc> Key<'gc> {
+    #[inline(always)]
     fn eq_string(self, query: String<'gc>) -> bool {
         #[cold]
         #[inline(never)]

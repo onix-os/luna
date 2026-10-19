@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Code-owned per-PC read hints — independent models, 2026-10-19
+### Code-owned per-PC read hints — integrated candidate, 2026-10-19
 
 Current callback profiles still attribute substantial work to the prepared
 global-read helper. Earlier table/closure caches changed common GC object layout
@@ -29,7 +29,7 @@ native-coverage restriction. Resizing, deletion, weak conversion, different
 tables/arenas and collection can make hints stale but cannot make them roots.
 The arbitrary-supplied-hash prepared API remains distinct and unchanged.
 
-The code-ownership and raw-read modules are **test-only models**, not a production
+The initial code-ownership and raw-read foundation was **test-only**, not an active
 cache. Formatting/check-all and **ten checks / two summaries** pass, zero failures,
 ignored checks or warnings. Models cover every byte encoding, boundary PCs,
 per-PC isolation, flag updates, concurrent hints, exact ledger charges/refusal/
@@ -82,12 +82,30 @@ Initial constructor/lifetime errors are fixed and preserved in draft logs.
 Candidate **`aff7ca3`** now passes full all-target/all-feature Force validation:
 **2,060 executions / 91 summaries**, zero failures, 23 ignored and no emitted
 warnings. Its plain source archive and the model-only baseline `7d5f817` have
-verified complete source witnesses. Twelve production image builds and full
-callback/metamethod/no-feature/compiled-Off instruction profiles are running
-sequentially at the existing detached builder, without new branches/worktrees.
-Integrated source-bound Miri/fallback, actual image/work/elapsed comparisons
-and original resource/platform/release gates remain required. No
-production speedup, unchanged image identity or full-plan acceptance is claimed.
+verified complete source witnesses. Twelve production image builds and four
+whole-execution profile families finish **32 alternating processes / 160 execute
+calls / 64 warmups**. Complete native counter/resource records match, all 13 events
+and text-symbol partitions reconcile, and each family accepts two positive /
+rejects four image/object corruption fixtures. All six baseline executables and
+both candidate no-feature executables match original `218112b` controls
+**byte-for-byte**. Compiled-Off float work is **4,015,310 → 4,015,926** speed and
+unchanged **4,109,344** shipping; no-feature float work is unchanged in both.
+
+The first shape does not reduce callback work: speed **9,438,782 → 9,493,756**,
+shipping **11,684,260 → 11,759,263**. Shipping now executes 5,000 outlined
+`Key::eq_string` calls, with 80,000 self instructions; speed already inlines it.
+Those instructions include the comparison body, not 80,000 removable overhead
+instructions. A one-attribute refinement forces that existing typed comparison
+inline while leaving its cold content-equality fallback outlined. Whole-execution
+measurement must verify that the boundary is removed rather than moved outward.
+Its fresh formatting/check-all and **158 focused checks / eighteen summaries**
+pass, zero failures, two ignored and no warnings. The independent full Force
+and diagnostic pipeline follows; original frozen controls are reused with their
+complete source/image/configuration witnesses, not silently rebuilt/rebased.
+
+Integrated source-bound Miri/fallback, actual elapsed comparisons and original
+resource/platform/release gates remain required. No production speedup or
+full-plan acceptance is claimed. No branch/worktree is created.
 Evidence:
 `target/jit-evidence/hook-resume-recovery/code-owned-hint/`.
 
