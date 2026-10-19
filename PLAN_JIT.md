@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Constant inline-string offsets — validation, 2026-10-19
+### Constant inline-string offsets — repeated regressions, 2026-10-19
 
 Trial `eb24c3a` on `trial/jit-inline-byte-offset` starts from `0102f37`, not the
 rejected string-identity shortcut. Test foundation `a310e3e` checks every inline
@@ -39,9 +39,27 @@ table-lookup self instruction counts remain unchanged between corresponding
 parts. Other work changes, so these local reductions are not a whole-execution
 speedup claim.
 
-Full nine-workload elapsed screens against both baselines are running; repeats
-and timing analysis remain outstanding. This candidate is **not promoted** and
-does not establish performance or release acceptance. Evidence is under
+Four full nine-workload screens now compare original baseline `79631fe` and
+direct parent `0102f37`, each twice: **576 commands / 57,024 native executions /
+1,140,480 feature-cost iterations**. All report zero execution/resource-counter
+mismatches and pass valid/restored plus 13 corruption fixtures. Local instruction
+savings do not translate into an acceptable runtime result:
+
+| Control | CPU/profile/workload, JIT-Off | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | CPU0 shipping float | 0.908348 | 0.907744 |
+| Parent | CPU0 shipping float | 0.909485 | 0.906167 |
+| Original | CPU16 speed metamethod | 0.949127 | 0.958099 |
+| Parent | CPU16 speed metamethod | 0.980996 | 0.976713 |
+
+Ratios are control/trial, so values below one are adverse. CPU0 shipping float
+is adverse in five initial and all six repeat rounds against both controls;
+CPU16 speed metamethod is adverse in every round of all four screens. The
+candidate fails 24 then 28 of 96 speed native gates and 48 then 46 of 216
+feature-cost gates against the original; parent screens retain 25 then 21 native
+and 50 then 47 feature-cost failures. Fewer instructions alone are not evidence
+that the regressions are fixed. This candidate is **not promoted** and does not
+establish performance or release acceptance. Evidence is under
 `target/jit-evidence/hook-resume-recovery/vm-inline-byte-offset/`.
 
 ### Combined Add and callback tuning — repeated trade-off, 2026-10-19
