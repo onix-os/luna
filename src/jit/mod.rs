@@ -1399,6 +1399,7 @@ impl ExecutionStats {
             .set(self.total_dispatches.get().saturating_add(dispatches));
     }
 
+    #[inline(never)]
     fn publish(&self, dispatches: u32, reported: Option<u32>) {
         self.add_dispatches(u64::from(dispatches));
         if let Some(instructions) = reported {

@@ -35846,6 +35846,47 @@ tests exercise the new storage. This trial is **not performance-accepted**;
 full correctness, repeated original elapsed screens, platform and release gates
 must still be checked, and regressions remain grounds for withdrawal.
 
+### Counter-storage elapsed results and bounded-publication follow-up
+
+The initial storage split at `e2e0d507` is **rejected as-is**, not accepted on
+its correctness results. Its source-bound Force run passed **2,068 executions
+across 91 summaries**, with zero failures, 23 existing ignored tests and no
+compiler warnings. Both no-feature production images remained byte-identical
+to the original controls. Two complete original elapsed screens then ran
+**28,512 native executions and 570,240 cost iterations**, with zero
+counter/resource mismatches; all failed gates and original controls remain.
+
+Shipping CPU0 integer control/trial medians were **0.882477 / 0.884338** in the
+two screens, and float medians were **0.835366 / 0.836556**: approximately
+13–20% more trial time. Control-placebo medians stayed near one. CPU16 shipping
+upvalue control/trial medians improved only to **1.012761 / 1.011117**, far short
+of closing the original compiled-Off gap. Neither screen meets acceptance.
+The second screen includes two brief Perl syntax checks while timing was active;
+both screens are retained as contended observations, not isolation claims.
+
+After elapsed collection ended, the exact frozen images were profiled for
+compiled-Off integer, float and upvalue execution in both profiles. Four
+alternating image loads per group produced five execution dumps each. All 13
+event partitions and complete text-symbol attribution reconcile; all 18
+positive/corrupt-image parser fixtures pass. Numeric non-warmup instruction
+totals repeat exactly. Upvalue external instruction counts vary slightly and
+are retained rather than reported as a single invariant whole-program total.
+
+In the shipping float capture, the original standalone interpreter-statistics
+destructor accounts for **15,024 instructions**; the trial inlines publication
+into the VM. The VM body grows from **42,104 to 43,711 bytes**, with changed
+load/store and branch behavior. Whole-execution instructions increase only
+from **4,109,344 to 4,119,957**, which does not establish a hardware cause for
+the much larger CPU0 elapsed regression.
+
+The follow-up bounds this code-generation effect by outlining only
+`ExecutionStats::publish`, leaving `InterpreterStats::drop` inlinable and its
+guard fields available for scalar optimization. Counter storage, publication
+timing, independent saturation, owner layout and public APIs are unchanged.
+This is a measured follow-up hypothesis, **not a proven performance fix**;
+fresh correctness checks, original-profile images and repeated elapsed screens
+are required before retention, followed by the outstanding safety/platform gates.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
