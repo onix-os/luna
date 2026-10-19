@@ -112,8 +112,8 @@ Both new filters execute zero tests even though Cargo returns zero. The explicit
 positive-fixture gate correctly fails the pipeline before Tree/fallback; those
 initial logs/statuses remain failed evidence. The corrected run uses fresh target
 directories for this immutable source, requires each fixture twice in each lane,
-and checks recorded Cargo-Miri source directories independently. It is running;
-no successful Miri or fallback result is inferred from the initial empty runs.
+and checks recorded Cargo-Miri source directories independently. No successful
+Miri or fallback result is inferred from the initial empty runs.
 The corrected run now finishes terminal-zero: **four retained-test executions /
 two summaries under each Stacked/Tree model**, **56 checks / seven summaries on
 actual i686-musl**, zero failures/ignored checks. Both new fixture names execute
