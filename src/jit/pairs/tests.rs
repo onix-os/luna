@@ -231,7 +231,7 @@ fn scoped_cached_lease_updates_shared_recency_without_cloning() {
     compile_pair(&mut lua, key);
     let cached = cached_lease(&mut lua, &closure, key);
     lua.enter(|ctx| {
-        let before = ctx.jit().0.borrow().stats;
+        let before = ctx.jit().stats();
         let clock = ctx.jit().0.borrow().clock;
         let owners = Shared::strong_count(&cached.program);
         assert!(ctx.jit().touch_pair(&cached));
@@ -255,7 +255,7 @@ fn scoped_cached_lease_updates_shared_recency_without_cloning() {
         drop(manager);
         assert!(ctx.jit().touch_pair(&cached));
         assert_eq!(ctx.jit().0.borrow().clock, u64::MAX);
-        assert_eq!(ctx.jit().0.borrow().stats.native_pair_cache_hits, u64::MAX);
+        assert_eq!(ctx.jit().stats().native_pair_cache_hits, u64::MAX);
     });
 }
 
@@ -579,7 +579,7 @@ fn service_prepares_weak_source_pair_outside_arena_and_lease_executes_canonical_
     lua.enter(|ctx| {
         ctx.jit().observe_pair(key);
         ctx.jit().observe_pair(key);
-        assert_eq!(ctx.jit().0.borrow().stats.queued_requests, 1);
+        assert_eq!(ctx.jit().stats().queued_requests, 1);
         assert!(ctx.jit().pair_lease(key).is_none());
     });
     assert_eq!(lua.service_jit().unwrap(), 1);
@@ -643,14 +643,14 @@ fn shared_queue_capacity_and_hotness_preserve_normal_requests() {
     lua.set_jit_config(config).unwrap();
     lua.enter(|ctx| {
         ctx.jit().observe_pair(key);
-        assert_eq!(ctx.jit().0.borrow().stats.queued_requests, 0);
+        assert_eq!(ctx.jit().stats().queued_requests, 0);
         ctx.jit().0.borrow_mut().enqueue(key.caller, true);
         ctx.jit().observe_pair(key);
-        assert_eq!(ctx.jit().0.borrow().stats.queued_requests, 1);
+        assert_eq!(ctx.jit().stats().queued_requests, 1);
         assert_eq!(ctx.jit().0.borrow_mut().next_request(), Some(key.caller));
         ctx.jit().observe_pair(key);
         ctx.jit().0.borrow_mut().enqueue(key.callee, true);
-        assert_eq!(ctx.jit().0.borrow().stats.queued_requests, 1);
+        assert_eq!(ctx.jit().stats().queued_requests, 1);
         assert!(ctx.jit().0.borrow_mut().next_request().is_none());
         assert_eq!(ctx.jit().next_pair_request(), Some(key));
     });
@@ -843,7 +843,7 @@ fn metadata_queue_refusal_is_optional_and_recovers_after_headroom_returns() {
         let before = metadata.current();
         metadata.set_limit(before);
         ctx.jit().observe_pair(key);
-        assert_eq!(ctx.jit().0.borrow().stats.queued_requests, 0);
+        assert_eq!(ctx.jit().stats().queued_requests, 0);
         assert_eq!(metadata.current(), before);
         metadata.set_limit(limit);
         ctx.jit().observe_pair(key);
@@ -886,7 +886,7 @@ fn leases_reject_other_states_even_when_their_source_ids_coincide() {
             assert_eq!(original.0, current.0);
             assert_eq!((original.2, original.3), (current.2, current.3));
             host.with_registers(|_, registers| assert_eq!(*registers.pc, key.pc));
-            assert_eq!(ctx.jit().0.borrow().stats.native_instructions, 0);
+            assert_eq!(ctx.jit().stats().native_instructions, 0);
         });
     });
 }
@@ -1004,10 +1004,10 @@ fn selected_pairs_match_canonical_prefixes_fuel_limits_and_declined_fallbacks() 
                                 &mut Fuel::with(fuel),
                                 |host| {
                                     host.test_pair_selection(select);
-                                    let before = ctx.jit().0.borrow().stats;
+                                    let before = ctx.jit().stats();
                                     let outcome = host.run(ctx, limit, budget, 4);
                                     assert!(outcome.result.is_ok());
-                                    let after = ctx.jit().0.borrow().stats;
+                                    let after = ctx.jit().stats();
                                     let (frames, values, open, remaining) = host.test_trace();
                                     let slots = values
                                         .into_iter()
@@ -1120,10 +1120,10 @@ fn native_transition_handoffs_preserve_single_host_run_traces() {
             lua.enter(|ctx| {
                 with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(fuel), |host| {
                     host.test_pair_selection(selected);
-                    let before = ctx.jit().0.borrow().stats;
+                    let before = ctx.jit().stats();
                     let outcome = host.run(ctx, 64, 64, 4);
                     assert!(outcome.result.is_ok());
-                    let after = ctx.jit().0.borrow().stats;
+                    let after = ctx.jit().stats();
                     let (frames, values, open, fuel) = host.test_trace();
                     let slots = values
                         .into_iter()
@@ -1169,10 +1169,10 @@ fn interrupted_and_error_fallbacks_do_not_repeat_or_drop_caller_prefix_work() {
                     }
                     with_test_thread(ctx, ctx.fetch(&closure), &mut fuel, |host| {
                         host.test_pair_selection(select);
-                        let before = ctx.jit().0.borrow().stats;
+                        let before = ctx.jit().stats();
                         let outcome = host.run(ctx, 64, 64, 4);
                         let result = format!("{:?}", outcome.result);
-                        let after = ctx.jit().0.borrow().stats;
+                        let after = ctx.jit().stats();
                         let (frames, values, open, remaining) = host.test_trace();
                         let slots = values
                             .into_iter()

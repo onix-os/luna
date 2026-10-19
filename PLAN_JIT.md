@@ -35805,6 +35805,47 @@ Next work must reduce measured per-entry/helper costs rather than assume that
 moving native entry outside the VM dispatch body is sufficient. Callback,
 metamethod, shipping-array and compiled-Off/size acceptance remain open.
 
+### Repeated original controls and execution-counter storage trial
+
+The control-only population under
+`target/jit-evidence/hook-resume-recovery/baseline-control-population` pools
+ten complete historical screens, using only their A/B controls. All six control
+images in each screen were checked against the restored original images before
+pooling. The population contains 95,040 native executions and 1,900,800 cost
+iterations, with 120 control windows for each case/profile/CPU/method group.
+These remain contended observations, not causal estimates or quiet-host proof.
+Candidate rows are excluded, failed windows are retained, and no gate changes.
+
+The estimator uses whole-screen clustered bootstrap resampling rather than
+treating all within-screen windows as independent observations. Its fixed seed,
+known medians and clustered bounds, deterministic repeat, and rejection of
+missing/duplicate controls, invalid ratios, resource mismatches, duplicate
+cohorts and changed iteration counts are checked by nine method fixtures.
+Raw cost medians were recomputed by the original audits; native observations
+remain the original printed medians, not reconstructed raw samples.
+
+CPU16 shipping compiled-Off closure/upvalue execution has pooled median cost
+ratio **1.211654**, with clustered 2.5/97.5 percentiles **1.206478–1.221999**;
+all 120 windows fail the unchanged **1.05** limit. Reaching that limit from
+this point estimate would require about **13.34% less compiled-Off time**.
+Native speed-profile callback medians are **0.813477** on CPU0 and **0.823966**
+on CPU16, below the unchanged **1/1.2** threshold. These observations prioritize
+work; neither pooling nor an interval replaces the individual acceptance gates.
+
+The next production trial moves the three existing execution counters outside
+the manager's `RefCell` and removes those same fields from its private statistics
+payload. Public `JitStats` fields and independent saturating total-dispatch
+accumulation remain unchanged. Publication still happens at every original
+guard drop, including unwinding; it is not batched across callbacks or VM slices.
+The implementation uses separate safe `Cell` fields, not references retained
+inside a borrowed manager, cached modes, new allocations, or shared GC fields.
+Compile-time size/alignment checks compare the new owner payload against
+`RefCell<Manager<JitStats>>`; a host test also compares the complete charged
+allocation layout. Independent old-publication and exclusive-manager-borrow
+tests exercise the new storage. This trial is **not performance-accepted**;
+full correctness, repeated original elapsed screens, platform and release gates
+must still be checked, and regressions remain grounds for withdrawal.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

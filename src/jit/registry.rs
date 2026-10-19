@@ -170,7 +170,7 @@ mod tests {
             registry.sweep(ctx, false);
             drop(manager);
             assert_eq!(registry.identity(ctx, closure.prototype()), Some(identity));
-            assert_eq!(ctx.jit().0.borrow().stats.metadata_compaction_attempts, 0);
+            assert_eq!(ctx.jit().stats().metadata_compaction_attempts, 0);
         });
     }
 }

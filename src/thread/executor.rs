@@ -1341,7 +1341,7 @@ mod activation_tests {
                     stacks.push(thread.stack.borrow().iter().copied().map(value).collect());
                 }
                 #[cfg(feature = "jit")]
-                let dispatches = ctx.jit().0.borrow().stats.total_dispatches;
+                let dispatches = ctx.jit().stats().total_dispatches;
                 #[cfg(not(feature = "jit"))]
                 let dispatches = 0;
                 Slice {

@@ -19,8 +19,7 @@ impl Runtime {
         let entered = prefix.is_some() || !matches!(fault.cause, Failure::Admission(_));
         let mut manager = self.0.borrow_mut();
         helper_counts::publish(&mut manager.stats, std::mem::take(&mut frame.count), false);
-        manager.stats.total_dispatches =
-            manager.stats.total_dispatches.saturating_add(instructions);
+        self.0.execution.add_dispatches(instructions);
         manager.stats.native_instructions = manager
             .stats
             .native_instructions
@@ -80,7 +79,7 @@ fn packed_failure_publishes_only_known_work_and_preserves_original_panic() {
                                 &mut values,
                                 |mut registers| {
                                     let runtime = Runtime::new();
-                                    runtime.0.borrow_mut().stats = JitStats {
+                                    runtime.set_stats(JitStats {
                                         total_dispatches: baseline,
                                         native_instructions: baseline,
                                         native_entries: baseline,
@@ -93,7 +92,7 @@ fn packed_failure_publishes_only_known_work_and_preserves_original_panic() {
                                         native_upvalue_writes: baseline,
                                         native_allocations: baseline,
                                         ..Default::default()
-                                    };
+                                    });
                                     let mut frame = helpers::Frame {
                                         ctx,
                                         closure,
@@ -163,7 +162,7 @@ fn packed_failure_publishes_only_known_work_and_preserves_original_panic() {
                                     assert!(frame.panic.is_none());
                                     assert_eq!(frame.count.calls, 0);
                                     let manager = runtime.0.borrow();
-                                    let stats = manager.stats;
+                                    let stats = manager.stats.snapshot(&runtime.0.execution);
                                     let work = u64::from(progress.map_or(0, |p| p.instructions))
                                         + if array { 11 } else { 0 };
                                     assert_eq!(

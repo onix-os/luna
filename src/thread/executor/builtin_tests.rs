@@ -91,7 +91,7 @@ fn builtin_persistent_hook_zero_fuel_trace_matches_through_completion() {
                         }).collect();
                         (frames, values, state.running)
                     }).collect();
-                    (done, executor.mode(), fuel.remaining(), fuel.is_interrupted(), states, ctx.jit().0.borrow().stats.total_dispatches)
+                    (done, executor.mode(), fuel.remaining(), fuel.is_interrupted(), states, ctx.jit().stats().total_dispatches)
                 }));
                 lua.gc_collect();
                 if trace.last().unwrap().0 {

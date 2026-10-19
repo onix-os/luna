@@ -239,11 +239,11 @@ fn rooted_caller_moves_keep_closures_after_source_overwrite_without_helpers() {
             host.run(ctx, 1, start as u32, 4).result.unwrap();
             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
             let before = stats(ctx);
-            let helpers = ctx.jit().0.borrow().stats.helper_calls;
+            let helpers = ctx.jit().stats().helper_calls;
             let outcome = region.run(ctx, host, 64, 64).unwrap();
             outcome.result.unwrap();
             assert_eq!(outcome.pairs, 20);
-            assert_eq!(ctx.jit().0.borrow().stats.helper_calls, helpers);
+            assert_eq!(ctx.jit().stats().helper_calls, helpers);
             let state = trace(ctx, host, before);
             assert_eq!(state.1, vec![(abi::INTEGER, 210)]);
             (state, outcome.slices)
@@ -348,7 +348,7 @@ fn admitted_pair_tracks_rebound_capture_across_repeated_calls() {
                     callee
                 });
                 let before = stats(ctx);
-                let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                let native_before = ctx.jit().stats().native_instructions;
                 for capture in [0, 1, 0] {
                     host.with_registers(|_, mut registers| {
                         *registers.pc = pc;
@@ -368,10 +368,7 @@ fn admitted_pair_tracks_rebound_capture_across_repeated_calls() {
                     }
                 }
                 if native {
-                    assert_eq!(
-                        ctx.jit().0.borrow().stats.native_instructions - native_before,
-                        9
-                    );
+                    assert_eq!(ctx.jit().stats().native_instructions - native_before, 9);
                 }
                 let state = trace(ctx, host, before);
                 assert_eq!(&state.1[..2], &[(abi::INTEGER, 13), (abi::INTEGER, 14)]);
@@ -615,13 +612,13 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                 }
                 let before_stats = stats(ctx);
                 let before = trace(ctx, host, before_stats);
-                let counters = ctx.jit().0.borrow().stats;
+                let counters = ctx.jit().stats();
                 assert!(
                     admitted.invoke(host, budget, prefix).is_none(),
                     "case={case}"
                 );
                 assert_eq!(trace(ctx, host, before_stats), before, "case={case}");
-                assert_eq!(ctx.jit().0.borrow().stats, counters, "case={case}");
+                assert_eq!(ctx.jit().stats(), counters, "case={case}");
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                 ctx.set_debug_hook(Value::Nil, false, 0);
             });
@@ -673,16 +670,13 @@ fn admitted_pair_reuses_source_binding_through_physical_call_and_return() {
                         host.frame_identity(),
                     )
                     .unwrap();
-                    let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                    let native_before = ctx.jit().stats().native_instructions;
                     let registry = ctx.jit_registry().borrow_mut(&ctx);
                     let outcome = admitted.invoke(host, 64, 0).unwrap();
                     drop(registry);
                     assert_eq!((outcome.calls, outcome.returns), (1, 1));
                     outcome.result.unwrap();
-                    assert_eq!(
-                        ctx.jit().0.borrow().stats.native_instructions - native_before,
-                        3
-                    );
+                    assert_eq!(ctx.jit().stats().native_instructions - native_before, 3);
                 } else {
                     host.run(ctx, 2, 64, 4).result.unwrap();
                 }
@@ -924,7 +918,7 @@ fn cached_region_rebinds_live_callers_and_does_not_root_collected_sources() {
             .is_none());
         assert!(ctx.jit().lookup(region.source).is_none());
         assert!(ctx.jit().pair_lease(region.pair.program.key()).is_none());
-        assert_eq!(ctx.jit().0.borrow().stats.registered_prototypes, 0);
+        assert_eq!(ctx.jit().stats().registered_prototypes, 0);
     });
     assert_eq!(memory.requested(), requested);
     drop(lua);
@@ -1048,7 +1042,7 @@ pub(super) fn trace(
     before: (u64, u64),
 ) -> (Vec<String>, Vec<(u64, u64)>, usize, i32, u64, u64) {
     let (frames, values, open, fuel) = host.test_trace();
-    let stats = ctx.jit().0.borrow().stats;
+    let stats = ctx.jit().stats();
     (
         frames,
         values
@@ -1064,7 +1058,7 @@ pub(super) fn trace(
 }
 
 fn stats(ctx: Context<'_>) -> (u64, u64) {
-    let stats = ctx.jit().0.borrow().stats;
+    let stats = ctx.jit().stats();
     (
         stats.total_dispatches,
         stats.native_instructions + stats.interpreted_instructions,
@@ -1089,12 +1083,12 @@ fn interpreted_prefixes_preserve_paired_coverage_and_bounded_accounting() {
                                 host.test_pair_selection(select_pairs);
                                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                                 let before = stats(ctx);
-                                let returns = ctx.jit().0.borrow().stats.native_pair_returns;
+                                let returns = ctx.jit().stats().native_pair_returns;
                                 let outcome = region.run(ctx, host, limit, budget).unwrap();
                                 assert!(outcome.slices > 0 && outcome.slices <= limit);
                                 assert!(outcome.fragments > 0 && outcome.fragments <= outcome.slices);
                                 assert!(ctx.jit().0.borrow().resume_scope.is_none());
-                                assert_eq!(ctx.jit().0.borrow().stats.native_pair_returns - returns, outcome.pairs as u64);
+                                assert_eq!(ctx.jit().stats().native_pair_returns - returns, outcome.pairs as u64);
                                 if (limit, budget, fuel) == (64, 64, 10000) && select_pairs {
                                     assert_eq!(outcome.pairs, 20);
                                     assert!(matches!(host.test_trace().1.as_slice(), [Value::Integer(210)]));

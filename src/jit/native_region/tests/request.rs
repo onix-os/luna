@@ -153,7 +153,7 @@ fn request_and_built_region_do_not_root_collected_sources() {
                 assert!(ctx.jit_registry().borrow().resolve(ctx, id).is_none());
             }
         });
-        assert_eq!(fixture.runtime.0.borrow().stats.registered_prototypes, 0);
+        assert_eq!(fixture.runtime.stats().registered_prototypes, 0);
         assert!(memory.requested() > 0);
         let result = if let Some(request) = request {
             request.compile(&fixture.runtime).map(drop)

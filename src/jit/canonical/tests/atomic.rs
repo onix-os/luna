@@ -12,7 +12,7 @@ fn attempt<'gc>(
 }
 
 fn counters(ctx: Context<'_>) -> [u64; 8] {
-    let stats = ctx.jit().0.borrow().stats;
+    let stats = ctx.jit().stats();
     [
         stats.interpreted_slices,
         stats.interpreted_instructions,

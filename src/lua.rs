@@ -353,7 +353,7 @@ impl Lua {
     /// Returns execution counters and current JIT resource usage.
     #[cfg(feature = "jit")]
     pub fn jit_stats(&self) -> crate::jit::JitStats {
-        let mut stats = self.jit.0.borrow().stats;
+        let mut stats = self.jit.stats();
         stats.code_bytes = self.jit.usage();
         let manager = self.jit.0.borrow();
         stats.code_requested_bytes = manager.memory.requested();

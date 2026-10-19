@@ -450,7 +450,7 @@ mod tests {
                                 Driver::default().run_sized::<true, 16>(ctx, host, 16, 64);
                             outcome.result.unwrap();
                             assert_eq!(outcome.shadow_captures, 1);
-                            assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
+                            assert!(ctx.jit().stats().native_instructions > 0);
                         } else {
                             host.run_canonical(ctx, 16, 64, 4).result.unwrap();
                         }
@@ -595,7 +595,7 @@ mod tests {
                             outcome.result.unwrap();
                             assert_eq!(outcome.slices, 1);
                             assert_eq!(outcome.shadow_recoveries, 1);
-                            assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls, 1);
+                            assert_eq!(ctx.jit().stats().native_pair_calls, 1);
                         } else {
                             host.run_canonical(ctx, 8, 64, 4).result.unwrap();
                         }
@@ -670,7 +670,7 @@ mod tests {
 
     fn trace(ctx: Context<'_>, host: &ActivationHost<'_, '_>) -> Trace {
         let (frames, values, open, fuel) = host.test_trace();
-        let stats = ctx.jit().0.borrow().stats;
+        let stats = ctx.jit().stats();
         Trace {
             frames,
             slots: values
@@ -729,7 +729,7 @@ mod tests {
                                     let outcome = driver.run(ctx, host, limit, budget);
                                     outcome.result.unwrap();
                                     assert_eq!(outcome.slices, limit);
-                                    assert!(ctx.jit().0.borrow().stats.native_instructions != 0);
+                                    assert!(ctx.jit().stats().native_instructions != 0);
                                     if limit >= 2 {
                                         assert!(outcome.pairs != 0);
                                     }
@@ -756,14 +756,14 @@ mod tests {
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 let fuel_before = host.fuel().remaining();
-                let before = ctx.jit().0.borrow().stats.native_instructions;
+                let before = ctx.jit().stats().native_instructions;
                 let partial = prefix(ctx, host, 64).unwrap();
                 let instructions = partial.instructions;
                 assert!(partial.transition.is_none());
                 assert!(partial.resume.is_some());
                 assert!(instructions > 0);
                 assert_eq!(
-                    ctx.jit().0.borrow().stats.native_instructions - before,
+                    ctx.jit().stats().native_instructions - before,
                     u64::from(instructions)
                 );
                 assert_eq!(host.fuel().remaining(), fuel_before);
@@ -897,7 +897,7 @@ mod tests {
                         let outcome = driver.run_mode::<DEFER>(ctx, host, 16, 64);
                         outcome.result.unwrap();
                         assert!(outcome.slices > 0);
-                        assert_eq!(ctx.jit().0.borrow().stats.native_instructions, 0);
+                        assert_eq!(ctx.jit().stats().native_instructions, 0);
                         assert_eq!(std::mem::size_of_val(&driver), 0);
                     },
                 );
@@ -1026,7 +1026,7 @@ mod tests {
                     };
                     base.0 as usize
                 });
-                let before = ctx.jit().0.borrow().stats.native_pair_calls;
+                let before = ctx.jit().stats().native_pair_calls;
                 let globals = ctx.globals().into_inner();
                 let lock = globals.borrow_mut(&ctx);
                 let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1034,7 +1034,7 @@ mod tests {
                 }));
                 assert!(caught.is_err());
                 drop(lock);
-                assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls - before, 1);
+                assert_eq!(ctx.jit().stats().native_pair_calls - before, 1);
                 host.with_registers(|_, registers| {
                     assert!(matches!(registers.stack_frame[0], crate::Value::Integer(3)));
                     assert!(matches!(
@@ -1078,12 +1078,12 @@ mod tests {
                                 let outcome = Driver::default().run(ctx, host, 1, budget);
                                 outcome.result.unwrap();
                                 assert_eq!(outcome.slices, 1);
-                                assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
+                                assert!(ctx.jit().stats().native_instructions > 0);
                             } else {
                                 host.run_canonical(ctx, 1, budget, 4).result.unwrap();
                             }
                             traces.push(trace(ctx, host));
-                            statistics.push(ctx.jit().0.borrow().stats);
+                            statistics.push(ctx.jit().stats());
                         },
                     );
                 });
@@ -1146,7 +1146,7 @@ mod tests {
                             host.run_canonical(ctx, 1, 64, 4).result
                         };
                         errors.push(result.unwrap_err().to_string());
-                        let stats = ctx.jit().0.borrow().stats;
+                        let stats = ctx.jit().stats();
                         assert_eq!(stats.native_entries, 1);
                         assert_eq!(stats.guard_exits, 1);
                         assert_eq!(stats.interpreted_instructions, 0);
@@ -1204,7 +1204,7 @@ mod tests {
                         } else {
                             host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                         }
-                        let stats = ctx.jit().0.borrow().stats;
+                        let stats = ctx.jit().stats();
                         assert_eq!(stats.helper_declines, 1);
                         assert_eq!(stats.native_table_writes, 1);
                         assert_eq!(calls.get(), 0);
@@ -1300,9 +1300,9 @@ mod tests {
                                 } else {
                                     host.run_canonical(ctx, limit, budget, 4).result.unwrap();
                                 }
-                                assert_eq!(ctx.jit().0.borrow().stats.native_entries, 0);
+                                assert_eq!(ctx.jit().stats().native_entries, 0);
                                 traces.push(trace(ctx, host));
-                                statistics.push(ctx.jit().0.borrow().stats);
+                                statistics.push(ctx.jit().stats());
                             },
                         );
                     });
@@ -1368,11 +1368,11 @@ mod tests {
                                 assert!(manager.code.remove(&id).is_some());
                             }
                         }
-                        let before = ctx.jit().0.borrow().stats;
+                        let before = ctx.jit().stats();
                         let completed =
                             host.resume_native(ctx, 64, prefix.resume.unwrap()).unwrap();
                         host.charge_native_slice(completed);
-                        let after = ctx.jit().0.borrow().stats;
+                        let after = ctx.jit().stats();
                         assert_eq!(after.native_entries, before.native_entries);
                         assert_eq!(after.native_instructions, before.native_instructions);
                         assert!(after.interpreted_instructions > before.interpreted_instructions);
@@ -1407,13 +1407,13 @@ mod tests {
                             prefix.instructions
                         };
                         let before = trace(ctx, host);
-                        let statistics = ctx.jit().0.borrow().stats;
+                        let statistics = ctx.jit().stats();
                         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             host.resume_native(ctx, budget, prefix.resume.unwrap())
                         }));
                         assert!(caught.is_err());
                         assert_eq!(trace(ctx, host), before);
-                        assert_eq!(ctx.jit().0.borrow().stats, statistics);
+                        assert_eq!(ctx.jit().stats(), statistics);
                     },
                 );
             });

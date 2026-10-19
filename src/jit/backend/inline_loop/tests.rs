@@ -84,10 +84,10 @@ fn charged_image_executes_after_snapshot_release_until_final_lease_drop() {
                 host.run(ctx, 1, 1, 0).result.unwrap();
             }
             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
-            let before = ctx.jit().0.borrow().stats.native_entries;
+            let before = ctx.jit().stats().native_entries;
             let progress = lease.run(ctx, host, 16, 64, 0).unwrap();
             assert!(progress.calls > 1);
-            assert_eq!(ctx.jit().0.borrow().stats.native_entries, before + 1);
+            assert_eq!(ctx.jit().stats().native_entries, before + 1);
         });
         drop(lease);
         assert_eq!(
@@ -194,11 +194,11 @@ fn retained_image_rejects_reset_generations_before_effects() {
                     assert_ne!(registry.identity(ctx, sources.1), Some(key.callee));
                 }
                 let fuel = host.fuel().remaining();
-                let entries = ctx.jit().0.borrow().stats.native_entries;
+                let entries = ctx.jit().stats().native_entries;
                 assert!(code.run(ctx, host, 16, 64, 0).is_none());
                 assert_eq!(host.fuel().remaining(), fuel);
                 assert_eq!(host.with_registers(|_, r| *r.pc), key.pc);
-                assert_eq!(ctx.jit().0.borrow().stats.native_entries, entries);
+                assert_eq!(ctx.jit().stats().native_entries, entries);
             }
         });
     });

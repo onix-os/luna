@@ -36,8 +36,8 @@ fn real_compile_pressure_evicts_cached_region_and_recovers_after_lease_release()
                     Err(JitError::ResourceLimit("native mappings"))
                 ));
                 assert_eq!(memory.requested(), requested);
-                assert_eq!(ctx.jit().0.borrow().stats.cache_evictions, 0);
-                assert_eq!(ctx.jit().0.borrow().stats.cache_eviction_refusals, 1);
+                assert_eq!(ctx.jit().stats().cache_evictions, 0);
+                assert_eq!(ctx.jit().stats().cache_eviction_refusals, 1);
                 drop(lease.take());
             }
             compile().unwrap();
@@ -45,7 +45,7 @@ fn real_compile_pressure_evicts_cached_region_and_recovers_after_lease_release()
             assert!(ctx.jit().lookup(id).is_some());
             assert!(ctx.jit().lookup(key.caller).is_some());
             assert!(ctx.jit().pair_lease(key).is_some());
-            assert_eq!(ctx.jit().0.borrow().stats.cache_evictions, 1);
+            assert_eq!(ctx.jit().stats().cache_evictions, 1);
             assert_eq!(ctx.jit().0.borrow().tracked[&id].attempts, 2);
             assert!(memory.requested() <= requested);
             assert!(
@@ -264,7 +264,7 @@ fn source_collection_retires_cached_regions_without_rooting_lua_objects() {
                 .resolve(ctx, key.caller)
                 .is_none());
             assert!(ctx.jit().region_lease(key).is_none());
-            assert_eq!(ctx.jit().0.borrow().stats.registered_prototypes, 0);
+            assert_eq!(ctx.jit().stats().registered_prototypes, 0);
         });
         assert_eq!(memory.requested(), if retain { requested } else { 0 });
         drop(lease);

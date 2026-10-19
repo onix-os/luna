@@ -417,12 +417,14 @@ impl Session<'_, '_, '_, '_> {
         {
             let mut manager = ctx.jit().0.borrow_mut();
             let stats = &mut manager.stats;
-            stats.total_dispatches = stats
-                .total_dispatches
-                .saturating_add(u64::from(progress.slices));
-            stats.interpreted_slices = stats
-                .interpreted_slices
-                .saturating_add(u64::from(progress.slices));
+            let execution = &ctx.jit().0.execution;
+            execution.add_dispatches(u64::from(progress.slices));
+            execution.interpreted_slices.set(
+                execution
+                    .interpreted_slices
+                    .get()
+                    .saturating_add(u64::from(progress.slices)),
+            );
             stats.native_upvalue_reads = stats
                 .native_upvalue_reads
                 .saturating_add(u64::from(progress.calls));
@@ -581,7 +583,7 @@ fn record(ctx: Context<'_>, exit: &abi::Exit, counts: helpers::Counts) {
         .native_upvalue_writes
         .saturating_add(counts.upvalue_writes);
     stats.native_allocations = stats.native_allocations.saturating_add(counts.allocations);
-    stats.record_native_exit(exit);
+    stats.record_native_exit(exit, &ctx.jit().0.execution);
 }
 
 unsafe extern "C" fn boundary(view: *mut View) -> u32 {

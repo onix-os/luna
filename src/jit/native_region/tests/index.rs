@@ -86,10 +86,10 @@ fn live_caller_selection_executes_all_sites_with_one_lookup_and_lease() {
         for region in regions {
             ctx.jit().install_region(region).unwrap();
         }
-        let before = ctx.jit().0.borrow().stats;
+        let before = ctx.jit().stats();
         let clock = ctx.jit().0.borrow().clock;
         let lease = ctx.jit().region_for(ctx, caller).unwrap();
-        let after = ctx.jit().0.borrow().stats;
+        let after = ctx.jit().stats();
         assert_eq!(lease.pair.program.key(), selected);
         assert_eq!(after.code_lookups, before.code_lookups + 1);
         assert_eq!(after.code_leases, before.code_leases + 1);
@@ -100,7 +100,7 @@ fn live_caller_selection_executes_all_sites_with_one_lookup_and_lease() {
             with_test_thread(ctx, caller, &mut Fuel::with(10000), |host| {
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                 host.run(ctx, 1, start as u32, 4).result.unwrap();
-                let stats = ctx.jit().0.borrow().stats;
+                let stats = ctx.jit().stats();
                 if native {
                     ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                     let outcome = lease.run(ctx, host, 64, 64).unwrap();
@@ -233,10 +233,10 @@ fn unsupported_entry_pc_refuses_before_lease_or_recency_changes() {
             .position(|op| matches!(op.decode(), crate::opcode::Operation::Closure { .. }))
             .unwrap();
         for pc in [unsupported, usize::MAX] {
-            let before = ctx.jit().0.borrow().stats;
+            let before = ctx.jit().stats();
             let clock = ctx.jit().0.borrow().clock;
             assert!(ctx.jit().region_at(ctx, caller, pc).is_none());
-            let after = ctx.jit().0.borrow().stats;
+            let after = ctx.jit().stats();
             assert_eq!(after.code_lookups, before.code_lookups + 1);
             assert_eq!(after.code_leases, before.code_leases);
             assert_eq!(ctx.jit().0.borrow().clock, clock);
@@ -250,7 +250,7 @@ fn disabled_hooked_and_foreign_live_selection_is_effect_free() {
     fixture_source(SOURCE, |ctx, caller, region, _| {
         ctx.jit().install_region(region).unwrap();
         for condition in 0..3 {
-            let before = ctx.jit().0.borrow().stats;
+            let before = ctx.jit().stats();
             let clock = ctx.jit().0.borrow().clock;
             match condition {
                 0 => ctx.jit().0.borrow_mut().config.mode = JitMode::Off,
@@ -285,7 +285,7 @@ fn disabled_hooked_and_foreign_live_selection_is_effect_free() {
             } else {
                 assert!(ctx.jit().region_for(ctx, caller).is_none());
             }
-            assert_eq!(ctx.jit().0.borrow().stats, before);
+            assert_eq!(ctx.jit().stats(), before);
             assert_eq!(ctx.jit().0.borrow().clock, clock);
             ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
             ctx.set_debug_hook(crate::Value::Nil, false, 0);
@@ -324,10 +324,10 @@ fn stale_selected_dependency_is_unlinked_once_without_scanning_siblings() {
                 .unwrap();
             verify(&manager.pairs.as_ref().unwrap().regions);
         }
-        let before = ctx.jit().0.borrow().stats;
+        let before = ctx.jit().stats();
         let clock = ctx.jit().0.borrow().clock;
         assert!(ctx.jit().region_for(ctx, caller).is_none());
-        let after = ctx.jit().0.borrow().stats;
+        let after = ctx.jit().stats();
         assert_eq!(after.code_lookups, before.code_lookups + 1);
         assert_eq!(after.code_leases, before.code_leases);
         assert_eq!(ctx.jit().0.borrow().clock, clock);
@@ -369,7 +369,7 @@ fn caller_index_growth_refusal_preserves_existing_heads_and_recovers() {
             .map(|&caller| ctx.jit().region_for(ctx, caller).unwrap())
             .collect();
         let metadata = ctx.jit().0.borrow().metadata.0.clone();
-        let before = ctx.jit().0.borrow().stats;
+        let before = ctx.jit().stats();
         let clock = ctx.jit().0.borrow().clock;
         {
             let manager = ctx.jit().0.borrow();
@@ -384,7 +384,7 @@ fn caller_index_growth_refusal_preserves_existing_heads_and_recovers() {
         ));
         metadata.fail_after(usize::MAX);
         assert_eq!(ctx.jit().0.borrow().clock, clock);
-        assert_eq!(ctx.jit().0.borrow().stats, before);
+        assert_eq!(ctx.jit().stats(), before);
         assert!(ctx.jit().region_for(ctx, peer).is_none());
         verify(&ctx.jit().0.borrow().pairs.as_ref().unwrap().regions);
         for (&caller, original) in callers.iter().zip(&originals) {

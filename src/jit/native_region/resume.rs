@@ -224,7 +224,7 @@ mod tests {
                                 result.map(|_| ())
                             };
                             assert!(ctx.jit().0.borrow().resume_scope.is_none());
-                            (trace(ctx, host, (0, 0)), result.err().map(|error| error.to_string()), ctx.jit().0.borrow().stats)
+                            (trace(ctx, host, (0, 0)), result.err().map(|error| error.to_string()), ctx.jit().stats())
                         });
                         if let Some(expected) = &expected { assert_eq!(&actual, expected, "mode={mode} budget={budget}"); }
                         else { expected = Some(actual); }
@@ -281,9 +281,9 @@ mod tests {
                                 if budget == 64 && fuel == 10000 {
                                     assert_eq!(handoff, succeeds);
                                     assert_eq!(slices, if succeeds { 2 } else { 1 });
-                                    assert_eq!(ctx.jit().0.borrow().stats.native_pair_returns, u64::from(succeeds));
+                                    assert_eq!(ctx.jit().stats().native_pair_returns, u64::from(succeeds));
                                 }
-                                (trace(ctx, host, (0, 0)), result.err().map(|e| e.to_string()), ctx.jit().0.borrow().stats, slices, handoff)
+                                (trace(ctx, host, (0, 0)), result.err().map(|e| e.to_string()), ctx.jit().stats(), slices, handoff)
                             });
                             if let Some(expected) = &expected {
                                 assert_eq!(&actual, expected, "budget={budget} fuel={fuel}");
@@ -343,7 +343,7 @@ mod tests {
                         code,
                     );
                     let before = trace(ctx, host, (0, 0));
-                    let stats = ctx.jit().0.borrow().stats;
+                    let stats = ctx.jit().stats();
                     assert!(catch_unwind(AssertUnwindSafe(|| token.run_paired(
                         ctx,
                         host,
@@ -352,7 +352,7 @@ mod tests {
                     )))
                     .is_err());
                     assert_eq!(trace(ctx, host, (0, 0)), before);
-                    assert_eq!(ctx.jit().0.borrow().stats, stats);
+                    assert_eq!(ctx.jit().stats(), stats);
                     assert!(ctx.jit().0.borrow().resume_scope.is_none());
                     assert_eq!(scope.resume.is_some(), legacy);
                     assert_eq!(scope.handoff.is_some(), !legacy);
@@ -431,7 +431,7 @@ mod tests {
                             }
                             _ => unreachable!(),
                         }
-                        let before = ctx.jit().0.borrow().stats.native_instructions;
+                        let before = ctx.jit().stats().native_instructions;
                         let result = if scoped {
                             Token::new(
                                 ctx,
@@ -457,9 +457,9 @@ mod tests {
                         };
                         let error = result.as_ref().err().map(|error| error.to_string());
                         host.charge_native_slice(result.unwrap_or(0));
-                        assert_eq!(ctx.jit().0.borrow().stats.native_instructions, before);
+                        assert_eq!(ctx.jit().stats().native_instructions, before);
                         assert!(ctx.jit().0.borrow().resume_scope.is_none());
-                        let actual = (trace(ctx, host, (0, 0)), error, ctx.jit().0.borrow().stats);
+                        let actual = (trace(ctx, host, (0, 0)), error, ctx.jit().stats());
                         if let Some(expected) = &expected {
                             assert_eq!(&actual, expected, "change={change}");
                         } else {

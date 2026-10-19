@@ -462,7 +462,9 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 .stats
                 .native_upvalue_writes
                 .saturating_add(u64::from(self.view.writes));
-            manager.stats.record_native_exit(&self.frame.exit);
+            manager
+                .stats
+                .record_native_exit(&self.frame.exit, &ctx.jit().0.execution);
         }
         if (
             self.frame.exit.pc,
@@ -580,7 +582,9 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                     manager.stats.native_upvalue_reads.saturating_add(1);
                 manager.stats.native_upvalue_writes =
                     manager.stats.native_upvalue_writes.saturating_add(1);
-                manager.stats.record_native_exit(&self.frame.exit);
+                manager
+                    .stats
+                    .record_native_exit(&self.frame.exit, &ctx.jit().0.execution);
             }
             self.returns = 1;
             let result = self.host.return_fixed(ctx, site.start, site.returns, 3);

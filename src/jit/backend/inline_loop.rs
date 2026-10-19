@@ -152,7 +152,11 @@ impl Code {
         });
         if let Some(mut exit) = exit {
             exit.instructions = progress.as_ref().map_or(0, |p| p.instructions - prefix);
-            ctx.jit().0.borrow_mut().stats.record_native_exit(&exit);
+            ctx.jit()
+                .0
+                .borrow_mut()
+                .stats
+                .record_native_exit(&exit, &ctx.jit().0.execution);
         }
         progress
     }
