@@ -21,13 +21,24 @@ or runtime change is promoted.
 
 The frozen source is `218112b`, identical to the timed control. Current main's
 production `src` remains identical, excluding the independent test-only
-prepared-key fixtures. Six new production images are being built at the existing
-shared builder/target with the declared flag as the only intended environment
-difference. Full original nine-case, CPU0/16, speed/shipping comparisons and their
+prepared-key fixtures. All six new production images build and pass workload
+smoke checks at the existing shared builder/target. Source/configuration/hash
+witnesses verify, with the declared flag the sole retained environment difference.
+Full original nine-case, CPU0/16, speed/shipping comparisons and their
 controls remain required; smaller instruction-delivery counts alone cannot
 establish acceptance. A static direct-target parser passes six positive and six
-negative fixtures, including duplicate/indirect/external targets and incomplete,+overlapping or mid-instruction targets. It does not classify block hotness or
+negative fixtures, including duplicate/indirect/external targets and incomplete,
+overlapping or mid-instruction targets. It does not classify block hotness or
 prove all branch targets require alignment.
+
+Static VM disassembly verifies complete instruction coverage in all four images.
+Speed VM extent grows **55,274 → 71,333 bytes**, shipping **42,104 → 57,061**;
+unique internal direct targets stay **952 / 745**, while targets on 32-byte
+boundaries rise **43 → 495 / 34 → 376**. These counts include cold blocks and
+do not establish dynamic instruction savings. Both complete elapsed campaigns
+are running sequentially after all owned build/test work finishes. The code-size
+increase remains a cost to evaluate; no performance or release acceptance follows
+from successful build/preflight/static checks.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/block-target-align/`.
 
