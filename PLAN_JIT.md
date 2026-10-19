@@ -87,8 +87,23 @@ trial **`79f1498`** specializes only the prepared string-key table read: a fresh
 `Closed(Table)` state yields its table directly, other closed kinds decline,
 and open cells retain the original resolver. Generic upvalue helpers and their
 inlining policy are unchanged. This tests a narrower typed result path instead
-of repeating the general helper annotation; its focused validation and image
-build are in progress, not a passing performance result. Evidence root:
+of repeating the general helper annotation. Focused validation passes **69
+executions / seven summaries**, and all six production images verify, including
+byte-identical no-feature controls. Actual native-image callback profiling
+completes 40 executions / 16 warmups with reconciled event/symbol partitions,
+equal full non-timing records and passing identity fixtures. Speed totals are
+**9,438,782 → 9,383,782**, shipping **11,684,260 → 11,624,260**, approximately
+**0.58% / 0.51%** less work; VM/transport self work is unchanged.
+
+The new candidate's full Force suite passes **2,044 executions / 91 summaries**,
+zero failures and **23 ignored**. Fresh-target Miri runs pass **five prepared-key
+and 13 helper tests per borrow model**, with 40 warnings per invocation retained.
+Real i686 passes **five prepared-key, 13 helper and two fallback tests in each
+of the default/all-feature configurations**. These are Rust-helper/fallback
+checks, not native execution on Miri/i686 or full platform certification.
+Two complete 201-native-sample elapsed campaigns are now running sequentially
+after all validation finishes, retaining all original cases, controls and gates.
+There is still no elapsed-performance acceptance or runtime promotion. Evidence root:
 `target/jit-evidence/hook-resume-recovery/helper-prepared-table/`.
 
 No runtime promotion or full performance/platform/resource/release acceptance
