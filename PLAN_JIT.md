@@ -36243,6 +36243,42 @@ pipeline is terminal zero. No new branch/worktree was created. This proves
 removal of the rejected family, **not** repair of the original failed performance
 gates or complete native-JIT acceptance.
 
+### Remaining outer step fuel — accounting trial under validation
+
+Executor currently records whether the activation host already charged its
+steps, then branches around the ordinary four-unit charge. This trial stores
+the remaining amount instead: four by default, zero after the host charges.
+The outer path consumes that amount. `Fuel::consume(0)` preserves every signed
+remaining value and interruption flag, so no step, callback, error, suspension
+or native instruction charge is intentionally changed. No-feature/unsupported
+release paths retain their existing literal-four charge. There is no mode or
+counter-publication change, persistent field, allocation or unsafe projection.
+
+Tests independently retain the old charged boolean in test builds and compare
+it with the new amount at each charge. The reference path uses that boolean,
+not a boolean reconstructed from the new amount; mismatches fail before effects.
+The pure model checks16,432 signed-fuel/interruption/amount combinations through
+both paths (32,864 charge executions), including MIN/MAX and4,096 seeded values.
+Nested/typed-panic selector restoration and invalid representations are covered.
+Eight scripts across Off/Auto, ordinary/forced activation hosts and four fuel
+budgets produce128 paired public Executor traces. Four additional interpreted
+host/ordinary pairs need no native code and remain available to Miri. Both the
+ordinary-four and internally charged-zero routes must execute positively.
+
+Fresh formatting/check-all, these fixtures, callback/mode/hook/statistics and
+production native/heap integration gates pass **67 executions / 12 summaries**,
+zero failures, ignores or compiler warnings. The Nix dirty-checkout notice is
+retained. Make targets are `vm-step-charge` and `vm-step-charge-miri`; Miri has
+not yet run. This is a new accounting representation, not a repeat of the
+withdrawn closure/wrapper, scratch-reuse or scalar-only-writeback trials.
+
+The intended branch elimination and whole-execution work must be checked in
+actual original-profile images before elapsed evaluation. Reject early if the
+mechanism is absent or adds work; fewer instructions alone still do not prove
+speed. Full Force/Miri/actual i686, native/disabled/resource/platform/release
+acceptance remains required for retention. Evidence:
+`target/jit-evidence/hook-resume-recovery/step-fuel-amount`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

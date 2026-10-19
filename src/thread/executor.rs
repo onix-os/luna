@@ -358,7 +358,9 @@ impl<'gc> Executor<'gc> {
                     )
                 )
             ))]
-            let mut step_charged = false;
+            let mut step_fuel = Self::FUEL_PER_STEP;
+            #[cfg(all(test, feature = "jit"))]
+            let mut legacy_step_charged = false;
             if top_thread.mode() == ThreadMode::Normal {
                 fn do_yield<'gc>(
                     ctx: Context<'gc>,
@@ -764,7 +766,11 @@ impl<'gc> Executor<'gc> {
                             #[cfg(test)]
                             ctx.jit()
                                 .record_activations(outcome.activations, outcome.stack_growths);
-                            step_charged = true;
+                            step_fuel = 0;
+                            #[cfg(test)]
+                            {
+                                legacy_step_charged = true;
+                            }
                             outcome.result.map(|()| 0)
                         } else {
                             ordinary(top_state, fuel)
@@ -884,8 +890,11 @@ impl<'gc> Executor<'gc> {
                     )
                 )
             ))]
-            if !step_charged {
-                fuel.consume(Self::FUEL_PER_STEP);
+            {
+                #[cfg(test)]
+                step_charge::apply(fuel, step_fuel, legacy_step_charged);
+                #[cfg(not(test))]
+                fuel.consume(step_fuel);
             }
             #[cfg(not(all(
                 feature = "jit",
@@ -1226,7 +1235,7 @@ mod activation_tests {
         run_mode_scoped(source, budget, native, kernels, activations, integer, 0)
     }
 
-    fn run_mode_scoped(
+    pub(super) fn run_mode_scoped(
         source: &str,
         budget: i32,
         native: bool,
@@ -1700,3 +1709,6 @@ mod builtin_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod static_off_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod step_charge;
