@@ -43,6 +43,30 @@ performance/resource/platform/release requirements stay
 open. Work stays on `feat/native-jit`, without new branches or worktrees.
 Evidence: `target/jit-evidence/hook-resume-recovery/phase-progress/`.
 
+Native-prefix/region validation adds **79 checks / ten summaries / two ignored**,
+with no failures. Fresh baseline builds at test-only-model commit `0f09818`
+reproduce all six original `218112b` images byte-for-byte. Candidate `bd4064f`
+changes all six image hashes, including no-feature images after the VM source
+edit; that difference is recorded, not represented as identity or waived from
+comparison.
+
+Three whole-execution profile families cover native callbacks and compiled-Off /
+no-feature float loops in both profiles: **24 alternating processes / 120 execute
+calls / 48 warmups**. Printed callback statistics match; image/object identity,
+all 13 event totals and full text-symbol partitions reconcile. Each family
+accepts two valid and rejects four identity-corruption fixtures. Float diagnostics
+attribute the VM and the full image, not a selected subset of whole-workload work.
+
+No-feature float counts remain identical: **4,081,046** speed and **4,375,155**
+shipping. Compiled-Off float counts fall **4,015,310 → 3,936,535** and
+**4,109,344 → 4,033,702** respectively. Actual native callbacks increase
+**9,438,782 → 9,448,784** in speed and **11,684,260 → 11,754,274** in shipping.
+The callback cost is retained, not hidden behind the interpreter saving. These
+are modeled instruction counts, not a measured speedup or original-gate pass.
+Full Force, configured Miri borrow-model runs, real i686 fallback and both
+original all-nine-case elapsed screens are running sequentially. No owned
+tests/builds/profilers overlap elapsed timing; all acceptance requirements remain.
+
 ### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 
 **Resumed by the user on `feat/native-jit`.** The previously interrupted
