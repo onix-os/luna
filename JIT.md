@@ -24,6 +24,16 @@ performance gates still fail and some collateral measurements remain adverse.
 This is incremental experimental functionality, not performance acceptance;
 `PLAN_JIT.md` records the controls, rejected variants and remaining work.
 
+Candidate `aff7ca3` also uses a bounded bucket hint per native source PC. The
+original entry byte holds eligibility in bit zero and the hint in its other
+seven bits, without growing common Lua objects or allocating a cache owner.
+Private helper `luna_get_up_table_b1` checks current bucket bounds, occupancy,
+string identity/equality and weak-aware values; larger offsets fall back to the
+existing verified canonical hash. The arbitrary-supplied-hash helper remains
+separate. Hints contain no GC pointers or values, and the invocation only borrows
+them through the existing code lease. Full Force checks pass, but integrated
+Miri/platform/resource and original performance acceptance remain open.
+
 Current production Auto includes scoped paired-code execution, lease reuse and
 indexed caller-region execution. Successful hot pairs queue region promotion;
 `Lua::service_jit()` prepares and compiles it outside executor steps. The existing
