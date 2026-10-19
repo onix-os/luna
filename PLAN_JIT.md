@@ -9,6 +9,47 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Combined Add and callback tuning — repeated trade-off, 2026-10-19
+
+Trial `0102f37` on `trial/jit-add-callback` combines `522976f` with the exact
+native callback setup component from `b8a77bf`. It passes **235 focused
+executions / 36 summaries** and all-feature Force **2,036 passes / 90 summaries**,
+**23 ignored**, zero failures. Six stripped production images are built at the
+established paths. Both no-feature executable sections and section/segment
+geometry match the original baseline; whole files differ. Source, environment,
+configuration, native execution and immutable image checks pass. Parent Miri and
+i686 results are not claimed as exact-composition validation.
+
+Four complete screens compare against original baseline `79631fe` twice and
+numeric-only parent `522976f` twice: **576 commands / 57,024 native executions /
+1,140,480 feature-cost iterations**. All report zero execution/resource-counter
+mismatches and pass valid/restored plus 13 corruption fixtures. Original-baseline
+speed callback control/trial ratios improve **1.010254 / 1.013133** on CPU0 and
+**1.015056 / 1.010559** on CPU16 (initial/repeat). Numeric speed JIT-Off gains
+remain, but repeated losses prevent promotion:
+
+| Control | CPU/profile/workload, JIT-Off | Initial | Repeat |
+| --- | --- | ---: | ---: |
+| Original | CPU16 speed metamethod | 0.973539 | 0.969282 |
+| Original | CPU16 speed Oslo | 0.974189 | 0.971133 |
+| Parent | CPU0 speed metamethod | 0.964817 | 0.966885 |
+| Parent | CPU16 speed metamethod | 0.977839 | 0.977325 |
+| Parent | CPU16 shipping float | 0.806270 | 0.794101 |
+
+Both original CPU16 losses are adverse in all six rounds of both screens.
+The parent shipping-float repeat is bimodal: three rounds give roughly 0.60–0.62,
+the other three 0.97–1.00, with same-image placebos near one. Do not describe its
+aggregate as a uniform slowdown or discard its slow rounds. The first original
+CPU0 speed campaign also shows drift in unchanged no-feature code; broad apparent
+gains there are not causal estimates. Original-baseline native speed gates fail
+22 then 20 of 96 scored windows; feature-cost gates fail 60 then 68 of 216.
+
+No runtime promotion or release acceptance. Exact-image shipping and speed
+parent/trial hardware-counter diagnosis is running serially after elapsed
+collection. Its isolated workers cannot replace the full-suite context.
+Evidence: `vm-add-callback/{timing,timing-repeat,timing-parent,timing-parent-repeat}`
+and `{shipping,speed}-parent-counters/` under hook-resume recovery.
+
 ### Single Add result store — shipping recovery, acceptance open, 2026-10-19
 
 Trial `f0a3406` on `trial/jit-add-result-store` retains the same-kind numeric
@@ -109,9 +150,9 @@ previously reduced callback work and repeatedly improved elapsed callbacks,
 but regressed Off float. The new numeric path targets that trade-off without
 changing ordinary interpreter callback routing. This is a measured-composition
 hypothesis, not permission to multiply independent speedups or overlook losses.
-The isolated trial is committed/pushed; its focused/full Force validation and
-six-image production build are running under `vm-add-callback/`. Its performance
-has not yet been measured. The remaining native callback gates are not fixed
+The isolated trial is committed/pushed; its validation, production build and
+four elapsed comparisons are recorded above under `vm-add-callback/`.
+The remaining native callback gates are not fixed
 by declaring the paths separate.
 
 ### Stripped scalar-guard production comparison — not accepted, 2026-10-19
