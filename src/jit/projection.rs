@@ -318,42 +318,47 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [Slot::from_value(Value::Nil)];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[cell, cell], &scratch).unwrap();
-                assert_eq!(projection.cell_count, 1);
-                assert_eq!(projection.bindings, [0, 0]);
-                projection
-                    .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
-                    .unwrap();
-                assert_eq!(projection.read(1, &scratch).unwrap().bits, 42);
-                assert!(matches!(
-                    cell.get(),
-                    UpValueState::Closed(Value::Integer(7))
-                ));
-                assert_eq!(
-                    projection.refresh(&registers, &[cell, cell], &scratch),
-                    Err(Error::PendingWrites)
-                );
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(
-                    cell.get(),
-                    UpValueState::Closed(Value::Integer(42))
-                ));
-                cell.set(&ctx, UpValueState::Closed(Value::Integer(99)));
-                projection
-                    .refresh(&registers, &[cell, cell], &scratch)
-                    .unwrap();
-                assert_eq!(projection.read(0, &scratch).unwrap().bits, 99);
-                assert_eq!(
-                    projection.counts,
-                    Counts {
-                        reads: 2,
-                        writes: 1
-                    }
-                );
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Nil)];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[cell, cell], &scratch).unwrap();
+                    assert_eq!(projection.cell_count, 1);
+                    assert_eq!(projection.bindings, [0, 0]);
+                    projection
+                        .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
+                        .unwrap();
+                    assert_eq!(projection.read(1, &scratch).unwrap().bits, 42);
+                    assert!(matches!(
+                        cell.get(),
+                        UpValueState::Closed(Value::Integer(7))
+                    ));
+                    assert_eq!(
+                        projection.refresh(&registers, &[cell, cell], &scratch),
+                        Err(Error::PendingWrites)
+                    );
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(
+                        cell.get(),
+                        UpValueState::Closed(Value::Integer(42))
+                    ));
+                    cell.set(&ctx, UpValueState::Closed(Value::Integer(99)));
+                    projection
+                        .refresh(&registers, &[cell, cell], &scratch)
+                        .unwrap();
+                    assert_eq!(projection.read(0, &scratch).unwrap().bits, 99);
+                    assert_eq!(
+                        projection.counts,
+                        Counts {
+                            reads: 2,
+                            writes: 1
+                        }
+                    );
+                },
+            );
         });
     }
 
@@ -363,26 +368,31 @@ mod tests {
         lua.enter(|ctx| {
             let mut canonical = [Value::Integer(7), Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let cell = registers.open_test_upvalue(&ctx, RegisterIndex(0));
-                let mut scratch = [
-                    Slot::from_value(Value::Integer(11)),
-                    Slot::from_value(Value::Nil),
-                ];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[cell, cell], &scratch).unwrap();
-                assert_eq!(projection.cell_count, 1);
-                assert_eq!(projection.read(0, &scratch).unwrap().bits, 11);
-                projection
-                    .write(1, &mut scratch, Slot::from_value(Value::Integer(42)))
-                    .unwrap();
-                assert_eq!(scratch[0].bits, 42);
-                assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
-                scratch[0] = Slot::from_value(Value::Integer(43));
-                assert_eq!(projection.read(0, &scratch).unwrap().bits, 43);
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(registers.stack_frame[0], Value::Integer(43)));
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let cell = registers.open_test_upvalue(&ctx, RegisterIndex(0));
+                    let mut scratch = [
+                        Slot::from_value(Value::Integer(11)),
+                        Slot::from_value(Value::Nil),
+                    ];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[cell, cell], &scratch).unwrap();
+                    assert_eq!(projection.cell_count, 1);
+                    assert_eq!(projection.read(0, &scratch).unwrap().bits, 11);
+                    projection
+                        .write(1, &mut scratch, Slot::from_value(Value::Integer(42)))
+                        .unwrap();
+                    assert_eq!(scratch[0].bits, 42);
+                    assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
+                    scratch[0] = Slot::from_value(Value::Integer(43));
+                    assert_eq!(projection.read(0, &scratch).unwrap().bits, 43);
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(registers.stack_frame[0], Value::Integer(43)));
+                },
+            );
         });
     }
 
@@ -392,12 +402,12 @@ mod tests {
         lua.enter(|ctx| {
             let mut canonical = [Value::Integer(7), Value::Integer(11), Value::Nil];
             let mut pc = 0;
-            LuaRegisters::projection_split_frame(
+            LuaRegisters::projection_native_frame(
                 ctx,
                 &mut pc,
                 &mut canonical,
                 2,
-                |mut registers| {
+                |mut registers, mut _list| {
                     let first = registers.projection_open_at(ctx, 1);
                     let second = registers.projection_open_at(ctx, 1);
                     assert!(!Gc::ptr_eq(first.into_inner(), second.into_inner()));
@@ -431,16 +441,22 @@ mod tests {
         lua.enter(|ctx| {
             let mut canonical = [Value::Integer(7)];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let cell = registers.open_test_upvalue(&ctx, RegisterIndex(0));
-                let mut scratch = [Slot::from_value(Value::Integer(7))];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                scratch[0] = Slot::from_value(Value::Integer(42));
-                assert_eq!(projection.cells[0].dirty, 0);
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
-                assert_eq!(projection.counts, Counts::default());
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let cell = registers.open_test_upvalue(&ctx, RegisterIndex(0));
+                    let mut scratch = [Slot::from_value(Value::Integer(7))];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    scratch[0] = Slot::from_value(Value::Integer(42));
+                    assert_eq!(projection.cells[0].dirty, 0);
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
+                    assert_eq!(projection.counts, Counts::default());
+                },
+            );
         });
     }
 
@@ -452,40 +468,45 @@ mod tests {
             let new = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(11)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [Slot::from_value(Value::Nil)];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[old, old], &scratch).unwrap();
-                projection
-                    .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
-                    .unwrap();
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                projection
-                    .refresh(&registers, &[new, old], &scratch)
-                    .unwrap();
-                assert_eq!(projection.bindings, [0, 1]);
-                assert_eq!(projection.read(0, &scratch).unwrap().bits, 11);
-                assert_eq!(projection.read(1, &scratch).unwrap().bits, 42);
-                projection
-                    .write(0, &mut scratch, Slot::from_value(Value::Integer(99)))
-                    .unwrap();
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(
-                    old.get(),
-                    UpValueState::Closed(Value::Integer(42))
-                ));
-                assert!(matches!(
-                    new.get(),
-                    UpValueState::Closed(Value::Integer(99))
-                ));
-                assert_eq!(
-                    projection.counts,
-                    Counts {
-                        reads: 2,
-                        writes: 2
-                    }
-                );
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Nil)];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[old, old], &scratch).unwrap();
+                    projection
+                        .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
+                        .unwrap();
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    projection
+                        .refresh(&registers, &[new, old], &scratch)
+                        .unwrap();
+                    assert_eq!(projection.bindings, [0, 1]);
+                    assert_eq!(projection.read(0, &scratch).unwrap().bits, 11);
+                    assert_eq!(projection.read(1, &scratch).unwrap().bits, 42);
+                    projection
+                        .write(0, &mut scratch, Slot::from_value(Value::Integer(99)))
+                        .unwrap();
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(
+                        old.get(),
+                        UpValueState::Closed(Value::Integer(42))
+                    ));
+                    assert!(matches!(
+                        new.get(),
+                        UpValueState::Closed(Value::Integer(99))
+                    ));
+                    assert_eq!(
+                        projection.counts,
+                        Counts {
+                            reads: 2,
+                            writes: 2
+                        }
+                    );
+                },
+            );
         });
     }
 
@@ -496,19 +517,25 @@ mod tests {
             let mut canonical = [Value::Nil; 8];
             canonical[7] = Value::Integer(17);
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let cell = registers.open_test_upvalue(&ctx, RegisterIndex(7));
-                let mut scratch = [Slot::from_value(Value::Integer(11))];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                assert_eq!(projection.cells[0].register, DETACHED);
-                assert_eq!(projection.read(0, &scratch).unwrap().bits, 17);
-                projection
-                    .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
-                    .unwrap();
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(registers.stack_frame[7], Value::Integer(42)));
-                assert_eq!(scratch[0].bits, 11);
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let cell = registers.open_test_upvalue(&ctx, RegisterIndex(7));
+                    let mut scratch = [Slot::from_value(Value::Integer(11))];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    assert_eq!(projection.cells[0].register, DETACHED);
+                    assert_eq!(projection.read(0, &scratch).unwrap().bits, 17);
+                    projection
+                        .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
+                        .unwrap();
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(registers.stack_frame[7], Value::Integer(42)));
+                    assert_eq!(scratch[0].bits, 11);
+                },
+            );
         });
     }
 
@@ -518,27 +545,32 @@ mod tests {
         lua.enter(|ctx| {
             let mut foreign = [Value::Integer(17)];
             let mut foreign_pc = 0;
-            LuaRegisters::with_test_frame(
+            LuaRegisters::with_test_native_frame(
                 ctx,
                 &mut foreign_pc,
                 &mut foreign,
-                |mut foreign_registers| {
+                |mut foreign_registers, mut _list| {
                     let cell = foreign_registers.open_test_upvalue(&ctx, RegisterIndex(0));
                     let mut canonical = [Value::Nil];
                     let mut pc = 0;
-                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                        let mut scratch = [Slot::from_value(Value::Nil)];
-                        let mut projection =
-                            Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                        assert_eq!(projection.bindings[0], FALLBACK);
-                        assert_eq!(projection.cell_count, 0);
-                        assert!(projection.read(0, &scratch).is_none());
-                        assert!(projection
-                            .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
-                            .is_none());
-                        projection.flush(ctx, &mut registers, &scratch).unwrap();
-                        assert_eq!(projection.counts, Counts::default());
-                    });
+                    LuaRegisters::with_test_native_frame(
+                        ctx,
+                        &mut pc,
+                        &mut canonical,
+                        |mut registers, mut _list| {
+                            let mut scratch = [Slot::from_value(Value::Nil)];
+                            let mut projection =
+                                Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                            assert_eq!(projection.bindings[0], FALLBACK);
+                            assert_eq!(projection.cell_count, 0);
+                            assert!(projection.read(0, &scratch).is_none());
+                            assert!(projection
+                                .write(0, &mut scratch, Slot::from_value(Value::Integer(42)))
+                                .is_none());
+                            projection.flush(ctx, &mut registers, &scratch).unwrap();
+                            assert_eq!(projection.counts, Counts::default());
+                        },
+                    );
                 },
             );
         });
@@ -552,51 +584,56 @@ mod tests {
             let second = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(11)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [Slot::from_value(Value::Nil)];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[first, second], &scratch).unwrap();
-                for index in 0..2 {
-                    projection
-                        .write(index, &mut scratch, Slot::from_value(Value::Integer(42)))
-                        .unwrap();
-                }
-                projection.cells[1].value.tag = u64::MAX;
-                assert_eq!(
-                    projection.flush(ctx, &mut registers, &scratch),
-                    Err(Error::InvalidSlot)
-                );
-                assert!(matches!(
-                    first.get(),
-                    UpValueState::Closed(Value::Integer(7))
-                ));
-                assert!(matches!(
-                    second.get(),
-                    UpValueState::Closed(Value::Integer(11))
-                ));
-                assert_eq!(projection.cells[0].dirty, 1);
-                projection.cells[1].value = Slot::from_value(Value::Integer(42));
-                let open = registers.projection_open_at(ctx, 0);
-                second.set(&ctx, open.get());
-                assert_eq!(
-                    projection.flush(ctx, &mut registers, &scratch),
-                    Err(Error::ChangedTarget)
-                );
-                assert!(matches!(
-                    first.get(),
-                    UpValueState::Closed(Value::Integer(7))
-                ));
-                second.set(&ctx, UpValueState::Closed(Value::Integer(11)));
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(
-                    first.get(),
-                    UpValueState::Closed(Value::Integer(42))
-                ));
-                assert!(matches!(
-                    second.get(),
-                    UpValueState::Closed(Value::Integer(42))
-                ));
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Nil)];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[first, second], &scratch).unwrap();
+                    for index in 0..2 {
+                        projection
+                            .write(index, &mut scratch, Slot::from_value(Value::Integer(42)))
+                            .unwrap();
+                    }
+                    projection.cells[1].value.tag = u64::MAX;
+                    assert_eq!(
+                        projection.flush(ctx, &mut registers, &scratch),
+                        Err(Error::InvalidSlot)
+                    );
+                    assert!(matches!(
+                        first.get(),
+                        UpValueState::Closed(Value::Integer(7))
+                    ));
+                    assert!(matches!(
+                        second.get(),
+                        UpValueState::Closed(Value::Integer(11))
+                    ));
+                    assert_eq!(projection.cells[0].dirty, 1);
+                    projection.cells[1].value = Slot::from_value(Value::Integer(42));
+                    let open = registers.projection_open_at(ctx, 0);
+                    second.set(&ctx, open.get());
+                    assert_eq!(
+                        projection.flush(ctx, &mut registers, &scratch),
+                        Err(Error::ChangedTarget)
+                    );
+                    assert!(matches!(
+                        first.get(),
+                        UpValueState::Closed(Value::Integer(7))
+                    ));
+                    second.set(&ctx, UpValueState::Closed(Value::Integer(11)));
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(
+                        first.get(),
+                        UpValueState::Closed(Value::Integer(42))
+                    ));
+                    assert!(matches!(
+                        second.get(),
+                        UpValueState::Closed(Value::Integer(42))
+                    ));
+                },
+            );
         });
     }
 
@@ -607,41 +644,47 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |registers| {
-                let mut scratch = [Slot::from_value(Value::Nil)];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                for value in [
-                    Slot {
-                        tag: abi::NIL,
-                        bits: 1,
-                    },
-                    Slot {
-                        tag: abi::BOOLEAN,
-                        bits: 2,
-                    },
-                    Slot {
-                        tag: abi::REFERENCE,
-                        bits: 0,
-                    },
-                    Slot {
-                        tag: u64::MAX,
-                        bits: 0,
-                    },
-                ] {
-                    assert!(projection.write(0, &mut scratch, value).is_none());
-                }
-                assert!(projection
-                    .write(
-                        usize::MAX,
-                        &mut scratch,
-                        Slot::from_value(Value::Integer(42))
-                    )
-                    .is_none());
-                assert!(projection.read(usize::MAX, &scratch).is_none());
-                assert_eq!(projection.counts, Counts::default());
-                assert_eq!(projection.cells[0].dirty, 0);
-                assert_eq!(projection.cells[0].value.bits, 7);
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Nil)];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    for value in [
+                        Slot {
+                            tag: abi::NIL,
+                            bits: 1,
+                        },
+                        Slot {
+                            tag: abi::BOOLEAN,
+                            bits: 2,
+                        },
+                        Slot {
+                            tag: abi::REFERENCE,
+                            bits: 0,
+                        },
+                        Slot {
+                            tag: u64::MAX,
+                            bits: 0,
+                        },
+                    ] {
+                        assert!(projection.write(0, &mut scratch, value).is_none());
+                    }
+                    assert!(projection
+                        .write(
+                            usize::MAX,
+                            &mut scratch,
+                            Slot::from_value(Value::Integer(42))
+                        )
+                        .is_none());
+                    assert!(projection.read(usize::MAX, &scratch).is_none());
+                    assert_eq!(projection.counts, Counts::default());
+                    assert_eq!(projection.cells[0].dirty, 0);
+                    assert_eq!(projection.cells[0].value.bits, 7);
+                },
+            );
         });
     }
 
@@ -653,36 +696,42 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Table(table)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [Slot::from_value(Value::Nil)];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                assert!(projection.read(0, &scratch).is_none());
-                for bits in [0, (-0.0f64).to_bits(), 1, u64::MAX, 0x7ff8_0000_0000_1234] {
-                    let value = Slot {
-                        tag: abi::NUMBER,
-                        bits,
-                    };
-                    projection.write(0, &mut scratch, value).unwrap();
-                    assert_eq!(projection.read(0, &scratch).unwrap().bits, bits);
-                    projection.flush(ctx, &mut registers, &scratch).unwrap();
-                    let UpValueState::Closed(Value::Number(value)) = cell.get() else {
-                        panic!("scalar write was not committed")
-                    };
-                    assert_eq!(value.to_bits(), bits);
-                    projection.refresh(&registers, &[cell], &scratch).unwrap();
-                    assert_eq!(projection.read(0, &scratch).unwrap().bits, bits);
-                }
-                cell.set(&ctx, UpValueState::Closed(Value::Table(table)));
-                projection.refresh(&registers, &[cell], &scratch).unwrap();
-                assert!(projection.read(0, &scratch).is_none());
-                assert_eq!(
-                    projection.counts,
-                    Counts {
-                        reads: 10,
-                        writes: 5
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Nil)];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    assert!(projection.read(0, &scratch).is_none());
+                    for bits in [0, (-0.0f64).to_bits(), 1, u64::MAX, 0x7ff8_0000_0000_1234] {
+                        let value = Slot {
+                            tag: abi::NUMBER,
+                            bits,
+                        };
+                        projection.write(0, &mut scratch, value).unwrap();
+                        assert_eq!(projection.read(0, &scratch).unwrap().bits, bits);
+                        projection.flush(ctx, &mut registers, &scratch).unwrap();
+                        let UpValueState::Closed(Value::Number(value)) = cell.get() else {
+                            panic!("scalar write was not committed")
+                        };
+                        assert_eq!(value.to_bits(), bits);
+                        projection.refresh(&registers, &[cell], &scratch).unwrap();
+                        assert_eq!(projection.read(0, &scratch).unwrap().bits, bits);
                     }
-                );
-            });
+                    cell.set(&ctx, UpValueState::Closed(Value::Table(table)));
+                    projection.refresh(&registers, &[cell], &scratch).unwrap();
+                    assert!(projection.read(0, &scratch).is_none());
+                    assert_eq!(
+                        projection.counts,
+                        Counts {
+                            reads: 10,
+                            writes: 5
+                        }
+                    );
+                },
+            );
         });
     }
 
@@ -693,27 +742,32 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |registers| {
-                let scratch = [Slot::from_value(Value::Nil)];
-                let mut projection =
-                    Projection::<256>::new(&registers, &[cell; 256], &scratch).unwrap();
-                assert_eq!(projection.read(255, &scratch).unwrap().bits, 7);
-                assert_eq!(projection.cell_count, 1);
-                assert!(matches!(
-                    Projection::<1>::new(&registers, &[cell, cell], &scratch),
-                    Err(Error::Capacity)
-                ));
-                assert!(matches!(
-                    Projection::<257>::new(&registers, &[cell], &scratch),
-                    Err(Error::Capacity)
-                ));
-                assert!(matches!(
-                    Projection::<1>::new(&registers, &[cell], &[scratch[0]; 2]),
-                    Err(Error::Capacity)
-                ));
-                assert!(Projection::<0>::new(&registers, &[], &scratch).is_ok());
-                assert!(std::mem::size_of::<Projection<'_, 256>>() <= 256 * 64 + 32);
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |registers, mut _list| {
+                    let scratch = [Slot::from_value(Value::Nil)];
+                    let mut projection =
+                        Projection::<256>::new(&registers, &[cell; 256], &scratch).unwrap();
+                    assert_eq!(projection.read(255, &scratch).unwrap().bits, 7);
+                    assert_eq!(projection.cell_count, 1);
+                    assert!(matches!(
+                        Projection::<1>::new(&registers, &[cell, cell], &scratch),
+                        Err(Error::Capacity)
+                    ));
+                    assert!(matches!(
+                        Projection::<257>::new(&registers, &[cell], &scratch),
+                        Err(Error::Capacity)
+                    ));
+                    assert!(matches!(
+                        Projection::<1>::new(&registers, &[cell], &[scratch[0]; 2]),
+                        Err(Error::Capacity)
+                    ));
+                    assert!(Projection::<0>::new(&registers, &[], &scratch).is_ok());
+                    assert!(std::mem::size_of::<Projection<'_, 256>>() <= 256 * 64 + 32);
+                },
+            );
         });
     }
 }

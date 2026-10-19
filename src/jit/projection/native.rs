@@ -296,64 +296,69 @@ mod tests {
             let second = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(11)));
             let mut canonical = [Value::Integer(42), Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [
-                    Slot::from_value(registers.stack_frame[0]),
-                    Slot::from_value(registers.stack_frame[1]),
-                ];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[first, first], &scratch).unwrap();
-                projection
-                    .with_native(&mut scratch, |session| {
-                        let original = session.view();
-                        unsafe {
-                            assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(session.invoke(get, 1, 1), abi::HELPER_COMPLETED);
-                        }
-                        assert_eq!(session.slot(1).unwrap().bits, 42);
-                        assert_eq!(
-                            session.refresh(&registers, &[first, second]),
-                            Err(Error::PendingWrites)
-                        );
-                        session.flush(ctx, &mut registers).unwrap();
-                        assert!(matches!(
-                            first.get(),
-                            UpValueState::Closed(Value::Integer(42))
-                        ));
-                        first.set(&ctx, UpValueState::Closed(Value::Integer(99)));
-                        session.refresh(&registers, &[first, second]).unwrap();
-                        let refreshed = session.view();
-                        assert_eq!(original.bindings, refreshed.bindings);
-                        assert_eq!(original.cells, refreshed.cells);
-                        assert_eq!(original.slots, refreshed.slots);
-                        assert_eq!(original.counts, refreshed.counts);
-                        assert_eq!(refreshed.cell_count, 2);
-                        unsafe {
-                            assert_eq!(session.invoke(get, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(session.invoke(get, 1, 1), abi::HELPER_COMPLETED);
-                        }
-                        assert_eq!(session.slot(0).unwrap().bits, 99);
-                        assert_eq!(session.slot(1).unwrap().bits, 11);
-                        assert_eq!(
-                            session.counts(),
-                            Counts {
-                                reads: 3,
-                                writes: 1
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [
+                        Slot::from_value(registers.stack_frame[0]),
+                        Slot::from_value(registers.stack_frame[1]),
+                    ];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[first, first], &scratch).unwrap();
+                    projection
+                        .with_native(&mut scratch, |session| {
+                            let original = session.view();
+                            unsafe {
+                                assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(session.invoke(get, 1, 1), abi::HELPER_COMPLETED);
                             }
-                        );
-                        session.flush(ctx, &mut registers).unwrap();
-                    })
-                    .unwrap();
-                assert_eq!(projection.cell_count, 2);
-                assert_eq!(
-                    projection.counts,
-                    Counts {
-                        reads: 3,
-                        writes: 1
-                    }
-                );
-                assert_eq!(projection.read(1, &scratch).unwrap().bits, 11);
-            });
+                            assert_eq!(session.slot(1).unwrap().bits, 42);
+                            assert_eq!(
+                                session.refresh(&registers, &[first, second]),
+                                Err(Error::PendingWrites)
+                            );
+                            session.flush(ctx, &mut registers).unwrap();
+                            assert!(matches!(
+                                first.get(),
+                                UpValueState::Closed(Value::Integer(42))
+                            ));
+                            first.set(&ctx, UpValueState::Closed(Value::Integer(99)));
+                            session.refresh(&registers, &[first, second]).unwrap();
+                            let refreshed = session.view();
+                            assert_eq!(original.bindings, refreshed.bindings);
+                            assert_eq!(original.cells, refreshed.cells);
+                            assert_eq!(original.slots, refreshed.slots);
+                            assert_eq!(original.counts, refreshed.counts);
+                            assert_eq!(refreshed.cell_count, 2);
+                            unsafe {
+                                assert_eq!(session.invoke(get, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(session.invoke(get, 1, 1), abi::HELPER_COMPLETED);
+                            }
+                            assert_eq!(session.slot(0).unwrap().bits, 99);
+                            assert_eq!(session.slot(1).unwrap().bits, 11);
+                            assert_eq!(
+                                session.counts(),
+                                Counts {
+                                    reads: 3,
+                                    writes: 1
+                                }
+                            );
+                            session.flush(ctx, &mut registers).unwrap();
+                        })
+                        .unwrap();
+                    assert_eq!(projection.cell_count, 2);
+                    assert_eq!(
+                        projection.counts,
+                        Counts {
+                            reads: 3,
+                            writes: 1
+                        }
+                    );
+                    assert_eq!(projection.read(1, &scratch).unwrap().bits, 11);
+                },
+            );
         });
     }
 
@@ -363,45 +368,50 @@ mod tests {
         lua.enter(|ctx| {
             let mut canonical = [Value::Integer(7), Value::Nil, Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let first = registers.projection_open_at(ctx, 0);
-                let second = registers.projection_open_at(ctx, 0);
-                let mut scratch = [Slot::from_value(Value::Integer(7)); 3];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[first, second], &scratch).unwrap();
-                projection
-                    .with_native(&mut scratch, |session| {
-                        unsafe {
-                            assert_eq!(session.invoke(get, 1, 0), abi::HELPER_COMPLETED);
-                        }
-                        session
-                            .store(0, Slot::from_value(Value::Integer(11)))
-                            .unwrap();
-                        unsafe {
-                            assert_eq!(session.invoke(get, 2, 1), abi::HELPER_COMPLETED);
-                            assert_eq!(session.invoke(set, 0, 1), abi::HELPER_COMPLETED);
-                        }
-                        assert_eq!(session.slot(2).unwrap().bits, 11);
-                        assert_eq!(session.slot(0).unwrap().bits, 7);
-                        session.flush(ctx, &mut registers).unwrap();
-                        assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
-                        session
-                            .store(0, Slot::from_value(Value::Integer(99)))
-                            .unwrap();
-                        session.flush(ctx, &mut registers).unwrap();
-                        assert!(matches!(registers.stack_frame[0], Value::Integer(99)));
-                        assert_eq!(
-                            session.counts(),
-                            Counts {
-                                reads: 2,
-                                writes: 1
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let first = registers.projection_open_at(ctx, 0);
+                    let second = registers.projection_open_at(ctx, 0);
+                    let mut scratch = [Slot::from_value(Value::Integer(7)); 3];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[first, second], &scratch).unwrap();
+                    projection
+                        .with_native(&mut scratch, |session| {
+                            unsafe {
+                                assert_eq!(session.invoke(get, 1, 0), abi::HELPER_COMPLETED);
                             }
-                        );
-                    })
-                    .unwrap();
-                assert_eq!(projection.cells[0].dirty, 0);
-                assert_eq!(projection.cell_count, 1);
-            });
+                            session
+                                .store(0, Slot::from_value(Value::Integer(11)))
+                                .unwrap();
+                            unsafe {
+                                assert_eq!(session.invoke(get, 2, 1), abi::HELPER_COMPLETED);
+                                assert_eq!(session.invoke(set, 0, 1), abi::HELPER_COMPLETED);
+                            }
+                            assert_eq!(session.slot(2).unwrap().bits, 11);
+                            assert_eq!(session.slot(0).unwrap().bits, 7);
+                            session.flush(ctx, &mut registers).unwrap();
+                            assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
+                            session
+                                .store(0, Slot::from_value(Value::Integer(99)))
+                                .unwrap();
+                            session.flush(ctx, &mut registers).unwrap();
+                            assert!(matches!(registers.stack_frame[0], Value::Integer(99)));
+                            assert_eq!(
+                                session.counts(),
+                                Counts {
+                                    reads: 2,
+                                    writes: 1
+                                }
+                            );
+                        })
+                        .unwrap();
+                    assert_eq!(projection.cells[0].dirty, 0);
+                    assert_eq!(projection.cell_count, 1);
+                },
+            );
         });
     }
 
@@ -412,73 +422,79 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Integer(42)];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |registers| {
-                let mut scratch = [Slot::from_value(Value::Integer(42))];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                projection
-                    .with_native(&mut scratch, |session| {
-                        let original = session.view();
-                        unsafe {
-                            assert_eq!(get(ptr::null_mut(), 0, 0), abi::HELPER_DECLINED);
-                            for (entry, a, b) in
-                                [(get as Entry, 1, 0), (get, 0, 1), (set, 0, 1), (set, 1, 0)]
-                            {
-                                assert_eq!(session.invoke(entry, a, b), abi::HELPER_DECLINED);
-                            }
-                            for bad in [
-                                View {
-                                    version: VERSION + 1,
-                                    ..original
-                                },
-                                View {
-                                    binding_count: LIMIT as u64 + 1,
-                                    ..original
-                                },
-                                View {
-                                    cell_count: LIMIT as u64 + 1,
-                                    ..original
-                                },
-                                View {
-                                    slot_count: LIMIT as u64 + 1,
-                                    ..original
-                                },
-                                View {
-                                    bindings: ptr::null_mut(),
-                                    ..original
-                                },
-                                View {
-                                    cells: ptr::null_mut(),
-                                    ..original
-                                },
-                                View {
-                                    slots: ptr::null_mut(),
-                                    ..original
-                                },
-                                View {
-                                    counts: ptr::null_mut(),
-                                    ..original
-                                },
-                            ] {
-                                session.view.write(bad);
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Integer(42))];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    projection
+                        .with_native(&mut scratch, |session| {
+                            let original = session.view();
+                            unsafe {
+                                assert_eq!(get(ptr::null_mut(), 0, 0), abi::HELPER_DECLINED);
+                                for (entry, a, b) in
+                                    [(get as Entry, 1, 0), (get, 0, 1), (set, 0, 1), (set, 1, 0)]
+                                {
+                                    assert_eq!(session.invoke(entry, a, b), abi::HELPER_DECLINED);
+                                }
+                                for bad in [
+                                    View {
+                                        version: VERSION + 1,
+                                        ..original
+                                    },
+                                    View {
+                                        binding_count: LIMIT as u64 + 1,
+                                        ..original
+                                    },
+                                    View {
+                                        cell_count: LIMIT as u64 + 1,
+                                        ..original
+                                    },
+                                    View {
+                                        slot_count: LIMIT as u64 + 1,
+                                        ..original
+                                    },
+                                    View {
+                                        bindings: ptr::null_mut(),
+                                        ..original
+                                    },
+                                    View {
+                                        cells: ptr::null_mut(),
+                                        ..original
+                                    },
+                                    View {
+                                        slots: ptr::null_mut(),
+                                        ..original
+                                    },
+                                    View {
+                                        counts: ptr::null_mut(),
+                                        ..original
+                                    },
+                                ] {
+                                    session.view.write(bad);
+                                    assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
+                                    assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
+                                }
+                                session.view.write(original);
+                                original.bindings.write(FALLBACK);
+                                assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
+                                original.bindings.write(0);
+                                ptr::addr_of_mut!((*original.cells).register).write(1);
                                 assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
                                 assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
+                                ptr::addr_of_mut!((*original.cells).register).write(DETACHED);
+                                assert_eq!(original.cells.read().dirty, 0);
+                                assert_eq!(original.cells.read().value.bits, 7);
                             }
-                            session.view.write(original);
-                            original.bindings.write(FALLBACK);
-                            assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
-                            original.bindings.write(0);
-                            ptr::addr_of_mut!((*original.cells).register).write(1);
-                            assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
-                            assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
-                            ptr::addr_of_mut!((*original.cells).register).write(DETACHED);
-                            assert_eq!(original.cells.read().dirty, 0);
-                            assert_eq!(original.cells.read().value.bits, 7);
-                        }
-                        assert_eq!(session.slot(0).unwrap().bits, 42);
-                        assert_eq!(session.counts(), Counts::default());
-                    })
-                    .unwrap();
-            });
+                            assert_eq!(session.slot(0).unwrap().bits, 42);
+                            assert_eq!(session.counts(), Counts::default());
+                        })
+                        .unwrap();
+                },
+            );
         });
     }
 
@@ -489,55 +505,61 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |registers| {
-                let mut scratch = [Slot::from_value(Value::Integer(42))];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                projection.counts = Counts {
-                    reads: u32::MAX,
-                    writes: u32::MAX,
-                };
-                projection
-                    .with_native(&mut scratch, |session| {
-                        unsafe {
-                            assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
-                            assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
-                            assert_eq!(session.view().cells.read().dirty, 0);
-                            session.view().counts.write(Counts::default());
-                        }
-                        for value in [
-                            Slot {
-                                tag: abi::REFERENCE,
-                                bits: 0,
-                            },
-                            Slot {
-                                tag: abi::NIL,
-                                bits: 1,
-                            },
-                            Slot {
-                                tag: abi::BOOLEAN,
-                                bits: 2,
-                            },
-                            Slot {
-                                tag: u64::MAX,
-                                bits: 0,
-                            },
-                        ] {
-                            session.store(0, value).unwrap();
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Integer(42))];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    projection.counts = Counts {
+                        reads: u32::MAX,
+                        writes: u32::MAX,
+                    };
+                    projection
+                        .with_native(&mut scratch, |session| {
                             unsafe {
-                                assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
-                                ptr::addr_of_mut!((*session.view().cells).value).write(value);
                                 assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
+                                assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
+                                assert_eq!(session.view().cells.read().dirty, 0);
+                                session.view().counts.write(Counts::default());
                             }
-                            assert_eq!(session.slot(0).unwrap().tag, value.tag);
-                            assert_eq!(session.slot(0).unwrap().bits, value.bits);
-                        }
-                        assert_eq!(session.counts(), Counts::default());
-                        unsafe {
-                            assert_eq!(session.view().cells.read().dirty, 0);
-                        }
-                    })
-                    .unwrap();
-            });
+                            for value in [
+                                Slot {
+                                    tag: abi::REFERENCE,
+                                    bits: 0,
+                                },
+                                Slot {
+                                    tag: abi::NIL,
+                                    bits: 1,
+                                },
+                                Slot {
+                                    tag: abi::BOOLEAN,
+                                    bits: 2,
+                                },
+                                Slot {
+                                    tag: u64::MAX,
+                                    bits: 0,
+                                },
+                            ] {
+                                session.store(0, value).unwrap();
+                                unsafe {
+                                    assert_eq!(session.invoke(set, 0, 0), abi::HELPER_DECLINED);
+                                    ptr::addr_of_mut!((*session.view().cells).value).write(value);
+                                    assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
+                                }
+                                assert_eq!(session.slot(0).unwrap().tag, value.tag);
+                                assert_eq!(session.slot(0).unwrap().bits, value.bits);
+                            }
+                            assert_eq!(session.counts(), Counts::default());
+                            unsafe {
+                                assert_eq!(session.view().cells.read().dirty, 0);
+                            }
+                        })
+                        .unwrap();
+                },
+            );
         });
     }
 
@@ -548,54 +570,60 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil, Value::Integer(11)];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let open = registers.projection_open_at(ctx, 1);
-                let mut scratch = [
-                    Slot::from_value(Value::Nil),
-                    Slot::from_value(Value::Integer(11)),
-                ];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                projection
-                    .with_native(&mut scratch, |session| {
-                        cell.set(&ctx, open.get());
-                        session.refresh(&registers, &[cell]).unwrap();
-                        unsafe {
-                            assert_eq!(session.invoke(get, 0, 0), abi::HELPER_COMPLETED);
-                        }
-                        assert_eq!(session.slot(0).unwrap().bits, 11);
-                        for bits in [(-0.0f64).to_bits(), 0x7ff8_0000_0000_1234] {
-                            session
-                                .store(
-                                    0,
-                                    Slot {
-                                        tag: abi::NUMBER,
-                                        bits,
-                                    },
-                                )
-                                .unwrap();
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let open = registers.projection_open_at(ctx, 1);
+                    let mut scratch = [
+                        Slot::from_value(Value::Nil),
+                        Slot::from_value(Value::Integer(11)),
+                    ];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    projection
+                        .with_native(&mut scratch, |session| {
+                            cell.set(&ctx, open.get());
+                            session.refresh(&registers, &[cell]).unwrap();
                             unsafe {
-                                assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
                                 assert_eq!(session.invoke(get, 0, 0), abi::HELPER_COMPLETED);
                             }
-                            assert_eq!(session.slot(0).unwrap().bits, bits);
-                            assert_eq!(session.slot(1).unwrap().bits, bits);
-                            session.flush(ctx, &mut registers).unwrap();
-                            let Value::Number(value) = registers.stack_frame[1] else {
-                                panic!("scalar not materialized");
-                            };
-                            assert_eq!(value.to_bits(), bits);
-                            session.refresh(&registers, &[cell]).unwrap();
-                        }
-                        assert_eq!(
-                            session.counts(),
-                            Counts {
-                                reads: 3,
-                                writes: 2
+                            assert_eq!(session.slot(0).unwrap().bits, 11);
+                            for bits in [(-0.0f64).to_bits(), 0x7ff8_0000_0000_1234] {
+                                session
+                                    .store(
+                                        0,
+                                        Slot {
+                                            tag: abi::NUMBER,
+                                            bits,
+                                        },
+                                    )
+                                    .unwrap();
+                                unsafe {
+                                    assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
+                                    assert_eq!(session.invoke(get, 0, 0), abi::HELPER_COMPLETED);
+                                }
+                                assert_eq!(session.slot(0).unwrap().bits, bits);
+                                assert_eq!(session.slot(1).unwrap().bits, bits);
+                                session.flush(ctx, &mut registers).unwrap();
+                                let Value::Number(value) = registers.stack_frame[1] else {
+                                    panic!("scalar not materialized");
+                                };
+                                assert_eq!(value.to_bits(), bits);
+                                session.refresh(&registers, &[cell]).unwrap();
                             }
-                        );
-                    })
-                    .unwrap();
-            });
+                            assert_eq!(
+                                session.counts(),
+                                Counts {
+                                    reads: 3,
+                                    writes: 2
+                                }
+                            );
+                        })
+                        .unwrap();
+                },
+            );
         });
     }
 
@@ -606,49 +634,54 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil; 256];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut empty = Projection::<0>::new(&registers, &[], &[]).unwrap();
-                empty
-                    .with_native(&mut [], |session| {
-                        unsafe {
-                            assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut empty = Projection::<0>::new(&registers, &[], &[]).unwrap();
+                    empty
+                        .with_native(&mut [], |session| {
+                            unsafe {
+                                assert_eq!(session.invoke(get, 0, 0), abi::HELPER_DECLINED);
+                            }
+                            session.flush(ctx, &mut registers).unwrap();
+                            session.refresh(&registers, &[]).unwrap();
+                        })
+                        .unwrap();
+                    let mut scratch = [Slot::from_value(Value::Integer(42)); 256];
+                    let mut projection =
+                        Projection::<256>::new(&registers, &[cell; 256], &scratch).unwrap();
+                    assert_eq!(
+                        projection.with_native(&mut scratch[..255], |_| ()),
+                        Err(Error::Capacity)
+                    );
+                    projection
+                        .with_native(&mut scratch, |session| {
+                            unsafe {
+                                assert_eq!(session.invoke(set, 255, 255), abi::HELPER_COMPLETED);
+                                assert_eq!(session.invoke(get, 255, 255), abi::HELPER_COMPLETED);
+                                assert_eq!(session.invoke(get, 256, 255), abi::HELPER_DECLINED);
+                                assert_eq!(session.invoke(get, 255, 256), abi::HELPER_DECLINED);
+                            }
+                            session.flush(ctx, &mut registers).unwrap();
+                            session.refresh(&registers, &[cell; 256]).unwrap();
+                            assert_eq!(session.slot(255).unwrap().bits, 42);
+                        })
+                        .unwrap();
+                    assert!(matches!(
+                        cell.get(),
+                        UpValueState::Closed(Value::Integer(42))
+                    ));
+                    assert_eq!(
+                        projection.counts,
+                        Counts {
+                            reads: 1,
+                            writes: 1
                         }
-                        session.flush(ctx, &mut registers).unwrap();
-                        session.refresh(&registers, &[]).unwrap();
-                    })
-                    .unwrap();
-                let mut scratch = [Slot::from_value(Value::Integer(42)); 256];
-                let mut projection =
-                    Projection::<256>::new(&registers, &[cell; 256], &scratch).unwrap();
-                assert_eq!(
-                    projection.with_native(&mut scratch[..255], |_| ()),
-                    Err(Error::Capacity)
-                );
-                projection
-                    .with_native(&mut scratch, |session| {
-                        unsafe {
-                            assert_eq!(session.invoke(set, 255, 255), abi::HELPER_COMPLETED);
-                            assert_eq!(session.invoke(get, 255, 255), abi::HELPER_COMPLETED);
-                            assert_eq!(session.invoke(get, 256, 255), abi::HELPER_DECLINED);
-                            assert_eq!(session.invoke(get, 255, 256), abi::HELPER_DECLINED);
-                        }
-                        session.flush(ctx, &mut registers).unwrap();
-                        session.refresh(&registers, &[cell; 256]).unwrap();
-                        assert_eq!(session.slot(255).unwrap().bits, 42);
-                    })
-                    .unwrap();
-                assert!(matches!(
-                    cell.get(),
-                    UpValueState::Closed(Value::Integer(42))
-                ));
-                assert_eq!(
-                    projection.counts,
-                    Counts {
-                        reads: 1,
-                        writes: 1
-                    }
-                );
-            });
+                    );
+                },
+            );
         });
     }
 
@@ -660,34 +693,40 @@ mod tests {
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             let mut canonical = [Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [Slot::from_value(Value::Integer(42))];
-                let mut projection = Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
-                let result = catch_unwind(AssertUnwindSafe(|| {
-                    projection
-                        .with_native(&mut scratch, |session| {
-                            unsafe {
-                                assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
-                            }
-                            panic!("rust boundary panic");
-                        })
-                        .unwrap();
-                }));
-                assert!(result.is_err());
-                assert_eq!(
-                    projection.counts,
-                    Counts {
-                        reads: 0,
-                        writes: 1
-                    }
-                );
-                assert_eq!(projection.cells[0].dirty, 1);
-                projection.flush(ctx, &mut registers, &scratch).unwrap();
-                assert!(matches!(
-                    cell.get(),
-                    UpValueState::Closed(Value::Integer(42))
-                ));
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Integer(42))];
+                    let mut projection =
+                        Projection::<1>::new(&registers, &[cell], &scratch).unwrap();
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        projection
+                            .with_native(&mut scratch, |session| {
+                                unsafe {
+                                    assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
+                                }
+                                panic!("rust boundary panic");
+                            })
+                            .unwrap();
+                    }));
+                    assert!(result.is_err());
+                    assert_eq!(
+                        projection.counts,
+                        Counts {
+                            reads: 0,
+                            writes: 1
+                        }
+                    );
+                    assert_eq!(projection.cells[0].dirty, 1);
+                    projection.flush(ctx, &mut registers, &scratch).unwrap();
+                    assert!(matches!(
+                        cell.get(),
+                        UpValueState::Closed(Value::Integer(42))
+                    ));
+                },
+            );
         });
     }
 
@@ -697,12 +736,12 @@ mod tests {
         lua.enter(|ctx| {
             let mut canonical = [Value::Integer(7), Value::Integer(42), Value::Integer(11)];
             let mut pc = 0;
-            LuaRegisters::projection_split_frame(
+            LuaRegisters::projection_native_frame(
                 ctx,
                 &mut pc,
                 &mut canonical,
                 1,
-                |mut registers| {
+                |mut registers, mut _list| {
                     let upper = registers.projection_open_at(ctx, 0);
                     let outside = registers.projection_open_at(ctx, 2);
                     let mut scratch = [Slot::from_value(Value::Integer(42))];
@@ -746,50 +785,56 @@ mod tests {
             let second = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(11)));
             let mut canonical = [Value::Integer(42)];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [Slot::from_value(Value::Integer(42))];
-                let mut projection =
-                    Projection::<2>::new(&registers, &[first, second], &scratch).unwrap();
-                projection
-                    .with_native(&mut scratch, |session| {
-                        let original = session.view();
-                        assert_eq!(
-                            session.refresh(&registers, &[first; 3]),
-                            Err(Error::Capacity)
-                        );
-                        assert_eq!(session.view().cell_count, 2);
-                        assert_eq!(session.view().cells, original.cells);
-                        unsafe {
-                            assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(session.invoke(set, 1, 0), abi::HELPER_COMPLETED);
-                            ptr::addr_of_mut!((*original.cells.add(1)).value.tag).write(u64::MAX);
-                        }
-                        assert_eq!(session.flush(ctx, &mut registers), Err(Error::InvalidSlot));
-                        assert!(matches!(
-                            first.get(),
-                            UpValueState::Closed(Value::Integer(7))
-                        ));
-                        assert!(matches!(
-                            second.get(),
-                            UpValueState::Closed(Value::Integer(11))
-                        ));
-                        unsafe {
-                            assert_eq!(original.cells.read().dirty, 1);
-                            ptr::addr_of_mut!((*original.cells.add(1)).value.tag)
-                                .write(abi::INTEGER);
-                        }
-                        session.flush(ctx, &mut registers).unwrap();
-                        assert!(matches!(
-                            first.get(),
-                            UpValueState::Closed(Value::Integer(42))
-                        ));
-                        assert!(matches!(
-                            second.get(),
-                            UpValueState::Closed(Value::Integer(42))
-                        ));
-                    })
-                    .unwrap();
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [Slot::from_value(Value::Integer(42))];
+                    let mut projection =
+                        Projection::<2>::new(&registers, &[first, second], &scratch).unwrap();
+                    projection
+                        .with_native(&mut scratch, |session| {
+                            let original = session.view();
+                            assert_eq!(
+                                session.refresh(&registers, &[first; 3]),
+                                Err(Error::Capacity)
+                            );
+                            assert_eq!(session.view().cell_count, 2);
+                            assert_eq!(session.view().cells, original.cells);
+                            unsafe {
+                                assert_eq!(session.invoke(set, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(session.invoke(set, 1, 0), abi::HELPER_COMPLETED);
+                                ptr::addr_of_mut!((*original.cells.add(1)).value.tag)
+                                    .write(u64::MAX);
+                            }
+                            assert_eq!(session.flush(ctx, &mut registers), Err(Error::InvalidSlot));
+                            assert!(matches!(
+                                first.get(),
+                                UpValueState::Closed(Value::Integer(7))
+                            ));
+                            assert!(matches!(
+                                second.get(),
+                                UpValueState::Closed(Value::Integer(11))
+                            ));
+                            unsafe {
+                                assert_eq!(original.cells.read().dirty, 1);
+                                ptr::addr_of_mut!((*original.cells.add(1)).value.tag)
+                                    .write(abi::INTEGER);
+                            }
+                            session.flush(ctx, &mut registers).unwrap();
+                            assert!(matches!(
+                                first.get(),
+                                UpValueState::Closed(Value::Integer(42))
+                            ));
+                            assert!(matches!(
+                                second.get(),
+                                UpValueState::Closed(Value::Integer(42))
+                            ));
+                        })
+                        .unwrap();
+                },
+            );
         });
     }
 
@@ -804,86 +849,106 @@ mod tests {
             closure.set_upvalue(&ctx, 0, cell);
             let mut canonical = [Value::Nil, Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [
-                    Slot::from_value(Value::Integer(42)),
-                    Slot::from_value(Value::Nil),
-                ];
-                super::super::with_frame(
-                    &mut registers,
-                    closure.upvalues(),
-                    &mut scratch,
-                    |registers, slots, bridge| {
-                        let bridge = bridge.unwrap();
-                        let view = bridge.view_pointer().cast::<View>();
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers,
-                            count: helpers::Counts::default(),
-                            slot_count: 2,
-                            panic: None,
-                            projection: Some(bridge),
-                        };
-                        let frame_pointer = ptr::from_mut(&mut frame);
-                        let mut host = abi::Host {
-                            data: frame_pointer.cast(),
-                            projection: view.cast(),
-                        };
-                        let host_pointer = ptr::from_mut(&mut host);
-                        let helper = |kind| {
-                            helpers::SYMBOLS
-                                .iter()
-                                .find(|(k, _, _)| *k == kind)
-                                .unwrap()
-                                .2
-                        };
-                        unsafe {
-                            assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(
-                                helper(abi::HELPER_GET_UPVALUE)(host_pointer, slots, 1, 0, 0, 7),
-                                abi::HELPER_COMPLETED
-                            );
-                        }
-                        assert!(matches!(
-                            cell.get(),
-                            UpValueState::Closed(Value::Integer(42))
-                        ));
-                        closure.set_upvalue(&ctx, 0, replacement);
-                        unsafe {
-                            assert_eq!(
-                                helper(abi::HELPER_GET_UPVALUE)(host_pointer, slots, 1, 0, 0, 8),
-                                abi::HELPER_COMPLETED
-                            );
-                            assert_eq!(get(view, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(slots.read().bits, 99);
-                            assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(
-                                helper(abi::HELPER_MOVE)(host_pointer, slots, 1, 0, 0, 11),
-                                abi::HELPER_COMPLETED
-                            );
-                        }
-                        assert_eq!(*frame.registers.pc, 12);
-                        assert_eq!(
-                            (
-                                frame.count.calls,
-                                frame.count.completed,
-                                frame.count.upvalue_reads
-                            ),
-                            (3, 3, 2)
-                        );
-                        assert!(frame.panic.is_none());
-                        assert_eq!(
-                            frame.projection.as_deref().unwrap().counts(),
-                            Counts {
-                                reads: 1,
-                                writes: 2
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [
+                        Slot::from_value(Value::Integer(42)),
+                        Slot::from_value(Value::Nil),
+                    ];
+                    super::super::with_frame(
+                        &mut registers,
+                        closure.upvalues(),
+                        &mut scratch,
+                        |registers, slots, bridge| {
+                            let bridge = bridge.unwrap();
+                            let view = bridge.view_pointer().cast::<View>();
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers,
+                                count: helpers::Counts::default(),
+                                slot_count: 2,
+                                panic: None,
+                                projection: Some(bridge),
+                            };
+                            let frame_pointer = ptr::from_mut(&mut frame);
+                            let mut host = abi::Host {
+                                data: frame_pointer.cast(),
+                                projection: view.cast(),
+                            };
+                            let host_pointer = ptr::from_mut(&mut host);
+                            let helper = |kind| {
+                                helpers::SYMBOLS
+                                    .iter()
+                                    .find(|(k, _, _)| *k == kind)
+                                    .unwrap()
+                                    .2
+                            };
+                            unsafe {
+                                assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(
+                                    helper(abi::HELPER_GET_UPVALUE)(
+                                        host_pointer,
+                                        slots,
+                                        1,
+                                        0,
+                                        0,
+                                        7
+                                    ),
+                                    abi::HELPER_COMPLETED
+                                );
                             }
-                        );
-                        assert!(matches!(frame.registers.stack_frame[1], Value::Integer(99)));
-                    },
-                );
-            });
+                            assert!(matches!(
+                                cell.get(),
+                                UpValueState::Closed(Value::Integer(42))
+                            ));
+                            closure.set_upvalue(&ctx, 0, replacement);
+                            unsafe {
+                                assert_eq!(
+                                    helper(abi::HELPER_GET_UPVALUE)(
+                                        host_pointer,
+                                        slots,
+                                        1,
+                                        0,
+                                        0,
+                                        8
+                                    ),
+                                    abi::HELPER_COMPLETED
+                                );
+                                assert_eq!(get(view, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(slots.read().bits, 99);
+                                assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(
+                                    helper(abi::HELPER_MOVE)(host_pointer, slots, 1, 0, 0, 11),
+                                    abi::HELPER_COMPLETED
+                                );
+                            }
+                            assert_eq!(*frame.registers.pc, 12);
+                            assert_eq!(
+                                (
+                                    frame.count.calls,
+                                    frame.count.completed,
+                                    frame.count.upvalue_reads
+                                ),
+                                (3, 3, 2)
+                            );
+                            assert!(frame.panic.is_none());
+                            assert_eq!(
+                                frame.projection.as_deref().unwrap().counts(),
+                                Counts {
+                                    reads: 1,
+                                    writes: 2
+                                }
+                            );
+                            assert!(matches!(frame.registers.stack_frame[1], Value::Integer(99)));
+                        },
+                    );
+                },
+            );
         });
     }
 
@@ -897,69 +962,78 @@ mod tests {
             closure.set_upvalue(&ctx, 0, cell);
             let mut canonical = [Value::Nil, Value::Nil];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch = [
-                    Slot::from_value(Value::Integer(42)),
-                    Slot::from_value(Value::Number(-0.0)),
-                ];
-                super::super::with_frame(
-                    &mut registers,
-                    closure.upvalues(),
-                    &mut scratch,
-                    |registers, slots, bridge| {
-                        let bridge = bridge.unwrap();
-                        let view = bridge.view_pointer().cast::<View>();
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers,
-                            count: helpers::Counts::default(),
-                            slot_count: 2,
-                            panic: None,
-                            projection: Some(bridge),
-                        };
-                        let mut host = abi::Host {
-                            data: ptr::from_mut(&mut frame).cast(),
-                            projection: view.cast(),
-                        };
-                        let helper = helpers::SYMBOLS
-                            .iter()
-                            .find(|(k, _, _)| *k == abi::HELPER_MOVE)
-                            .unwrap()
-                            .2;
-                        unsafe {
-                            assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
-                            assert_eq!(helper(&mut host, slots, 2, 1, 0, 17), abi::HELPER_PANICKED);
-                        }
-                        assert!(matches!(
-                            cell.get(),
-                            UpValueState::Closed(Value::Integer(42))
-                        ));
-                        assert!(matches!(frame.registers.stack_frame[0], Value::Integer(42)));
-                        let Value::Number(number) = frame.registers.stack_frame[1] else {
-                            panic!("pending number not materialized");
-                        };
-                        assert_eq!(number.to_bits(), (-0.0f64).to_bits());
-                        assert_eq!(*frame.registers.pc, 18);
-                        assert_eq!(
-                            (
-                                frame.count.calls,
-                                frame.count.completed,
-                                frame.count.declined
-                            ),
-                            (1, 0, 0)
-                        );
-                        assert!(frame.panic.is_some());
-                        assert_eq!(
-                            frame.projection.as_deref().unwrap().counts(),
-                            Counts {
-                                reads: 0,
-                                writes: 1
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch = [
+                        Slot::from_value(Value::Integer(42)),
+                        Slot::from_value(Value::Number(-0.0)),
+                    ];
+                    super::super::with_frame(
+                        &mut registers,
+                        closure.upvalues(),
+                        &mut scratch,
+                        |registers, slots, bridge| {
+                            let bridge = bridge.unwrap();
+                            let view = bridge.view_pointer().cast::<View>();
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers,
+                                count: helpers::Counts::default(),
+                                slot_count: 2,
+                                panic: None,
+                                projection: Some(bridge),
+                            };
+                            let mut host = abi::Host {
+                                data: ptr::from_mut(&mut frame).cast(),
+                                projection: view.cast(),
+                            };
+                            let helper = helpers::SYMBOLS
+                                .iter()
+                                .find(|(k, _, _)| *k == abi::HELPER_MOVE)
+                                .unwrap()
+                                .2;
+                            unsafe {
+                                assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
+                                assert_eq!(
+                                    helper(&mut host, slots, 2, 1, 0, 17),
+                                    abi::HELPER_PANICKED
+                                );
                             }
-                        );
-                    },
-                );
-            });
+                            assert!(matches!(
+                                cell.get(),
+                                UpValueState::Closed(Value::Integer(42))
+                            ));
+                            assert!(matches!(frame.registers.stack_frame[0], Value::Integer(42)));
+                            let Value::Number(number) = frame.registers.stack_frame[1] else {
+                                panic!("pending number not materialized");
+                            };
+                            assert_eq!(number.to_bits(), (-0.0f64).to_bits());
+                            assert_eq!(*frame.registers.pc, 18);
+                            assert_eq!(
+                                (
+                                    frame.count.calls,
+                                    frame.count.completed,
+                                    frame.count.declined
+                                ),
+                                (1, 0, 0)
+                            );
+                            assert!(frame.panic.is_some());
+                            assert_eq!(
+                                frame.projection.as_deref().unwrap().counts(),
+                                Counts {
+                                    reads: 0,
+                                    writes: 1
+                                }
+                            );
+                        },
+                    );
+                },
+            );
         });
     }
 }

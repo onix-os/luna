@@ -39,47 +39,53 @@ fn strided_frame_all_kinds_survive_helpers_materialization_and_neighbors() {
             for next in kinds {
                 let mut values = [initial, next, Value::Integer(41)];
                 let mut pc = 0;
-                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                    let mut frame = helpers::Frame {
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: 3,
-                        panic: None,
-                        projection: None,
-                    };
-                    with_frame(&mut frame, false, |header, host| unsafe {
-                        let expected = abi::Slot::from_value(initial);
-                        let actual = read(header, 0);
-                        assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
-                        (*header).pointer(2).cast::<i64>().write(43);
-                        let helper = (*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize];
-                        assert_eq!(
-                            helper(host.cast(), header.cast(), 0, 1, 0, 9),
-                            abi::HELPER_COMPLETED
-                        );
-                        let expected = abi::Slot::from_value(next);
-                        let actual = read(header, 0);
-                        assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
-                        assert_eq!(read(header, 2).bits, 43);
-                        ((*host).functions.copy)(host, header, 0, 1, 0);
-                        for (tag, bits) in [
-                            (abi::BOOLEAN, 1),
-                            (abi::NUMBER, 0x8000000000000000),
-                            (abi::INTEGER, i64::MIN as u64),
-                            (abi::NIL, 0),
-                        ] {
-                            ((*host).functions.write)(host, header, 0, tag, bits);
+                LuaRegisters::with_test_native_frame(
+                    ctx,
+                    &mut pc,
+                    &mut values,
+                    |mut registers, mut _list| {
+                        let mut frame = helpers::Frame {
+                            list: Some(_list.reborrow()),
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 3,
+                            panic: None,
+                            projection: None,
+                        };
+                        with_frame(&mut frame, false, |header, host| unsafe {
+                            let expected = abi::Slot::from_value(initial);
                             let actual = read(header, 0);
-                            assert_eq!((actual.tag, actual.bits), (tag, bits));
-                        }
-                    });
-                    assert_eq!(frame.count.calls, 1);
-                    assert_eq!(frame.count.completed, 1);
-                    assert!(frame.panic.is_none());
-                    assert_identical(frame.registers.stack_frame[1], next);
-                });
+                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                            (*header).pointer(2).cast::<i64>().write(43);
+                            let helper = (*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+                            assert_eq!(
+                                helper(host.cast(), header.cast(), 0, 1, 0, 9),
+                                abi::HELPER_COMPLETED
+                            );
+                            let expected = abi::Slot::from_value(next);
+                            let actual = read(header, 0);
+                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                            assert_eq!(read(header, 2).bits, 43);
+                            ((*host).functions.copy)(host, header, 0, 1, 0);
+                            for (tag, bits) in [
+                                (abi::BOOLEAN, 1),
+                                (abi::NUMBER, 0x8000000000000000),
+                                (abi::INTEGER, i64::MIN as u64),
+                                (abi::NIL, 0),
+                            ] {
+                                ((*host).functions.write)(host, header, 0, tag, bits);
+                                let actual = read(header, 0);
+                                assert_eq!((actual.tag, actual.bits), (tag, bits));
+                            }
+                        });
+                        assert_eq!(frame.count.calls, 1);
+                        assert_eq!(frame.count.completed, 1);
+                        assert!(frame.panic.is_none());
+                        assert_identical(frame.registers.stack_frame[1], next);
+                    },
+                );
                 assert_eq!(pc, 10);
                 assert_identical(values[0], Value::Nil);
                 assert_identical(values[2], Value::Integer(43));
@@ -184,44 +190,55 @@ fn strided_frame_tracks_open_alias_kinds_inside_and_outside_prefix() {
                 let mut expected = values;
                 expected[destination] = next;
                 let mut pc = 0;
-                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                    let alias = registers
-                        .open_test_upvalue(&ctx, crate::types::RegisterIndex(destination as u8));
-                    closure.set_upvalue(&ctx, 0, alias);
-                    let mut frame = helpers::Frame {
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: 3,
-                        panic: None,
-                        projection: None,
-                    };
-                    with_frame(&mut frame, false, |header, host| unsafe {
-                        assert_eq!(
-                            helper::<{ abi::HELPER_SET_UPVALUE }, false>(
-                                host.cast(),
-                                header.cast(),
-                                0,
-                                source as u32,
-                                0,
-                                11
-                            ),
-                            abi::HELPER_COMPLETED
+                LuaRegisters::with_test_native_frame(
+                    ctx,
+                    &mut pc,
+                    &mut values,
+                    |mut registers, mut _list| {
+                        let alias = registers.open_test_upvalue(
+                            &ctx,
+                            crate::types::RegisterIndex(destination as u8),
                         );
-                        for (i, value) in expected[..3].iter().copied().enumerate() {
-                            let actual = read(header, i);
-                            let expected = abi::Slot::from_value(value);
-                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                        closure.set_upvalue(&ctx, 0, alias);
+                        let mut frame = helpers::Frame {
+                            list: Some(_list.reborrow()),
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 3,
+                            panic: None,
+                            projection: None,
+                        };
+                        with_frame(&mut frame, false, |header, host| unsafe {
+                            assert_eq!(
+                                helper::<{ abi::HELPER_SET_UPVALUE }, false>(
+                                    host.cast(),
+                                    header.cast(),
+                                    0,
+                                    source as u32,
+                                    0,
+                                    11
+                                ),
+                                abi::HELPER_COMPLETED
+                            );
+                            for (i, value) in expected[..3].iter().copied().enumerate() {
+                                let actual = read(header, i);
+                                let expected = abi::Slot::from_value(value);
+                                assert_eq!(
+                                    (actual.tag, actual.bits),
+                                    (expected.tag, expected.bits)
+                                );
+                            }
+                        });
+                        assert_eq!(frame.count.upvalue_writes, 1);
+                        for (actual, expected) in
+                            frame.registers.stack_frame.iter().copied().zip(expected)
+                        {
+                            assert_identical(actual, expected);
                         }
-                    });
-                    assert_eq!(frame.count.upvalue_writes, 1);
-                    for (actual, expected) in
-                        frame.registers.stack_frame.iter().copied().zip(expected)
-                    {
-                        assert_identical(actual, expected);
-                    }
-                });
+                    },
+                );
                 assert_eq!(pc, 12);
             }
         }

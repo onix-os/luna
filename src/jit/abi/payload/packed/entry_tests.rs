@@ -72,18 +72,24 @@ fn with_frame_slots(count: usize, mut body: impl FnMut(&mut helpers::Frame<'_, '
         let mut values = vec![Value::Nil; count];
         values[0] = Value::Integer(17);
         let mut pc = 5;
-        crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: count,
-                panic: None,
-                projection: None,
-            };
-            body(&mut frame);
-        });
+        crate::thread::LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    projection: None,
+                };
+                body(&mut frame);
+            },
+        );
     });
 }
 

@@ -22,8 +22,9 @@ fn run<'gc>(
         values,
         &mut fuel,
         variable,
-        |mut registers| {
+        |mut registers, mut _list| {
             let mut frame = helpers::Frame {
+                list: Some(_list.reborrow()),
                 ctx,
                 closure,
                 registers: &mut registers,

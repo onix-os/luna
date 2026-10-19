@@ -1213,60 +1213,66 @@ fn run<'gc>(
     budget: u32,
 ) -> (Exit, [u64; 8]) {
     let mut helper_pc = pc;
-    crate::thread::LuaRegisters::with_test_frame(ctx, &mut helper_pc, values, |mut registers| {
-        let mut scratch: Vec<_> = registers
-            .stack_frame
-            .iter()
-            .copied()
-            .map(Slot::from_value)
-            .collect();
-        let mut frame = helpers::Frame {
-            ctx,
-            closure,
-            registers: &mut registers,
-            count: helpers::Counts::default(),
-            slot_count: code.registers,
-            panic: None,
-            projection: None,
-        };
-        let exit = if let Some(payload) = payload {
-            if payload.0.entry_kind == EntryKind::Packed {
-                payload
-                    .0
-                    .invoke_packed::<256>(&mut frame, pc, budget)
-                    .unwrap()
-            } else {
-                payload.0.invoke_payload::<256>(&mut frame, pc, budget)
-            }
-        } else {
-            let mut host = abi::Host {
-                data: std::ptr::from_mut(&mut frame).cast(),
-                projection: std::ptr::null_mut(),
+    crate::thread::LuaRegisters::with_test_native_frame(
+        ctx,
+        &mut helper_pc,
+        values,
+        |mut registers, mut _list| {
+            let mut scratch: Vec<_> = registers
+                .stack_frame
+                .iter()
+                .copied()
+                .map(Slot::from_value)
+                .collect();
+            let mut frame = helpers::Frame {
+                list: Some(_list.reborrow()),
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: code.registers,
+                panic: None,
+                projection: None,
             };
-            let exit = unsafe { code.invoke_host(&mut scratch, pc, budget, &mut host) };
-            for (slot, value) in scratch
-                .into_iter()
-                .zip(frame.registers.stack_frame.iter_mut())
-            {
-                slot.write_back(value);
-            }
-            exit
-        };
-        assert!(frame.panic.is_none());
-        (
-            exit,
-            [
-                frame.count.calls,
-                frame.count.completed,
-                frame.count.declined,
-                frame.count.table_reads,
-                frame.count.table_writes,
-                frame.count.upvalue_reads,
-                frame.count.upvalue_writes,
-                frame.count.allocations,
-            ],
-        )
-    })
+            let exit = if let Some(payload) = payload {
+                if payload.0.entry_kind == EntryKind::Packed {
+                    payload
+                        .0
+                        .invoke_packed::<256>(&mut frame, pc, budget)
+                        .unwrap()
+                } else {
+                    payload.0.invoke_payload::<256>(&mut frame, pc, budget)
+                }
+            } else {
+                let mut host = abi::Host {
+                    data: std::ptr::from_mut(&mut frame).cast(),
+                    projection: std::ptr::null_mut(),
+                };
+                let exit = unsafe { code.invoke_host(&mut scratch, pc, budget, &mut host) };
+                for (slot, value) in scratch
+                    .into_iter()
+                    .zip(frame.registers.stack_frame.iter_mut())
+                {
+                    slot.write_back(value);
+                }
+                exit
+            };
+            assert!(frame.panic.is_none());
+            (
+                exit,
+                [
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.declined,
+                    frame.count.table_reads,
+                    frame.count.table_writes,
+                    frame.count.upvalue_reads,
+                    frame.count.upvalue_writes,
+                    frame.count.allocations,
+                ],
+            )
+        },
+    )
 }
 
 #[cfg(not(miri))]

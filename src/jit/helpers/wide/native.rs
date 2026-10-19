@@ -177,11 +177,11 @@ fn generated_wide_calls_match_current_values_guards_and_panics() {
                 let reports = code.each_ref().map(|code| {
                     let mut canonical = vec![Value::Integer(73); width];
                     let mut current_pc = 17;
-                    let report = LuaRegisters::with_test_frame(
+                    let report = LuaRegisters::with_test_native_frame(
                         ctx,
                         &mut current_pc,
                         &mut canonical,
-                        |mut registers| {
+                        |mut registers, mut _list| {
                             let mut slots: Vec<_> = registers
                                 .stack_frame
                                 .iter()
@@ -189,6 +189,7 @@ fn generated_wide_calls_match_current_values_guards_and_panics() {
                                 .map(Slot::from_value)
                                 .collect();
                             let mut frame = Frame {
+                                list: Some(_list.reborrow()),
                                 ctx,
                                 closure,
                                 registers: &mut registers,
@@ -294,7 +295,7 @@ fn profile_generated_helper_calls() {
         }
         let mut canonical = vec![Value::Nil; width];
         let mut pc = 0;
-        LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+        LuaRegisters::with_test_native_frame(ctx, &mut pc, &mut canonical, |mut registers, mut _list| {
             let mut slots: Vec<_> = registers
                 .stack_frame
                 .iter()
@@ -302,6 +303,7 @@ fn profile_generated_helper_calls() {
                 .map(Slot::from_value)
                 .collect();
             let mut frame = Frame {
+                list: Some(_list.reborrow()),
                 ctx,
                 closure,
                 registers: &mut registers,

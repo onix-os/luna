@@ -258,7 +258,7 @@ fn compare(native: bool) {
                                 &mut canonical,
                                 &mut fuel,
                                 false,
-                                |mut registers| {
+                                |mut registers, mut _list| {
                                     let cell = if matches!(scenario, 1 | 9) {
                                         registers
                                             .open_test_upvalue(&ctx, crate::types::RegisterIndex(0))
@@ -275,6 +275,7 @@ fn compare(native: bool) {
                                     };
                                     closure.set_upvalue(&ctx, 0, cell);
                                     let mut frame = helpers::Frame {
+                                        list: Some(_list.reborrow()),
                                         ctx,
                                         closure,
                                         registers: &mut registers,

@@ -11,9 +11,13 @@ fn check_foreign<'gc>(
     let run = |partial| {
         let mut values = [Value::Number(-0.0), Value::Integer(7), Value::Boolean(true)];
         let mut pc = 0;
-        let (c, panic) =
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+        let (c, panic) = LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
                 let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
                     ctx,
                     closure,
                     registers: &mut registers,
@@ -65,7 +69,8 @@ fn check_foreign<'gc>(
                     }
                 });
                 (counts(frame.count), panic)
-            });
+            },
+        );
         assert_eq!(pc, 43);
         identical(values[0], expected.unwrap_or(Value::Number(-0.0)));
         identical(values[1], Value::Integer(41));
@@ -126,14 +131,15 @@ fn upvalue_prefix_fallback_preserves_original_full_frame_access() {
             for dest in [0, 2] {
                 let mut values = [Value::Integer(7), Value::Boolean(true), Value::Number(-0.0)];
                 let mut pc = 0;
-                LuaRegisters::projection_split_frame(
+                LuaRegisters::projection_native_frame(
                     ctx,
                     &mut pc,
                     &mut values,
                     0,
-                    |mut registers| {
+                    |mut registers, mut _list| {
                         closure.set_upvalue(&ctx, 0, registers.projection_open_at(ctx, source));
                         let mut frame = helpers::Frame {
+                            list: Some(_list.reborrow()),
                             ctx,
                             closure,
                             registers: &mut registers,
@@ -224,12 +230,12 @@ fn upvalue_reads_preserve_values_aliases_and_sibling_field_loans() {
                         values[source + 2] = value;
                         let before = values.clone();
                         let mut pc = 0;
-                        LuaRegisters::projection_split_frame(
+                        LuaRegisters::projection_native_frame(
                             ctx,
                             &mut pc,
                             &mut values,
                             2,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let cell = match origin {
                                     0 => UpValue::new(&ctx, UpValueState::Closed(value)),
                                     1 => registers.projection_open_at(ctx, 0),
@@ -237,6 +243,7 @@ fn upvalue_reads_preserve_values_aliases_and_sibling_field_loans() {
                                 };
                                 closure.set_upvalue(&ctx, 0, cell);
                                 let mut frame = helpers::Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -289,53 +296,59 @@ fn upvalue_reads_observe_retired_sources_closing_and_joining() {
         let closure = crate::Closure::load(ctx, None, b"return _ENV").unwrap();
         let mut values = [Value::Integer(7), Value::Number(-0.0), Value::Boolean(true)];
         let mut pc = 0;
-        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-            closure.set_upvalue(&ctx, 0, cell);
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: 3,
-                panic: None,
-                projection: None,
-            };
-            with_session(&mut frame, |host, slots| unsafe {
-                assert_eq!(
-                    materialize_terminal(host, slots, 0, INTEGER, 42),
-                    abi::HELPER_COMPLETED
-                );
-                assert_eq!(
-                    materialize_terminal(host, slots, 2, BOOLEAN, 0),
-                    abi::HELPER_COMPLETED
-                );
-                let saved: Vec<_> = (0..3).map(|i| slots.add(i).read()).collect();
-                assert_eq!(call::<8>(host, slots, 1, 0, 0, 1), abi::HELPER_COMPLETED);
-                siblings(slots, &saved, Some(1));
-                assert_eq!(load(slots.add(1).read()).unwrap().bits, 42);
-                assert_eq!(slots.read().tag, NIL);
-                cell.set(&ctx, UpValueState::Closed(Value::Number(-0.0)));
-                assert_eq!(call::<8>(host, slots, 1, 0, 0, 2), abi::HELPER_COMPLETED);
-                assert_eq!(load(slots.add(1).read()).unwrap().bits, (-0.0f64).to_bits());
-                closure.set_upvalue(
-                    &ctx,
-                    0,
-                    UpValue::new(&ctx, UpValueState::Closed(Value::Boolean(true))),
-                );
-                assert_eq!(call::<8>(host, slots, 1, 0, 0, 3), abi::HELPER_COMPLETED);
-                assert_eq!(load(slots.add(1).read()).unwrap().bits, 1);
-                assert_eq!(slots.add(2).read().tag, NIL);
-                assert_eq!(
-                    call::<{ abi::HELPER_MOVE }>(host, slots, 1, 0, 0, 4),
-                    abi::HELPER_COMPLETED
-                );
-                assert_eq!(load(slots.read()).unwrap().bits, 42);
-                assert_eq!(load(slots.add(2).read()).unwrap().bits, 0);
-            });
-            assert_eq!(counts(frame.count), [4, 4, 0, 0, 0, 3, 0, 0]);
-            assert!(frame.panic.is_none());
-        });
+        LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 3,
+                    panic: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    assert_eq!(
+                        materialize_terminal(host, slots, 0, INTEGER, 42),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(
+                        materialize_terminal(host, slots, 2, BOOLEAN, 0),
+                        abi::HELPER_COMPLETED
+                    );
+                    let saved: Vec<_> = (0..3).map(|i| slots.add(i).read()).collect();
+                    assert_eq!(call::<8>(host, slots, 1, 0, 0, 1), abi::HELPER_COMPLETED);
+                    siblings(slots, &saved, Some(1));
+                    assert_eq!(load(slots.add(1).read()).unwrap().bits, 42);
+                    assert_eq!(slots.read().tag, NIL);
+                    cell.set(&ctx, UpValueState::Closed(Value::Number(-0.0)));
+                    assert_eq!(call::<8>(host, slots, 1, 0, 0, 2), abi::HELPER_COMPLETED);
+                    assert_eq!(load(slots.add(1).read()).unwrap().bits, (-0.0f64).to_bits());
+                    closure.set_upvalue(
+                        &ctx,
+                        0,
+                        UpValue::new(&ctx, UpValueState::Closed(Value::Boolean(true))),
+                    );
+                    assert_eq!(call::<8>(host, slots, 1, 0, 0, 3), abi::HELPER_COMPLETED);
+                    assert_eq!(load(slots.add(1).read()).unwrap().bits, 1);
+                    assert_eq!(slots.add(2).read().tag, NIL);
+                    assert_eq!(
+                        call::<{ abi::HELPER_MOVE }>(host, slots, 1, 0, 0, 4),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(load(slots.read()).unwrap().bits, 42);
+                    assert_eq!(load(slots.add(2).read()).unwrap().bits, 0);
+                });
+                assert_eq!(counts(frame.count), [4, 4, 0, 0, 0, 3, 0, 0]);
+                assert!(frame.panic.is_none());
+            },
+        );
         assert_eq!(pc, 5);
         identical(values[0], Value::Integer(42));
         identical(values[1], Value::Integer(42));

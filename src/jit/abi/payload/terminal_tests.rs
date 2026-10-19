@@ -48,12 +48,13 @@ fn terminal_materialization_retires_only_its_cell_and_refreshes_at_helpers() {
                             expected[target] = Slot { tag, bits }.value(expected[target]);
                         }
                         let mut pc = 23;
-                        LuaRegisters::with_test_frame(
+                        LuaRegisters::with_test_native_frame(
                             ctx,
                             &mut pc,
                             &mut values,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let mut frame = helpers::Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,

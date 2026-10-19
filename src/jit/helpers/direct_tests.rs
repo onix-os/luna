@@ -91,7 +91,7 @@ fn observe<'gc, const KIND: u32>(
         &mut values,
         &mut fuel,
         scenario == 4,
-        |mut registers| {
+        |mut registers, mut _list| {
             let upvalue = if scenario == 1 {
                 registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0))
             } else {
@@ -102,6 +102,7 @@ fn observe<'gc, const KIND: u32>(
             };
             closure.set_upvalue(&ctx, 0, upvalue);
             let mut frame = Frame {
+                list: Some(_list.reborrow()),
                 ctx,
                 closure,
                 registers: &mut registers,

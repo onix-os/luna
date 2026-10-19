@@ -135,25 +135,31 @@ pub(crate) fn check_native_write_binding(entry: BoundEntry, count: usize, masks:
         for (mask, expected) in masks.into_iter().zip([1, 0]) {
             let mut values = vec![Value::Integer(41); count];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                let mut frame = helpers::Frame {
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: count,
-                    panic: None,
-                    projection: None,
-                };
-                let mut exit = abi::Exit::default();
-                with_bridge_selected::<256, true>(&mut frame, mask, |slots, host| {
-                    unsafe { entry(slots, 0, 1, &mut exit, host) };
-                    assert_eq!(unsafe { (*host).materializations }, expected);
-                });
-                assert_eq!(exit.instructions, 1);
-                assert_eq!(frame.count.calls, 0);
-                assert!(frame.panic.is_none());
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut values,
+                |mut registers, mut _list| {
+                    let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: count,
+                        panic: None,
+                        projection: None,
+                    };
+                    let mut exit = abi::Exit::default();
+                    with_bridge_selected::<256, true>(&mut frame, mask, |slots, host| {
+                        unsafe { entry(slots, 0, 1, &mut exit, host) };
+                        assert_eq!(unsafe { (*host).materializations }, expected);
+                    });
+                    assert_eq!(exit.instructions, 1);
+                    assert_eq!(frame.count.calls, 0);
+                    assert!(frame.panic.is_none());
+                },
+            );
             assert!(matches!(values[0], Value::Integer(17)));
             assert!(values[1..].iter().all(|v| matches!(v, Value::Integer(41))));
         }
@@ -305,41 +311,62 @@ pub(crate) fn check_bound_scalar_transitions(entry: unsafe extern "C" fn(*const 
             for next in kinds {
                 let mut values = [initial, next];
                 let mut pc = 5;
-                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                    let mut frame = helpers::Frame {
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: 2,
-                        panic: None,
-                        projection: None,
-                    };
-                    with_binding::<2>(&mut frame, |binding| unsafe {
-                        let slots = binding.slots.as_ptr();
-                        let host = binding.host;
-                        assert_eq!(entry(slots), Slot::from_value(initial).bits);
-                        let move_value = host.functions.helpers[(abi::HELPER_MOVE - 1) as usize];
-                        assert_eq!(
-                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 1, 0, 7),
-                            abi::HELPER_COMPLETED
-                        );
-                        assert_eq!(entry(slots), Slot::from_value(next).bits);
-                        (host.functions.terminal)(host, slots, 0, NUMBER, replacement);
-                        assert_eq!(slots.read().tag, NIL);
-                        assert!(slots.read().pointer.is_null());
-                        assert_eq!(entry(slots), 0);
-                        assert_eq!(
-                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 0, 0, 9),
-                            abi::HELPER_COMPLETED
-                        );
-                        assert_eq!(entry(slots), replacement);
-                        assert_eq!(host.materializations, 1);
-                    });
-                    assert_eq!(frame.count.calls, 2);
-                    assert_eq!(frame.count.completed, 2);
-                    assert!(frame.panic.is_none());
-                });
+                LuaRegisters::with_test_native_frame(
+                    ctx,
+                    &mut pc,
+                    &mut values,
+                    |mut registers, mut _list| {
+                        let mut frame = helpers::Frame {
+                            list: Some(_list.reborrow()),
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 2,
+                            panic: None,
+                            projection: None,
+                        };
+                        with_binding::<2>(&mut frame, |binding| unsafe {
+                            let slots = binding.slots.as_ptr();
+                            let host = binding.host;
+                            assert_eq!(entry(slots), Slot::from_value(initial).bits);
+                            let move_value =
+                                host.functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+                            assert_eq!(
+                                move_value(
+                                    std::ptr::from_mut(host).cast(),
+                                    slots.cast(),
+                                    0,
+                                    1,
+                                    0,
+                                    7
+                                ),
+                                abi::HELPER_COMPLETED
+                            );
+                            assert_eq!(entry(slots), Slot::from_value(next).bits);
+                            (host.functions.terminal)(host, slots, 0, NUMBER, replacement);
+                            assert_eq!(slots.read().tag, NIL);
+                            assert!(slots.read().pointer.is_null());
+                            assert_eq!(entry(slots), 0);
+                            assert_eq!(
+                                move_value(
+                                    std::ptr::from_mut(host).cast(),
+                                    slots.cast(),
+                                    0,
+                                    0,
+                                    0,
+                                    9
+                                ),
+                                abi::HELPER_COMPLETED
+                            );
+                            assert_eq!(entry(slots), replacement);
+                            assert_eq!(host.materializations, 1);
+                        });
+                        assert_eq!(frame.count.calls, 2);
+                        assert_eq!(frame.count.completed, 2);
+                        assert!(frame.panic.is_none());
+                    },
+                );
                 assert_eq!(pc, 10);
                 let after = Slot::from_value(values[0]);
                 assert_eq!((after.tag, after.bits), (NUMBER, replacement));
@@ -378,22 +405,28 @@ fn check_native_bound_read(
             let expected = if accepts(scalar.tag) { scalar.bits } else { 0 };
             let mut values = [value];
             let mut pc = 5;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                let mut frame = helpers::Frame {
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: 1,
-                    panic: None,
-                    projection: None,
-                };
-                with_binding::<1>(&mut frame, |binding| {
-                    assert_eq!(unsafe { entry(binding.slots.as_ptr()) }, expected);
-                });
-                assert_eq!(frame.count.calls, 0);
-                assert!(frame.panic.is_none());
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut values,
+                |mut registers, mut _list| {
+                    let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 1,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_binding::<1>(&mut frame, |binding| {
+                        assert_eq!(unsafe { entry(binding.slots.as_ptr()) }, expected);
+                    });
+                    assert_eq!(frame.count.calls, 0);
+                    assert!(frame.panic.is_none());
+                },
+            );
             assert_eq!(pc, 5);
             let after = Slot::from_value(values[0]);
             assert_eq!((after.tag, after.bits), (scalar.tag, scalar.bits));
@@ -547,8 +580,9 @@ pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut 
                     &mut values,
                     &mut fuel,
                     false,
-                    |mut registers| {
+                    |mut registers, mut _list| {
                         let mut frame = helpers::Frame {
+                            list: Some(_list.reborrow()),
                             ctx,
                             closure,
                             registers: &mut registers,
@@ -659,40 +693,46 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
         let mut values = [Value::Nil; 2];
         let mut pc = 0;
-        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: 2,
-                panic: None,
-                projection: None,
-            };
-            with_bridge::<256>(&mut frame, |slots, host| unsafe {
-                assert!(std::ptr::eq((*host).functions, &FUNCTIONS));
-                ((*host).functions.write)(host, slots, 0, INTEGER, 42);
-                assert_eq!(((*host).read)(slots, 0), 42);
-                ((*host).functions.terminal)(host, slots, 1, INTEGER, 7);
-                let retired = slots.add(1).read();
-                assert_eq!(retired.tag, NIL);
-                assert!(retired.pointer.is_null());
-                assert_eq!((*host).materializations, 2);
-                assert_eq!(
-                    ((*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize])(
-                        host.cast(),
-                        slots.cast(),
-                        1,
-                        0,
-                        0,
-                        7
-                    ),
-                    abi::HELPER_COMPLETED
-                );
-                assert_eq!(((*host).read)(slots, 1), 42);
-            });
-            assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
-        });
+        LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 2,
+                    panic: None,
+                    projection: None,
+                };
+                with_bridge::<256>(&mut frame, |slots, host| unsafe {
+                    assert!(std::ptr::eq((*host).functions, &FUNCTIONS));
+                    ((*host).functions.write)(host, slots, 0, INTEGER, 42);
+                    assert_eq!(((*host).read)(slots, 0), 42);
+                    ((*host).functions.terminal)(host, slots, 1, INTEGER, 7);
+                    let retired = slots.add(1).read();
+                    assert_eq!(retired.tag, NIL);
+                    assert!(retired.pointer.is_null());
+                    assert_eq!((*host).materializations, 2);
+                    assert_eq!(
+                        ((*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize])(
+                            host.cast(),
+                            slots.cast(),
+                            1,
+                            0,
+                            0,
+                            7
+                        ),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(((*host).read)(slots, 1), 42);
+                });
+                assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
+            },
+        );
         assert_eq!(pc, 8);
         assert!(values
             .iter()
@@ -1006,8 +1046,11 @@ fn set_list(
         *session.pc.as_ptr() = pc as usize + 1;
     }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let registers = unsafe { std::ptr::addr_of_mut!(*(*session.frame.as_ptr()).registers) };
-        if !unsafe { LuaRegisters::charge_scoped_fixed_list(registers, count as usize) } {
+        let list = unsafe { &mut *std::ptr::addr_of_mut!((*session.frame.as_ptr()).list) };
+        if !list
+            .as_mut()
+            .is_some_and(|list| list.charge_if_fixed(count as usize))
+        {
             return false;
         }
         for offset in 0..count {
@@ -1351,53 +1394,66 @@ fn initialized_prefix_bounds_hold_for_empty_small_and_full_frames() {
         for count in [0, 1, 7, 255, 256] {
             let mut values = vec![Value::Integer(1); count];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                let mut frame = helpers::Frame {
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: count,
-                    panic: None,
-                    projection: None,
-                };
-                with_session(&mut frame, |host, slots| unsafe {
-                    if count != 0 {
-                        assert!(store(
-                            slots.add(count - 1).read(),
-                            Slot {
-                                tag: INTEGER,
-                                bits: 42
-                            }
-                        ));
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut values,
+                |mut registers, mut _list| {
+                    let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: count,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_session(&mut frame, |host, slots| unsafe {
+                        if count != 0 {
+                            assert!(store(
+                                slots.add(count - 1).read(),
+                                Slot {
+                                    tag: INTEGER,
+                                    bits: 42
+                                }
+                            ));
+                            assert_eq!(
+                                call::<{ abi::HELPER_MOVE }>(
+                                    host,
+                                    slots,
+                                    0,
+                                    (count - 1) as u32,
+                                    0,
+                                    7
+                                ),
+                                abi::HELPER_COMPLETED
+                            );
+                            assert_eq!(load(slots.read()).unwrap().bits, 42);
+                        }
                         assert_eq!(
-                            call::<{ abi::HELPER_MOVE }>(host, slots, 0, (count - 1) as u32, 0, 7),
-                            abi::HELPER_COMPLETED
+                            call::<{ abi::HELPER_MOVE }>(
+                                host,
+                                slots,
+                                0,
+                                count as u32,
+                                0,
+                                if count == 0 { 7 } else { 8 }
+                            ),
+                            abi::HELPER_PANICKED
                         );
-                        assert_eq!(load(slots.read()).unwrap().bits, 42);
-                    }
+                        assert_eq!(
+                            materialize(host, slots, 0, INTEGER, 99),
+                            abi::HELPER_PANICKED
+                        );
+                    });
                     assert_eq!(
-                        call::<{ abi::HELPER_MOVE }>(
-                            host,
-                            slots,
-                            0,
-                            count as u32,
-                            0,
-                            if count == 0 { 7 } else { 8 }
-                        ),
-                        abi::HELPER_PANICKED
+                        (frame.count.calls, frame.count.completed),
+                        if count == 0 { (1, 0) } else { (2, 1) }
                     );
-                    assert_eq!(
-                        materialize(host, slots, 0, INTEGER, 99),
-                        abi::HELPER_PANICKED
-                    );
-                });
-                assert_eq!(
-                    (frame.count.calls, frame.count.completed),
-                    if count == 0 { (1, 0) } else { (2, 1) }
-                );
-                assert!(frame.panic.is_some());
-            });
+                    assert!(frame.panic.is_some());
+                },
+            );
             assert_eq!(pc, if count == 0 { 8 } else { 9 });
             for (index, value) in values.into_iter().enumerate() {
                 let expected = if index == 0 || index + 1 == count {
@@ -1425,11 +1481,12 @@ fn scalar_materialization_preserves_current_aliases_without_transport_counters()
                 &mut values,
                 &mut fuel,
                 false,
-                |mut registers| {
+                |mut registers, mut _list| {
                     let cell = registers
                         .open_test_upvalue(&ctx, crate::types::RegisterIndex((count - 1) as u8));
                     closure.set_upvalue(&ctx, 0, cell);
                     let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -1534,32 +1591,38 @@ fn generated_code_calls_production_helpers_and_exits_on_real_bounds_panic() {
             let table = crate::Table::new(&ctx);
             let mut values = [Value::Integer(1), Value::Nil, Value::Table(table)];
             let mut pc = 0;
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                let mut frame = helpers::Frame {
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: 3,
-                    panic: None,
-                    projection: None,
-                };
-                with_session(&mut frame, |host, slots| {
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut values,
+                |mut registers, mut _list| {
+                    let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 3,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_session(&mut frame, |host, slots| {
+                        assert_eq!(
+                            unsafe { entry(slots, host, move_bridge, INTEGER, 42) },
+                            abi::HELPER_PANICKED
+                        );
+                    });
                     assert_eq!(
-                        unsafe { entry(slots, host, move_bridge, INTEGER, 42) },
-                        abi::HELPER_PANICKED
+                        (
+                            frame.count.calls,
+                            frame.count.completed,
+                            frame.count.declined
+                        ),
+                        (2, 1, 0)
                     );
-                });
-                assert_eq!(
-                    (
-                        frame.count.calls,
-                        frame.count.completed,
-                        frame.count.declined
-                    ),
-                    (2, 1, 0)
-                );
-                assert!(frame.panic.is_some());
-            });
+                    assert!(frame.panic.is_some());
+                },
+            );
             assert_eq!(pc, 43);
             assert!(matches!(values[0], Value::Integer(42)));
             assert!(matches!(values[1], Value::Integer(42)));
@@ -1580,78 +1643,84 @@ fn production_helpers_observe_direct_writes_and_rebind_current_frame_upvalues() 
             Value::Table(table),
         ];
         let mut pc = 0;
-        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-            closure.set_upvalue(&ctx, 0, cell);
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: 4,
-                panic: None,
-                projection: None,
-            };
-            with_session(&mut frame, |host, slots| unsafe {
-                assert!(store(
-                    slots.read(),
-                    Slot {
-                        tag: INTEGER,
-                        bits: 41
-                    }
-                ));
+        LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 4,
+                    panic: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    assert!(store(
+                        slots.read(),
+                        Slot {
+                            tag: INTEGER,
+                            bits: 41
+                        }
+                    ));
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 1, 0, 0, 10),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(load(slots.add(1).read()).unwrap().bits, 41);
+                    assert!(store(
+                        slots.read(),
+                        Slot {
+                            tag: INTEGER,
+                            bits: 42
+                        }
+                    ));
+                    assert_eq!(
+                        call::<{ abi::HELPER_SET_UPVALUE }>(host, slots, 0, 2, 0, 11),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert!(store(
+                        slots.read(),
+                        Slot {
+                            tag: NUMBER,
+                            bits: (-0.0f64).to_bits()
+                        }
+                    ));
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 1, 0, 0, 12),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(
+                        call::<{ abi::HELPER_MOVE }>(host, slots, 3, 1, 0, 13),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_TABLE }>(host, slots, 1, 0, 2, 14),
+                        abi::HELPER_DECLINED
+                    );
+                    assert_eq!(load(slots.add(2).read()).unwrap().bits, 2.0f64.to_bits());
+                    assert_eq!(load(slots.read()).unwrap().bits, (-0.0f64).to_bits());
+                });
                 assert_eq!(
-                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 1, 0, 0, 10),
-                    abi::HELPER_COMPLETED
-                );
-                assert_eq!(load(slots.add(1).read()).unwrap().bits, 41);
-                assert!(store(
-                    slots.read(),
-                    Slot {
-                        tag: INTEGER,
-                        bits: 42
-                    }
-                ));
-                assert_eq!(
-                    call::<{ abi::HELPER_SET_UPVALUE }>(host, slots, 0, 2, 0, 11),
-                    abi::HELPER_COMPLETED
-                );
-                assert!(store(
-                    slots.read(),
-                    Slot {
-                        tag: NUMBER,
-                        bits: (-0.0f64).to_bits()
-                    }
-                ));
-                assert_eq!(
-                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 1, 0, 0, 12),
-                    abi::HELPER_COMPLETED
+                    (
+                        frame.count.calls,
+                        frame.count.completed,
+                        frame.count.declined
+                    ),
+                    (5, 4, 1)
                 );
                 assert_eq!(
-                    call::<{ abi::HELPER_MOVE }>(host, slots, 3, 1, 0, 13),
-                    abi::HELPER_COMPLETED
+                    (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                    (2, 1)
                 );
-                assert_eq!(
-                    call::<{ abi::HELPER_GET_TABLE }>(host, slots, 1, 0, 2, 14),
-                    abi::HELPER_DECLINED
-                );
-                assert_eq!(load(slots.add(2).read()).unwrap().bits, 2.0f64.to_bits());
-                assert_eq!(load(slots.read()).unwrap().bits, (-0.0f64).to_bits());
-            });
-            assert_eq!(
-                (
-                    frame.count.calls,
-                    frame.count.completed,
-                    frame.count.declined
-                ),
-                (5, 4, 1)
-            );
-            assert_eq!(
-                (frame.count.upvalue_reads, frame.count.upvalue_writes),
-                (2, 1)
-            );
-            assert!(frame.panic.is_none());
-        });
+                assert!(frame.panic.is_none());
+            },
+        );
         assert_eq!(pc, 14);
         for index in [0, 1, 3] {
             assert!(
@@ -1674,60 +1743,66 @@ fn production_helpers_preserve_closed_reference_roots_and_table_effects() {
             Value::Integer(7),
         ];
         let mut pc = 0;
-        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: 4,
-                panic: None,
-                projection: None,
-            };
-            with_session(&mut frame, |host, slots| unsafe {
+        LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 4,
+                    panic: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    assert_eq!(
+                        call::<{ abi::HELPER_SET_UPVALUE }>(host, slots, 0, 2, 0, 0),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 0, 0, 0, 1),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert!(slots.read().pointer.is_null());
+                    assert!(load(slots.read()).is_none());
+                    assert!(store(
+                        slots.add(3).read(),
+                        Slot {
+                            tag: INTEGER,
+                            bits: 42
+                        }
+                    ));
+                    assert_eq!(
+                        call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 3, 2, 2),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_eq!(
+                        call::<{ abi::HELPER_GET_TABLE }>(host, slots, 1, 0, 3, 3),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert!(slots.add(1).read().pointer.is_null());
+                    assert_eq!(
+                        call::<{ abi::HELPER_NEW_TABLE }>(host, slots, 3, 0, 0, 4),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert!(slots.add(3).read().pointer.is_null());
+                });
+                assert_eq!((frame.count.calls, frame.count.completed), (5, 5));
                 assert_eq!(
-                    call::<{ abi::HELPER_SET_UPVALUE }>(host, slots, 0, 2, 0, 0),
-                    abi::HELPER_COMPLETED
+                    (
+                        frame.count.table_reads,
+                        frame.count.table_writes,
+                        frame.count.allocations
+                    ),
+                    (1, 1, 1)
                 );
-                assert_eq!(
-                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 0, 0, 0, 1),
-                    abi::HELPER_COMPLETED
-                );
-                assert!(slots.read().pointer.is_null());
-                assert!(load(slots.read()).is_none());
-                assert!(store(
-                    slots.add(3).read(),
-                    Slot {
-                        tag: INTEGER,
-                        bits: 42
-                    }
-                ));
-                assert_eq!(
-                    call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 3, 2, 2),
-                    abi::HELPER_COMPLETED
-                );
-                assert_eq!(
-                    call::<{ abi::HELPER_GET_TABLE }>(host, slots, 1, 0, 3, 3),
-                    abi::HELPER_COMPLETED
-                );
-                assert!(slots.add(1).read().pointer.is_null());
-                assert_eq!(
-                    call::<{ abi::HELPER_NEW_TABLE }>(host, slots, 3, 0, 0, 4),
-                    abi::HELPER_COMPLETED
-                );
-                assert!(slots.add(3).read().pointer.is_null());
-            });
-            assert_eq!((frame.count.calls, frame.count.completed), (5, 5));
-            assert_eq!(
-                (
-                    frame.count.table_reads,
-                    frame.count.table_writes,
-                    frame.count.allocations
-                ),
-                (1, 1, 1)
-            );
-            assert!(frame.panic.is_none());
-        });
+                assert!(frame.panic.is_none());
+            },
+        );
         assert_eq!(pc, 5);
         for index in 0..3 {
             assert!(matches!(values[index], Value::Table(t) if t == table));
@@ -1765,8 +1840,9 @@ fn production_helper_panic_keeps_direct_writes_and_stops_reentry() {
             &mut values,
             &mut fuel,
             false,
-            |mut registers| {
+            |mut registers, mut _list| {
                 let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
                     ctx,
                     closure,
                     registers: &mut registers,

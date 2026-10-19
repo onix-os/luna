@@ -54,9 +54,9 @@ fn packed_runtime_failure_dispatch_preserves_effects_counts_and_panic_payloads()
             let runtime = crate::jit::Runtime::new();
             let mut values = [crate::Value::Integer(17), crate::Value::Nil];
             let mut pc = mode;
-            crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            crate::thread::LuaRegisters::with_test_native_frame(ctx, &mut pc, &mut values, |mut registers, mut _list| {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    runtime.invoke::<3, false>(&code, ctx, closure, &mut registers, 64)
+                    runtime.invoke::<3, false>(&code, ctx, closure, &mut registers, Some(&mut _list), 64)
                 })).unwrap_err();
                 if matches!(mode, 1 | 4) {
                     assert_eq!(*result.downcast::<u64>().unwrap(), 731);
@@ -102,14 +102,21 @@ fn packed_zero_register_entry_preserves_empty_frame_and_unknown_pc() {
         for pc in [0, 1, usize::MAX] {
             for budget in [0, 1, 64, u32::MAX] {
                 let mut canonical_pc = pc;
-                crate::thread::LuaRegisters::with_test_frame(
+                crate::thread::LuaRegisters::with_test_native_frame(
                     ctx,
                     &mut canonical_pc,
                     &mut [],
-                    |mut registers| {
+                    |mut registers, mut _list| {
                         let runtime = crate::jit::Runtime::new();
                         assert_eq!(
-                            runtime.invoke::<8, false>(&code, ctx, closure, &mut registers, budget),
+                            runtime.invoke::<8, false>(
+                                &code,
+                                ctx,
+                                closure,
+                                &mut registers,
+                                Some(&mut _list),
+                                budget
+                            ),
                             0
                         );
                         assert_eq!(*registers.pc, pc);
@@ -152,44 +159,50 @@ fn packed_owned_entries_reject_legacy_abis_and_invalid_frame_admission() {
         assert!(!code.entry_kind.is_payload());
         let mut values = vec![crate::Value::Nil; snapshot.registers];
         let mut pc = 0;
-        crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: snapshot.registers,
-                panic: None,
-                projection: None,
-            };
-            let legacy = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                code.invoke_payload::<256>(&mut frame, 0, 64)
-            }));
-            assert!(legacy.is_err());
-            assert!(matches!(
-                code.invoke_packed::<0>(&mut frame, 0, 64),
-                Err(entry::Failure::Admission(_))
-            ));
-            frame.slot_count += 1;
-            assert!(matches!(
-                code.invoke_packed::<256>(&mut frame, 0, 64),
-                Err(entry::Failure::Admission(_))
-            ));
-            frame.slot_count -= 1;
-            frame.panic = Some(Box::new(731u64));
-            assert_eq!(
-                code.invoke_packed::<256>(&mut frame, 0, 64).err(),
-                Some(entry::Failure::Panicked)
-            );
-            assert_eq!(*frame.panic.take().unwrap().downcast::<u64>().unwrap(), 731);
-            assert_eq!(*frame.registers.pc, 0);
-            assert!(frame
-                .registers
-                .stack_frame
-                .iter()
-                .all(|v| matches!(v, crate::Value::Nil)));
-            assert_eq!(frame.count.calls, 0);
-        });
+        crate::thread::LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: snapshot.registers,
+                    panic: None,
+                    projection: None,
+                };
+                let legacy = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    code.invoke_payload::<256>(&mut frame, 0, 64)
+                }));
+                assert!(legacy.is_err());
+                assert!(matches!(
+                    code.invoke_packed::<0>(&mut frame, 0, 64),
+                    Err(entry::Failure::Admission(_))
+                ));
+                frame.slot_count += 1;
+                assert!(matches!(
+                    code.invoke_packed::<256>(&mut frame, 0, 64),
+                    Err(entry::Failure::Admission(_))
+                ));
+                frame.slot_count -= 1;
+                frame.panic = Some(Box::new(731u64));
+                assert_eq!(
+                    code.invoke_packed::<256>(&mut frame, 0, 64).err(),
+                    Some(entry::Failure::Panicked)
+                );
+                assert_eq!(*frame.panic.take().unwrap().downcast::<u64>().unwrap(), 731);
+                assert_eq!(*frame.registers.pc, 0);
+                assert!(frame
+                    .registers
+                    .stack_frame
+                    .iter()
+                    .all(|v| matches!(v, crate::Value::Nil)));
+                assert_eq!(frame.count.calls, 0);
+            },
+        );
         drop(code);
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.0.current(), 0);
@@ -342,18 +355,24 @@ fn packed_publication_refusals_reclaim_resources_and_preserve_live_code() {
         );
         let mut values = vec![crate::Value::Nil; snapshot.registers];
         let mut pc = 0;
-        crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-            let mut frame = helpers::Frame {
-                ctx,
-                closure,
-                registers: &mut registers,
-                count: helpers::Counts::default(),
-                slot_count: snapshot.registers,
-                panic: None,
-                projection: None,
-            };
-            assert!(live.invoke_packed::<256>(&mut frame, 0, 64).is_ok());
-        });
+        crate::thread::LuaRegisters::with_test_native_frame(
+            ctx,
+            &mut pc,
+            &mut values,
+            |mut registers, mut _list| {
+                let mut frame = helpers::Frame {
+                    list: Some(_list.reborrow()),
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: snapshot.registers,
+                    panic: None,
+                    projection: None,
+                };
+                assert!(live.invoke_packed::<256>(&mut frame, 0, 64).is_ok());
+            },
+        );
         drop(live);
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.0.current(), 0);

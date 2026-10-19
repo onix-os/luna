@@ -85,11 +85,11 @@ fn live_frames_preserve_helpers_rebinding_weak_modes_and_panics() {
                             let reports = codes.each_ref().map(|code| {
                                 let mut canonical = vec![value; snapshot.registers];
                                 let mut frame_pc = pc;
-                                let report = LuaRegisters::with_test_frame(
+                                let report = LuaRegisters::with_test_native_frame(
                                     ctx,
                                     &mut frame_pc,
                                     &mut canonical,
-                                    |mut registers| {
+                                    |mut registers, mut _list| {
                                         let mut slots: Vec<_> = registers
                                             .stack_frame
                                             .iter()
@@ -97,6 +97,7 @@ fn live_frames_preserve_helpers_rebinding_weak_modes_and_panics() {
                                             .map(Slot::from_value)
                                             .collect();
                                         let mut frame = helpers::Frame {
+                                            list: Some(_list.reborrow()),
                                             ctx,
                                             closure,
                                             registers: &mut registers,

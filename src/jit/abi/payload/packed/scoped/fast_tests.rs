@@ -41,17 +41,19 @@ fn frame<'gc, R>(
     body: impl FnOnce(&mut helpers::Frame<'gc, '_, '_, '_>) -> R,
 ) -> (R, usize) {
     let mut pc = 0;
-    let result = LuaRegisters::with_test_frame(ctx, &mut pc, values, |mut registers| {
-        body(&mut helpers::Frame {
-            ctx,
-            closure,
-            registers: &mut registers,
-            count: helpers::Counts::default(),
-            slot_count: count,
-            panic: None,
-            projection: None,
-        })
-    });
+    let result =
+        LuaRegisters::with_test_native_frame(ctx, &mut pc, values, |mut registers, mut _list| {
+            body(&mut helpers::Frame {
+                list: Some(_list.reborrow()),
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: count,
+                panic: None,
+                projection: None,
+            })
+        });
     (result, pc)
 }
 
@@ -99,12 +101,12 @@ fn packed_fast_upvalues_preserve_all_values_aliases_and_sibling_loans() {
                         values[source + 2] = value;
                         let before = values.clone();
                         let mut pc = 0;
-                        LuaRegisters::projection_split_frame(
+                        LuaRegisters::projection_native_frame(
                             ctx,
                             &mut pc,
                             &mut values,
                             2,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let cell = match origin {
                                     0 => UpValue::new(&ctx, UpValueState::Closed(value)),
                                     1 => registers.projection_open_at(ctx, 0),
@@ -112,6 +114,7 @@ fn packed_fast_upvalues_preserve_all_values_aliases_and_sibling_loans() {
                                 };
                                 closure.set_upvalue(&ctx, 0, cell);
                                 let mut frame = helpers::Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -575,14 +578,15 @@ fn packed_fast_upvalue_prefix_fallback_matches_full_frame_partial_effects() {
                         Value::Number(-0.0),
                     ];
                     let mut pc = 0;
-                    let result = LuaRegisters::projection_split_frame(
+                    let result = LuaRegisters::projection_native_frame(
                         ctx,
                         &mut pc,
                         &mut values,
                         0,
-                        |mut registers| {
+                        |mut registers, mut _list| {
                             closure.set_upvalue(&ctx, 0, registers.projection_open_at(ctx, source));
                             let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
                                 ctx,
                                 closure,
                                 registers: &mut registers,

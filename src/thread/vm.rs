@@ -369,7 +369,51 @@ fn run_vm_slice<'gc>(
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     let mut pair_scope = lua_frame.pair_handoff.take();
-    let mut registers = lua_frame.registers();
+    #[cfg(feature = "jit")]
+    let mut native_list: Option<super::NativeList<'_>>;
+    #[cfg(feature = "jit")]
+    macro_rules! register_view {
+        () => {{
+            #[cfg(feature = "jit")]
+            {
+                native_list = if matches!(&native_dispatch, dispatch::Dispatch::Compiled(_)) {
+                    let variable = match lua_frame.state.frames.last() {
+                        Some(Frame::Lua { is_variable, .. }) => *is_variable,
+                        _ => panic!("top frame is not lua frame"),
+                    };
+                    Some(super::NativeList::new(lua_frame.fuel, variable))
+                } else {
+                    None
+                };
+                super::thread::LuaRegisters::from_parts(lua_frame.state, &mut lua_frame.stack)
+            }
+            #[cfg(not(feature = "jit"))]
+            {
+                lua_frame.registers()
+            }
+        }};
+    }
+    #[cfg(not(feature = "jit"))]
+    macro_rules! register_view {
+        () => {
+            lua_frame.registers()
+        };
+    }
+    #[cfg(feature = "jit")]
+    macro_rules! frame_call {
+        ($call:expr) => {{
+            #[cfg(feature = "jit")]
+            drop(native_list);
+            $call
+        }};
+    }
+    #[cfg(not(feature = "jit"))]
+    macro_rules! frame_call {
+        ($call:expr) => {
+            $call
+        };
+    }
+    let mut registers = register_view!();
     #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
     #[cfg(feature = "jit")]
@@ -422,6 +466,7 @@ fn run_vm_slice<'gc>(
                     ctx,
                     current_function,
                     &mut registers,
+                    native_list.as_mut(),
                     max_instructions - instructions_run,
                 );
                 instructions_run += completed;
@@ -454,11 +499,11 @@ fn run_vm_slice<'gc>(
                             pair_scope.as_deref_mut().unwrap(),
                         ) {
                             drop(registers);
-                            if lua_frame.pair_fixed_stack() {
+                            if frame_call!(lua_frame.pair_fixed_stack()) {
                                 pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                                 break;
                             }
-                            registers = lua_frame.registers();
+                            registers = register_view!();
                         }
                     }
                     *registers.pc += 1;
@@ -485,16 +530,21 @@ fn run_vm_slice<'gc>(
                                     returns,
                                 );
                             }
-                            lua_frame.call_function(ctx, func, args, returns)?;
+                            frame_call!(lua_frame.call_function(ctx, func, args, returns))?;
                         }
                         crate::opcode::CallTransition::TailCall { func, args } => {
                             #[cfg(all(test, feature = "jit"))]
-                            lua_frame.tail_call_builtin(ctx, func, args, instructions_run)?;
+                            frame_call!(lua_frame.tail_call_builtin(
+                                ctx,
+                                func,
+                                args,
+                                instructions_run
+                            ))?;
                             #[cfg(not(all(test, feature = "jit")))]
-                            lua_frame.tail_call_function(ctx, func, args)?;
+                            frame_call!(lua_frame.tail_call_function(ctx, func, args))?;
                         }
                         crate::opcode::CallTransition::Return { start, count } => {
-                            lua_frame.return_upper(&ctx, start, count)?;
+                            frame_call!(lua_frame.return_upper(&ctx, start, count))?;
                         }
                     }
                     break;
@@ -503,6 +553,10 @@ fn run_vm_slice<'gc>(
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Observing(id) if run_native => ctx.jit().observe(*id),
             dispatch::Dispatch::Hooked => {
+                #[cfg(feature = "jit")]
+                {
+                    drop(native_list);
+                }
                 if dispatch_hook(
                     ctx,
                     &mut lua_frame,
@@ -512,7 +566,7 @@ fn run_vm_slice<'gc>(
                 )? {
                     break;
                 }
-                registers = lua_frame.registers();
+                registers = register_view!();
             }
             dispatch::Dispatch::Interpreted => {}
             #[cfg(feature = "jit")]
@@ -574,12 +628,12 @@ fn run_vm_slice<'gc>(
                         registers.stack_frame[dest.0 as usize] = v;
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -590,12 +644,12 @@ fn run_vm_slice<'gc>(
                 let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
                 let value = get_rc(&registers.stack_frame, &current_prototype.constants, value);
                 if let Some(call) = meta_ops::new_index(ctx, table, key, value)? {
-                    lua_frame.call_meta_function(
+                    frame_call!(lua_frame.call_meta_function(
                         ctx,
                         call.function,
                         &call.args,
                         MetaReturn::None,
-                    )?;
+                    ))?;
                     break;
                 }
             }
@@ -608,12 +662,12 @@ fn run_vm_slice<'gc>(
                         registers.stack_frame[dest.0 as usize] = v;
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -624,19 +678,19 @@ fn run_vm_slice<'gc>(
                 let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
                 let value = get_rc(&registers.stack_frame, &current_prototype.constants, value);
                 if let Some(call) = meta_ops::new_index(ctx, table, key, value)? {
-                    lua_frame.call_meta_function(
+                    frame_call!(lua_frame.call_meta_function(
                         ctx,
                         call.function,
                         &call.args,
                         MetaReturn::None,
-                    )?;
+                    ))?;
                     break;
                 }
             }
 
             Operation::SetList { base, count } => {
-                lua_frame.set_table_list(&ctx, base, count)?;
-                registers = lua_frame.registers();
+                frame_call!(lua_frame.set_table_list(&ctx, base, count))?;
+                registers = register_view!();
             }
 
             Operation::Call {
@@ -660,13 +714,13 @@ fn run_vm_slice<'gc>(
                         pair_scope.as_deref_mut().unwrap(),
                     ) {
                         drop(registers);
-                        if lua_frame.pair_fixed_stack() {
+                        if frame_call!(lua_frame.pair_fixed_stack()) {
                             *lua_frame.registers().pc = pc;
                             interpreter_stats.dispatches -= 1;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                             break;
                         }
-                        registers = lua_frame.registers();
+                        registers = register_view!();
                     }
                 }
                 #[cfg(all(
@@ -679,23 +733,23 @@ fn run_vm_slice<'gc>(
                     ctx.jit()
                         .observe_call(ctx, current_function, &registers, func, args, returns);
                 }
-                lua_frame.call_function(ctx, func, args, returns)?;
+                frame_call!(lua_frame.call_function(ctx, func, args, returns))?;
                 break;
             }
 
             Operation::TailCall { func, args } => {
-                lua_frame.tail_call_function(ctx, func, args)?;
+                frame_call!(lua_frame.tail_call_function(ctx, func, args))?;
                 break;
             }
 
             Operation::Return { start, count } => {
-                lua_frame.return_upper(&ctx, start, count)?;
+                frame_call!(lua_frame.return_upper(&ctx, start, count))?;
                 break;
             }
 
             Operation::VarArgs { dest, count } => {
-                lua_frame.varargs(dest, count)?;
-                registers = lua_frame.registers();
+                frame_call!(lua_frame.varargs(dest, count))?;
+                registers = register_view!();
             }
 
             Operation::MarkToBeClosed { source } => {
@@ -721,7 +775,7 @@ fn run_vm_slice<'gc>(
                     // Hand them to the executor as a sequence and resume at the new pc after.
                     let to_close = registers.take_to_be_closed(RegisterIndex(r));
                     if !to_close.is_empty() {
-                        lua_frame.push_close_sequence(ctx, to_close);
+                        frame_call!(lua_frame.push_close_sequence(ctx, to_close));
                         break;
                     }
                 }
@@ -778,11 +832,11 @@ fn run_vm_slice<'gc>(
                 // would otherwise run forever.
                 if registers.stack_frame[base.0 as usize + 2].to_number() == Some(0.0) {
                     let pc = *registers.pc;
-                    lua_frame.raise(positioned_error(
+                    frame_call!(lua_frame.raise(positioned_error(
                         &current_prototype,
                         pc,
                         "'for' step is zero",
-                    ));
+                    )));
                     break;
                 }
 
@@ -871,7 +925,12 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::GenericForCall { base, var_count } => {
-                lua_frame.call_function_keep(ctx, base, 2, VarCount::constant(var_count))?;
+                frame_call!(lua_frame.call_function_keep(
+                    ctx,
+                    base,
+                    2,
+                    VarCount::constant(var_count)
+                ))?;
                 break;
             }
 
@@ -892,12 +951,12 @@ fn run_vm_slice<'gc>(
                         registers.stack_frame[base.0 as usize] = v;
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(base),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -918,12 +977,12 @@ fn run_vm_slice<'gc>(
                         // the stack, and likely isn't worth the complexity for the
                         // fallback case.
                         let args = values.to_owned();
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             func,
                             &args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -948,12 +1007,12 @@ fn run_vm_slice<'gc>(
                         registers.stack_frame[dest.0 as usize] = v;
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -973,12 +1032,12 @@ fn run_vm_slice<'gc>(
                         }
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -998,12 +1057,12 @@ fn run_vm_slice<'gc>(
                         }
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1023,12 +1082,12 @@ fn run_vm_slice<'gc>(
                         }
                     }
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1044,12 +1103,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::negate(ctx, value)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1060,12 +1119,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::bitwise_not(ctx, value)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1077,12 +1136,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::add(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1094,12 +1153,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::subtract(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1111,12 +1170,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::multiply(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1128,12 +1187,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::float_divide(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1145,12 +1204,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::floor_divide(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1162,12 +1221,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::modulo(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1179,12 +1238,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::exponentiate(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1196,12 +1255,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::bitwise_and(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1213,12 +1272,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::bitwise_or(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1230,12 +1289,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::bitwise_xor(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1247,12 +1306,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::shift_left(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }
@@ -1264,12 +1323,12 @@ fn run_vm_slice<'gc>(
                 match meta_ops::shift_right(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
+                        frame_call!(lua_frame.call_meta_function(
                             ctx,
                             call.function,
                             &call.args,
                             MetaReturn::Register(dest),
-                        )?;
+                        ))?;
                         break;
                     }
                 }

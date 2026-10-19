@@ -46,8 +46,9 @@ fn run<const N: usize>(shape: &str, strided: bool, bytes: &[u8]) {
         assert!(dest != 1);
         let mut pc = 0;
         let mut fuel = crate::Fuel::with(47);
-        LuaRegisters::with_test_frame_state(ctx, &mut pc, &mut canonical, &mut fuel, false, |mut registers| {
+        LuaRegisters::with_test_frame_state(ctx, &mut pc, &mut canonical, &mut fuel, false, |mut registers, mut _list| {
             let mut frame = helpers::Frame {
+                list: Some(_list.reborrow()),
                 ctx, closure, registers: &mut registers, count: helpers::Counts::default(),
                 slot_count: N, panic: None, projection: None,
             };

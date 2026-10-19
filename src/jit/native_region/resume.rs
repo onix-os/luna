@@ -186,8 +186,15 @@ mod tests {
     ) -> (Prepared, u32, usize) {
         let code = ctx.jit().lookup(source).unwrap();
         host.clear_hook(ctx);
-        let (count, pc) = host.with_registers(|_, mut registers| {
-            let count = ctx.jit().run(&code, ctx, closure, &mut registers, budget);
+        let (count, pc) = host.with_native_registers(|_, mut registers, mut _list| {
+            let count = ctx.jit().run(
+                &code,
+                ctx,
+                closure,
+                &mut registers,
+                Some(&mut _list),
+                budget,
+            );
             (count, *registers.pc)
         });
         (code, count, pc)
@@ -531,8 +538,12 @@ mod tests {
                     });
                 });
                 assert!(ctx.jit().0.borrow().resume_scope.is_none());
-                host.with_registers(|_, mut registers| {
-                    assert!(ctx.jit().run(&code, ctx, closure, &mut registers, 1) > 0);
+                host.with_native_registers(|_, mut registers, mut _list| {
+                    assert!(
+                        ctx.jit()
+                            .run(&code, ctx, closure, &mut registers, Some(&mut _list), 1)
+                            > 0
+                    );
                     assert!(matches!(registers.stack_frame[0], crate::Value::Integer(0)));
                 });
             });

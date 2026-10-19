@@ -57,73 +57,79 @@ pub(super) fn check_native(
                     let mut values = [source, dest, Value::Integer(19)];
                     let mut expected = source;
                     let mut pc = 23;
-                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: counts(),
-                            slot_count: 3,
-                            panic: None,
-                            projection: None,
-                        };
-                        with_bridge::<256>(&mut frame, |slots, host| unsafe {
-                            let saved = slots.read();
-                            let sibling = slots.add(2).read();
-                            if matches!(source, Value::Integer(_)) {
+                    LuaRegisters::with_test_native_frame(
+                        ctx,
+                        &mut pc,
+                        &mut values,
+                        |mut registers, mut _list| {
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: counts(),
+                                slot_count: 3,
+                                panic: None,
+                                projection: None,
+                            };
+                            with_bridge::<256>(&mut frame, |slots, host| unsafe {
+                                let saved = slots.read();
+                                let sibling = slots.add(2).read();
+                                if matches!(source, Value::Integer(_)) {
+                                    assert!(store(
+                                        saved,
+                                        Slot {
+                                            tag: INTEGER,
+                                            bits: 41
+                                        }
+                                    ));
+                                    expected = Value::Integer(41);
+                                }
+                                entry(slots, host, condition);
+                                let slow = (*host).materializations != 0;
+                                let same_scalar = Slot::from_value(source).tag
+                                    == Slot::from_value(dest).tag
+                                    && matches!(
+                                        source,
+                                        Value::Nil
+                                            | Value::Boolean(_)
+                                            | Value::Integer(_)
+                                            | Value::Number(_)
+                                    );
+                                assert_eq!(slow, !same_scalar && !reference);
+                                assert_eq!((*host).materializations, u64::from(slow));
+                                if slow {
+                                    check_retired_descriptor(slots.read());
+                                    check_retired_descriptor(slots.add(1).read());
+                                } else if !reference {
+                                    if let Some(value) = load(saved) {
+                                        assert!(store(saved, value));
+                                    }
+                                }
+                                let sibling = if reference {
+                                    slots.add(2).read()
+                                } else {
+                                    sibling
+                                };
                                 assert!(store(
-                                    saved,
+                                    sibling,
                                     Slot {
                                         tag: INTEGER,
-                                        bits: 41
+                                        bits: 29
                                     }
                                 ));
-                                expected = Value::Integer(41);
+                                assert_eq!(load(slots.add(2).read()).unwrap().bits, 29);
+                            });
+                            if reference {
+                                assert_eq!(frame.count.calls, 12);
+                                assert_eq!(frame.count.completed, 13);
+                                frame.count.calls -= 1;
+                                frame.count.completed -= 1;
                             }
-                            entry(slots, host, condition);
-                            let slow = (*host).materializations != 0;
-                            let same_scalar = Slot::from_value(source).tag
-                                == Slot::from_value(dest).tag
-                                && matches!(
-                                    source,
-                                    Value::Nil
-                                        | Value::Boolean(_)
-                                        | Value::Integer(_)
-                                        | Value::Number(_)
-                                );
-                            assert_eq!(slow, !same_scalar && !reference);
-                            assert_eq!((*host).materializations, u64::from(slow));
-                            if slow {
-                                check_retired_descriptor(slots.read());
-                                check_retired_descriptor(slots.add(1).read());
-                            } else if !reference {
-                                if let Some(value) = load(saved) {
-                                    assert!(store(saved, value));
-                                }
-                            }
-                            let sibling = if reference {
-                                slots.add(2).read()
-                            } else {
-                                sibling
-                            };
-                            assert!(store(
-                                sibling,
-                                Slot {
-                                    tag: INTEGER,
-                                    bits: 29
-                                }
-                            ));
-                            assert_eq!(load(slots.add(2).read()).unwrap().bits, 29);
-                        });
-                        if reference {
-                            assert_eq!(frame.count.calls, 12);
-                            assert_eq!(frame.count.completed, 13);
-                            frame.count.calls -= 1;
-                            frame.count.completed -= 1;
-                        }
-                        check_counts(&frame.count);
-                        assert!(frame.panic.is_none());
-                    });
+                            check_counts(&frame.count);
+                            assert!(frame.panic.is_none());
+                        },
+                    );
                     assert_eq!(pc, if reference { 24 } else { 23 });
                     closed_table_tests::identical(values[0], expected);
                     closed_table_tests::identical(values[1], expected);
@@ -171,12 +177,13 @@ fn copy_cases<const RETIRE_SOURCE: bool>() {
                         let mut expected = values.clone();
                         expected[dest] = value;
                         let mut pc = 23;
-                        LuaRegisters::with_test_frame(
+                        LuaRegisters::with_test_native_frame(
                             ctx,
                             &mut pc,
                             &mut values,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let mut frame = helpers::Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -256,39 +263,46 @@ fn stopped_and_invalid_copies_leave_canonical_values_and_descriptors_unchanged()
                     }
                     let mut values = vec![Value::Integer(42); count];
                     let mut pc = 19;
-                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: counts(),
-                            slot_count: count,
-                            panic: stopped
-                                .then(|| Box::new(71u64) as Box<dyn std::any::Any + Send>),
-                            projection: None,
-                        };
-                        with_session(&mut frame, |host, slots| unsafe {
-                            let saved: Vec<_> = (0..count).map(|i| slots.add(i).read()).collect();
-                            let expected = if stopped {
-                                abi::HELPER_PANICKED
-                            } else {
-                                abi::HELPER_DECLINED
+                    LuaRegisters::with_test_native_frame(
+                        ctx,
+                        &mut pc,
+                        &mut values,
+                        |mut registers, mut _list| {
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: counts(),
+                                slot_count: count,
+                                panic: stopped
+                                    .then(|| Box::new(71u64) as Box<dyn std::any::Any + Send>),
+                                projection: None,
                             };
-                            assert_eq!(
-                                copy_terminal::<false>(host, slots, dest as u32, source as u64),
-                                expected
-                            );
-                            assert_eq!(
-                                copy_terminal::<true>(host, slots, dest as u32, source as u64),
-                                expected
-                            );
-                            closed_table_tests::siblings(slots, &saved, None);
-                        });
-                        check_counts(&frame.count);
-                        if stopped {
-                            assert_eq!(*frame.panic.unwrap().downcast::<u64>().unwrap(), 71);
-                        }
-                    });
+                            with_session(&mut frame, |host, slots| unsafe {
+                                let saved: Vec<_> =
+                                    (0..count).map(|i| slots.add(i).read()).collect();
+                                let expected = if stopped {
+                                    abi::HELPER_PANICKED
+                                } else {
+                                    abi::HELPER_DECLINED
+                                };
+                                assert_eq!(
+                                    copy_terminal::<false>(host, slots, dest as u32, source as u64),
+                                    expected
+                                );
+                                assert_eq!(
+                                    copy_terminal::<true>(host, slots, dest as u32, source as u64),
+                                    expected
+                                );
+                                closed_table_tests::siblings(slots, &saved, None);
+                            });
+                            check_counts(&frame.count);
+                            if stopped {
+                                assert_eq!(*frame.panic.unwrap().downcast::<u64>().unwrap(), 71);
+                            }
+                        },
+                    );
                     assert_eq!(pc, 19);
                     assert!(values
                         .iter()

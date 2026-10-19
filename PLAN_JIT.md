@@ -35986,6 +35986,38 @@ design question, not an adopted change or an accepted optimization. Its exact
 call sites, borrow/fuel contracts and prior rejected view work must be inspected
 before implementation. Full original acceptance remains open.
 
+### Native-only fixed-list context — implementation under validation
+
+The new representation removes fuel and variable-stack fields from the shared
+`LuaRegisters` projection. Its seven core fields occupy nine pointer words;
+`NativeList` separately holds the fuel borrow and variable-stack snapshot in
+two words. No persistent frame, runtime owner, allocator, cache, mode API or
+statistics contract changes, and neither representation requires a heap allocation.
+
+Ordinary VM register construction now projects only the core state. The VM
+constructs fixed-list context only for a compiled dispatch, rebuilds its snapshot
+when register views are reacquired, and releases its fuel borrow before whole-frame
+operations or hook dispatch. Native activation hosts construct the corresponding
+context from their actual frame and fuel. Helper frames receive an explicit
+optional capability; a missing capability declines fixed-list work rather than
+executing it without charging fuel.
+
+Fixed-list helpers preserve variable-stack rejection, operand validation before
+effects, four units per call and one per requested item, saturation, index overflow,
+partial errors and panic materialization. The scoped test ABI projects the separate
+capability, not fuel fields through a register view with outstanding value loans.
+Stateful test constructors pass both the core projection and its original fuel/
+variable context; the native test migration does not substitute unmetered views.
+
+Host focused checks cover the core layout, mutable value loans during independent
+fuel charges, missing-capability decline, fixed/variable lists, overflow, fuel,
+native call regions and scoped payload behavior. Compilation and these focused
+checks pass, but full Force, Miri, actual i686, source/default-artifact equivalence,
+both production profiles and repeated original elapsed gates remain required.
+This differs from the rejected constructor-inline and optional-fuel tuple trials:
+native state is no longer part of the ordinary register-view ABI. It is **not yet
+a performance-accepted change**, and no runtime speedup is claimed.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

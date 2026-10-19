@@ -73,8 +73,9 @@ fn check(
                         &mut values,
                         &mut fuel,
                         false,
-                        |mut registers| {
+                        |mut registers, mut _list| {
                             let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
                                 ctx,
                                 closure,
                                 registers: &mut registers,
@@ -195,12 +196,13 @@ fn check_failures(call: impl Fn(*mut Packed, &Bridge, u64, u64, &mut u64) -> u32
         for mode in 0..4 {
             let mut values = [original];
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_frame(
+            crate::thread::LuaRegisters::with_test_native_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers| {
+                |mut registers, mut _list| {
                     let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
@@ -303,12 +305,13 @@ fn check_copy(call: impl Fn(*mut Packed, &Bridge, u64, u64, &mut u64) -> u32) {
                 for retired in [false, true] {
                     let mut values = [initial, destination, Value::Integer(900)];
                     let mut pc = 5;
-                    crate::thread::LuaRegisters::with_test_frame(
+                    crate::thread::LuaRegisters::with_test_native_frame(
                         ctx,
                         &mut pc,
                         &mut values,
-                        |mut registers| {
+                        |mut registers, mut _list| {
                             let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
                                 ctx,
                                 closure,
                                 registers: &mut registers,

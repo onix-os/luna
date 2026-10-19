@@ -246,11 +246,11 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                     let results = [0, 1, 2, 3].map(|prepared| {
                         let mut canonical = std::vec![Value::Integer(73); snapshot.registers];
                         let mut pc = 0;
-                        let result = LuaRegisters::with_test_frame(
+                        let result = LuaRegisters::with_test_native_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let mut slots: std::vec::Vec<_> = registers
                                     .stack_frame
                                     .iter()
@@ -258,6 +258,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                     .map(abi::Slot::from_value)
                                     .collect();
                                 let mut frame = helpers::Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,

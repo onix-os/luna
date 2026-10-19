@@ -39,8 +39,9 @@ pub(super) fn check(entry: impl Fn(*mut Packed, &Bridge, bool, u64, u64) -> u32)
                         &mut values,
                         &mut fuel,
                         false,
-                        |mut registers| {
+                        |mut registers, mut _list| {
                             let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
                                 ctx,
                                 closure,
                                 registers: &mut registers,

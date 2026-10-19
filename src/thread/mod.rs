@@ -12,11 +12,15 @@
 pub(crate) mod activation;
 mod close;
 mod executor;
+#[cfg(feature = "jit")]
+mod native_list;
 #[cfg(all(test, feature = "jit"))]
 mod register_view_tests;
 mod thread;
 mod vm;
 
+#[cfg(feature = "jit")]
+pub(crate) use self::native_list::NativeList;
 #[cfg(feature = "jit")]
 pub(crate) use self::thread::LuaRegisters;
 #[cfg(all(test, feature = "jit"))]

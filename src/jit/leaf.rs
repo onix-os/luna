@@ -332,117 +332,129 @@ mod tests {
                     let mut canonical = vec![Value::Nil; code.registers];
                     canonical[0] = Value::Integer(2);
                     let mut pc = 0;
-                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                        let cell = registers.projection_open_at(ctx, 0);
-                        closure.set_upvalue(&ctx, usize::from(pattern.upvalue), cell);
-                        let mut scratch: Vec<_> = registers
-                            .stack_frame
-                            .iter()
-                            .copied()
-                            .map(abi::Slot::from_value)
-                            .collect();
-                        let binding = Binding::from_origin(
-                            registers.projection_origin(cell).unwrap(),
-                            &scratch,
-                        )
-                        .unwrap();
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: code.registers,
-                            panic: None,
-                            projection: None,
-                        };
-                        let (exit, delta) = binding
-                            .with_native(&mut scratch, |slots, view| {
-                                let mut host = abi::Host {
-                                    data: std::ptr::addr_of_mut!(frame).cast(),
-                                    projection: view.cast(),
-                                };
-                                unsafe { code.invoke_raw(slots, 0, budget, &mut host) }
-                            })
+                    LuaRegisters::with_test_native_frame(
+                        ctx,
+                        &mut pc,
+                        &mut canonical,
+                        |mut registers, mut _list| {
+                            let cell = registers.projection_open_at(ctx, 0);
+                            closure.set_upvalue(&ctx, usize::from(pattern.upvalue), cell);
+                            let mut scratch: Vec<_> = registers
+                                .stack_frame
+                                .iter()
+                                .copied()
+                                .map(abi::Slot::from_value)
+                                .collect();
+                            let binding = Binding::from_origin(
+                                registers.projection_origin(cell).unwrap(),
+                                &scratch,
+                            )
                             .unwrap();
-                        let completed = budget.min(3);
-                        assert_eq!(
-                            (exit.pc, exit.instructions),
-                            (u64::from(completed), completed)
-                        );
-                        assert_eq!(
-                            (delta.reads, delta.writes),
-                            (u32::from(budget >= 1), u32::from(budget >= 3))
-                        );
-                        assert_eq!((frame.count.calls, frame.count.completed), (0, 0));
-                        assert!(frame.panic.is_none());
-                        for (slot, value) in
-                            scratch.iter().zip(frame.registers.stack_frame.iter_mut())
-                        {
-                            slot.write_back(value);
-                        }
-                        delta.apply_upper(&mut []).unwrap();
-                        assert_eq!(scratch[0].bits, if budget >= 3 { 4 } else { 2 });
-                        if budget >= 1 {
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: helpers::Counts::default(),
+                                slot_count: code.registers,
+                                panic: None,
+                                projection: None,
+                            };
+                            let (exit, delta) = binding
+                                .with_native(&mut scratch, |slots, view| {
+                                    let mut host = abi::Host {
+                                        data: std::ptr::addr_of_mut!(frame).cast(),
+                                        projection: view.cast(),
+                                    };
+                                    unsafe { code.invoke_raw(slots, 0, budget, &mut host) }
+                                })
+                                .unwrap();
+                            let completed = budget.min(3);
                             assert_eq!(
-                                scratch[usize::from(pattern.read.0)].bits,
-                                if budget >= 2 { 4 } else { 2 }
+                                (exit.pc, exit.instructions),
+                                (u64::from(completed), completed)
                             );
-                        }
-                    });
+                            assert_eq!(
+                                (delta.reads, delta.writes),
+                                (u32::from(budget >= 1), u32::from(budget >= 3))
+                            );
+                            assert_eq!((frame.count.calls, frame.count.completed), (0, 0));
+                            assert!(frame.panic.is_none());
+                            for (slot, value) in
+                                scratch.iter().zip(frame.registers.stack_frame.iter_mut())
+                            {
+                                slot.write_back(value);
+                            }
+                            delta.apply_upper(&mut []).unwrap();
+                            assert_eq!(scratch[0].bits, if budget >= 3 { 4 } else { 2 });
+                            if budget >= 1 {
+                                assert_eq!(
+                                    scratch[usize::from(pattern.read.0)].bits,
+                                    if budget >= 2 { 4 } else { 2 }
+                                );
+                            }
+                        },
+                    );
                 }
                 let mut canonical = vec![Value::Nil; code.registers];
                 canonical[0] = Value::Integer(2);
                 let mut pc = 0;
-                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                    let cell = registers.projection_open_at(ctx, 0);
-                    closure.set_upvalue(&ctx, usize::from(pattern.upvalue), cell);
-                    let mut reads = 0;
-                    let mut writes = 0;
-                    for entry in 0..3 {
-                        let mut scratch: Vec<_> = registers
-                            .stack_frame
-                            .iter()
-                            .copied()
-                            .map(abi::Slot::from_value)
-                            .collect();
-                        let binding = Binding::from_origin(
-                            registers.projection_origin(cell).unwrap(),
-                            &scratch,
-                        )
-                        .unwrap();
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: code.registers,
-                            panic: None,
-                            projection: None,
-                        };
-                        let (exit, delta) = binding
-                            .with_native(&mut scratch, |slots, view| {
-                                let mut host = abi::Host {
-                                    data: std::ptr::addr_of_mut!(frame).cast(),
-                                    projection: view.cast(),
-                                };
-                                unsafe { code.invoke_raw(slots, entry, 1, &mut host) }
-                            })
+                LuaRegisters::with_test_native_frame(
+                    ctx,
+                    &mut pc,
+                    &mut canonical,
+                    |mut registers, mut _list| {
+                        let cell = registers.projection_open_at(ctx, 0);
+                        closure.set_upvalue(&ctx, usize::from(pattern.upvalue), cell);
+                        let mut reads = 0;
+                        let mut writes = 0;
+                        for entry in 0..3 {
+                            let mut scratch: Vec<_> = registers
+                                .stack_frame
+                                .iter()
+                                .copied()
+                                .map(abi::Slot::from_value)
+                                .collect();
+                            let binding = Binding::from_origin(
+                                registers.projection_origin(cell).unwrap(),
+                                &scratch,
+                            )
                             .unwrap();
-                        assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
-                        assert_eq!(frame.count.calls, 0);
-                        reads += delta.reads;
-                        writes += delta.writes;
-                        for (slot, value) in
-                            scratch.iter().zip(frame.registers.stack_frame.iter_mut())
-                        {
-                            slot.write_back(value);
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: helpers::Counts::default(),
+                                slot_count: code.registers,
+                                panic: None,
+                                projection: None,
+                            };
+                            let (exit, delta) = binding
+                                .with_native(&mut scratch, |slots, view| {
+                                    let mut host = abi::Host {
+                                        data: std::ptr::addr_of_mut!(frame).cast(),
+                                        projection: view.cast(),
+                                    };
+                                    unsafe { code.invoke_raw(slots, entry, 1, &mut host) }
+                                })
+                                .unwrap();
+                            assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
+                            assert_eq!(frame.count.calls, 0);
+                            reads += delta.reads;
+                            writes += delta.writes;
+                            for (slot, value) in
+                                scratch.iter().zip(frame.registers.stack_frame.iter_mut())
+                            {
+                                slot.write_back(value);
+                            }
+                            delta.apply_upper(&mut []).unwrap();
+                            *frame.registers.pc = exit.pc as usize;
                         }
-                        delta.apply_upper(&mut []).unwrap();
-                        *frame.registers.pc = exit.pc as usize;
-                    }
-                    assert_eq!((reads, writes), (1, 1));
-                    assert!(matches!(registers.stack_frame[0], Value::Integer(4)));
-                });
+                        assert_eq!((reads, writes), (1, 1));
+                        assert!(matches!(registers.stack_frame[0], Value::Integer(4)));
+                    },
+                );
                 drop(code);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(metadata_ledger.current(), 0);
@@ -868,38 +880,44 @@ mod tests {
             let mut pc = 0;
             let mut canonical = vec![Value::Nil; code.registers];
             canonical[0] = Value::Integer(2);
-            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                let mut scratch: Vec<_> = registers
-                    .stack_frame
-                    .iter()
-                    .copied()
-                    .map(abi::Slot::from_value)
-                    .collect();
-                let mut frame = helpers::Frame {
-                    ctx,
-                    closure,
-                    registers: &mut registers,
-                    count: helpers::Counts::default(),
-                    slot_count: code.registers,
-                    panic: None,
-                    projection: None,
-                };
-                let mut host = abi::Host {
-                    data: std::ptr::addr_of_mut!(frame).cast(),
-                    projection: std::ptr::null_mut(),
-                };
-                let exit = unsafe { code.invoke_host(&mut scratch, 0, 3, &mut host) };
-                assert_eq!((exit.pc, exit.instructions), (3, 3));
-                assert_eq!(
-                    (frame.count.upvalue_reads, frame.count.upvalue_writes),
-                    (1, 1)
-                );
-                assert!(frame.panic.is_none());
-                assert!(matches!(
-                    cell.get(),
-                    UpValueState::Closed(Value::Integer(9))
-                ));
-            });
+            LuaRegisters::with_test_native_frame(
+                ctx,
+                &mut pc,
+                &mut canonical,
+                |mut registers, mut _list| {
+                    let mut scratch: Vec<_> = registers
+                        .stack_frame
+                        .iter()
+                        .copied()
+                        .map(abi::Slot::from_value)
+                        .collect();
+                    let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: code.registers,
+                        panic: None,
+                        projection: None,
+                    };
+                    let mut host = abi::Host {
+                        data: std::ptr::addr_of_mut!(frame).cast(),
+                        projection: std::ptr::null_mut(),
+                    };
+                    let exit = unsafe { code.invoke_host(&mut scratch, 0, 3, &mut host) };
+                    assert_eq!((exit.pc, exit.instructions), (3, 3));
+                    assert_eq!(
+                        (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                        (1, 1)
+                    );
+                    assert!(frame.panic.is_none());
+                    assert!(matches!(
+                        cell.get(),
+                        UpValueState::Closed(Value::Integer(9))
+                    ));
+                },
+            );
         }
 
         #[test]
@@ -997,48 +1015,54 @@ mod tests {
                 let mut canonical = vec![Value::Nil; code.registers];
                 canonical[0] = Value::Integer(2);
                 let mut pc = 0;
-                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                    let mut scratch: Vec<_> = registers
-                        .stack_frame
-                        .iter()
-                        .copied()
-                        .map(abi::Slot::from_value)
-                        .collect();
-                    assert!(Binding::from_origin(
-                        registers.projection_origin(cell).unwrap(),
-                        &scratch
-                    )
-                    .is_none());
-                    let mut frame = helpers::Frame {
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: helpers::Counts::default(),
-                        slot_count: code.registers,
-                        panic: None,
-                        projection: None,
-                    };
-                    let mut host = abi::Host {
-                        data: std::ptr::addr_of_mut!(frame).cast(),
-                        projection: std::ptr::null_mut(),
-                    };
-                    let exit = unsafe { code.invoke_host(&mut scratch, 0, 64, &mut host) };
-                    assert_eq!((exit.pc, exit.instructions), (3, 3));
-                    assert_eq!(
-                        (
-                            frame.count.calls,
-                            frame.count.completed,
-                            frame.count.upvalue_reads,
-                            frame.count.upvalue_writes
-                        ),
-                        (2, 2, 1, 1)
-                    );
-                    assert!(frame.panic.is_none());
-                    assert!(matches!(
-                        cell.get(),
-                        UpValueState::Closed(Value::Integer(9))
-                    ));
-                });
+                LuaRegisters::with_test_native_frame(
+                    ctx,
+                    &mut pc,
+                    &mut canonical,
+                    |mut registers, mut _list| {
+                        let mut scratch: Vec<_> = registers
+                            .stack_frame
+                            .iter()
+                            .copied()
+                            .map(abi::Slot::from_value)
+                            .collect();
+                        assert!(Binding::from_origin(
+                            registers.projection_origin(cell).unwrap(),
+                            &scratch
+                        )
+                        .is_none());
+                        let mut frame = helpers::Frame {
+                            list: Some(_list.reborrow()),
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: helpers::Counts::default(),
+                            slot_count: code.registers,
+                            panic: None,
+                            projection: None,
+                        };
+                        let mut host = abi::Host {
+                            data: std::ptr::addr_of_mut!(frame).cast(),
+                            projection: std::ptr::null_mut(),
+                        };
+                        let exit = unsafe { code.invoke_host(&mut scratch, 0, 64, &mut host) };
+                        assert_eq!((exit.pc, exit.instructions), (3, 3));
+                        assert_eq!(
+                            (
+                                frame.count.calls,
+                                frame.count.completed,
+                                frame.count.upvalue_reads,
+                                frame.count.upvalue_writes
+                            ),
+                            (2, 2, 1, 1)
+                        );
+                        assert!(frame.panic.is_none());
+                        assert!(matches!(
+                            cell.get(),
+                            UpValueState::Closed(Value::Integer(9))
+                        ));
+                    },
+                );
                 drop(code);
                 assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
             });
@@ -1188,12 +1212,12 @@ mod tests {
                         };
                         canonical[1 + usize::from(pattern.result.0)] = value;
                         let mut pc = entry;
-                        LuaRegisters::projection_split_frame(
+                        LuaRegisters::projection_native_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
                             1,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let cell = registers.projection_open_at(ctx, 0);
                                 closure.set_upvalue(&ctx, 0, cell);
                                 let mut scratch: Vec<_> = registers
@@ -1208,6 +1232,7 @@ mod tests {
                                 )
                                 .unwrap();
                                 let mut frame = helpers::Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -1288,66 +1313,73 @@ mod tests {
                     let table = crate::Table::new(&ctx);
                     canonical[usize::from(pattern.result.0)] = Value::Table(table);
                     let mut pc = if corrupted { 0 } else { 2 };
-                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                        let cell = registers.projection_open_at(ctx, 0);
-                        closure.set_upvalue(&ctx, 0, cell);
-                        let mut scratch: Vec<_> = registers
-                            .stack_frame
-                            .iter()
-                            .copied()
-                            .map(abi::Slot::from_value)
-                            .collect();
-                        let binding = Binding::from_origin(
-                            registers.projection_origin(cell).unwrap(),
-                            &scratch,
-                        )
-                        .unwrap();
-                        let entry = *registers.pc;
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: code.registers,
-                            panic: None,
-                            projection: None,
-                        };
-                        let (exit, delta) = binding
-                            .with_native(&mut scratch, |slots, view| {
-                                if corrupted {
-                                    unsafe {
-                                        (*view).version ^= 1;
-                                    }
-                                }
-                                let mut host = abi::Host {
-                                    data: std::ptr::addr_of_mut!(frame).cast(),
-                                    projection: view.cast(),
-                                };
-                                let exit = unsafe { code.invoke_raw(slots, entry, 1, &mut host) };
-                                if corrupted {
-                                    unsafe {
-                                        (*view).version ^= 1;
-                                    }
-                                }
-                                exit
-                            })
+                    LuaRegisters::with_test_native_frame(
+                        ctx,
+                        &mut pc,
+                        &mut canonical,
+                        |mut registers, mut _list| {
+                            let cell = registers.projection_open_at(ctx, 0);
+                            closure.set_upvalue(&ctx, 0, cell);
+                            let mut scratch: Vec<_> = registers
+                                .stack_frame
+                                .iter()
+                                .copied()
+                                .map(abi::Slot::from_value)
+                                .collect();
+                            let binding = Binding::from_origin(
+                                registers.projection_origin(cell).unwrap(),
+                                &scratch,
+                            )
                             .unwrap();
-                        assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
-                        assert_eq!((delta.reads, delta.writes), (0, 0));
-                        assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
-                        assert!(frame.panic.is_none());
-                        if corrupted {
-                            assert_eq!(frame.count.upvalue_reads, 1);
-                            assert_eq!(scratch[usize::from(pattern.read.0)].bits, 7);
-                        } else {
-                            assert_eq!(frame.count.upvalue_writes, 1);
-                            assert!(
-                                matches!(frame.registers.stack_frame[0], Value::Table(actual) if actual == table)
-                            );
-                            assert_eq!(scratch[0].tag, abi::REFERENCE);
-                        }
-                        delta.apply_upper(&mut []).unwrap();
-                    });
+                            let entry = *registers.pc;
+                            let mut frame = helpers::Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: helpers::Counts::default(),
+                                slot_count: code.registers,
+                                panic: None,
+                                projection: None,
+                            };
+                            let (exit, delta) = binding
+                                .with_native(&mut scratch, |slots, view| {
+                                    if corrupted {
+                                        unsafe {
+                                            (*view).version ^= 1;
+                                        }
+                                    }
+                                    let mut host = abi::Host {
+                                        data: std::ptr::addr_of_mut!(frame).cast(),
+                                        projection: view.cast(),
+                                    };
+                                    let exit =
+                                        unsafe { code.invoke_raw(slots, entry, 1, &mut host) };
+                                    if corrupted {
+                                        unsafe {
+                                            (*view).version ^= 1;
+                                        }
+                                    }
+                                    exit
+                                })
+                                .unwrap();
+                            assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
+                            assert_eq!((delta.reads, delta.writes), (0, 0));
+                            assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
+                            assert!(frame.panic.is_none());
+                            if corrupted {
+                                assert_eq!(frame.count.upvalue_reads, 1);
+                                assert_eq!(scratch[usize::from(pattern.read.0)].bits, 7);
+                            } else {
+                                assert_eq!(frame.count.upvalue_writes, 1);
+                                assert!(
+                                    matches!(frame.registers.stack_frame[0], Value::Table(actual) if actual == table)
+                                );
+                                assert_eq!(scratch[0].tag, abi::REFERENCE);
+                            }
+                            delta.apply_upper(&mut []).unwrap();
+                        },
+                    );
                 }
                 drop(code);
                 assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
@@ -1385,12 +1417,12 @@ mod tests {
                             canonical[base] = Value::Integer(2);
                         }
                         let mut pc = 0;
-                        LuaRegisters::projection_split_frame(
+                        LuaRegisters::projection_native_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
                             base,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let cell = if mode == 2 {
                                     UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)))
                                 } else {
@@ -1404,6 +1436,7 @@ mod tests {
                                         ctx,
                                         closure,
                                         &mut registers,
+                                        Some(&mut _list),
                                         budget,
                                     );
                                     assert_eq!(
@@ -1467,16 +1500,23 @@ mod tests {
                 let table = crate::Table::new(&ctx);
                 canonical[1] = Value::Table(table);
                 let mut pc = 0;
-                LuaRegisters::projection_split_frame(
+                LuaRegisters::projection_native_frame(
                     ctx,
                     &mut pc,
                     &mut canonical,
                     1,
-                    |mut registers| {
+                    |mut registers, mut _list| {
                         let cell = registers.projection_open_at(ctx, 0);
                         closure.set_upvalue(&ctx, 0, cell);
                         assert_eq!(
-                            runtime.invoke::<256, false>(&code, ctx, closure, &mut registers, 64),
+                            runtime.invoke::<256, false>(
+                                &code,
+                                ctx,
+                                closure,
+                                &mut registers,
+                                Some(&mut _list),
+                                64
+                            ),
                             1
                         );
                         assert_eq!(*registers.pc, 1);
@@ -1701,12 +1741,12 @@ mod tests {
                 .unwrap();
             let mut canonical = [Value::Integer(7), Value::Integer(9)];
             let mut pc = 0;
-            crate::thread::LuaRegisters::projection_split_frame(
+            crate::thread::LuaRegisters::projection_native_frame(
                 ctx,
                 &mut pc,
                 &mut canonical,
                 1,
-                |mut registers| {
+                |mut registers, mut _list| {
                     delta.apply_registers(&mut registers).unwrap();
                     assert!(matches!(
                         registers.projection_read(true, 0),
@@ -1715,11 +1755,11 @@ mod tests {
                     assert!(matches!(registers.stack_frame[0], Value::Integer(9)));
                 },
             );
-            crate::thread::LuaRegisters::with_test_frame(
+            crate::thread::LuaRegisters::with_test_native_frame(
                 ctx,
                 &mut pc,
                 &mut canonical,
-                |mut registers| {
+                |mut registers, mut _list| {
                     assert_eq!(
                         delta.apply_registers(&mut registers),
                         Err(Error::TargetRange)

@@ -61,11 +61,11 @@ fn table_receivers_preserve_live_tags_and_canonical_identity() {
                             .unwrap();
                         let mut canonical = [value, Value::Integer(99), Value::Nil, Value::Nil];
                         let mut pc = 0;
-                        LuaRegisters::with_test_frame(
+                        LuaRegisters::with_test_native_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let cell = registers
                                     .open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
                                 closure.set_upvalue(&ctx, 0, cell);
@@ -79,6 +79,7 @@ fn table_receivers_preserve_live_tags_and_canonical_identity() {
                                     Slot::from_value(Value::Nil),
                                 ];
                                 let mut frame = Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -154,51 +155,58 @@ fn non_table_receivers_still_validate_all_operands_before_declining() {
             for bad_source in 0..3 {
                 let mut canonical = [Value::Nil, Value::Integer(99), Value::Nil];
                 let mut pc = 0;
-                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                    let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
-                    closure.set_upvalue(&ctx, 0, cell);
-                    let mut slots = [
-                        Slot::from_value(Value::Integer(1)),
-                        Slot::from_value(Value::Integer(7)),
-                        Slot::from_value(Value::Number(-0.0)),
-                    ];
-                    let mut frame = Frame {
-                        ctx,
-                        closure,
-                        registers: &mut registers,
-                        count: Counts::default(),
-                        slot_count: 3,
-                        panic: None,
-                        projection: None,
-                    };
-                    let result = match bad_source {
-                        0 => table_call(&mut frame, &mut slots, upvalue, false, 2, 0, 3),
-                        1 => table_call(&mut frame, &mut slots, upvalue, true, 0, 3, 2),
-                        _ => table_call(&mut frame, &mut slots, upvalue, true, 0, 1, 3),
-                    };
-                    assert_eq!(result, abi::HELPER_PANICKED);
-                    assert_eq!(*frame.registers.pc, 18);
-                    assert_identical(frame.registers.stack_frame[0], Value::Integer(1));
-                    assert_identical(frame.registers.stack_frame[1], Value::Integer(7));
-                    assert_identical(frame.registers.stack_frame[2], Value::Number(-0.0));
-                    assert_eq!(
-                        (
-                            frame.count.calls,
-                            frame.count.completed,
-                            frame.count.declined
-                        ),
-                        (1, 0, 0)
-                    );
-                    assert_eq!(
-                        (
-                            frame.count.table_reads,
-                            frame.count.table_writes,
-                            frame.count.upvalue_reads
-                        ),
-                        (0, 0, 0)
-                    );
-                    assert!(frame.panic.is_some());
-                });
+                LuaRegisters::with_test_native_frame(
+                    ctx,
+                    &mut pc,
+                    &mut canonical,
+                    |mut registers, mut _list| {
+                        let cell =
+                            registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                        closure.set_upvalue(&ctx, 0, cell);
+                        let mut slots = [
+                            Slot::from_value(Value::Integer(1)),
+                            Slot::from_value(Value::Integer(7)),
+                            Slot::from_value(Value::Number(-0.0)),
+                        ];
+                        let mut frame = Frame {
+                            list: Some(_list.reborrow()),
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: Counts::default(),
+                            slot_count: 3,
+                            panic: None,
+                            projection: None,
+                        };
+                        let result = match bad_source {
+                            0 => table_call(&mut frame, &mut slots, upvalue, false, 2, 0, 3),
+                            1 => table_call(&mut frame, &mut slots, upvalue, true, 0, 3, 2),
+                            _ => table_call(&mut frame, &mut slots, upvalue, true, 0, 1, 3),
+                        };
+                        assert_eq!(result, abi::HELPER_PANICKED);
+                        assert_eq!(*frame.registers.pc, 18);
+                        assert_identical(frame.registers.stack_frame[0], Value::Integer(1));
+                        assert_identical(frame.registers.stack_frame[1], Value::Integer(7));
+                        assert_identical(frame.registers.stack_frame[2], Value::Number(-0.0));
+                        assert_eq!(
+                            (
+                                frame.count.calls,
+                                frame.count.completed,
+                                frame.count.declined
+                            ),
+                            (1, 0, 0)
+                        );
+                        assert_eq!(
+                            (
+                                frame.count.table_reads,
+                                frame.count.table_writes,
+                                frame.count.upvalue_reads
+                            ),
+                            (0, 0, 0)
+                        );
+                        assert!(frame.panic.is_some());
+                    },
+                );
             }
         }
     });
@@ -247,11 +255,11 @@ fn table_sources_preserve_constants_pending_scalars_references_and_aliases() {
                             canonical[2] = value;
                         }
                         let mut pc = 0;
-                        LuaRegisters::with_test_frame(
+                        LuaRegisters::with_test_native_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let mut slots = [
                                     Slot::from_value(Value::Table(table)),
                                     Slot::from_value(key),
@@ -259,6 +267,7 @@ fn table_sources_preserve_constants_pending_scalars_references_and_aliases() {
                                     Slot::from_value(Value::Nil),
                                 ];
                                 let mut frame = Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -353,11 +362,11 @@ fn table_source_declines_preserve_slots_effects_and_counters() {
                         };
                         let mut canonical = [Value::Table(table), Value::Integer(99), Value::Nil];
                         let mut pc = 0;
-                        LuaRegisters::with_test_frame(
+                        LuaRegisters::with_test_native_frame(
                             ctx,
                             &mut pc,
                             &mut canonical,
-                            |mut registers| {
+                            |mut registers, mut _list| {
                                 let mut slots = [
                                     Slot::from_value(Value::Table(table)),
                                     Slot::from_value(Value::Integer(7)),
@@ -365,6 +374,7 @@ fn table_source_declines_preserve_slots_effects_and_counters() {
                                 ];
                                 let before = slots.map(|slot| (slot.tag, slot.bits));
                                 let mut frame = Frame {
+                                    list: Some(_list.reborrow()),
                                     ctx,
                                     closure,
                                     registers: &mut registers,
@@ -437,49 +447,61 @@ fn malformed_table_sources_preserve_bounds_panics_and_materialization() {
                             .unwrap();
                     let mut canonical = [Value::Table(table), Value::Integer(99), Value::Nil];
                     let mut pc = 0;
-                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                        let mut slots = [
-                            Slot::from_value(Value::Table(table)),
-                            Slot::from_value(Value::Integer(7)),
-                            Slot::from_value(Value::Number(-0.0)),
-                        ];
-                        let mut frame = Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: Counts::default(),
-                            slot_count: slots.len(),
-                            panic: None,
-                            projection: None,
-                        };
-                        let result = match bad_source {
-                            0 => table_call(&mut frame, &mut slots, upvalue, false, 2, 0, operand),
-                            1 => table_call(&mut frame, &mut slots, upvalue, true, 0, operand, 2),
-                            _ => table_call(&mut frame, &mut slots, upvalue, true, 0, 1, operand),
-                        };
-                        assert_eq!(result, abi::HELPER_PANICKED);
-                        assert_eq!(*frame.registers.pc, 18);
-                        assert_identical(frame.registers.stack_frame[1], Value::Integer(7));
-                        assert_identical(frame.registers.stack_frame[2], Value::Number(-0.0));
-                        assert!(table.get_raw(&ctx, Value::Integer(7)).is_nil());
-                        assert_eq!(
-                            (
-                                frame.count.calls,
-                                frame.count.completed,
-                                frame.count.declined
-                            ),
-                            (1, 0, 0)
-                        );
-                        assert_eq!(
-                            (
-                                frame.count.table_reads,
-                                frame.count.table_writes,
-                                frame.count.upvalue_reads
-                            ),
-                            (0, 0, 0)
-                        );
-                        assert!(frame.panic.is_some());
-                    });
+                    LuaRegisters::with_test_native_frame(
+                        ctx,
+                        &mut pc,
+                        &mut canonical,
+                        |mut registers, mut _list| {
+                            let mut slots = [
+                                Slot::from_value(Value::Table(table)),
+                                Slot::from_value(Value::Integer(7)),
+                                Slot::from_value(Value::Number(-0.0)),
+                            ];
+                            let mut frame = Frame {
+                                list: Some(_list.reborrow()),
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: Counts::default(),
+                                slot_count: slots.len(),
+                                panic: None,
+                                projection: None,
+                            };
+                            let result = match bad_source {
+                                0 => table_call(
+                                    &mut frame, &mut slots, upvalue, false, 2, 0, operand,
+                                ),
+                                1 => {
+                                    table_call(&mut frame, &mut slots, upvalue, true, 0, operand, 2)
+                                }
+                                _ => {
+                                    table_call(&mut frame, &mut slots, upvalue, true, 0, 1, operand)
+                                }
+                            };
+                            assert_eq!(result, abi::HELPER_PANICKED);
+                            assert_eq!(*frame.registers.pc, 18);
+                            assert_identical(frame.registers.stack_frame[1], Value::Integer(7));
+                            assert_identical(frame.registers.stack_frame[2], Value::Number(-0.0));
+                            assert!(table.get_raw(&ctx, Value::Integer(7)).is_nil());
+                            assert_eq!(
+                                (
+                                    frame.count.calls,
+                                    frame.count.completed,
+                                    frame.count.declined
+                                ),
+                                (1, 0, 0)
+                            );
+                            assert_eq!(
+                                (
+                                    frame.count.table_reads,
+                                    frame.count.table_writes,
+                                    frame.count.upvalue_reads
+                                ),
+                                (0, 0, 0)
+                            );
+                            assert!(frame.panic.is_some());
+                        },
+                    );
                 }
             }
         }

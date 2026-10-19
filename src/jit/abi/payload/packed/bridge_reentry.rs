@@ -33,12 +33,13 @@ fn check(mut entry: impl FnMut(*mut Packed, *mut (), Helper, [u32; 4]) -> u32) {
         for case in 0..4 {
             let mut values = [Value::Integer(17), Value::Nil, Value::Integer(73)];
             let mut pc = 5;
-            crate::thread::LuaRegisters::with_test_frame(
+            crate::thread::LuaRegisters::with_test_native_frame(
                 ctx,
                 &mut pc,
                 &mut values,
-                |mut registers| {
+                |mut registers, mut _list| {
                     let mut frame = helpers::Frame {
+                        list: Some(_list.reborrow()),
                         ctx,
                         closure,
                         registers: &mut registers,
