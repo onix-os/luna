@@ -98,12 +98,21 @@ equal full non-timing records and passing identity fixtures. Speed totals are
 The new candidate's full Force suite passes **2,044 executions / 91 summaries**,
 zero failures and **23 ignored**. Fresh-target Miri runs pass **five prepared-key
 and 13 helper tests per borrow model**, with 40 warnings per invocation retained.
-Real i686 passes **five prepared-key, 13 helper and two fallback tests in each
-of the default/all-feature configurations**. These are Rust-helper/fallback
+Real i686 passes **five prepared-key and 13 helper tests**, plus **two fallback
+tests in each of the default/all-feature configurations**. These are Rust-helper/fallback
 checks, not native execution on Miri/i686 or full platform certification.
-Two complete 201-native-sample elapsed campaigns are now running sequentially
-after all validation finishes, retaining all original cases, controls and gates.
-There is still no elapsed-performance acceptance or runtime promotion. Evidence root:
+Both 201-native-sample elapsed campaigns now finish with terminal-zero pipeline
+and audit statuses: **288 commands / 520,992 native executions / 570,240 cost
+iterations**, retaining all original cases, controls and gates. Audit success
+does not mean performance acceptance. CPU0 shipping callback control/trial
+ratios improve **1.024950 / 1.026672**, but shipping compiled-Off integer falls
+to **0.906449 / 0.903463** and float to **0.868049 / 0.867015**. Corresponding
+median A/B ratios stay between **0.997249 and 1.003506**. These repeated
+contended observations imply approximately **10–11% / 15% longer elapsed time**
+for integer/float respectively; they do not establish the hardware cause.
+Reject this specialization rather than trading disabled-mode regressions for
+callback gains. Main runtime remains unchanged; the independently useful
+reference-valued environment tests remain committed. Evidence root:
 `target/jit-evidence/hook-resume-recovery/helper-prepared-table/`.
 
 No runtime promotion or full performance/platform/resource/release acceptance
