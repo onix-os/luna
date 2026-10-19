@@ -476,6 +476,70 @@ mod stats_tests {
     }
 
     #[test]
+    fn nested_interpreter_guards_publish_to_shared_current_stats() {
+        for initial in [0, u64::MAX - 2, u64::MAX] {
+            for unwind in [false, true] {
+                let runtime = Runtime::new();
+                let shared = runtime.clone();
+                let before = JitStats {
+                    total_dispatches: initial,
+                    interpreted_slices: initial,
+                    interpreted_instructions: initial,
+                    guard_exits: 11,
+                    ..Default::default()
+                };
+                let mut manager = shared.0.borrow_mut();
+                let mut outer = runtime.interpreter_stats();
+                manager.stats = before;
+                drop(manager);
+                outer.dispatches = 3;
+                outer.reported_instructions = Some(2);
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut inner = shared.interpreter_stats();
+                    inner.dispatches = 5;
+                    shared.0.borrow_mut().stats.compilation_requests = 7;
+                    assert_eq!(runtime.0.borrow().stats.total_dispatches, initial);
+                    if unwind {
+                        std::panic::panic_any(19u32);
+                    }
+                    inner.reported_instructions = Some(4);
+                }));
+                assert_eq!(result.is_err(), unwind);
+                if let Err(payload) = result {
+                    assert_eq!(*payload.downcast::<u32>().unwrap(), 19);
+                }
+                let mut expected = before;
+                expected.compilation_requests = 7;
+                expected.total_dispatches = initial.saturating_add(5);
+                if !unwind {
+                    expected.interpreted_slices = initial.saturating_add(1);
+                    expected.interpreted_instructions = initial.saturating_add(4);
+                }
+                assert_eq!(runtime.0.borrow().stats, expected);
+                drop(outer);
+                expected.total_dispatches = initial.saturating_add(8);
+                expected.interpreted_slices = expected.interpreted_slices.saturating_add(1);
+                expected.interpreted_instructions =
+                    expected.interpreted_instructions.saturating_add(2);
+                assert_eq!(shared.0.borrow().stats, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn interpreter_guard_checks_manager_borrow_at_publication() {
+        let runtime = Runtime::new();
+        let mut slice = runtime.interpreter_stats();
+        slice.dispatches = 3;
+        slice.reported_instructions = Some(2);
+        let manager = runtime.0.borrow();
+        let before = manager.stats;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(slice)));
+        assert!(result.is_err());
+        assert_eq!(manager.stats, before);
+    }
+
+    #[test]
     fn mixed_dispatches_preserve_native_totals_and_successful_reports() {
         for initial in [0, u64::MAX - 1, u64::MAX] {
             for native in [0, 1, 3, 64] {
