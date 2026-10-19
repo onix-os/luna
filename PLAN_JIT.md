@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Phase-reused VM progress — integration under validation, 2026-10-19
+### Phase-reused VM progress — independent model, 2026-10-19
 
 The historical unified-progress trial is not being replayed: it nested the
 original interpreter publisher in a larger wrapper with a second destructor.
@@ -27,19 +27,11 @@ terminal adjustments, native prefixes, rollback, typed unwinding, held-manager
 refusal and full-width counters. State transitions compute their results before
 mutating fields, preserving unwinding publication if a checked build traps.
 
-The original runtime remains active during the initial test-only model. Model plus
+The original runtime remains active while this module is test-only. Model plus
 existing statistics/native/heap checks pass **55 checks / six summaries**, zero
 failures/ignored checks; the refined model passes **four / one summary**. VM
 integration, hook/slice/error parity and actual work/elapsed measurement remain
-pending at that checkpoint. The integrated VM now uses this guard's dispatch
-field as its single loop-progress counter. Native increments remain partitioned;
-terminal, yielded-hook and provisional rollback exits retain their original
-reported counts. The existing guard remains unchanged for other publishers.
-Formatting/check-all and **61 focused checks / ten summaries** pass, zero
-failures/ignored checks, including public dispatch totals, native/heap behavior,
-hook resumption and callback-visible fuel/state. This is focused correctness,
-not full Force, Miri, platform or performance acceptance. All original
-performance/resource/platform/release requirements stay
+pending. All original performance/resource/platform/release requirements stay
 open. Work stays on `feat/native-jit`, without new branches or worktrees.
 Evidence: `target/jit-evidence/hook-resume-recovery/phase-progress/`.
 
