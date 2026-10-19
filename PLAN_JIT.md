@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Phase-reused VM progress — independent model, 2026-10-19
+### Phase-reused VM progress — measured and rejected, 2026-10-19
 
 The historical unified-progress trial is not being replayed: it nested the
 original interpreter publisher in a larger wrapper with a second destructor.
@@ -27,11 +27,13 @@ terminal adjustments, native prefixes, rollback, typed unwinding, held-manager
 refusal and full-width counters. State transitions compute their results before
 mutating fields, preserving unwinding publication if a checked build traps.
 
-The original runtime remains active while this module is test-only. Model plus
+The original runtime was active during the initial test-only model. Model plus
 existing statistics/native/heap checks pass **55 checks / six summaries**, zero
-failures/ignored checks; the refined model passes **four / one summary**. VM
-integration, hook/slice/error parity and actual work/elapsed measurement remain
-pending. All original performance/resource/platform/release requirements stay
+failures/ignored checks; the refined model passes **four / one summary**. Integration
+`bd4064f` uses the guard's dispatch field as the loop-progress counter, preserving
+terminal adjustments and provisional rollback without changing break scopes.
+Formatting/check-all and **61 focused checks / ten summaries** pass with zero
+failures/ignored checks. All original performance/resource/platform/release requirements stay
 open. Work stays on `feat/native-jit`, without new branches or worktrees.
 Evidence: `target/jit-evidence/hook-resume-recovery/phase-progress/`.
 
@@ -55,9 +57,36 @@ shipping. Compiled-Off float counts fall **4,015,310 → 3,936,535** and
 **9,438,782 → 9,448,784** in speed and **11,684,260 → 11,754,274** in shipping.
 The callback cost is retained, not hidden behind the interpreter saving. These
 are modeled instruction counts, not a measured speedup or original-gate pass.
-Full Force, configured Miri borrow-model runs, real i686 fallback and both
-original all-nine-case elapsed screens are running sequentially. No owned
-tests/builds/profilers overlap elapsed timing; all acceptance requirements remain.
+Full Force validation passes **2,048 executions / 91 summaries**, zero failures
+and **23 ignored**. Configured Stacked/Tree Miri each pass **19 checks / six
+summaries**, real i686-musl **25 / eight**, zero failures/ignored checks. All four
+named phase-model fixtures execute in each Rust-only lane. These checks do not
+establish native execution under Miri/i686 or full platform acceptance.
+
+Both original elapsed campaigns finish **288 commands / 28,512 native executions /
+570,240 cost iterations**, preserving all nine cases, CPU0/16, speed/shipping,
+six rotated A/candidate/B rounds and original gates. Complete printed native
+counter/resource records match, source/image/tool witnesses verify, and each
+audit accepts two valid fixtures and rejects all 13 corruption cases. No owned
+build/test/profiler overlaps timing. All contention/outliers remain recorded;
+terminal-zero capture statuses are not passing performance gates.
+
+Reject the integration. CPU0 shipping compiled-Off integer control/candidate
+ratios are **0.892655 / 0.890417**, float **0.856934 / 0.859078**, approximately
+**12% / 16–17% longer elapsed time**. Corresponding median A/B controls remain
+near one; float loses five of six rounds in each campaign. CPU16 speed integer
+also loses all twelve rounds (**0.958640 / 0.958301**). CPU0 speed float improves
+**1.036474 / 1.032563**, and shipping callbacks **1.031023 / 1.031229**, but these
+do not compensate for disabled-mode regressions. Speed callbacks do not show
+a consistent improvement on CPU16 (**1.001333 / 0.988613**). Candidate scored
+speed-native failures are **14 then 12 / 96**, cost **56 then 86 / 216**.
+
+Rollback `de7bb40` restores all production/test/build inputs exactly to `0f09818`;
+only the independent, test-gated model remains. The reverted runtime is pushed
+on the existing `feat/native-jit` branch. Fresh focused checks and six-image exact
+restoration verification are running after the terminal timing campaigns. No
+new branch/worktree, performance claim, gate waiver or full-plan completion is
+introduced.
 
 ### Native slot-conversion call boundary — measured and rejected, 2026-10-19
 
