@@ -9,6 +9,40 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Independent interpreter-counter publication — isolated trial, 2026-10-19
+
+Unlike the rejected direct statistics-cell-reference trial, `fd4071a` removes
+the manager borrow from interpreter-guard publication. Three `Cell<u64>` counters
+live in the existing charged runtime owner, separately from the cache/configuration
+`RefCell`. Each guard still publishes at its original Drop boundary; no frame,
+callback, error or suspension boundary is batched away. Public snapshots merge
+these counters with manager-owned native/pair counts using saturating addition.
+There is no extra allocation, unsafe code, retained GC pointer or cached mode.
+
+The owner grows **24 bytes**, explicitly included in `HeaderCharge` and checked
+against the previous owner layout. No zero-cost resource claim is made. Two
+independent counter models (`7ad6fca`) cover interleaved updates, saturation and
+non-consuming snapshots; the unchanged-runtime baseline passes **53 checks /
+six summaries**. The activated candidate passes **110 checks / 17 summaries**,
+zero ignored, including public dispatch, native/heap, nested guards, typed panic
+unwinding, callback observations, owner quotas and reclamation.
+
+One private behavior deliberately changes with the storage separation: publishing
+interpreter counts no longer conflicts with a borrowed cache/config manager.
+The old panic assertion is replaced by exact publication and unchanged manager
+storage checks under both shared and mutable manager borrows. Public snapshot
+borrowing and all counter/value assertions remain. Test-only resets clear both
+stores; internal trace readers now observe the merged snapshot. This is not an
+unchecked bypass of a borrow on the same storage.
+
+The isolated branch is `trial/jit-interpreter-counter-root`; main runtime is
+unchanged. Full Force validation is running before six exact production builds
+and whole-workload instruction profiling. A helper disappearing or moving work
+to snapshot construction will not establish a speedup. Fresh Miri/fallback,
+original elapsed/compiled-Off gates and full resource/platform/release acceptance
+remain open. Evidence:
+`target/jit-evidence/hook-resume-recovery/interpreter-counter-root/`.
+
 ### Common Lua-state prefix — measured and rejected, 2026-10-19
 
 The completed long prepared-table campaigns' unchanged-control observations
