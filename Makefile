@@ -179,6 +179,28 @@ jit-inline-loop-native:
 jit-inline-loop-bridge:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
+.PHONY: jit-hashless-read jit-hashless-read-miri
+.PHONY: jit-canonical-compiler-resources
+jit-canonical-compiler-resources:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::hashless_tests::native_canonical_reads_reduce_real_workload_snapshot_peaks -- --exact --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
+.PHONY: jit-canonical-workspace jit-canonical-workspace-miri
+jit-canonical-workspace:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::tags::workspace_accounting::canonical_read_constant_reduction_bounds_verifier_workspace -- --exact | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
+jit-canonical-workspace-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::tags::workspace_accounting::canonical_read_constant_reduction_bounds_verifier_workspace -- --exact --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
+jit-hashless-read:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::hashless_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_bytes::tests
+
+jit-hashless-read-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::hashless_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::code_read_hint_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_bytes::tests -- --test-threads=1
+
 jit-prepared-keys:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests | awk '/^test result: ok[.] 9 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
@@ -519,6 +541,7 @@ jit-disassembly:
 	@set -e; case "$$(uname -m)" in x86_64) machine='i386:x86-64';; aarch64) machine=aarch64;; esac; \
 	for fixture in scalar table callback callback_direction; do \
 		grep -Fxq "arch=$$(uname -m)" '$(JIT_DUMP_DIR)'/$$fixture.metadata; \
+		grep -Eq '^helper=canonical_get_up_table_c3 address=0x[[:xdigit:]]+$$' '$(JIT_DUMP_DIR)'/$$fixture.metadata; \
 		address=$$(sed -n 's/^entry_address=//p' '$(JIT_DUMP_DIR)'/$$fixture.metadata); \
 		test -n "$$address"; test -s '$(JIT_DUMP_DIR)'/$$fixture.bin; \
 		objdump -D -b binary -m "$$machine" --adjust-vma="$$address" '$(JIT_DUMP_DIR)'/$$fixture.bin > '$(JIT_DUMP_DIR)'/$$fixture.asm; \

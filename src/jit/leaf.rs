@@ -353,6 +353,7 @@ mod tests {
                             count: helpers::Counts::default(),
                             slot_count: code.registers,
                             panic: None,
+                            read_hints: None,
                             projection: None,
                         };
                         let (exit, delta) = binding
@@ -417,6 +418,7 @@ mod tests {
                             count: helpers::Counts::default(),
                             slot_count: code.registers,
                             panic: None,
+                            read_hints: None,
                             projection: None,
                         };
                         let (exit, delta) = binding
@@ -882,6 +884,7 @@ mod tests {
                     count: helpers::Counts::default(),
                     slot_count: code.registers,
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 let mut host = abi::Host {
@@ -1016,6 +1019,7 @@ mod tests {
                         count: helpers::Counts::default(),
                         slot_count: code.registers,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     let mut host = abi::Host {
@@ -1214,6 +1218,7 @@ mod tests {
                                     count: helpers::Counts::default(),
                                     slot_count: code.registers,
                                     panic: None,
+                                    read_hints: None,
                                     projection: None,
                                 };
                                 let before = frame.registers.projection_read(true, 0).unwrap();
@@ -1310,6 +1315,7 @@ mod tests {
                             count: helpers::Counts::default(),
                             slot_count: code.registers,
                             panic: None,
+                            read_hints: None,
                             projection: None,
                         };
                         let (exit, delta) = binding

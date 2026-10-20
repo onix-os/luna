@@ -108,7 +108,7 @@ fn complete_native_loop_slices_match_the_existing_backend_at_every_pc_and_budget
                             assert!(exit.pc >= plan.start as u64 && exit.pc <= plan.end as u64 + 1);
                             let mut frame_pc = pc;
                             LuaRegisters::with_test_frame(ctx, &mut frame_pc, &mut canonical, |mut registers| {
-                                let mut frame = helpers::Frame { ctx, closure, registers: &mut registers, count: helpers::Counts::default(), slot_count: source.registers, panic: None, projection: None };
+                                let mut frame = helpers::Frame { ctx, closure, registers: &mut registers, count: helpers::Counts::default(), slot_count: source.registers, panic: None, projection: None, read_hints: None };
                                 let mut host = abi::Host { data: (&mut frame as *mut helpers::Frame<'_, '_, '_, '_>).cast(), projection: std::ptr::null_mut() };
                                 let expected = unsafe { generic.invoke_host(&mut control_slots, pc, exit.instructions, &mut host) };
                                 assert_eq!((exit.pc, exit.instructions), (expected.pc, expected.instructions), "{text} pc={pc} budget={budget} control={index}/{limit}/{step}");
@@ -215,7 +215,7 @@ fn frozen_array_script_resumes_generic_native_code_without_losing_slice_coverage
                     let mut slots = vec![Slot::from_value(Value::Nil); source.registers];
                     let mut pc = 0;
                     LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
-                        let mut frame = helpers::Frame { ctx, closure, registers: &mut registers, count: helpers::Counts::default(), slot_count: source.registers, panic: None, projection: None };
+                        let mut frame = helpers::Frame { ctx, closure, registers: &mut registers, count: helpers::Counts::default(), slot_count: source.registers, panic: None, projection: None, read_hints: None };
                         let mut slices = Vec::new();
                         let mut direct = (0u64, 0u64);
                         loop {

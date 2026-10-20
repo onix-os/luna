@@ -113,6 +113,19 @@ impl<'gc> Table<'gc> {
             .get_prepared_string(&ctx, key, hash)
     }
 
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_canonical_string(
+        self,
+        ctx: Context<'gc>,
+        key: crate::String<'gc>,
+        hint: Option<crate::jit::entry_bytes::Hint<'_>>,
+    ) -> Value<'gc> {
+        self.0
+            .borrow()
+            .raw_table
+            .get_canonical_string(&ctx, key, hint)
+    }
+
     /// A convenience method over [`Table::set`] for setting a string field of a table.
     ///
     /// It behaves exactly the same as [`Table::set`], except since this only accepts string keys,

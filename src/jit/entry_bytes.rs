@@ -66,6 +66,7 @@ impl EntryBytes {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn set(&mut self, pc: usize, enabled: bool) {
         assert!(pc < self.len());
         let byte = self.bytes[pc].get_mut();
@@ -76,6 +77,7 @@ impl EntryBytes {
         self.bytes.get(pc).map(Hint)
     }
 
+    #[cfg(test)]
     pub(super) fn retain_only(&mut self, pc: usize) {
         let enabled = self.get(pc).copied().unwrap_or(false);
         for byte in &mut self.bytes {
@@ -90,10 +92,12 @@ impl EntryBytes {
         (0..self.len()).map(|pc| self.get(pc).unwrap())
     }
 
+    #[cfg(test)]
     pub(super) fn capacity(&self) -> usize {
         self.bytes.capacity()
     }
 
+    #[cfg(test)]
     pub(super) fn allocator(&self) -> &BudgetAllocator {
         self.bytes.allocator()
     }

@@ -227,6 +227,46 @@ impl<'gc> RawTable<'gc> {
             .map_or(Value::Nil, |(_, slot)| slot.0.get(mc))
     }
 
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_canonical_string(
+        &self,
+        mc: &Mutation<'gc>,
+        key: String<'gc>,
+        hint: Option<crate::jit::entry_bytes::Hint<'_>>,
+    ) -> Value<'gc> {
+        let raw = self.map.raw_table();
+        if let Some(index) = hint.and_then(|hint| hint.load()) {
+            if index < raw.buckets() && unsafe { raw.is_bucket_full(index) } {
+                // The occupied bucket belongs to this immutably borrowed table.
+                let bucket = unsafe { raw.bucket(index).as_ref() };
+                let stored = match bucket.0 {
+                    Key::Live(CanonicalKey::String(stored))
+                    | Key::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(stored)), _) => {
+                        Some(stored)
+                    }
+                    _ => None,
+                };
+                if stored.is_some_and(|stored| Gc::ptr_eq(stored.into_inner(), key.into_inner())) {
+                    return bucket.1 .0.get(mc);
+                }
+            }
+        }
+        let hash = PreparedStringHash::new(key).bits();
+        if let Some(bucket) = raw.find(hash, |(stored, _)| stored.eq_string(key)) {
+            if let Some(hint) = hint {
+                // The successful lookup identifies a bucket in the current table.
+                hint.remember(Some(unsafe { raw.bucket_index(&bucket) }));
+            }
+            // The found bucket remains live under the immutable table borrow.
+            unsafe { bucket.as_ref().1 .0.get(mc) }
+        } else {
+            if let Some(hint) = hint {
+                hint.remember(None);
+            }
+            Value::Nil
+        }
+    }
+
     /// Hold this key the way this table holds keys.
     fn wrap_key(&self, key: CanonicalKey<'gc>, hash: u64) -> Key<'gc> {
         if self.weak_keys {

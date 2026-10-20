@@ -108,6 +108,7 @@ fn observe<'gc, const KIND: u32>(
                 count: Counts::default(),
                 slot_count: count,
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             if boundary != 0 && !direct && frame.slot_count > 1 {

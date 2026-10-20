@@ -8,28 +8,7 @@ fn cached<'gc>(
     key: String<'gc>,
     hint: &AtomicU8,
 ) -> Value<'gc> {
-    let hint = Hint::new(hint);
-    let raw = table.map.raw_table();
-    if let Some(index) = hint.load() {
-        if index < raw.buckets() && unsafe { raw.is_bucket_full(index) } {
-            // The live bucket belongs to the borrowed current table.
-            let bucket = unsafe { raw.bucket(index).as_ref() };
-            if bucket.0.eq_string(key) {
-                return bucket.1 .0.get(mc);
-            }
-        }
-    }
-    let hash = PreparedStringHash::new(key).bits();
-    if let Some(bucket) = raw.find(hash, |(stored, _)| stored.eq_string(key)) {
-        // The index is derived from this table's successful canonical lookup.
-        let index = unsafe { raw.bucket_index(&bucket) };
-        hint.remember(Some(index));
-        // The found bucket remains live under the current immutable borrow.
-        unsafe { bucket.as_ref().1 .0.get(mc) }
-    } else {
-        hint.remember(None);
-        Value::Nil
-    }
+    table.get_canonical_string(mc, key, Some(Hint::new(hint)))
 }
 
 fn same<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
@@ -196,4 +175,45 @@ fn code_hint_can_cross_arenas_without_retaining_gc_provenance() {
             same(cached(&table, &ctx, key, &hint), Value::Integer(state));
         });
     }
+}
+
+#[test]
+fn canonical_reads_without_hints_match_long_keys_and_large_maps() {
+    crate::Lua::empty().enter(|ctx| {
+        for count in [0, 128, 300] {
+            for length in [1, 257, 4096] {
+                let mut table = RawTable::new(&ctx);
+                for i in 0..count {
+                    table
+                        .set(
+                            &ctx,
+                            ctx.intern(format!("filler-{i}").as_bytes()).into(),
+                            Value::Integer(i),
+                        )
+                        .unwrap();
+                }
+                let key = String::from_buffer(&ctx, std::vec![b'x'; length].into_boxed_slice());
+                let equal = String::from_buffer(&ctx, std::vec![b'x'; length].into_boxed_slice());
+                let hint = AtomicU8::new(255);
+                for value in [
+                    Value::Nil,
+                    Value::Integer(-91),
+                    Value::Integer(42),
+                    Value::Nil,
+                ] {
+                    table.set(&ctx, key.into(), value).unwrap();
+                    for query in [key, equal] {
+                        same(
+                            table.get_canonical_string(&ctx, query, None),
+                            table.get(&ctx, query.into()),
+                        );
+                        same(
+                            cached(&table, &ctx, query, &hint),
+                            table.get(&ctx, query.into()),
+                        );
+                    }
+                }
+            }
+        }
+    });
 }

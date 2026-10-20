@@ -230,7 +230,7 @@ pub(super) struct Code {
     pub(super) preferred_entry: bool,
     pub(super) relocations: usize,
     pub registers: usize,
-    pub entries: BudgetVec<bool, BudgetAllocator>,
+    pub entries: super::entry_bytes::EntryBytes,
     pub projected_upvalues: bool,
     #[cfg(test)]
     pub continuations: Option<super::continuations::Continuations>,
@@ -429,6 +429,8 @@ pub(super) enum Failure {
     CompactIntegerPairs,
     BranchLoopDirection,
     WidePrepared(Option<super::helper_flow::Fault>),
+    HashlessFlow(Option<super::helper_flow::Fault>),
+    LegacyPreparedRead,
     RequireWriteback,
     RequireIntegerLoop,
     ProbeIntegerLoop,
@@ -955,11 +957,12 @@ fn compile_selected_rooted(
         .try_reserve_exact(snapshot.operations.len())
         .map_err(|_| JitError::ResourceLimit("frontend block map"))?;
     let mut paths = super::entry_flow::Paths::new(snapshot)?;
-    let mut entries = BudgetVec::new_in(metadata.clone());
-    entries
-        .try_reserve_exact(snapshot.operations.len())
-        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-    entries.extend(graph.nodes.iter().map(|node| node.lowering.native()));
+    let entries = super::entry_bytes::EntryBytes::try_new(
+        graph.nodes.iter().map(|node| node.lowering.native()),
+        metadata.clone(),
+    )?;
+    #[cfg(test)]
+    let mut entries = entries;
     let status = MemoryStatus::try_new(metadata.clone())?;
     #[cfg(test)]
     if failure == Failure::DetectHostSetup {
@@ -1012,6 +1015,8 @@ fn compile_selected_rooted(
                 failure,
                 Failure::CorruptHelperFlow(_)
                     | Failure::WidePrepared(_)
+                    | Failure::HashlessFlow(_)
+                    | Failure::LegacyPreparedRead
                     | Failure::RequireStrided
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
@@ -1029,6 +1034,13 @@ fn compile_selected_rooted(
     let wide_prepared = matches!(failure, Failure::WidePrepared(_));
     #[cfg(not(test))]
     let wide_prepared = false;
+    let canonical_read = prepare_keys && !wide_prepared;
+    #[cfg(test)]
+    let canonical_read = canonical_read
+        && !matches!(
+            failure,
+            Failure::CorruptHelperFlow(_) | Failure::RequireStrided | Failure::LegacyPreparedRead
+        );
     if wide_prepared && !prepare_keys {
         return Err(JitError::Compilation(
             "wide prepared helper unavailable".into(),
@@ -1041,7 +1053,9 @@ fn compile_selected_rooted(
             .unwrap();
         *symbol = (
             abi::HELPER_GET_UP_TABLE,
-            if wide_prepared {
+            if canonical_read {
+                "luna_get_up_table_c3"
+            } else if wide_prepared {
                 "luna_get_up_table_h2"
             } else {
                 "luna_get_up_table_h1"
@@ -1049,6 +1063,7 @@ fn compile_selected_rooted(
             helpers::PREHASHED_ENTRY,
         );
         stores.helper_calls.prepared_keys = true;
+        stores.helper_calls.canonical_read = canonical_read;
         #[cfg(test)]
         {
             stores.helper_calls.wide_prepared = wide_prepared;
@@ -1080,6 +1095,11 @@ fn compile_selected_rooted(
     for (kind, name, entry) in helper_symbols {
         let _ = kind;
         let address = entry as *const u8;
+        let address = if canonical_read && kind == abi::HELPER_GET_UP_TABLE {
+            helpers::call_hashless as *const u8
+        } else {
+            address
+        };
         #[cfg(test)]
         let address = if wide_prepared && kind == abi::HELPER_GET_UP_TABLE {
             helpers::wide::direct as *const u8
@@ -1216,7 +1236,12 @@ fn compile_selected_rooted(
     };
     let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
         let (kind, name, _) = helper_symbols[index];
-        module
+        let canonical = canonical_read && kind == abi::HELPER_GET_UP_TABLE;
+        if canonical {
+            helper_signature.params.truncate(3);
+            helper_signature.params[2] = AbiParam::new(types::I64);
+        }
+        let declared = module
             .declare_function(
                 name,
                 Linkage::Import,
@@ -1226,7 +1251,14 @@ fn compile_selected_rooted(
                     &helper_signature
                 },
             )
-            .map(|id| (kind, id))
+            .map(|id| (kind, id));
+        if canonical {
+            helper_signature.params.clear();
+            helper_signature
+                .params
+                .extend(helper_types.map(AbiParam::new));
+        }
+        declared
     })
     .map_err(fail)?;
     let projection_ids = super::arrays::try_array::<_, _, 2>(|index| {
@@ -1477,7 +1509,10 @@ fn compile_selected_rooted(
     )?;
     stores.verify_transfers(&context.func, parameters[0], snapshot, &blocks, fallback)?;
     #[cfg(test)]
-    if let Failure::CorruptHelperFlow(fault) | Failure::WidePrepared(Some(fault)) = failure {
+    if let Failure::CorruptHelperFlow(fault)
+    | Failure::WidePrepared(Some(fault))
+    | Failure::HashlessFlow(Some(fault)) = failure
+    {
         stores
             .helper_calls
             .corrupt(&mut context.func, fault, &helper_refs);
@@ -1885,9 +1920,7 @@ fn compile_selected_rooted(
                 .sum(),
             context.func.layout.blocks().count(),
         )?;
-        for (index, entry) in entries.iter_mut().enumerate() {
-            *entry &= index == pc as usize;
-        }
+        entries.retain_only(pc as usize);
     }
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
@@ -2096,8 +2129,8 @@ fn compile_selected_rooted(
                 .and_then(|count| count.checked_add(projection_blocks))
                 .ok_or(JitError::ResourceLimit("integer template blocks"))?,
         )?;
-        for (pc, entry) in entries.iter_mut().enumerate() {
-            *entry = pc == 0;
+        for pc in 0..entries.len() {
+            entries.set(pc, pc == 0);
         }
     }
     #[cfg(test)]
@@ -2560,7 +2593,15 @@ impl Emitter<'_, '_> {
             .iter()
             .find_map(|(key, helper)| (*key == kind).then_some(*helper))
             .expect("missing native helper symbol");
-        let call = if kind == abi::HELPER_GET_UP_TABLE && self.stores.helper_calls.wide_prepared() {
+        let call = if kind == abi::HELPER_GET_UP_TABLE && self.stores.helper_calls.canonical_read {
+            let operands = self
+                .builder
+                .ins()
+                .iconst(types::I64, (u64::from(a) | ((self.pc as u64) << 32)) as i64);
+            self.builder
+                .ins()
+                .call(helper, &[self.host, self.slots, operands])
+        } else if kind == abi::HELPER_GET_UP_TABLE && self.stores.helper_calls.wide_prepared() {
             let operands = self
                 .builder
                 .ins()
@@ -6538,6 +6579,12 @@ mod memory_tests {
                 metadata,
                 "helper=prehashed_get_up_table address={:#x}",
                 helpers::PREHASHED_ENTRY as usize
+            )
+            .unwrap();
+            writeln!(
+                metadata,
+                "helper=canonical_get_up_table_c3 address={:#x}",
+                helpers::call_hashless as *const () as usize
             )
             .unwrap();
             for (pc, operation) in snapshot.operations.iter().enumerate() {

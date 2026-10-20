@@ -15,6 +15,7 @@ fn check<const CAPACITY: usize>() {
                     count: helpers::Counts::default(),
                     slot_count: count,
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

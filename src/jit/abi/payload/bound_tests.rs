@@ -44,6 +44,7 @@ fn bound_entry_retains_control_after_a_caught_helper_panic() {
                     count: helpers::Counts::default(),
                     slot_count: count,
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 with_binding::<256>(&mut frame, |binding| unsafe {
@@ -135,6 +136,7 @@ fn bound_entry_preserves_refresh_and_canonical_writes() {
                         count: helpers::Counts::default(),
                         slot_count: count,
                         panic: None,
+                        read_hints: None,
                         projection: None,
                     };
                     let mut exit = abi::Exit::default();
@@ -175,6 +177,7 @@ fn bound_entry_rejects_count_and_capacity_before_entry() {
                     count: helpers::Counts::default(),
                     slot_count: count,
                     panic: None,
+                    read_hints: None,
                     projection: None,
                 };
                 let mut exit = abi::Exit::default();

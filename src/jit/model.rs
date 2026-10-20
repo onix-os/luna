@@ -701,6 +701,7 @@ mod tests {
                                         count: helpers::Counts::default(),
                                         slot_count: slots.len(),
                                         panic: None,
+                                        read_hints: None,
                                         projection: None,
                                     };
                                     let mut host = abi::Host {

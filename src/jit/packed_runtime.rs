@@ -95,6 +95,7 @@ fn packed_failure_publishes_only_known_work_and_preserves_original_panic() {
                                         ..Default::default()
                                     };
                                     let mut frame = helpers::Frame {
+                                        read_hints: None,
                                         ctx,
                                         closure,
                                         registers: &mut registers,

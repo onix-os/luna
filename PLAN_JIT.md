@@ -36243,6 +36243,284 @@ pipeline is terminal zero. No new branch/worktree was created. This proves
 removal of the rejected family, **not** repair of the original failed performance
 gates or complete native-JIT acceptance.
 
+### Remaining outer step fuel — rejected at instruction screening
+
+Executor currently records whether the activation host already charged its
+steps, then branches around the ordinary four-unit charge. This trial stores
+the remaining amount instead: four by default, zero after the host charges.
+The outer path consumes that amount. `Fuel::consume(0)` preserves every signed
+remaining value and interruption flag, so no step, callback, error, suspension
+or native instruction charge is intentionally changed. No-feature/unsupported
+release paths retain their existing literal-four charge. There is no mode or
+counter-publication change, persistent field, allocation or unsafe projection.
+
+Tests independently retain the old charged boolean in test builds and compare
+it with the new amount at each charge. The reference path uses that boolean,
+not a boolean reconstructed from the new amount; mismatches fail before effects.
+The pure model checks16,432 signed-fuel/interruption/amount combinations through
+both paths (32,864 charge executions), including MIN/MAX and4,096 seeded values.
+Nested/typed-panic selector restoration and invalid representations are covered.
+Eight scripts across Off/Auto, ordinary/forced activation hosts and four fuel
+budgets produce128 paired public Executor traces. Four additional interpreted
+host/ordinary pairs need no native code and remain available to Miri. Both the
+ordinary-four and internally charged-zero routes must execute positively.
+
+Fresh formatting/check-all, these fixtures, callback/mode/hook/statistics and
+production native/heap integration gates pass **67 executions / 12 summaries**,
+zero failures, ignores or compiler warnings. The Nix dirty-checkout notice is
+retained. Make targets are `vm-step-charge` and `vm-step-charge-miri`; Miri has
+not yet run. This is a new accounting representation, not a repeat of the
+withdrawn closure/wrapper, scratch-reuse or scalar-only-writeback trials.
+
+The intended branch elimination and whole-execution work must be checked in
+actual original-profile images before elapsed evaluation. Reject early if the
+mechanism is absent or adds work; fewer instructions alone still do not prove
+speed. Full Force/Miri/actual i686, native/disabled/resource/platform/release
+acceptance remains required for retention. Evidence:
+`target/jit-evidence/hook-resume-recovery/step-fuel-amount`.
+
+Candidate **`2d7c48f0`** is rejected before elapsed benchmarking. Its two actual
+native benchmark images complete four alternating loads/five execute dumps per
+profile, preserving all printed counters/resources. All13 event columns/full
+text-symbol partitions reconcile and six positive/identity-corruption fixtures
+pass. Whole callback instructions increase **9,438,782 → 9,488,757** speed and
+**11,684,260 → 11,709,198** shipping. All added self work is in Executor:
+49,975 /24,938 instructions; VM and native transport work are unchanged.
+
+Speed conditional-branch events are unchanged at1,058,255; shipping falls
+1,243,326 →1,238,325, insufficient to offset added work. Exact speed Executor
+assembly shows general signed saturation computing the clamp direction through
+an added LEA/shift before the conditional move, unlike the original fixed
+negative charge's MIN-only clamp. The source-level removal of a boolean branch
+does not prove a cheaper executed path. No hardware-time gain/loss is inferred,
+no new elapsed campaign is run, and no inline/layout/refinement sweep follows.
+
+The behavior checks themselves pass: four Miri checks/model (41 retained warnings
+each) and five real i686-musl checks, including the128 paired schedules. The
+fallback executable is positively ELF32 Intel80386; it is not native-JIT
+coverage on that unsupported target. Source records bind the fresh Miri target
+to the immutable candidate archive. A cheap verbose runner check confirms the
+actual `-Zmiri-tree-borrows` command argument despite older cached build-time
+environment values; model selection is not inferred from the cached environment
+or identical interpreted timing output.
+
+All trial source, selector/tests, test-only visibility and Make targets are
+withdrawn to`4f087d74`; src again matches`5fbe729`, and every compiled/test/build
+input matches baseline`b3546663` except uncompiled`PLAN_JIT.md`. Frozen candidate,
+profiles, assembly and safety evidence remain. No default-artifact/cost matrix,
+full Force or elapsed acceptance is claimed for this rejected candidate.
+Fresh identical-input focused executions and two original-profile native image
+comparisons will verify withdrawal; existing six-image/full-Force restoration
+evidence applies to the identical baseline inputs and is not relabelled fresh.
+
+Withdrawal **`f09dad92`** is now verified in `step-fuel-withdrawal`.
+Fresh formatting/check-all and **274 focused executions / 39 summaries** pass,
+zero failures, ignored checks or compiler warnings. These executions use the
+immutable `b3546663` archive with identical compiled/test/build inputs, rather
+than claiming a new archive compilation. Source witnesses verify before and
+after the checks. Both freshly rebuilt native benchmark images, speed and
+shipping, match the original controls **byte-for-byte**; configuration,
+environment, source and tool witnesses also verify. Full Force and the four
+feature-cost images were not rerun here. Their existing identical-input
+restoration evidence in `known-frame-withdrawal` remains separately identified.
+No performance gap is closed by restoring the original runtime.
+
+### Packed canonical read boundary — implementation trial, 2026-10-20
+
+This trial combines the existing code-owned advisory bucket hint with a distinct
+**three-argument** helper: host, scalar slots and one 64-bit word containing the
+24-bit operand indexes, eight reserved zero bits and the full 32-bit source PC.
+Unlike the rejected six-argument per-code hint and four-argument table-owned
+canonical helper, this boundary accepts **no hash argument**. It performs a
+canonical lookup; the old arbitrary-supplied-hash API and wide helpers retain
+their original behavior, including malformed-hash behavior. No binding token,
+hash pool or positive source/policy cache is introduced.
+
+The hint reuses the one-byte-per-PC entry storage and preserves the entry bit.
+Each hit checks the current table's bounds, bucket occupancy and live string
+identity, then reads the current weak-aware value. Nonidentical equal strings,
+uncacheable buckets, absent hint metadata and stale hints take the canonical
+lookup fallback. String hashing consumes the string's already-stored hash
+(`src/string.rs::Hash`), not its contents, so a long key does not acquire a
+new key-length hashing loop on misses. This does not imply identical miss cost
+to the prepared path: that path already has its final table hash. Measure it.
+
+The invocation frame borrows entry metadata only for the current code lease.
+Common GC object layouts and persistent metadata charges are unchanged; the
+extra optional stack reference and changed machine-code shape remain measured
+costs. The existing six-parameter signature template is temporarily narrowed
+and restored within its existing capacity, without another signature owner or
+reservation. Independent source-flow checks require exactly three arguments,
+their widths and the complete packed operands/PC. Test-only old prepared and
+strided transports keep their original ABIs.
+
+The raw-table models now execute the actual canonical implementation rather
+than a duplicate lookup. Coverage includes weak collection, growth/removal,
+cross-arena numeric-hint reuse, long/equal noninterned keys, absent hints and
+large maps. The helper differential compares six entries, all eight counters,
+PC, scalar bits, environments, mutations, metamethod decline and typed panic
+publication. Additional direct cases compare malformed packed operands and
+full-width PCs, with and without hints. Twenty independent call-flow
+corruptions cover pointers, operands, reserved bits, PC, calling convention,
+signature arity/width and completion/exit effects, refusing installation and
+releasing mappings. Formatting/check-all and **110 focused executions / twelve
+summaries** pass, zero failures, ignored checks or compiler warnings. Draft
+constructor and long-key fixture build failures remain in the evidence.
+
+Frozen candidate **`6ed93f4d`** passes the full all-feature Force gate:
+**2,069 executions / 91 summaries**, zero failures, 23 existing ignores and no
+compiler warnings. Source witnesses verify before/after. Source-bound Miri
+passes **18 checks / four summaries per borrowing model**, zero failures or
+ignored checks; toolchain/dead-code warnings remain. Recorded invocation paths
+point to the immutable archive, and runtime Tree flags are recorded explicitly.
+Actual i686-musl passes **19 checks / four summaries**, with one existing ignored
+lookup-only profile. A fresh core-only repeat passes **13 / three summaries**,
+no ignores; its executed unit-test image is positively ELF32/Intel80386. These
+are helper/fallback checks, not native execution under Miri or i686. The initial
+safety driver incorrectly expected zero ignored supplemental profiles; its
+failure is preserved. A separately hashed finish driver verifies that exact
+known ignore, repeats the core checks and verifies source/tool witnesses.
+
+Both actual native images finish at the original builder path with opt3/opts,
+LTO, one codegen unit and stripping. The original strict callback comparison
+**refuses** the changed snapshot peak: **10,737 -> 10,713 bytes**. Every other
+printed execution/resource field matches. Do not call this equal-resource
+acceptance or attribute the 24 bytes to a particular allocation without proof.
+
+A separately named work-only observation preserves that failure and both full
+records. It allows only a lower snapshot peak for instruction attribution,
+refusing every other field difference. Its two valid/five-corrupt record fixtures
+pass; the original equal-record collector is unchanged. Eight alternating
+processes / forty execute dumps / sixteen warmups across both profiles reconcile
+all thirteen events and complete text-symbol partitions. Both original parser
+identity fixture suites pass, and source/image/configuration/tool witnesses
+verify. The first diagnostic retry misses a maps-status witness before any
+collection; that failure remains, followed by a separately recorded corrected
+run using the existing verified maps.
+
+Whole callback instructions fall **9,438,782 -> 9,423,756 (0.159%)** speed and
+**11,684,260 -> 11,634,263 (0.428%)** shipping. Helper self work falls by
+50,000 / 60,000 instructions, but transport initialization adds 10,002 in each
+profile and other executed work offsets part of the saving. The whole totals,
+not the helper-only saving, are authoritative. These are **not elapsed speedups**
+or evidence that the original callback/disabled-mode gates pass. Four additional
+disabled-mode artifacts now finish with source/configuration/binary witnesses.
+Both no-feature binaries differ from control only in **27 /29 verified source
+location line words** (speed/shipping). Their complete executable code, literals
+and every other ELF byte are identical. The original proof refuses filenames
+outside its VM/executor/metamethod list; that refusal remains. A separately
+named mapped proof adds the two changed table source files, checks exact
+unchanged-line mappings and relocation-backed filename/column identity, and
+passes two valid/eight-corrupt fixtures per profile, including altered source
+contents. No executable or non-line metadata difference is allowed.
+
+A shipping-only disabled-cost diagnostic completes **36 commands / 142,560
+iterations**, all nine original cases, eleven samples, twenty iterations, six
+balanced orders, CPUs0/16 and matched launch paths. No owned build/test/profiler
+overlaps collection. Raw medians, statuses, source/tool/image hashes and two
+valid/three-corrupt parser fixtures verify. This is not the full speed/shipping
+native matrix, nor a counter/resource acceptance audit. Its initial bootstrap
+stops after one baseline window because a candidate bundle lacks the legacy
+manifest alias; that failed run is retained separately. The completed retry
+verifies both bundles under the Nix Bash environment, not the host shell that
+cannot run the verifier's associative arrays.
+
+Across six rounds, CPU16 compiled-Off integer/float direct control/trial median
+ratios are **1.0470 /1.0559**, favorable in all six, with placebo medians near one.
+CPU0 numeric medians are approximately one and retain large adverse outliers;
+CPU0 upvalue median is **0.99594**, adverse in all six. These contended observations
+do not establish a causal or general speedup. The unchanged five-percent cost
+gate fails **23/108** candidate comparisons versus **15/108 and14/108** controls.
+The original overhead failures remain; do not promote on selected CPU16 results.
+
+A test-only follow-up checks the scalar verifier's value-sized pending/seen
+workspace. Each extra emitted constant adds exactly `size_of<Value> +
+size_of<u32>` bytes; three add24. Exact-limit runs succeed, one-byte-short limits
+refuse with typed errors, and all charges are reclaimed. Formatting/check-all
+and the focused regression pass. This proves the allocation rule in isolation,
+not that it alone accounts for the complete production compilation peak.
+Frozen test-only follow-up`c16477ef` also passes this regression under both
+Miri borrowing models, one execution each, with source/invocation/tool witnesses.
+Production code is unchanged by this test-only follow-up; the full Force,
+Miri/i686 and elapsed results above remain explicitly tied to frozen`6ed93f4d`.
+
+Two complete original elapsed collections now finish: **288 commands / 28,512
+native executions / 570,240 feature-cost iterations**, all nine cases, both
+profiles/CPUs and six rotated A/candidate/B orders per collection. No owned
+build/test/profiler overlaps either collection. Both source/image/environment/
+configuration/runtime-patch/tool verifications pass. The original equal-record
+auditor **refuses both collections**, first at the changed metamethod snapshot
+peak; that failure is preserved, not reported as a successful strict audit.
+
+A separately named snapshot-separated observation retains all27 fields in
+both source-image records. It requires every other field to match across images
+and all fields to remain stable within each image. Only three snapshot peaks
+differ: Oslo **6,025 ->6,001**, metamethod **16,177 ->16,129**, callbacks
+**10,737 ->10,713**; increases are refused. All original timing thresholds,
+orders, statuses, proof records and raw cost-median checks remain unchanged.
+Each collection passes two valid/fifteen-corrupt observation fixtures, including
+within-image peak instability and a consistently increased candidate peak.
+This is explicitly **not equal-resource or release/performance acceptance**.
+
+Candidate scored speed-native gates fail **8/96 then7/96**, versus controls
+**13/96 and13/96**, then **12/96 and10/96**. Feature-cost gates fail **53/216
+then58/216**, versus controls **66/216 and55/216**, then **53/216 and56/216**.
+The repeat still fails CPU0 callbacks in five rounds, CPU16 callbacks in one,
+and CPU0 metamethods in one. Better native failure counts do not close the gates
+or cancel individual adverse comparisons.
+
+| Callback Auto direct control/trial median | First | Repeat |
+| --- | ---: | ---: |
+| CPU0 / speed |1.02997|1.01292|
+| CPU16 / speed |0.99500|0.99090|
+| CPU0 / shipping |1.01262|1.00765|
+| CPU16 / shipping |1.02391|1.01783|
+
+Ratios above one favor the candidate. CPU16 speed callbacks are adverse in three
+then five rounds; selected gains must not be called a general speedup. Placebos
+and outliers remain. The repeat's CPU16 shipping upvalue feature-cost median is
+**1.19376**, failing all six rounds against the unchanged1.05 ceiling. Substantial
+disabled-mode work remains even where the new helper reduces native overhead.
+
+The compiler-resource follow-up now goes beyond the isolated workspace model.
+A test-only legacy six-argument selection and the real default three-argument
+compiler replay the **exact nine benchmark sources and both nested prototypes**.
+All eleven successful pairs retain equal metadata, release mappings/charges,
+and differ by exactly three value-workspace entries per prepared read site.
+Exact canonical limits succeed; all four prepared prototypes refuse the legacy
+compile at that smaller limit with typed **scalar tag verification** errors.
+These37 compilation attempts reproduce the actual absolute peaks above,
+including the nested metamethod's **7,763 ->7,739**. This identifies the lower
+peak as reduced verifier workspace, not an omitted charge or padded budget.
+
+The native dump now records the c3 helper address; the Make gate checks it in
+all four real dumped/disassembled fixtures. Formatting/check-all and the
+compiler/helper/workspace/dump checks pass **18 executions / six summaries**,
+zero failures, ignored checks or compiler warnings. Draft prototype-type and
+function-item-cast diagnostics remain recorded. These follow-ups change
+test-only selection/reporting, not the production behavior measured at`6ed93f4d`.
+
+Frozen follow-up **`9755747e`** repeats the real compiler replay and all four
+native dump checks with complete source witnesses. Its computed program peaks
+bind exactly to both captured elapsed records. The source-accounted observation
+keeps all27 fields, the three explicit differences and the original strict-audit
+failure; two valid/six-corrupt accounting fixtures pass. It never turns the
+performance-acceptance flag true.
+
+A shared-target Force invocation initially replays the old1538-test library
+binary despite the newer archive. Its0 status and2069 total are **invalid as
+current-source validation**: neither added regression appears in its test list.
+The old executable/list/hash and that result are preserved. A genuinely isolated
+target directory rebuilds the9755747e archive and positively executes both new
+regressions: **2,071 executions /91 summaries**, zero failures/compiler warnings,
+23 existing ignores. Source/tool/binary witnesses verify. Archive checksums alone
+must not be treated as proof that a warm shared test executable used those bytes.
+
+This remains **unaccepted performance work**. Source-bound resource-audit verification,
+disabled-artifact comparisons, repeated original elapsed gates and all other
+outstanding resource/platform/release requirements remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

@@ -243,7 +243,11 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                         &ctx,
                         crate::closure::UpValueState::Closed(environment),
                     );
-                    let results = [0, 1, 2, 3].map(|prepared| {
+                    let hints = crate::jit::entry_bytes::EntryBytes::try_new(
+                        std::iter::repeat_n(true, snapshot.operations.len()),
+                        snapshot.operations.allocator().clone(),
+                    ).unwrap();
+                    let results = [0, 1, 2, 3, 4, 5].map(|prepared| {
                         let mut canonical = std::vec![Value::Integer(73); snapshot.registers];
                         let mut pc = 0;
                         let result = LuaRegisters::with_test_frame(
@@ -265,6 +269,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                     slot_count: slots.len(),
                                     panic: None,
                                     projection: None,
+                                    read_hints: (prepared == 5).then_some(&hints),
                                 };
                                 let mut host = abi::Host {
                                     data: std::ptr::from_mut(&mut frame).cast(),
@@ -273,7 +278,13 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                 let global_table = ctx.globals().into_inner();
                                 let guard = borrowed.then(|| global_table.borrow_mut(&ctx));
                                 let status = unsafe {
-                                    if prepared >= 2 {
+                                    if prepared >= 4 {
+                                        helpers::call_hashless(
+                                            &mut host,
+                                            slots.as_mut_ptr(),
+                                            helpers::wide::operands(packed, 0),
+                                        )
+                                    } else if prepared >= 2 {
                                         let entry = if prepared == 2 {
                                             helpers::wide::call
                                         } else {
@@ -318,6 +329,10 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                     frame.count.declined,
                                     frame.count.table_reads,
                                     frame.count.upvalue_reads,
+                                    frame.count.table_writes,
+                                    frame.count.upvalue_writes,
+                                    frame.count.allocations,
+                                    frame.panic.as_deref().map(std::any::Any::type_id),
                                 )
                             },
                         );
