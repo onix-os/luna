@@ -38447,11 +38447,25 @@ from separately committed tests. This rules out that test-only control change
 as the explanation for the two repeated observations; it does not establish
 their cause or erase other adverse control observations.
 
-The failed outline hint is removed. A separate unaccepted Linux hot-interpreter
-section trial is being checked for exact ELF RX/nonwritable placement, complete
-unwind coverage and the full unchanged timing matrix. No placement hypothesis,
-smaller instruction count or focused correctness result can waive the original
-Off/callback, resource-policy, platform or release requirements. Preserve the
+The failed outline hint is removed. A separate Linux hot-interpreter section
+trial passes95 focused checks,33 Miri tests per borrow model and exact
+RX/nonwritable placement/full unwind verification on four byte-identical map
+companions, including28 positive/refusal checks. Its no-feature images are NOT
+fully byte-identical: a narrow ELF/RELA decoder proves68 VM source locations per
+profile change only line -> line+4, with EVERY OTHER ELF byte identical to
+original0f. Eighteen mutation/valid checks reject all other byte/metadata changes.
+
+The hot-section trial also completes the full144-command matrix with14256
+native/285120 cost iterations and zero independent27-field mismatches. It still
+fails14 speed/2 shipping native and36 speed/12 shipping disabled-cost gates.
+CPU0speed Offfloat control/candidate0.901401 and Offinteger cost0.926477 retain
+placebos1.023583 and0.998733 respectively. This does not repair either regression.
+The unsafe section attribute is rejected and removed, not committed. Exact
+placement validity does not establish performance or cache-causality.
+
+No placement hypothesis, smaller instruction count or focused correctness
+result can waive the original Off/callback, resource-policy, platform or release
+requirements. Preserve the
 immutable sources, images, raw results and readers under
 `production-scoped-read/reproducible-layout/array-write-only/` and
 `production-scoped-read/reproducible-layout/f16-baseline/`.
