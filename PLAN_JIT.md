@@ -38004,11 +38004,43 @@ Shipping compiled-Off arrays are about20.6%/14.2% slower on CPUs0/16; callbacks
 about10.0%/8.7% slower, with near-parity same-image placebos. The speed-profile
 aggregate improvement cannot compensate. The five activation edits are restored
 exactly; only the test-only model remains. Restored formatting/check-all and37
-focused executions pass. A fresh six-image restoration identity rebuild is still
-running at this checkpoint. Full performance/platform/resource/release acceptance
+focused executions pass. Restoration image identity is not established: the
+cross-directory rebuild fails its JIT image comparison, as investigated below.
+Full performance/platform/resource/release acceptance
 remains open; do not repeat this rejected packing trial as an untested idea.
 Evidence: `production-scoped-read/integration/retired-work/` and
 `production-scoped-read/prepacked-identity/` under the same ignored artifact root.
+
+### Build-directory filenames contaminate binary-layout comparisons
+
+A second restoration control restores every non-test library source file and
+moves the pure identity fixture inside the existing test-only module. Its JIT
+images still differ from1b in both profiles, while both no-feature images match.
+Therefore do NOT blame the test-only declaration for the initial mismatch.
+
+The JIT images contain five absolute Cranelift generated-source filenames under
+their respective CARGO_TARGET_DIRs: settings-x86.rs,settings.rs,inst_builder.rs,
+isle_opt.rs andisle_x64.rs. The second target prefix is22 bytes longer, and its
+opt3 .rodata grows112 bytes (5*22 plus alignment), shifting .text despite equal
+runtime sources. This is direct evidence of build-location contamination, not
+proof of a hardware alignment/cache cause or permission to waive any regression.
+Historical timing observations remain archived; they do not isolate source
+effects from differing build-directory metadata.
+
+49744c51 adds an opt-in rustc filename-remapping wrapper, exact argument/refusal
+fixtures and nonzero-test checks for the relocated identity model. No optimization
+flags, VM, native ABI, counter or numerical threshold changes. Six invalid inputs
+fail before invoking rustc. Native17 tests, relocated-model i6862 and both Miri
+models2 pass. The two cold-compiler annotations were exploratory only, built but
+never timed, and are removed pending unconfounded controls.
+
+Fresh independent-target builds now map source/target prefixes to fixed virtual
+filenames through the same wrapper path. The first image confirms all five
+generated paths use luna-build rather than the physical target. Independent-root
+byte-for-byte equality is still being tested; do not claim reproducibility yet.
+If it passes, rebuild original0f and candidate controls under the SAME protocol
+in both profiles, preserving original thresholds and all counters/resources.
+Evidence: `production-scoped-read/reproducible-layout/` under the artifact root.
 
 ## 15. Primary references
 
