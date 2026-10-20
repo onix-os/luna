@@ -38104,7 +38104,7 @@ make jit-repro-images JIT_BENCH_OPT=3 \
 ```
 
 Changed configuration/source roots, unmarked nonempty directories, existing
-compiler wrappers and locked artifact directories are refused rather than
+compiler wrappers and locked cache/artifact directories are refused rather than
 silently overwritten. `TARGET=...` forwards the cross target explicitly.
 `make jit-repro-build-tests jit-repro-wrapper-tests` exercises forwarding,
 refusal, incremental rebuild and failure-publication behavior. Actual fresh
@@ -38112,6 +38112,58 @@ public-target builds in BOTH profiles reproduce all six normalized candidate
 images byte-for-byte; their source and image manifests verify. This validates
 the image-building protocol, not performance acceptance.
 Evidence: `production-scoped-read/reproducible-layout/public-validation/`.
+
+### Disabled-feature attribution and rejected manager-reference trial
+
+Four linker-map companions reproduce the normalized production no-feature/Off
+images byte-for-byte, both profiles. ELF executable-segment offsets, not raw
+file offsets mistaken for virtual addresses, resolve sampled instructions.
+Two48-command diagnostic campaigns cover CPUs0/16 and three rotated repeats:
+ordinary cycles plus lower-rate retired-instruction sampling. Scope is the
+entire existing production upvalue worker, including startup, two warmups and100
+iterations; this is NOT warmed-only attribution or elapsed acceptance.
+
+The lower-rate campaign confirms about13.34% extra retired instructions in
+speed and12.36% in shipping for compiled-Off versus no-feature, on BOTH CPU
+types. All stat counters are100% scheduled. Its19677 samples reconcile exactly,
+with zero loss, zero throttling and no unresolved image samples. Sampling
+weights locate the VM as a priority; they are not exact per-function work counts
+or proof that a particular instruction caused the elapsed overhead. The reader
+accepts valid/restored captures and rejects15 corruptions, including throttling,
+lost samples, wrong ELF offsets, counter scheduling and overlapping symbol maps.
+
+An earlier100000-instruction-period capture produced103046 samples but kernel
+THROTTLE/UNTHROTTLE records. REJECT its attribution despite zero lost samples and
+reconciled sample weights. The replacement uses2000000-instruction periods;
+do not use the throttled run as stronger hotspot evidence.
+
+A narrow runtime trial stores InterpreterStats' shared RefCell<Manager>
+reference directly instead of reloading it through Runtime. It retains borrow,
+publication, overflow, unwind and owner-lifetime contracts;52 focused executions
+pass. All six release images build, and both no-feature images remain identical.
+Nevertheless24 actual production Off/upvalue stat runs show about1.20–1.27%
+MORE instructions in speed, with shipping essentially unchanged. REJECT and
+restore the trial, rather than promoting a shorter source path as an optimization.
+The restored source is byte-identical to HEAD and passes51 focused executions
+plus formatting. No runtime change from this trial remains. Original full
+performance, platform, resource-policy and release acceptance stays OPEN.
+Evidence: `production-scoped-read/reproducible-layout/` directories `feature-tax`,
+`instruction-tax` (rejected), `instruction-tax-calm` and `guard-manager-reference`.
+
+### Shared-cache image publication is one locked transaction
+
+The public builder initially locked only its artifact directory. Two callers
+using different artifact directories but one Cargo cache could therefore copy
+an example overwritten by the other caller after Cargo released its own lock.
+The builder now locks BOTH cache and artifacts before validating/writing markers,
+and holds those locks across all three builds, image copies and publication.
+Failures release only locks acquired by that invocation. Preexisting foreign
+locks and user data are retained. Nine refusal fixtures, all compiler-call lock
+assertions, failure cleanup and exact forwarding checks pass. A concurrent real
+second invocation is refused before writing configuration or publishing images.
+Fresh locked-builder image revalidation is recorded separately in
+`production-scoped-read/reproducible-layout/public-cache-lock-validation/`;
+completion requires its `validation.status` to be0, not the presence of a lock.
 
 ## 15. Primary references
 
