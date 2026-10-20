@@ -38260,6 +38260,45 @@ with SIGPIPE141 despite passing tests: grep-q closed the pipe before tee finishe
 Corrected gates consume the entire stream; only subsequent terminal0 runs count.
 Original full performance, resource-policy, platform and release gates stay OPEN.
 
+### Direct VM-state argument: measured and rejected
+
+The private Rust VM call was tested with its existing exclusive ThreadState
+reference exposed directly, while stack/fuel/pair-scope references traveled in
+a smaller parts aggregate. The same LuaFrame was reconstructed in the same VM
+body. No new unsafe code, heap fields, GC roots, counter changes, VM clones or
+external native ABI changes were introduced. Context was already two pointers
+in both feature configurations; context widening was not an established cause.
+
+Focused checks and the complete Off test campaign pass. Default and explicit
+Tree Miri each pass22 executions covering statistics, VM dispatch, frame and
+readonly publication. Auto validation was intentionally stopped after profiling
+showed regressions; Force/all-feature completion is NOT claimed. All six
+canonical images build. Both no-feature images retain identical allocated
+section layouts and text, but differ in75 data.rel.ro bytes; full-file identity
+does NOT hold. Changed panic locations are consistent with, not proof of, that
+metadata difference.
+
+Link-map/LLVM-IR companion images match their measured cost images byte for
+byte. The speed baseline passes a32-byte frame aggregate; the candidate exposes
+a136-byte noalias state reference and a24-byte parts aggregate. This confirms
+the argument transformation, not an optimization benefit. Exact-symbol copies
+preserve allocated bytes/layout and program headers. VM+callee simulated upvalue
+Ir rises37895534 to39185600 in speed and41916158 to42456107 in shipping.
+
+The real120-window Off hardware-counter screen confirms rejection: speed adds
+about2.49% upvalue instructions,5.42% integer,5.04% float,1.64% callbacks and
+3.08% arrays. Shipping adds about0.98–1.01% upvalues,0.15% integer,0.13–0.14%
+float,0.47% callbacks and0.09% arrays. All active counters are100% scheduled;
+scope includes startup,two warmups and100 iterations, with three rotated
+control/candidate repeats on CPUs0/16. No owned tests/builds/profilers overlap
+this capture. Cycles remain contended observations, not elapsed acceptance.
+
+REJECT and restore the runtime exactly. A direct noalias state parameter is
+not a demonstrated repair of the disabled-feature overhead. Keep source, patch,
+images, signatures, exact-code maps, profiles and raw work measurements under
+`production-scoped-read/reproducible-layout/vm-state-abi/`. The original0f
+acceptance control and full performance/resource/platform/release gates remain.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
