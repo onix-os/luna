@@ -38593,6 +38593,40 @@ Do not scan further alignment values. Actual RX/alignment/unwind validity and
 non-LTO embedding compatibility are not performance acceptance; the original
 full objective remains open.
 
+### Empty-hint precheck: rejected hot/cold tradeoff
+
+`be4d6fc2` independently exhausts all 256 hint bytes, three values and three
+table-loan states (2,304 cases). Baseline and candidate pass both Miri alias
+models; the candidate also passes 4,802 GNU executions. Removing only the outer
+hint read preserves the guarded factory's machine code and reduces cached
+callback instructions, with roughly 1.7–1.8% shipping-profile timing gains in
+72 rotated hardware windows. This is not sufficient acceptance.
+
+An additional public consumer keeps the raw global absent and resolves the
+callback through an `__index` table. Its 144 rotated hardware windows show
+**2.1–2.8% more retired instructions and roughly 1–3% slower execution** on the
+missing-binding path. Native/helper/interpreter counters, results, compilation
+stability and code reclamation are checked explicitly. Strong-binding gains
+do not excuse this repeatable loss. Withdraw the one-line runtime change;
+retain the separately committed test and immutable evidence.
+
+The unchanged original-baseline matrix also completes 14,256 native executions
+and 285,120 cost iterations with zero source-specific counter/resource
+mismatches, but performance acceptance remains false. Candidate failures are
+11 speed/6 shipping native gates and 20 speed/13 shipping compiled-disabled
+cost gates. Native raw timing vectors remain unavailable; cost raw medians are
+independently recomputed. No thresholds or workload definitions change.
+
+Next design: preserve early empty-hint rejection, load/decode the advisory
+index once, and validate it against the current table under the existing
+shared borrow. Keep weak-mode, bounds, occupancy, exact key identity and strong
+non-NIL value checks; never treat a stale hint as authoritative. Both hot/cold
+consumers and the original acceptance matrix remain required.
+
+Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-read/
+reproducible-layout/read-hint-single-load/RESULTS.md`, including failed readers
+and consumer preparation attempts. The full original objective remains open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
