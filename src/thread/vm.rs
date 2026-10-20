@@ -1411,3 +1411,6 @@ mod numeric_add;
 
 #[cfg(all(test, feature = "jit"))]
 pub(super) mod static_off;
+
+#[cfg(test)]
+mod unwind;
