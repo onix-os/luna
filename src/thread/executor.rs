@@ -1744,3 +1744,25 @@ impl Executor<'_> {
         (frames, stacks)
     }
 }
+
+#[cfg(all(test, feature = "jit"))]
+impl<'gc> Executor<'gc> {
+    pub(crate) fn test_with_lua_registers<R>(
+        self,
+        ctx: Context<'gc>,
+        call: impl for<'frame> FnOnce(Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
+    ) -> R {
+        let executor = self.0.borrow();
+        let thread = executor
+            .thread_stack
+            .last()
+            .expect("executor has no thread");
+        let mut state = thread.into_inner().borrow_mut(&ctx);
+        assert!(matches!(state.frames.last(), Some(Frame::Lua { .. })));
+        let storage = state.stack;
+        let stack = storage.borrow_mut(&ctx);
+        let mut fuel = Fuel::empty();
+        let mut host = super::activation::ActivationHost::new(&mut state, stack, &mut fuel);
+        host.with_registers(call)
+    }
+}

@@ -7,6 +7,8 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
+mod binding;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Leaf {
     width: u16,

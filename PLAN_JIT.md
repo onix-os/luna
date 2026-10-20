@@ -37493,8 +37493,9 @@ and21 safely constructed bytecode layouts. These cover wrapping signed64-bit
 addition, constant/register/sum-aliased arguments, child widths2–256, aliased
 callee result registers and caller heights4/5/12. Explicit Tree and default
 Stacked Miri checks pass, as does check-all and the11-test actual ELF32 Intel80386
-fallback. The full Force matrix for this source is still running at this
-checkpoint; the earlier fuel-only source completed2119 tests across91 summaries.
+fallback. The full Force matrix subsequently completed2126 tests across91
+summaries,25 intentionally ignored and0 failures. The earlier fuel-only source
+completed2119 tests across91 summaries.
 
 This is not runtime fusion or a performance result. The child descriptor must
 still be tied to the real parent prototype, and the current callable closure's
@@ -37502,6 +37503,37 @@ capture must resolve to the current parent's open register. A scalar REFERENCE
 tag is not proof of callable identity. Native lowering, typed ownership,
 PC/budget proofs, counters and full original acceptance remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-materialization/`.
+
+### Integer leaf-call paired source and live binding
+
+A private test-only Input now constructs both snapshots from one real parent's
+selected child. Both allocations share one ledger and one combined source-op
+limit; rejection and injected allocation failures release every charge. The
+initial bounded family refuses parent reference constants rather than treating
+the REFERENCE tag as source identity.
+
+Scoped read-only binding verifies the live parent/child source, PC, fixed frame,
+actual callable closure and exact child prototype pointer. Its one current
+capture must resolve to the expected current-frame integer register, not a
+closed, upper, foreign or out-of-range cell. Current integer arguments are
+sampled afresh. No GC pointer is stored in the persistent source input.
+
+Formatting, check-all and19 selected tests pass. They include source-budget
+and allocation failure cleanup, constant/register/aliased/loop operands, both
+source snapshot rechecks,16 dynamic binding cases, fresh upvalue rebinding and
+real paused-executor checks across three collections. Both Miri modes, actual
+i686 fallback and full Force are running against a frozen source snapshot at
+this checkpoint.
+
+This remains a read-only model, not runtime admission or publication. Its operand
+snapshot is not permission to execute after an arbitrary intervening callback:
+native entry must revalidate the current closure/cell immediately before use.
+Native lowering must account separately for seven logical source operations
+and five normally debited operations; the11 extra fuel model must not be
+combined blindly with a seven-instruction fuel debit. The original call path,
+frame/capture/capacity limits, hook/fuel fallback, typed entry ownership and full
+counter/resource/performance acceptance remain required.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-binding/`.
 
 ## 15. Primary references
 
