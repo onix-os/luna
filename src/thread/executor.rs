@@ -1689,9 +1689,6 @@ mod mode_tests;
 #[cfg(test)]
 mod callback_chain_tests;
 
-#[cfg(test)]
-mod scalar_prefix_tests;
-
 #[cfg(all(
     test,
     feature = "jit",

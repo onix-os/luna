@@ -36608,6 +36608,28 @@ Its fresh formatting/check-all and5+8 focused tests pass with zero ignored tests
 production evidence is collected separately under
 `target/jit-evidence/hook-resume-recovery/interpreter-prefix-max-bounds/`.
 
+The complete11d4ade1 screen removes the outlined bounds-loop cost, but still
+**rejects the family**: closure whole-work changes are-1.41/-1.08% no-feature
+opt3/opts versus+0.56/+1.75% JIT-off. Integer JIT-off remains+0.10/+1.71%; float
+JIT-off+0.09/+1.60%. The no-feature gains do not cancel the feature-cost
+regressions. Again, all48 image loads/240 executions and12 valid/24 corrupt
+identity fixtures complete with verified source/config/image/partition witnesses.
+Across the three screens that is144 loads,720 executions (432 measured), with
+36 valid/72 corrupt fixtures, not an elapsed performance claim.
+
+The entire interpreter-prefix runtime, descriptors and temporary dedicated test
+targets are withdrawn. Their tests, source and images remain reproducible in
+the three frozen evidence directories and trial commits; no unchecked prefix,
+no-feature-only special case or persistent positive cache is retained. Restore
+the exact pre-trial source/Makefile, verify focused native-helper/resource gates,
+and bind restored production images before investigating a different execution
+boundary. Full original JIT/performance/platform/release acceptance stays open.
+The restored source/Makefile exactly match pre-trial127f0e0b. Fresh formatting,
+check-all and27 focused native-helper/entry-hint/compiler-resource executions
+pass across6 summaries, with zero failures/ignores. The real11-prototype/37-attempt
+compiler-resource replay remains intact. Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/interpreter-prefix-withdrawal/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
