@@ -38574,6 +38574,25 @@ platform/resource/release gates still decide retention. No final performance
 claim is made. Sources, initial failures and raw data are retained under
 `production-scoped-read/reproducible-layout/native-text-isolation/`.
 
+The64-byte candidate also completes the full144-command original matrix with
+14256 native executions/285120 cost iterations and zero independent
+source-specific27-field mismatches; valid/restored reader and16 corruptions pass.
+It still fails11 speed/8 shipping native gates and36 speed/12 shipping cost
+gates. CPU16shipping integer cost ratio0.925184 (placebo1.000063) and array
+0.941811 (placebo0.996936) remain adverse; CPU16speed Auto allocation0.941165
+(placebo0.995403) also regresses. The shipping native image has identical allocated
+bytes/layouts to the4KiB image, so its varying observations are not a placement
+effect. Other image address differences are verified before attribution.
+
+REJECT and withdraw the whole section approach. Byte-compare the live patch to
+the archived patch, reverse it, and remove only its owned intent-to-add entry.
+Runtime/test/Make/Cargo source again matches a1b6bcf9, retaining the independently
+committed unwind regression. Restored94 focused executions/10 summaries plus
+format/check pass. No runtime placement change or new branch/worktree is kept.
+Do not scan further alignment values. Actual RX/alignment/unwind validity and
+non-LTO embedding compatibility are not performance acceptance; the original
+full objective remains open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
