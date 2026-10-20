@@ -36807,9 +36807,34 @@ destination permutations, widths1/2/17/256, exact identity, preserved tail and
 whole-destination refusal. It passes before the runtime change. Source
 **b35ad27e** then passes fresh formatting/check-all and **152 executions across
 13 summaries**, zero failures and two existing ignored release diagnostics.
-Both original production profiles, two Miri models, actual i686 fallback and
-balanced source-bound native work screens are being checked separately. This
-is an unaccepted trial, not completion of the full JIT plan or performance gate.
+Both original-profile native images now build with verified source/config/tool
+bindings. Shipping materialization no longer calls the full scalar encoder;
+its function shrinks251 to246 bytes. Both Miri models pass all six root tests,
+including the new independent fixture; actual i686-musl passes all-targets/
+all-feature checking and the exact new fixture, with ELF32 execution verified.
+Existing Miri/fallback warnings remain in the logs.
+
+The complete native work screen covers seven warm cases, both profiles,
+56 alternating image loads and280 executions (168 measured after warmup).
+Complete non-timing records match, all13-event partitions reconcile, and
+14 valid/28 corrupted image-identity fixtures pass. Whole-work instruction
+changes, using all six post-warmup observations per variant, are:
+
+| Workload | opt3 | opts |
+| --- | ---: | ---: |
+| Upvalues | -1.9237% | -0.1010% |
+| Rust callbacks | 0% | 0% |
+| Metamethods | +0.0100% | 0% |
+| Allocation/GC | +0.0007% | 0% |
+| Integer loop | 0% | 0% |
+| Float loop | 0% | 0% |
+| Array table | +0.0298% | -0.0200% |
+
+Adverse counts remain explicit; this is not an elapsed speedup. Four original
+disabled-cost images, a fresh isolated all-feature Force gate and disabled
+work screens are running next, before the unchanged full elapsed campaign.
+This is an unaccepted trial, not completion of the full JIT plan or performance
+gate; no callback or compiled-Off regression is claimed fixed.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu-dense/`.
 Trial: `target/jit-evidence/hook-resume-recovery/materialize-root-kind/`.
