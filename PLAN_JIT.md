@@ -36768,6 +36768,52 @@ before choosing the next implementation. No new performance fix is accepted.
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu/`.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
+### Higher-density attribution and root-kind validation trial
+
+An independent balanced repeat raises each capture from200 to2000 warmed
+iterations, reusing exact copies of the same symbol-retained e1fce384 images.
+All48 captures finish with zero lost samples. **51,882 samples** reconcile
+exactly with selected hybrid-event counts and period weights; groups now have
+1,357–7,067 samples. Generated/unknown/other weights remain in the denominator.
+The scope is still warmed execution lifecycle, not stripped-binary acceptance
+timing or pure VM instruction latency.
+
+The original reader refuses these larger reports because `perf report`
+abbreviates1287 samples as `1K`. A separate reader compares exact per-event
+counts from raw perf records, rounded-display consistency, period totals, order,
+loaded image and protocol checks. One valid and ten corrupted fixtures pass,
+including rounded-count and exact-event/count mutations. Original low-density
+tools/data remain unchanged; dense source/image/collector hashes verify.
+
+Shipping Auto upvalue materialization accounts for12.47%/9.32% of weighted
+cycles on CPUs0/16, alongside23.81%/23.53% in `Session::complete_inline`.
+The corresponding opt3 materialization shares are4.73%/4.24%. Shipping callback
+transport remains26.36%/22.36%; that distinct bottleneck is not claimed fixed.
+These distributions select investigation boundaries, not causal speedups.
+
+The next trial replaces only the reference-root predicate inside
+`abi::roots::materialize`: match scalar `Value` variants directly rather than
+encoding a complete `Slot` merely to discard its payload and inspect its tag.
+Every slot/index/root is still freshly validated before **any** destination
+write. Reference identity, canonical writes, numeric bits, GC rooting, lengths,
+late-invalid atomic refusal, counters and lifecycle boundaries are unchanged.
+No unchecked access, positive cache, writeback omission or inline/layout tuning
+is added. The earlier unused-destination-input hypothesis is not implemented:
+disassembly passes the value by pointer, not an unconditional dead scalar load.
+
+The independent baseline fixture uses explicit expected acceptance for all
+value kinds, both function kinds, numeric extrema/NaN/signed-zero, source and
+destination permutations, widths1/2/17/256, exact identity, preserved tail and
+whole-destination refusal. It passes before the runtime change. Source
+**b35ad27e** then passes fresh formatting/check-all and **152 executions across
+13 summaries**, zero failures and two existing ignored release diagnostics.
+Both original production profiles, two Miri models, actual i686 fallback and
+balanced source-bound native work screens are being checked separately. This
+is an unaccepted trial, not completion of the full JIT plan or performance gate.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu-dense/`.
+Trial: `target/jit-evidence/hook-resume-recovery/materialize-root-kind/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
