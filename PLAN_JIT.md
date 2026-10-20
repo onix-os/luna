@@ -36325,6 +36325,54 @@ feature-cost images were not rerun here. Their existing identical-input
 restoration evidence in `known-frame-withdrawal` remains separately identified.
 No performance gap is closed by restoring the original runtime.
 
+### Packed canonical read boundary — implementation trial, 2026-10-20
+
+This trial combines the existing code-owned advisory bucket hint with a distinct
+**three-argument** helper: host, scalar slots and one 64-bit word containing the
+24-bit operand indexes, eight reserved zero bits and the full 32-bit source PC.
+Unlike the rejected six-argument per-code hint and four-argument table-owned
+canonical helper, this boundary accepts **no hash argument**. It performs a
+canonical lookup; the old arbitrary-supplied-hash API and wide helpers retain
+their original behavior, including malformed-hash behavior. No binding token,
+hash pool or positive source/policy cache is introduced.
+
+The hint reuses the one-byte-per-PC entry storage and preserves the entry bit.
+Each hit checks the current table's bounds, bucket occupancy and live string
+identity, then reads the current weak-aware value. Nonidentical equal strings,
+uncacheable buckets, absent hint metadata and stale hints take the canonical
+lookup fallback. String hashing consumes the string's already-stored hash
+(`src/string.rs::Hash`), not its contents, so a long key does not acquire a
+new key-length hashing loop on misses. This does not imply identical miss cost
+to the prepared path: that path already has its final table hash. Measure it.
+
+The invocation frame borrows entry metadata only for the current code lease.
+Common GC object layouts and persistent metadata charges are unchanged; the
+extra optional stack reference and changed machine-code shape remain measured
+costs. The existing six-parameter signature template is temporarily narrowed
+and restored within its existing capacity, without another signature owner or
+reservation. Independent source-flow checks require exactly three arguments,
+their widths and the complete packed operands/PC. Test-only old prepared and
+strided transports keep their original ABIs.
+
+The raw-table models now execute the actual canonical implementation rather
+than a duplicate lookup. Coverage includes weak collection, growth/removal,
+cross-arena numeric-hint reuse, long/equal noninterned keys, absent hints and
+large maps. The helper differential compares six entries, all eight counters,
+PC, scalar bits, environments, mutations, metamethod decline and typed panic
+publication. Additional direct cases compare malformed packed operands and
+full-width PCs, with and without hints. Twenty independent call-flow
+corruptions cover pointers, operands, reserved bits, PC, calling convention,
+signature arity/width and completion/exit effects, refusing installation and
+releasing mappings. Formatting/check-all and **110 focused executions / twelve
+summaries** pass, zero failures, ignored checks or compiler warnings. Draft
+constructor and long-key fixture build failures remain in the evidence.
+
+This is **not accepted performance work yet**. Exact original-profile native
+images and whole-execution instruction/counter profiles come next. Full Force,
+source-bound Miri/i686, disabled-artifact comparisons, repeated original elapsed
+gates and all outstanding resource/platform/release requirements remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

@@ -18,6 +18,7 @@ pub(super) struct Record {
 
 pub(super) struct Calls {
     pub(super) prepared_keys: bool,
+    pub(super) canonical_read: bool,
     #[cfg(test)]
     pub(super) wide_prepared: bool,
     records: Vec<Record, BudgetAllocator>,
@@ -36,7 +37,7 @@ pub(super) struct Boundary<'a> {
 }
 
 #[cfg(test)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Fault {
     Symbol,
     Pointer,
@@ -46,6 +47,8 @@ pub(super) enum Fault {
     PreparedHigh,
     SourcePc,
     Signature,
+    SignatureArity,
+    SignatureWidth,
     CompletedTest,
     SuccessTarget,
     SuccessCount,
@@ -208,6 +211,7 @@ impl Calls {
         records.try_reserve_exact(count).map_err(|_| refused())?;
         Ok(Self {
             prepared_keys: false,
+            canonical_read: false,
             #[cfg(test)]
             wide_prepared: false,
             records,
@@ -223,6 +227,7 @@ impl Calls {
         }
         Ok(Self {
             prepared_keys: false,
+            canonical_read: false,
             #[cfg(test)]
             wide_prepared: false,
             records: Vec::new_in(snapshot.operations.allocator().clone()),
@@ -236,6 +241,7 @@ impl Calls {
     pub fn empty(allocator: BudgetAllocator) -> Self {
         Self {
             prepared_keys: false,
+            canonical_read: false,
             wide_prepared: false,
             records: Vec::new_in(allocator),
             expected: None,
@@ -297,6 +303,7 @@ impl Calls {
         };
         let args = function.dfg.inst_args(record.call).to_vec();
         let wide = self.wide_prepared() && args.len() == 4;
+        let canonical = self.canonical_read && args.len() == 3;
         match fault {
             Symbol => {
                 let wrong = imports
@@ -317,7 +324,9 @@ impl Calls {
                 } else {
                     let mut cursor = FuncCursor::new(function);
                     cursor.goto_inst(record.call);
-                    let index = if wide {
+                    let index = if canonical {
+                        2
+                    } else if wide {
                         if matches!(fault, PreparedLow | PreparedHigh) {
                             3
                         } else {
@@ -334,8 +343,19 @@ impl Calls {
                     } else {
                         5
                     };
-                    let ty = if wide { types::I64 } else { types::I32 };
-                    let wrong = if wide {
+                    let ty = if wide || canonical {
+                        types::I64
+                    } else {
+                        types::I32
+                    };
+                    let wrong = if canonical {
+                        literal(cursor.func, args[index], types::I64).unwrap()
+                            ^ match fault {
+                                SourcePc => 1 << 32,
+                                ConstantFlag => 1 << 24,
+                                _ => 1,
+                            }
+                    } else if wide {
                         literal(cursor.func, args[index], ty).unwrap()
                             ^ match fault {
                                 PreparedHigh | SourcePc => 1 << 32,
@@ -361,6 +381,19 @@ impl Calls {
                     unreachable!()
                 };
                 *args = list;
+            }
+            SignatureArity => {
+                let signature = function.dfg.ext_funcs[func_ref].signature;
+                function.dfg.signatures[signature].params.pop().unwrap();
+            }
+            SignatureWidth => {
+                let signature = function.dfg.ext_funcs[func_ref].signature;
+                let parameter = &mut function.dfg.signatures[signature].params[2];
+                parameter.value_type = if parameter.value_type == types::I64 {
+                    types::I32
+                } else {
+                    types::I64
+                };
             }
             Signature => {
                 use cranelift_codegen::isa::CallConv;
@@ -532,7 +565,9 @@ impl Calls {
             Predecessors::empty(self.records.allocator().clone())
         };
         let mut records = self.records.iter();
-        if self.wide_prepared() && !self.prepared_keys {
+        if (self.wide_prepared() || self.canonical_read) && !self.prepared_keys
+            || self.wide_prepared() && self.canonical_read
+        {
             return Err(invalid());
         }
         for (pc, &op) in snapshot.operations.iter().enumerate() {
@@ -584,7 +619,10 @@ impl Calls {
             }
             let signature = &function.dfg.signatures[function.dfg.ext_funcs[func_ref].signature];
             let wide = self.wide_prepared() && kind == abi::HELPER_GET_UP_TABLE;
-            let parameters: &[Type] = if wide {
+            let canonical = self.canonical_read && kind == abi::HELPER_GET_UP_TABLE;
+            let parameters: &[Type] = if canonical {
+                &[types::I64, types::I64, types::I64]
+            } else if wide {
                 &[types::I64, types::I64, types::I64, types::I64]
             } else {
                 &[
@@ -619,7 +657,12 @@ impl Calls {
             {
                 return Err(invalid());
             }
-            if wide {
+            if canonical {
+                let expected = u64::from(operands[0]) | ((pc as u64) << 32);
+                if literal(function, args[2], types::I64) != Some(expected) {
+                    return Err(invalid());
+                }
+            } else if wide {
                 let expected = [
                     u64::from(operands[0]) | ((pc as u64) << 32),
                     u64::from(operands[1]) | (u64::from(operands[2]) << 32),

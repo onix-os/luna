@@ -179,6 +179,17 @@ jit-inline-loop-native:
 jit-inline-loop-bridge:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
+.PHONY: jit-hashless-read jit-hashless-read-miri
+jit-hashless-read:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::hashless_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_bytes::tests
+
+jit-hashless-read-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::hashless_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::code_read_hint_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_bytes::tests -- --test-threads=1
+
 jit-prepared-keys:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests | awk '/^test result: ok[.] 9 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 

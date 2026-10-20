@@ -160,6 +160,7 @@ fn packed_owned_entries_reject_legacy_abis_and_invalid_frame_admission() {
                 count: helpers::Counts::default(),
                 slot_count: snapshot.registers,
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             let legacy = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -350,6 +351,7 @@ fn packed_publication_refusals_reclaim_resources_and_preserve_live_code() {
                 count: helpers::Counts::default(),
                 slot_count: snapshot.registers,
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             assert!(live.invoke_packed::<256>(&mut frame, 0, 64).is_ok());

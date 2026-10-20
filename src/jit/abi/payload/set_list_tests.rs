@@ -30,6 +30,7 @@ fn run<'gc>(
                 count: helpers::Counts::default(),
                 slot_count: width,
                 panic: None,
+                read_hints: None,
                 projection: None,
             };
             let mut result = 0;
