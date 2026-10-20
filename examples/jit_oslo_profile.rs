@@ -81,7 +81,7 @@ fn main() -> Result<()> {
     #[cfg(feature = "jit")]
     {
         let stats = lua.jit_stats();
-        if mode == "off" {
+        if mode == "off" || !lua.jit_capabilities().supported_target {
             assert_eq!(stats.compilation_requests, 0);
             assert_eq!(stats.native_entries, 0);
             assert_eq!(stats.native_instructions, 0);
@@ -130,9 +130,12 @@ mod tests {
 
     #[cfg(feature = "jit")]
     #[test]
-    fn auto_rows_execute_native_code() {
+    fn auto_rows_match_backend_capabilities() {
         let (mut lua, closure) = setup("auto").unwrap();
         assert_eq!(rows(&mut lua, &closure).unwrap(), 5000);
-        assert!(lua.jit_stats().native_instructions > 0);
+        assert_eq!(
+            lua.jit_stats().native_instructions > 0,
+            lua.jit_capabilities().supported_target
+        );
     }
 }
