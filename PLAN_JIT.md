@@ -37521,9 +37521,9 @@ sampled afresh. No GC pointer is stored in the persistent source input.
 Formatting, check-all and19 selected tests pass. They include source-budget
 and allocation failure cleanup, constant/register/aliased/loop operands, both
 source snapshot rechecks,16 dynamic binding cases, fresh upvalue rebinding and
-real paused-executor checks across three collections. Both Miri modes, actual
-i686 fallback and full Force are running against a frozen source snapshot at
-this checkpoint.
+real paused-executor checks across three collections. Both Miri modes and actual
+ELF32 Intel80386 fallback completed19 selected tests; full Force completed2134
+tests across91 summaries,25 intentionally ignored and0 failures.
 
 This remains a read-only model, not runtime admission or publication. Its operand
 snapshot is not permission to execute after an arbitrary intervening callback:
@@ -37534,6 +37534,43 @@ combined blindly with a seven-instruction fuel debit. The original call path,
 frame/capture/capacity limits, hook/fuel fallback, typed entry ownership and full
 counter/resource/performance acceptance remain required.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-binding/`.
+
+### Integer leaf-call native scratch kernel
+
+The complete integer leaf-call region now has an actual test-only native
+implementation, not merely a Rust arithmetic model. It uses a distinct typed
+six-argument entry and40-byte view; no five-argument entry cast or ordinary Code
+layout change is involved. The source-paired plan regenerates the expected IR
+for verification before compilation. The native function has no imports and
+accepts no relocations.
+
+All guards precede scratch effects: source-derived view words, a fresh one-use
+marker, exact region PC, at least seven source operations of budget, canonical
+callable tag/bits and integer operands. The body performs wrapping addition and
+reproduces the entire surviving callee register tail before updating the parent
+sum. Success returns the caller's post-call PC, five ordinary fuel-debited
+operations and a completed marker. Guard refusal preserves scratch and view.
+
+Formatting, check-all and24 focused tests pass. Actual native/model comparisons
+cover four ordinary source families and21 bytecode layouts, including256-wide
+caller tails, signed extremes and register aliases. Five operand pairs and four
+budgets per image produce500 successful native comparisons. There are also19
+malformed-view/PC/budget/type refusals, a null-view refusal, short-slice rejection,
+source-input-independent image lifetime and injected allocation/IR/code/workspace
+quota reclamation checks. The real-interpreter layout oracle was extended from
+21 to28 cases to cover256-wide callers. Exact IR verification rejects altered
+signatures, budget parameter width and an incorrect seven-instead-of-five debit.
+
+This kernel only changes owned scratch buffers in tests. It does not publish
+canonical Lua state, alter counters or enable runtime fusion. Future integration
+must freshly validate the callable/cell immediately before entry, preserve all
+frame/capture/capacity/fuel/hook contracts, apply the11 extra fuel correctly,
+force the logical callee-return executor boundary and validate effects before
+publication. Full original acceptance, including integrated performance,
+remains open. Miri validates the source/binding/materialization model, not
+machine-code execution; unsupported-target fallback must continue to omit the
+native kernel.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-native-kernel/`.
 
 ## 15. Primary references
 

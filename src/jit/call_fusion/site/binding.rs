@@ -10,7 +10,7 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
-struct Input {
+pub(in crate::jit) struct Input {
     parent: Snapshot,
     child: Snapshot,
     site: Site,
@@ -27,7 +27,7 @@ struct Bound<'entry, 'gc, 'frame> {
 }
 
 impl Input {
-    fn new(
+    pub(in crate::jit) fn new(
         parent: &FunctionPrototype<'_>,
         prototype: u8,
         max_instructions: usize,
@@ -78,6 +78,15 @@ impl Input {
             fixed_params: parent.fixed_params,
             varargs: parent.has_varargs,
         }))
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn sources(&self) -> (&Snapshot, &Snapshot, Site) {
+        (&self.parent, &self.child, self.site)
     }
 
     fn with_binding<'gc, 'frame, R>(

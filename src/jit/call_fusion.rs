@@ -1,6 +1,6 @@
 use crate::Fuel;
 
-mod site;
+pub(in crate::jit) mod site;
 
 const VM_LIMIT: u32 = 64;
 const ATOMIC_REGION: u32 = 7;

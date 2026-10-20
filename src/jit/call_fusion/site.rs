@@ -9,6 +9,20 @@ mod tests;
 
 mod binding;
 
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(in crate::jit) mod kernel;
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(in crate::jit) use binding::Input;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Leaf {
     width: u16,
@@ -63,7 +77,7 @@ enum Argument {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Site {
+pub(in crate::jit) struct Site {
     leaf: Leaf,
     registers: u16,
     region_pc: u32,

@@ -371,7 +371,7 @@ fn materialization_tracks_callee_register_aliases_and_return_height() {
         (8, 7, 6),
         (256, 255, 254),
     ] {
-        for caller_width in [4, 5, 12] {
+        for caller_width in [4, 5, 12, 256] {
             let mut interner = compiler::interning::BasicInterner::default();
             let parsed = compiler::parse_chunk(SIMPLE, &mut interner).unwrap();
             let mut compiled = compiler::compile_chunk(&parsed, &mut interner).unwrap();
