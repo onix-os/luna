@@ -36929,9 +36929,16 @@ commit before exit/panic/callback, ordinary fallback coverage, and aggregate
 compiler/mapping/metadata ownership/refusal handling. No Host/Value layout cast
 or Manager policy flag is planned. Eliminated C helper calls must be reported
 honestly, with explicit actual-counter/resource expectations rather than faked
-parity or a silent auditor waiver. Both Miri models, real i686 and production
-parity builds are being checked for the groundwork; full native integration,
-all-feature correctness and repeated original timing remain required before
+parity or a silent auditor waiver. Both Miri models now pass all seven fixtures
+across two summaries each, zero failures/ignores; actual i686-musl passes
+all-targets/all-feature checking and the same seven fixtures, with ELF32 execution
+verified. Existing Miri/unsupported-target warnings remain in the logs.
+Six original-profile production rebuilds are **whole-file byte-identical** to
+the immediate d7c72349 predecessor: native, JIT-Off and no-feature in opt3/opts.
+Original6ed93f4d text/rodata/section-layout comparisons also pass; those older
+native/JIT-Off whole files already differed before this groundwork and are not
+called identical. Source/tool/input hashes verify after read-only inspection.
+Full native integration, all-feature correctness and repeated original timing remain required before
 claiming a speedup or promotion. The full original goal remains incomplete.
 
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-counters/`.
