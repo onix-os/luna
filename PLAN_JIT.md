@@ -37326,6 +37326,31 @@ establish workload identity. perf report -D supplies exact event statistics;
 perf script -D is retained only as raw trace, not misread as event statistics.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-profile/`.
 
+### Boundary-only inlining trial: rejected
+
+Always-inlining invoke_fresh and invoke_captured passes38 focused tests and the
+complete2115-test/91-summary Force suite, with zero failures. Another60 coupled
+counter and60 sampled windows reconcile all123777 samples with zero loss and
+all3000 corresponding runtime-counter values identical to the frozen baseline.
+The reader again accepts the matrix and rejects20 corruptions.
+
+It does not remove the measured overhead: callback retired instructions rise
+0.0450/0.0383% at opt3 and0.6877/0.6878% at opts on CPUs0/16. The ineligible
+upvalue workload also adds0.7411% instructions at opts. Sampled symbols and
+disassembly show that LLVM moved the outlines into the generic with_binding
+factory and its closure rather than eliminating the aggregate boundaries.
+Contended, non-interleaved cycle ratios are mixed and are not causal speedups.
+The two attributes are withdrawn; no production or experimental speedup is
+claimed from this trial.
+
+Next test a direct private capture operation for the immediate API, with its
+brand tied to a local mutable scope token. The general callback factory must
+retain its higher-ranked lifetime and delayed identity checks, while the
+immediate path must retain the same strong table guard, current closure/env
+capture, native checks, canonical commit and real counter semantics. This is
+pending implementation/verification, not acceptance.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-inline/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
