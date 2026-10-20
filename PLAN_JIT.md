@@ -36500,6 +36500,22 @@ zero failures, ignored checks or compiler warnings. Draft prototype-type and
 function-item-cast diagnostics remain recorded. These follow-ups change
 test-only selection/reporting, not the production behavior measured at`6ed93f4d`.
 
+Frozen follow-up **`9755747e`** repeats the real compiler replay and all four
+native dump checks with complete source witnesses. Its computed program peaks
+bind exactly to both captured elapsed records. The source-accounted observation
+keeps all27 fields, the three explicit differences and the original strict-audit
+failure; two valid/six-corrupt accounting fixtures pass. It never turns the
+performance-acceptance flag true.
+
+A shared-target Force invocation initially replays the old1538-test library
+binary despite the newer archive. Its0 status and2069 total are **invalid as
+current-source validation**: neither added regression appears in its test list.
+The old executable/list/hash and that result are preserved. A genuinely isolated
+target directory rebuilds the9755747e archive and positively executes both new
+regressions: **2,071 executions /91 summaries**, zero failures/compiler warnings,
+23 existing ignores. Source/tool/binary witnesses verify. Archive checksums alone
+must not be treated as proof that a warm shared test executable used those bytes.
+
 This remains **unaccepted performance work**. Source-bound resource-audit verification,
 disabled-artifact comparisons, repeated original elapsed gates and all other
 outstanding resource/platform/release requirements remain open.
