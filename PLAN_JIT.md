@@ -37958,9 +37958,14 @@ and placebo variation remain explicit. Native gates still fail7/108 speed and
 12.5% slower than original controls; shipping scalar regressions also remain.
 Do not discard these failures or substitute fewer physical helpers for elapsed
 acceptance. Separate readers pass valid/restored fixtures and10 native plus9
-cost corruptions. Next verify exact-image VM instruction maps before attributing
-these regressions or choosing another implementation. The additional complete
-Force suite and exact-map builds are not yet terminal at this checkpoint.
+cost corruptions. Three new map companions reproduce the measured native-speed,
+cost-speed and cost-shipping images byte-for-byte. Their relocation-normalized
+VM instruction streams still match original controls exactly, with10911/11116/
+8615 static instructions. This excludes added VM instructions, not changes in
+callees or every possible elapsed cause; no alignment cause is established.
+The additional complete Force suite remains running at this checkpoint. New
+actual-production symbol images are building for retired-work attribution;
+no profiling capture may overlap owned builds or correctness work.
 Evidence: `target/jit-evidence/hook-resume-recovery/production-scoped-read/`,
 especially `integration/{screen.json,cost-screen.json,reader-tests.log}`.
 
