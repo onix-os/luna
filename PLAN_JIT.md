@@ -38299,6 +38299,34 @@ images, signatures, exact-code maps, profiles and raw work measurements under
 `production-scoped-read/reproducible-layout/vm-state-abi/`. The original0f
 acceptance control and full performance/resource/platform/release gates remain.
 
+### Complete borrowed VM arguments: measured and rejected
+
+A second private-ABI trial exposes all existing ThreadState, StackVec, Fuel
+and optional PairScope mutable borrows directly, without a parts aggregate.
+It reconstructs the same LuaFrame in the same VM; no new unsafe code, roots,
+allocations, fields, counters, VM clones or native-helper ABI changes.
+Formatting, all-target checking and51 focused executions pass. Six canonical
+images build. Both no-feature images have identical allocated layouts/text
+but76 changed data.rel.ro bytes, not full-file identity.
+
+An LLVM-IR/link-map companion matches the measured speed cost image byte for
+byte and shows separate noalias references for state, stack, fuel and pair
+scope. That confirms the intended argument exposure but does not make it fast.
+The unchanged120-window real Off PMU screen again rejects it: speed adds about
+1.80–1.82% upvalue instructions,5.32% integer,4.95% float,1.23–1.26% callbacks
+and3.01% arrays. Shipping adds0.28% upvalues,2.08% integer,1.95% float,0.36%
+callbacks and0.77% arrays. All active events are100% scheduled; both profiles,
+CPUs0/16, three rotated repeats, startup,two warmups and100 iterations remain.
+No owned build/test/profiler overlaps capture. Contended cycles are not elapsed
+acceptance, and no full-mode/Miri/platform acceptance is claimed for this trial.
+
+REJECT and restore the runtime exactly; explicit alias boundaries alone are
+not a demonstrated repair. Preserve source, images, patch, exact speed IR/map,
+no-feature comparisons and raw counters under
+`production-scoped-read/reproducible-layout/vm-borrow-args/`. Do not promote either
+argument trial based on the presence of noalias metadata. Original0f acceptance
+and full performance/resource/platform/release requirements remain unchanged.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
