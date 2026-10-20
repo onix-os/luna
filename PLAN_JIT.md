@@ -37480,6 +37480,29 @@ is added to FunctionPrototype, and registry weak-upgrade/identity/reset checks
 must not be bypassed.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-evaluation/`.
 
+### Integer leaf-call recognition and stack materialization model
+
+The test-only model now recognizes a bounded, verified parent region and a
+four-op integer-add leaf. It rejects unsupported effects, multiple calls or
+closures, overwritten callable holders, invalid captures and jumps into the
+region interior. Materialization checks every dynamic condition before writes
+and reproduces the caller's retained, truncated or nil-padded callee registers.
+
+All11 selected tests pass, including21 ordinary-source interpreter/GC cases
+and21 safely constructed bytecode layouts. These cover wrapping signed64-bit
+addition, constant/register/sum-aliased arguments, child widths2–256, aliased
+callee result registers and caller heights4/5/12. Explicit Tree and default
+Stacked Miri checks pass, as does check-all and the11-test actual ELF32 Intel80386
+fallback. The full Force matrix for this source is still running at this
+checkpoint; the earlier fuel-only source completed2119 tests across91 summaries.
+
+This is not runtime fusion or a performance result. The child descriptor must
+still be tied to the real parent prototype, and the current callable closure's
+capture must resolve to the current parent's open register. A scalar REFERENCE
+tag is not proof of callable identity. Native lowering, typed ownership,
+PC/budget proofs, counters and full original acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-materialization/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

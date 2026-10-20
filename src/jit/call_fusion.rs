@@ -1,5 +1,7 @@
 use crate::Fuel;
 
+mod site;
+
 const VM_LIMIT: u32 = 64;
 const ATOMIC_REGION: u32 = 7;
 const CALL_FUEL: i32 = 5;
