@@ -3,6 +3,9 @@ use crate::{Constant, Value};
 pub(super) mod roots;
 
 #[cfg(test)]
+pub(super) mod frame_publication;
+
+#[cfg(test)]
 pub(crate) mod split;
 
 #[cfg(test)]

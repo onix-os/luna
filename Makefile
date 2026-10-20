@@ -1844,6 +1844,13 @@ jit-call-fusion-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::site::kernel $(ARGS)
 
 .PHONY: jit-strong-global-helper jit-strong-global-helper-miri
+.PHONY: jit-frame-publication jit-frame-publication-miri
+jit-frame-publication:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::frame_publication $(ARGS)
+
+jit-frame-publication-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::frame_publication -- --test-threads=1
+
 jit-strong-global-helper:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::strong_global_tests $(ARGS)
 
