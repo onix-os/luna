@@ -49,6 +49,16 @@ mod tests {
         }));
         let candidate = catch_unwind(AssertUnwindSafe(|| publish(slots, &mut actual)));
         assert_eq!(candidate.is_err(), reference.is_err());
+        if let (Err(actual), Err(expected)) = (&candidate, &reference) {
+            assert_eq!(actual.as_ref().type_id(), expected.as_ref().type_id());
+            if let Some(expected) = expected.downcast_ref::<String>() {
+                assert_eq!(actual.downcast_ref::<String>(), Some(expected));
+            } else if let Some(expected) = expected.downcast_ref::<&'static str>() {
+                assert_eq!(actual.downcast_ref::<&'static str>(), Some(expected));
+            } else {
+                panic!("unexpected scalar panic payload");
+            }
+        }
         for (actual, expected) in actual.into_iter().zip(expected) {
             super::super::tests::assert_identical(actual, expected);
         }

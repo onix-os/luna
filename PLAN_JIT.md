@@ -37831,6 +37831,52 @@ canonical-state/panic/fuel guarantees. Evidence:
 `target/jit-evidence/hook-resume-recovery/production-warmed-profile/`, including
 `attribution.json`, exact annotations, forwarding summary and frozen manifests.
 
+### Full-frame publication: real shipping gain, acceptance still open
+
+Test-first ccb5f991 adds an independent full-frame publication oracle. Provisional
+runtime candidate53d7268b replaces only the ordinary exit writeback loop with a
+safe Rust, unit-return frame publisher. It retains every scalar write, canonical
+reference, partial-panic commit, existing deferred/projected boundary, PC and
+counter behavior; no generated ABI, dirty mask, cached object or allocation is
+added. Slot::value and all other Slot::write_back users remain unchanged.
+
+The forced-out-of-line first form is rejected: speed callbacks regress despite
+shipping gains. The refinement lets the ordinary compiler specialize the new
+frame boundary, rather than forcing global Slot conversion inlining. Full
+Force/all-features plus projection validation passes2182 executions/92 summaries,
+zero failures,26 intentional ignores. Both Miri models pass three publisher
+oracles; actual ELF32 i686 publisher/fallback checks pass. Both no-feature
+executables are byte-identical to original controls.
+
+A complete original144-command campaign retains all nine workloads,11 samples,
+20 cost iterations, six balanced A/candidate/B orders, CPUs0/16, speed/shipping,
+all27 native counters/resources and native cost proofs. The unchanged original
+auditor and valid/restored plus13 corruptions pass. Native executions14256,
+cost iterations285120. No owned builds/tests/profilers overlap capture. An initial
+host-Bash launcher fails before any timed command; its evidence is retained
+separately, and the complete campaign runs in the repository Nix shell.
+
+Shipping callback control/candidate ratios repeat at1.119517/1.140381 CPU0/16,
+and all12 shipping callback gates pass. Shipping integer/float ratios improve
+about8–10%; shipping native failed gates fall to2/108 versus controls22/24.
+THIS IS NOT FULL ACCEPTANCE: speed native still fails14/108 gates; cost fails
+37/108 speed and20/108 shipping. CPU16 speed float cost and shipping callback
+cost regress around3.3–3.5% against controls; inherited upvalue/cold costs remain.
+The CPU0 speed native-benchmark Off float slowdown also repeats (control/candidate
+0.861860), while the separate feature-cost float improves. None is discarded.
+
+Six exact linker-map rebuilds reproduce the measured images byte-for-byte.
+The VM's relocation-normalized instruction streams are identical in baseline
+and candidate for native-speed, cost-speed and cost-shipping (10911/11116/8615
+static instructions respectively). Their VM offsets within .text also match;
+preceding ELF data growth moves the text base160/144/224 bytes. This excludes
+added static VM instructions, not every possible cause of elapsed differences.
+Do not repeat rejected VM/policy/enum rewrites or assert an alignment cause from
+this alone. Next investigate the publisher's duplicate cold panic metadata,
+preserving original panic payloads and measuring any refinement before acceptance.
+Evidence: `target/jit-evidence/hook-resume-recovery/production-frame-publication/`,
+especially `refinement/acceptance/production-audit.json` and `refinement/exact-maps/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
