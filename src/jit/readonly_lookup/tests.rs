@@ -192,3 +192,4 @@ fn every_entry_and_budget_can_observe_the_function_only_at_the_call() {
         assert!(examined > 1000);
     });
 }
+mod identity;

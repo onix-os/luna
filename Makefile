@@ -1811,11 +1811,15 @@ jit-import-bits-miri:
 .PHONY: jit-rooted-moves jit-rooted-preservation
 .PHONY: jit-readonly-lookup jit-readonly-lookup-miri
 .PHONY: jit-readonly-identity jit-readonly-identity-miri
+.PHONY: jit-repro-wrapper-tests
+jit-repro-wrapper-tests:
+	@bash tests/test-jit-rustc-repro.sh
+
 jit-readonly-identity:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::identity::tests $(ARGS)
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::tests::identity::tests $(ARGS) | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-readonly-identity-miri:
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::identity::tests -- --test-threads=1
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::tests::identity::tests -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-readonly-native
 .PHONY: jit-readonly-runtime
