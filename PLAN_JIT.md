@@ -36736,6 +36736,28 @@ publisher's supported/test targets. Restored correctness and generated-code
 parity still need fresh verification; none of this closes performance acceptance.
 Restoration evidence:
 `target/jit-evidence/hook-resume-recovery/helper-publication-restoration/`.
+
+Restored source **e1fce384** passes fresh formatting/check-all and55 focused
+executions. Six original-flag image rebuilds prove both native and JIT-off
+`.text`, `.rodata` and section layouts equal the6ed93f4d controls in opt3/opts;
+both no-feature whole files are byte-identical. Explicit inspection outputs
+and post-inspection original-image hashes verify. Both selected Miri model
+runs and actual i686-musl each pass the two retained counter fixtures; real
+ELF32 execution and absence of the new unused-macro warning are verified.
+A genuinely isolated all-feature Force target positively executes both new
+fixtures: **2,073 executions /91 summaries**, zero failures,23 existing ignores.
+These checks validate the retained counter contracts and restoration, not a
+performance fix or complete release acceptance.
+
+Current hardware-counter access has changed since the older denied probes:
+the live policy is2 and user-only cycles/instructions/branch counters actually
+count on pinned CPUs0/16. CPU0 selects `cpu_core`, CPU16 `cpu_atom`; inactive
+hybrid rows are not zero-count measurements. No system setting was changed.
+Same-source, symbol-retained warmed FIFO-scoped Off/Auto profiling is now running
+for callbacks/upvalues in both profiles and CPU types, with three balanced mode
+orders. Startup and two warmups are excluded and compilation delta is checked0.
+This is hardware attribution, not the original elapsed acceptance campaign.
+Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu/`.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
 ## 15. Primary references
