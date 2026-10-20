@@ -36516,9 +36516,10 @@ regressions: **2,071 executions /91 summaries**, zero failures/compiler warnings
 23 existing ignores. Source/tool/binary witnesses verify. Archive checksums alone
 must not be treated as proof that a warm shared test executable used those bytes.
 
-This remains **unaccepted performance work**. Source-bound resource-audit verification,
-disabled-artifact comparisons, repeated original elapsed gates and all other
-outstanding resource/platform/release requirements remain open.
+This remains **unaccepted performance work**. The measured snapshot changes are
+accounted and no-feature equivalence is verified; the original performance gates
+still fail. Robust elapsed performance and all other outstanding resource,
+platform and release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
 
 ## 15. Primary references
