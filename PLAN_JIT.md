@@ -38327,6 +38327,45 @@ no-feature comparisons and raw counters under
 argument trial based on the presence of noalias metadata. Original0f acceptance
 and full performance/resource/platform/release requirements remain unchanged.
 
+### Zero interpreter-statistics writes: measured and rejected
+
+Independent baseline-passing regression tests in5c21f373 cover zero-dispatch
+publication, positive report-only counts, saturation, shared current statistics
+and normal publication refusal under both shared and mutable manager loans.
+They remain useful without changing the runtime and pass within53 focused
+executions. A subsequent trial always takes the same full mutable manager loan,
+then skips redundant zero total/slice updates and uses a constant slice increment
+on nonzero dispatches. Positive report-only instructions still publish immediately.
+No batching, counter suppression, derived native counts, extra fields, caches,
+roots, unsafe code, VM clones or helper ABI changes.
+
+Candidate formatting/checking and53 focused executions pass, as do18 Miri
+executions EACH under default and explicit Tree settings. Six canonical images
+build and BOTH no-feature images remain FULLY byte-identical. These checks do
+not establish a performance improvement.
+
+Another120-window Off screen rejects the tradeoff: speed upvalues add about
+0.58–0.62% instructions and callbacks0.29–0.32%; integer/float/arrays add about
+0.05–0.08%. Shipping upvalues add0.19–0.22%, callbacks0.10%, and the other cases
+about0.02–0.03%. A separate120-window Auto screen finds small whole-worker
+instruction reductions for numeric loops(~0.42–0.49%) and arrays(~0.11–0.12%),
+but callbacks worsen in BOTH profiles and upvalue results are mixed. Startup,
+JIT compilation, two warmups and100 iterations are INCLUDED in Auto counts;
+they are not warmed-only native attribution or elapsed acceptance.
+
+Both screens retain both profiles/CPUs and three rotated repeats, exact results,
+100% active PMU scheduling and no overlapping owned builds/tests/profilers.
+Auto positive native-work counts match control/candidate across all repeats;
+that is not the independent full27-field/resource oracle. Its new reader passes
+valid/restored captures and eight altered-input refusal checks in a disposable
+copy, leaving raw data untouched. All original artifacts verify afterwards.
+
+REJECT the runtime change: modest native-only work savings do not compensate
+for extra disabled/callback work. Restore the publisher exactly; retain the
+two independently committed tests and archive raw evidence under
+`production-scoped-read/reproducible-layout/zero-stats-publication/`. Original0f
+full performance/resource/platform/release requirements are still OPEN.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
