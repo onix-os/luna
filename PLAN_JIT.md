@@ -36695,6 +36695,28 @@ focused/work/image gates and no owned builds/tests/profilers, not fabricated
 Force/Miri/release statuses. Source/image/tool/runtime-patch witnesses pin the
 campaign to e8b58d65; it remains unaccepted pending complete elapsed results,
 the remaining Miri/unsupported/Force checks, and every original full-plan gate.
+
+The first complete elapsed campaign exits0: **144 commands,14,256 native
+executions and285,120 cost iterations**. The unchanged strict auditor reports
+zero complete27-field counter/resource mismatches, recomputes every raw cost
+median, and passes two valid/13 corrupted fixtures. Its completion is not a
+performance pass: candidate scored speed-native gates fail15/96 versus control
+10/96 and5/96; cost gates fail49/216 versus52/216 and50/216.
+
+Adverse cross-revision observations remain explicit. Upvalue control/trial
+medians are0.99253/0.98942 (CPU0 opt3/opts) and0.99290/0.99154 (CPU16), with21/24
+rounds adverse. Callback medians are1.00236/1.01196 on CPU0 and0.98900/1.01185
+on CPU16; all six CPU16 opt3 callback rounds are adverse. Values above1 favor
+the trial. A large trial-only CPU0 shipping favorable outlier is preserved,
+not promoted to causal proof. The lower source-work counts do not repair these
+elapsed regressions.
+
+A second complete unchanged-image campaign is active in `elapsed-repeat/`,
+retaining the same nine cases, original gates and controls. No runtime rebuild
+or tuning occurs between campaigns. Wait for its complete audited record;
+withdraw the runtime if the upvalue/CPU16 callback regressions persist instead
+of keeping an instruction-count-only optimization. Every other original
+acceptance requirement remains open.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
 ## 15. Primary references
