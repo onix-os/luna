@@ -122,6 +122,66 @@ unsafe extern "C" fn panicked_helper<const READ: bool>(
 }
 
 #[test]
+fn capture_matches_guarded_lookup_for_every_hint_encoding() {
+    Lua::empty().enter(|ctx| {
+        let (plan, closure, environment, mut hints) = prepared(ctx);
+        let Constant::String(key) = closure.prototype().constants[usize::from(plan.constant)]
+        else {
+            panic!()
+        };
+        let pc = plan.helper_pc as usize;
+        let callback = Callback::from_fn(&ctx, |_, _, _| panic!("lookup executed callback"));
+        let mut cases = 0;
+        for value in [callback.into(), Value::Integer(71), Value::Nil] {
+            environment.set(ctx, key, value).unwrap();
+            for enabled in [false, true] {
+                for offset in std::iter::once(None).chain((0..127).map(Some)) {
+                    hints.set(pc, enabled);
+                    let hint = hints.hint(pc).unwrap();
+                    hint.remember(offset);
+                    let expected =
+                        environment
+                            .try_strong_canonical_hint(key, hint)
+                            .map(|(guard, value)| {
+                                drop(guard);
+                                value
+                            });
+                    let mut scope = ();
+                    let captured = plan.capture(closure, &hints, &mut scope);
+                    assert_eq!(captured.is_some(), expected.is_some());
+                    if let (Some(bound), Some(expected)) = (captured, expected) {
+                        same(bound.value, expected);
+                        assert!(environment.into_inner().try_borrow_mut(&ctx).is_err());
+                        drop(bound);
+                    }
+                    assert!(environment.into_inner().try_borrow_mut(&ctx).is_ok());
+                    {
+                        let _shared = environment.into_inner().borrow();
+                        let mut scope = ();
+                        let captured = plan.capture(closure, &hints, &mut scope);
+                        assert_eq!(captured.is_some(), expected.is_some());
+                        if let (Some(bound), Some(expected)) = (captured, expected) {
+                            same(bound.value, expected);
+                        }
+                    }
+                    {
+                        let _exclusive = environment.into_inner().borrow_mut(&ctx);
+                        let mut scope = ();
+                        assert!(plan.capture(closure, &hints, &mut scope).is_none());
+                    }
+                    assert_eq!(hint.load(), offset);
+                    assert_eq!(hints[pc], enabled);
+                    assert!(environment.into_inner().try_borrow_mut(&ctx).is_ok());
+                    cases += 3;
+                }
+            }
+        }
+        assert_eq!(cases, 2304);
+        eprintln!("capture_hint_borrow_cases={cases}");
+    });
+}
+
+#[test]
 fn helper_panic_preserves_materialization_payload_and_releases_binding() {
     Lua::empty().enter(|ctx| {
         let (plan, closure, environment, hints) = prepared(ctx);
