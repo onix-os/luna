@@ -38463,6 +38463,15 @@ placebos1.023583 and0.998733 respectively. This does not repair either regressio
 The unsafe section attribute is rejected and removed, not committed. Exact
 placement validity does not establish performance or cache-causality.
 
+A subsequent whole-ELF comparison closes an important diagnostic gap: all four
+hot-section feature images have IDENTICAL allocated code bytes and layouts to
+the first variant. Only73 data.rel.ro bytes differ per image. The linker did
+not actually move the interpreter relative to that variant. The timing change
+between these captures cannot therefore be attributed to changed interpreter
+placement; the trial is a repeated same-code observation, not an effective
+layout isolation experiment. Future layout hypotheses must establish an actual
+code/address difference before collecting another performance matrix.
+
 No placement hypothesis, smaller instruction count or focused correctness
 result can waive the original Off/callback, resource-policy, platform or release
 requirements. Preserve the
