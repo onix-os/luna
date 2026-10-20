@@ -37388,6 +37388,334 @@ only the missing ELF proof was repaired using readelf, requiring exactly one
 ELF32 Intel80386 executable and its hash, before the successful capture.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-capture/`.
 
+### Contained scoped entry: correctness and retired-work checkpoint
+
+The fresh capture/native/commit transaction is now one outlined Rust function;
+its private capture and commit implementations inline inside it. The ordinary
+seven-register transport returns to7702 bytes, exactly its original symbol size,
+while the scoped entry is682 bytes instead of separate430/397-byte bodies.
+No factory closure is introduced on the immediate path.
+
+All38 focused checks, both Miri models13 each, actual i686 check-all/13 models,
+and complete Force2115/91 pass; the full suite retains25 deliberately ignored
+diagnostics. The safety driver now records actual inherited Miri flags and
+requires Make/readelf ELF32 Intel80386 identification before aggregate success.
+
+The120-window matrix reconciles122491 samples with zero loss, all3000 matched
+runtime-counter values, full native-map/source/image identity and100% active
+counter scheduling. Twenty corruption fixtures are rejected. Versus the initial
+readonly baseline, callback retired instructions fall1.981/1.982% at opt3 and
+1.565/1.567% at opts on CPUs0/16, approximately43/41 fewer per lookup. Ineligible
+upvalue native work returns to the original level: differences are under0.0004%
+instead of the rejected0.890% increase.
+
+This retains the direct scoped-capture implementation as a test-only checkpoint,
+not production promotion. Stripped opt3/opts LTO/CGU1 timing images and balanced
+same-image/frozen-ordinary elapsed controls remain pending. The ordinary/Off
+gap and full original performance/resource/platform/release acceptance are not
+resolved by the retired-instruction reduction.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-contained/`.
+
+### Contained entry elapsed controls: original requirements still fail
+
+Both stripped opt3/opts LTO/CGU1 images build. Two672-load campaigns use the
+unchanged seven workloads,5 measured executions,2 Lua warmups,6 balanced orders,
+CPUs0/16,25 runtime counters and complete resource comparisons. Same-image
+callback ordinary/C ratios are1.004528/1.002194/1.003378/1.011342; frozen-ordinary
+ratios are1.000852/1.000245/0.995697/1.013927 (opt3 CPU0/16,then opts CPU0/16).
+The reader passes2 valid/20 corrupted fixtures per campaign. Small mixed gains
+are not an acceptance claim.
+
+CPU0 Off samples have a substantial predecessor effect: unprimed opt3 callback
+windows are4.25–4.35ms when Off follows Off, versus1.92–2.06ms after a native
+process, while native windows stay near2.05ms. The resulting inflated Off/C
+ratios must not be called JIT speedups. Two additional672-load campaigns apply
+identical pinned32MiB zero/SHA256 CPU conditioning before EVERY label, outside
+Lua setup and timing; all original source/image/VM counts/resource checks remain.
+This is an explicitly separate diagnostic protocol, not replacement of the
+original gate. All2688 timed loads pass their data/identity audits.
+
+Primed same-image callback ordinary/C ratios are
+1.007285/1.015308/1.005559/1.011292; primed frozen-ordinary ratios are
+1.008638/0.999644/0.992085/1.021818. Primed frozen Off/C is
+0.963063/0.860044/0.880778/0.824395. The CPU0 Off spread shrinks substantially,
+but this does not establish its precise cause or make the remaining deficits
+acceptable. Upvalue primed frozen Off/C remains0.531319/0.575235/0.484332/0.516428.
+Metamethod/GC and other negative controls also remain part of full acceptance;
+one favorable profile cannot compensate for another failure.
+
+The next performance work targets the much larger call/activation overhead,
+not another unsupported speed claim from lookup-only tuning.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-contained/elapsed-*`.
+
+### Integer leaf-call fusion: fuel/frame model only
+
+A new test-only model investigates an atomic fixed-one-argument/no-result leaf
+call, with a captured integer get/add/set/return body. No runtime admission or
+machine-code implementation exists at this checkpoint. Low fuel/hooks or any
+unsupported shape must keep the ordinary call and physical child frame.
+
+The real interpreter oracle verifies physical call/return boundaries with GC
+between steps. Call/Return exit before the VM's ordinary instruction debit;
+transition costs and BOTH executor iteration costs still apply. The leaf call
+costs20 fuel, not12, EXCLUDING the two caller Moves. The complete region costs22.
+The initial11-extra-fuel model incorrectly compared that transition-only cost
+with a region containing both Moves. Corrected integration uses13 extra fuel
+with five normally-debited source operations and one surviving executor step.
+Eleven would be correct only with a seven-operation native debit. The conservative
+permit requires a complete7-source-op Move/Move/Call region and fuel strictly
+above deferred work plus source budget plus17. A successful fusion must end at
+the logical callee-return boundary; arbitrary multi-call coalescing is not
+covered by this model.
+
+The oracle also requires caller expected_return to change from Some(Normal(0))
+to None and reproduces every caller stack slot. Zero results do NOT imply a
+nil-filled call area: return_values_to retains overlapping callee registers,
+truncating or growing only to caller height. Initial mistaken metadata/format
+expectations are preserved in failed logs, corrected against source and actual
+execution rather than by changing the shared snapshot implementation.
+
+Recognition, current closure/open-parent-cell binding, aliases, type guards,
+temporary materialization, PC/budget proof, native lowering, ownership and all
+counter/resource/performance integration remain required before this can be
+enabled. Source prototype fields remain public; no hidden source-id cache field
+is added to FunctionPrototype, and registry weak-upgrade/identity/reset checks
+must not be bypassed.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-evaluation/`.
+
+### Integer leaf-call recognition and stack materialization model
+
+The test-only model now recognizes a bounded, verified parent region and a
+four-op integer-add leaf. It rejects unsupported effects, multiple calls or
+closures, overwritten callable holders, invalid captures and jumps into the
+region interior. Materialization checks every dynamic condition before writes
+and reproduces the caller's retained, truncated or nil-padded callee registers.
+
+All11 selected tests pass, including21 ordinary-source interpreter/GC cases
+and21 safely constructed bytecode layouts. These cover wrapping signed64-bit
+addition, constant/register/sum-aliased arguments, child widths2–256, aliased
+callee result registers and caller heights4/5/12. Explicit Tree and default
+Stacked Miri checks pass, as does check-all and the11-test actual ELF32 Intel80386
+fallback. The full Force matrix subsequently completed2126 tests across91
+summaries,25 intentionally ignored and0 failures. The earlier fuel-only source
+completed2119 tests across91 summaries.
+
+This is not runtime fusion or a performance result. The child descriptor must
+still be tied to the real parent prototype, and the current callable closure's
+capture must resolve to the current parent's open register. A scalar REFERENCE
+tag is not proof of callable identity. Native lowering, typed ownership,
+PC/budget proofs, counters and full original acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-materialization/`.
+
+### Integer leaf-call paired source and live binding
+
+A private test-only Input now constructs both snapshots from one real parent's
+selected child. Both allocations share one ledger and one combined source-op
+limit; rejection and injected allocation failures release every charge. The
+initial bounded family refuses parent reference constants rather than treating
+the REFERENCE tag as source identity.
+
+Scoped read-only binding verifies the live parent/child source, PC, fixed frame,
+actual callable closure and exact child prototype pointer. Its one current
+capture must resolve to the expected current-frame integer register, not a
+closed, upper, foreign or out-of-range cell. Current integer arguments are
+sampled afresh. No GC pointer is stored in the persistent source input.
+
+Formatting, check-all and19 selected tests pass. They include source-budget
+and allocation failure cleanup, constant/register/aliased/loop operands, both
+source snapshot rechecks,16 dynamic binding cases, fresh upvalue rebinding and
+real paused-executor checks across three collections. Both Miri modes and actual
+ELF32 Intel80386 fallback completed19 selected tests; full Force completed2134
+tests across91 summaries,25 intentionally ignored and0 failures.
+
+This remains a read-only model, not runtime admission or publication. Its operand
+snapshot is not permission to execute after an arbitrary intervening callback:
+native entry must revalidate the current closure/cell immediately before use.
+Native lowering must account separately for seven logical source operations
+and five normally debited operations. The corrected13 extra fuel applies to the
+five-debit kernel; the earlier11-extra model omitted the two caller Moves. The original call path,
+frame/capture/capacity limits, hook/fuel fallback, typed entry ownership and full
+counter/resource/performance acceptance remain required.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-binding/`.
+
+### Integer leaf-call native scratch kernel
+
+The complete integer leaf-call region now has an actual test-only native
+implementation, not merely a Rust arithmetic model. It uses a distinct typed
+six-argument entry and40-byte view; no five-argument entry cast or ordinary Code
+layout change is involved. The source-paired plan regenerates the expected IR
+for verification before compilation. The native function has no imports and
+accepts no relocations.
+
+All guards precede scratch effects: source-derived view words, a fresh one-use
+marker, exact region PC, at least seven source operations of budget, canonical
+callable tag/bits and integer operands. The body performs wrapping addition and
+reproduces the entire surviving callee register tail before updating the parent
+sum. Success returns the caller's post-call PC, five ordinary fuel-debited
+operations and a completed marker. Guard refusal preserves scratch and view.
+
+Formatting, check-all and24 focused tests pass. Actual native/model comparisons
+cover four ordinary source families and21 bytecode layouts, including256-wide
+caller tails, signed extremes and register aliases. Five operand pairs and four
+budgets per image produce500 successful native comparisons. There are also19
+malformed-view/PC/budget/type refusals, a null-view refusal, short-slice rejection,
+source-input-independent image lifetime and injected allocation/IR/code/workspace
+quota reclamation checks. The real-interpreter layout oracle was extended from
+21 to28 cases to cover256-wide callers. Exact IR verification rejects altered
+signatures, budget parameter width and an incorrect seven-instead-of-five debit.
+
+This kernel only changes owned scratch buffers in tests. It does not publish
+canonical Lua state, alter counters or enable runtime fusion. Future integration
+must freshly validate the callable/cell immediately before entry, preserve all
+frame/capture/capacity/fuel/hook contracts, apply the13 extra fuel correctly,
+force the logical callee-return executor boundary and validate effects before
+publication. Full original acceptance, including integrated performance,
+remains open. Miri validates the source/binding/materialization model, not
+machine-code execution; unsupported-target fallback must continue to omit the
+native kernel.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-native-kernel/`.
+
+### Complete-region fuel correction before canonical publication
+
+An independent assertion now reads BOTH actual interpreter fuel balances and
+subtracts only the pre-region source prefix. The complete region consumes22:
+two caller Moves,5 call fuel,3 leaf body debits,4 return fuel and two4-fuel
+executor iterations. The native kernel returns five ordinary debits, so its
+future adapter must consume13 extra fuel before the surviving executor charges
+the five debits and its own4-fuel iteration. The13-extra correction preserves
+the kernel's source/counter convention rather than inventing two native debits.
+
+This corrects a test-model error, not a previously enabled fused runtime path:
+no canonical publication had been connected. Focused formatting/check-all and
+all24 source/binding/native tests pass with the real-interpreter regression.
+Existing frozen scratch-kernel gates do not prove this later fuel correction.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-publication/fuel.*`.
+
+### Opt-in VM publication and real executor traces
+
+The native region is now connected to real Lua-frame publication through an
+explicitly scoped, test-only lease. Preparation snapshots the actual registered
+parent/child pair and compiles outside the VM. The charged lease contains no GC
+object pointer; current runtime identity and fresh registry identity must match.
+Nested scopes and unwinding restore the previous selection, and equal numeric
+source IDs in different Lua states cannot select each other's kernels.
+
+The VM caps ordinary native prefixes at the shortest CFG distance to the region
+and redispatches before interpreting its first Move. This handles forward and
+backward numeric loops without globally stepping one instruction at a time.
+After a successful kernel, it exits the VM at the logical callee-return boundary
+instead of continuing to interpret the next parent opcode in the same invocation.
+The adapter consumes13 extra fuel; the normal executor consumes the returned five
+debits and its surviving4-fuel step.
+
+Preflight requires hooks disabled, a current fixed/nonpending parent frame,
+existing capacity for the elided child frame and stack, available call depth,
+no captures/close markers in the call area and sufficient positive fuel after
+deferred work. Fresh callable/prototype/open-parent-cell binding occurs directly
+around the non-callback native entry. Validated scratch effects are published
+only to the proven parent sum and call-area slots. Real native/upvalue counters
+are recorded; no callback, physical-call or unrelated counters are fabricated.
+
+Formatting/check-all and30 distinct selected tests pass:28 call-fusion tests and
+two thread publication tests. Ten source/fuel combinations compare Off, ordinary
+native and fused native frame/stack/fuel traces with GC between every step.
+These include constant, register and sum-aliased arguments, wraparound and nested
+loops. Three low-fuel schedules retain ordinary physical calls with identical
+traces. Nineteen frame/depth/capacity/pending/fuel/hook/type/capture/reset refusals
+leave canonical state, fuel, markers, capacities and native entry counts unchanged.
+Nine invalid scratch-publication cases are atomic. Scoped image ownership survives
+cache retirement and returns code/snapshot charges to zero after the last lease.
+
+This is still an opt-in correctness integration, not release acceptance. It keeps
+the paired snapshots for exhaustive live source comparison; that retained snapshot
+charge and hot-path scan must be replaced by the already-verified immutable source
+identity before performance promotion. Automatic bounded scheduling, production
+enablement and the full original performance/platform/release gates remain open.
+The2139-test full matrix and19-test Miri/i686 gates belong to the earlier frozen
+scratch-kernel source, not this later adapter/fuel correction.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-publication/adapter.*`.
+
+### Immutable identity binding without retained snapshots
+
+The scoped prepared owner no longer retains Input snapshots or scans parent and
+child bytecode at each call. The private Request constructor pairs its source ID
+with snapshots from the actual registered immutable parent and its selected
+child. Full source/IR verification remains at compilation. Both snapshots drop
+before compile returns, and snapshot_bytes is asserted zero while leases remain
+live, including through interleaved execution and cache retirement.
+
+Immediately before native entry, runtime identity and registry weak-upgrade/
+prototype identity are checked afresh. The bounded live binder still checks PC,
+frame width, actual holder closure and selected child pointer, fixed signature/
+metadata, exact current open parent-cell origin and current integer operands.
+No GC object or source pointer is cached. The exhaustive snapshot binder remains
+an independent reference oracle rather than being removed from the tests.
+
+The existing30 selected integration/guard tests and two new identity regressions
+pass. Equal-shaped other registered parents cannot use the lease. Reset and
+reregistration invalidate it even for the SAME still-live prototype pointer.
+Two interleaved executors of one compiled parent preserve separate captured sums
+and match interpreter frame/fuel traces with collections between steps. This is
+resource/correctness evidence, not a speedup result or production promotion.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/`.
+
+### Frozen fused-runtime timing instrumentation
+
+A new Make-driven diagnostic uses the unchanged repository workload bytes,
+Lua::core, the same wrapping host_increment callback, two warmups, compilation
+drain and the original opt3/opts, LTOtrue, CGU1, striptrue timing build settings.
+Every measured window checks exact results, no compilation/installation delta,
+stable live code/metadata, zero snapshots and complete code reclamation after
+cache retirement and final specialized lease release. The tagged JSON retains
+all25 raw execution counters, real fused-region count and resource values.
+
+The window audit passes for closure_upvalue and two ineligible controls,
+integer_loop and rust_callbacks. Ineligible candidate/ordinary25-counter arrays
+are identical. Upvalue dispatches and interpreted slices decrease by twice the
+actual fused count, code lookups decrease by that count, and normally-debited
+native+interpreted source work plus exact upvalue/heap/guard/panic effects are
+conserved. Real pair call/return/cache/helper scheduling changes are retained,
+not overwritten with baseline or invented callback counts.
+
+Initial new-test assumptions about identical native-pair scheduling and one
+strong lease per lookup were incorrect: the warmed ordinary runtime promotes
+native call pairs and can reuse existing resume-scope owners. Observed416 saved
+strong leases versus9804 fused regions are not9804 new owner acquisitions.
+Both failed expectations are preserved in diagnostic logs and corrected against
+the actual lookup/resume paths. Original acceptance auditors and thresholds are
+unchanged; this diagnostic is not production or full performance acceptance.
+
+### No-snapshot fused timing: measured improvement and Atom regression
+
+Frozen0f7c6ba7 passed full Force2148 tests across91 summaries (26 intentional
+ignores), both Miri19 models and actual ELF32 Intel8038619 fallback tests. Both
+stripped release images also passed the window audit. With no owned compiler or
+correctness job overlapping capture,216 timed loads covered three cases, both
+profiles, CPUs0/16, all six mode permutations and20 executions per load (4320
+timed executions). All counters/resources and source/image/tool hashes reconcile;
+the reader passed24 corrupt parse and11 corrupt reconciliation fixtures plus a
+complete216-row synthetic capture. Background user load was retained and logged.
+
+For closure_upvalue, median paired ordinary/fusion ratios in opt3 CPU0/16,
+opts CPU0/16 order are1.495367/0.942574/1.333600/1.059238. The second configuration
+REGRESSES relative to ordinary native. Interpreter/fusion ratios are
+0.777403/0.573744/0.699675/0.566045: all four remain below the original1.25
+upvalue acceptance minimum. Integer-loop and Rust-callback controls retain exact
+counter identity, with ordinary/fusion ratios around0.994–1.013.
+
+Each upvalue load executes196080 real fused regions and preserves200000 upvalue
+reads/writes. Live snapshots remain zero. The extra kernel mapping is4096 bytes
+(77824 versus73728 total mapped bytes), and metadata is5690 versus4882 bytes;
+these resource changes are reported, not hidden as full cost acceptance.
+
+The current invocation initializes256 scalar slots even for an eight-slot caller.
+That4 KiB-per-call initialization is the next source-grounded performance
+hypothesis, not an established cause. A measured size-class ablation is needed
+before attributing the Atom regression or promoting a candidate. Full original
+performance, resource-cost, platform and production/release acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/timing-summary.tsv`,
+`rows/`, manifests and reader outputs in the same artifact root.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

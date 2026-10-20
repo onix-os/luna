@@ -27,6 +27,8 @@ use crate::opcode::{Operation, RCIndex};
 
 #[cfg(all(test, not(miri)))]
 pub(super) mod bound_pair;
+#[cfg(all(test, not(miri)))]
+pub(super) mod call_fusion;
 #[cfg(not(miri))]
 pub(super) mod calls;
 #[cfg(not(miri))]

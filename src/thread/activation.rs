@@ -14,6 +14,14 @@ use super::{
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+mod fused_region;
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod call_tests;
 
 #[cfg(all(

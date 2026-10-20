@@ -47,6 +47,18 @@ impl Plan {
         hints: &EntryBytes,
         run: impl for<'entry> FnOnce(Bound<'entry, 'gc>) -> R,
     ) -> Option<R> {
+        let mut scope = ();
+        let bound = self.capture(closure, hints, &mut scope)?;
+        Some(run(bound))
+    }
+
+    #[inline(always)]
+    fn capture<'entry, 'gc>(
+        self,
+        closure: Closure<'gc>,
+        hints: &EntryBytes,
+        _scope: &'entry mut (),
+    ) -> Option<Bound<'entry, 'gc>> {
         let hint = hints.hint(self.helper_pc() as usize)?;
         hint.load()?;
         let prototype = closure.prototype();
@@ -62,14 +74,14 @@ impl Plan {
             return None;
         };
         let (guard, value) = table.try_strong_canonical_hint(key, hint)?;
-        Some(run(Bound {
+        Some(Bound {
             plan: self,
             closure,
             table,
             value,
             _guard: guard,
             _entry: PhantomData,
-        }))
+        })
     }
 
     /// Captures a current closed binding and enters it without an intervening callback.
@@ -79,6 +91,7 @@ impl Plan {
     /// slot and view storage, retains no pointers and cannot invoke users or mutate
     /// the environment before its terminating Call exit.
     /// It observes no lookup destination before that exit and marks execution once.
+    #[inline(never)]
     pub(in crate::jit) unsafe fn invoke_fresh<'gc>(
         self,
         entry: Entry,
@@ -93,10 +106,11 @@ impl Plan {
         let Some(hints) = frame.read_hints else {
             return Ok(None);
         };
-        self.with_binding(frame.closure, hints, |bound| unsafe {
-            bound.invoke_captured(entry, frame, slots, pc, budget)
-        })
-        .unwrap_or(Ok(None))
+        let mut scope = ();
+        let Some(bound) = self.capture(frame.closure, hints, &mut scope) else {
+            return Ok(None);
+        };
+        unsafe { bound.invoke_captured(entry, frame, slots, pc, budget) }
     }
 
     fn fits(self, frame: &helpers::Frame<'_, '_, '_, '_>, slots: &[abi::Slot]) -> bool {
@@ -138,6 +152,7 @@ impl<'gc> Bound<'_, 'gc> {
         unsafe { self.invoke_captured(entry, frame, slots, pc, budget) }
     }
 
+    #[inline(always)]
     unsafe fn invoke_captured(
         self,
         entry: Entry,
