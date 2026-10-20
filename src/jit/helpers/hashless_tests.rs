@@ -191,3 +191,86 @@ fn independent_flow_verifier_refuses_hashless_call_corruption() {
         }
     });
 }
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn native_canonical_reads_reduce_real_workload_snapshot_peaks() {
+    use crate::jit::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
+    use crate::opcode::Operation;
+
+    #[allow(dead_code)]
+    mod workloads {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/jit_support/workloads.rs"
+        ));
+    }
+
+    crate::Lua::empty().enter(|ctx| {
+        let sources = workloads::WORKLOADS.iter().map(|w| (w.name, w.source))
+            .chain([("oslo_predicate", workloads::PREDICATE_SOURCE),
+                ("cold_config", workloads::COLD_SOURCE)]);
+        let mut compared = 0;
+        let mut prepared = 0;
+        for (name, source) in sources {
+            let root = Closure::load(ctx, None, source).unwrap().prototype();
+            let mut pending = std::vec![root];
+            let mut prototype_index = 0;
+            while let Some(prototype) = pending.pop() {
+                pending.extend(prototype.prototypes.iter().copied());
+                let measure = |legacy, limit| {
+                    let ledger = Ledger::new(limit);
+                    let snapshot = Snapshot::new_in(&prototype, 4096, BudgetAllocator(ledger.clone())).unwrap();
+                    let sites = if snapshot.prepared_keys.is_some() {
+                        snapshot.operations.iter().filter(|op| matches!(op, Operation::GetUpTable { .. })).count()
+                    } else { 0 };
+                    let base = ledger.current();
+                    let metadata = Ledger::new(2 << 20);
+                    let memory = MappingCounter::new(Ledger::new(usize::MAX));
+                    let failure = if legacy { backend::Failure::LegacyPreparedRead } else { backend::Failure::None };
+                    let result = backend::compile_in(&snapshot, memory.clone(), 8 << 20,
+                        BudgetAllocator(metadata.clone()), work::Limits::from(&crate::JitConfig::default()), failure);
+                    let retained = metadata.current();
+                    let result = result.map(|code| {
+                        assert!(memory.load(std::sync::atomic::Ordering::Relaxed) > 0);
+                        assert!(retained > 0);
+                        drop(code);
+                        retained
+                    });
+                    assert_eq!(memory.load(std::sync::atomic::Ordering::Relaxed), 0);
+                    drop(memory);
+                    assert_eq!(metadata.current(), 0);
+                    assert_eq!(ledger.current(), base);
+                    let peak = ledger.peak();
+                    drop(snapshot);
+                    assert_eq!(ledger.current(), 0);
+                    (result, peak, sites)
+                };
+                let (old, old_peak, sites) = measure(true, 2 << 20);
+                let (new, new_peak, new_sites) = measure(false, 2 << 20);
+                assert_eq!(old.unwrap(), new.unwrap());
+                assert_eq!(sites, new_sites);
+                let bytes_per_value = std::mem::size_of::<cranelift_codegen::ir::Value>() + std::mem::size_of::<u32>();
+                assert_eq!(old_peak - new_peak, sites * 3 * bytes_per_value, "{name}/{prototype_index}");
+                let (exact, exact_peak, _) = measure(false, new_peak);
+                assert!(exact.is_ok(), "{name}/{prototype_index}");
+                assert_eq!(exact_peak, new_peak);
+                if sites > 0 {
+                    let (refused, _, _) = measure(true, new_peak);
+                    assert!(matches!(refused, Err(JitError::ResourceLimit("scalar tag verification"))), "{name}/{prototype_index}");
+                    prepared += 1;
+                }
+                println!("canonical_compile_case={name} prototype={prototype_index} read_sites={sites} legacy_peak={old_peak} canonical_peak={new_peak}");
+                compared += 1;
+                prototype_index += 1;
+            }
+        }
+        assert!(compared >= 9);
+        assert!(prepared >= 3);
+        println!("canonical_compile_summary prototypes={compared} prepared={prepared} attempts={}", 3 * compared + prepared);
+    });
+}

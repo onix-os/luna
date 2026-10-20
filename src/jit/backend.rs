@@ -430,6 +430,7 @@ pub(super) enum Failure {
     BranchLoopDirection,
     WidePrepared(Option<super::helper_flow::Fault>),
     HashlessFlow(Option<super::helper_flow::Fault>),
+    LegacyPreparedRead,
     RequireWriteback,
     RequireIntegerLoop,
     ProbeIntegerLoop,
@@ -1015,6 +1016,7 @@ fn compile_selected_rooted(
                 Failure::CorruptHelperFlow(_)
                     | Failure::WidePrepared(_)
                     | Failure::HashlessFlow(_)
+                    | Failure::LegacyPreparedRead
                     | Failure::RequireStrided
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
@@ -1037,7 +1039,7 @@ fn compile_selected_rooted(
     let canonical_read = canonical_read
         && !matches!(
             failure,
-            Failure::CorruptHelperFlow(_) | Failure::RequireStrided
+            Failure::CorruptHelperFlow(_) | Failure::RequireStrided | Failure::LegacyPreparedRead
         );
     if wide_prepared && !prepare_keys {
         return Err(JitError::Compilation(
@@ -6577,6 +6579,12 @@ mod memory_tests {
                 metadata,
                 "helper=prehashed_get_up_table address={:#x}",
                 helpers::PREHASHED_ENTRY as usize
+            )
+            .unwrap();
+            writeln!(
+                metadata,
+                "helper=canonical_get_up_table_c3 address={:#x}",
+                helpers::call_hashless as *const () as usize
             )
             .unwrap();
             for (pc, operation) in snapshot.operations.iter().enumerate() {

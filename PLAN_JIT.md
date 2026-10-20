@@ -36444,7 +36444,63 @@ Miri borrowing models, one execution each, with source/invocation/tool witnesses
 Production code is unchanged by this test-only follow-up; the full Force,
 Miri/i686 and elapsed results above remain explicitly tied to frozen`6ed93f4d`.
 
-This remains **unaccepted performance work**. Resource-peak attribution,
+Two complete original elapsed collections now finish: **288 commands / 28,512
+native executions / 570,240 feature-cost iterations**, all nine cases, both
+profiles/CPUs and six rotated A/candidate/B orders per collection. No owned
+build/test/profiler overlaps either collection. Both source/image/environment/
+configuration/runtime-patch/tool verifications pass. The original equal-record
+auditor **refuses both collections**, first at the changed metamethod snapshot
+peak; that failure is preserved, not reported as a successful strict audit.
+
+A separately named snapshot-separated observation retains all27 fields in
+both source-image records. It requires every other field to match across images
+and all fields to remain stable within each image. Only three snapshot peaks
+differ: Oslo **6,025 ->6,001**, metamethod **16,177 ->16,129**, callbacks
+**10,737 ->10,713**; increases are refused. All original timing thresholds,
+orders, statuses, proof records and raw cost-median checks remain unchanged.
+Each collection passes two valid/fifteen-corrupt observation fixtures, including
+within-image peak instability and a consistently increased candidate peak.
+This is explicitly **not equal-resource or release/performance acceptance**.
+
+Candidate scored speed-native gates fail **8/96 then7/96**, versus controls
+**13/96 and13/96**, then **12/96 and10/96**. Feature-cost gates fail **53/216
+then58/216**, versus controls **66/216 and55/216**, then **53/216 and56/216**.
+The repeat still fails CPU0 callbacks in five rounds, CPU16 callbacks in one,
+and CPU0 metamethods in one. Better native failure counts do not close the gates
+or cancel individual adverse comparisons.
+
+| Callback Auto direct control/trial median | First | Repeat |
+| --- | ---: | ---: |
+| CPU0 / speed |1.02997|1.01292|
+| CPU16 / speed |0.99500|0.99090|
+| CPU0 / shipping |1.01262|1.00765|
+| CPU16 / shipping |1.02391|1.01783|
+
+Ratios above one favor the candidate. CPU16 speed callbacks are adverse in three
+then five rounds; selected gains must not be called a general speedup. Placebos
+and outliers remain. The repeat's CPU16 shipping upvalue feature-cost median is
+**1.19376**, failing all six rounds against the unchanged1.05 ceiling. Substantial
+disabled-mode work remains even where the new helper reduces native overhead.
+
+The compiler-resource follow-up now goes beyond the isolated workspace model.
+A test-only legacy six-argument selection and the real default three-argument
+compiler replay the **exact nine benchmark sources and both nested prototypes**.
+All eleven successful pairs retain equal metadata, release mappings/charges,
+and differ by exactly three value-workspace entries per prepared read site.
+Exact canonical limits succeed; all four prepared prototypes refuse the legacy
+compile at that smaller limit with typed **scalar tag verification** errors.
+These37 compilation attempts reproduce the actual absolute peaks above,
+including the nested metamethod's **7,763 ->7,739**. This identifies the lower
+peak as reduced verifier workspace, not an omitted charge or padded budget.
+
+The native dump now records the c3 helper address; the Make gate checks it in
+all four real dumped/disassembled fixtures. Formatting/check-all and the
+compiler/helper/workspace/dump checks pass **18 executions / six summaries**,
+zero failures, ignored checks or compiler warnings. Draft prototype-type and
+function-item-cast diagnostics remain recorded. These follow-ups change
+test-only selection/reporting, not the production behavior measured at`6ed93f4d`.
+
+This remains **unaccepted performance work**. Source-bound resource-audit verification,
 disabled-artifact comparisons, repeated original elapsed gates and all other
 outstanding resource/platform/release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
