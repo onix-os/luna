@@ -37801,6 +37801,36 @@ especially `balanced-summary.tsv`, immutable source/images, raw rows and manifes
 Next attribution must use actual non-test production routing rather than the
 libtest pipeline that disables native-region promotion.
 
+### Current non-test warmed hardware attribution
+
+The unchanged production jit_cycles example now supplies actual off/auto
+attribution from immutable0f7c6ba7 source, opt3/opts, LTOtrue,CGU1,stripfalse.
+Ninety-six acknowledged windows cover both CPUs, callbacks/upvalues, three rotated
+repeats, coupled counters and cycle samples,2000 executions per window. All25
+counter deltas are stable; production upvalue promotion is genuinely nonzero.
+All53221 samples reconcile with event weights and generated-map ranges, with
+zero lost samples and100% active-PMU scheduling. Source/image/tool witnesses
+verify; the reader accepts valid/restored evidence and rejects17 corruptions.
+
+Callback retired work is about9.50M Auto versus7.88M Off instructions per
+execution in opt3,11.69M versus9.60M in opts. Shipping native transport accounts
+for27.60%/21.52% of sampled self cycles on CPUs0/16, versus11.58%/13.26% in opt3;
+the canonical-read helper accounts for only about6–9%. Exact-image annotations
+place much of shipping transport's samples around the existing Slot::value
+aggregate-result copy in the seven-register writeback loop. Sampling skid means
+this is not an exact instruction-latency or causal speedup claim.
+
+Twelve additional CPU0 coupled-event windows preserve identical workload/counter
+protocols. Shipping Auto/Off forwarding blocks are34827/40238 per execution;
+speed Auto/Off are5419/14755. Thus aggregate forwarding counts do NOT establish
+an excess unique to native execution. Do not blame the whole deficit on this
+event, repeat rejected global inlining/integer-first/scalar-only experiments
+blindly, or substitute attribution for unchanged elapsed/cost/release gates.
+Next work must reduce actual entry/publication or transition work with full
+canonical-state/panic/fuel guarantees. Evidence:
+`target/jit-evidence/hook-resume-recovery/production-warmed-profile/`, including
+`attribution.json`, exact annotations, forwarding summary and frozen manifests.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
