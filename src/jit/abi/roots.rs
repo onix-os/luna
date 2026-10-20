@@ -196,6 +196,66 @@ mod tests {
     }
 
     #[test]
+    fn reference_slot_validation_classifies_all_root_kinds() {
+        Lua::empty().enter(|ctx| {
+            let sentinel = Value::Table(Table::new(&ctx));
+            let cases = [
+                (Value::Nil, false),
+                (Value::Boolean(false), false),
+                (Value::Boolean(true), false),
+                (Value::Integer(i64::MIN), false),
+                (Value::Integer(i64::MAX), false),
+                (Value::Number(-0.0), false),
+                (Value::Number(f64::from_bits(0x7ff8000000000055)), false),
+                (crate::String::from_static(&ctx, b"root").into(), true),
+                (Table::new(&ctx).into(), true),
+                (
+                    crate::Closure::load(ctx, None, &b"return"[..])
+                        .unwrap()
+                        .into(),
+                    true,
+                ),
+                (
+                    crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return))
+                        .into(),
+                    true,
+                ),
+                (crate::Thread::new(ctx).into(), true),
+                (crate::UserData::new_static(&ctx, 7).into(), true),
+            ];
+            for (root, accepted) in cases {
+                for width in [1, 2, 17, 256] {
+                    for source in [0, width / 2, width - 1] {
+                        for destination in [0, width / 2, width - 1] {
+                            let mut roots = vec![Value::Nil; width];
+                            roots[source] = root;
+                            let mut slots = vec![Slot { tag: 0, bits: 0 }; width];
+                            slots[destination] = Slot {
+                                tag: REFERENCE,
+                                bits: source as u64,
+                            };
+                            let mut actual = vec![sentinel; width + 1];
+                            assert_eq!(materialize(&roots, &slots, &mut actual), accepted);
+                            for (index, value) in actual.into_iter().enumerate() {
+                                identical(
+                                    value,
+                                    if !accepted || index == width {
+                                        sentinel
+                                    } else if index == destination {
+                                        root
+                                    } else {
+                                        Value::Nil
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
     fn late_invalid_slots_preserve_the_entire_destination() {
         Lua::empty().enter(|ctx| {
             let reference = Value::Table(Table::new(&ctx));

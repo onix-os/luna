@@ -1809,6 +1809,13 @@ jit-import-bits-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact --test-threads=1
 
 .PHONY: jit-rooted-moves jit-rooted-preservation
+.PHONY: jit-root-kind-validation jit-root-kind-validation-miri
+jit-root-kind-validation:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests::reference_slot_validation_classifies_all_root_kinds -- --exact
+
+jit-root-kind-validation-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::roots::tests::reference_slot_validation_classifies_all_root_kinds -- --exact --test-threads=1
+
 jit-rooted-moves:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::rooted_moves_tests $(ARGS)
