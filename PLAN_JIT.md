@@ -38165,6 +38165,297 @@ Fresh locked-builder image revalidation is recorded separately in
 `production-scoped-read/reproducible-layout/public-cache-lock-validation/`;
 completion requires its `validation.status` to be0, not the presence of a lock.
 
+### Exact-code VM instruction attribution and rejected budget cloning
+
+Four disposable profiling copies now carry sized symbols recovered from their
+exact linker maps. Their allocated section bytes/layout and program headers are
+identical to the normalized production images; only nonallocated symbol/section
+metadata differs. Frozen originals are not rewritten. Four Callgrind runs
+collect VM slices and callees, including both warmups and one worker iteration.
+These simulated instruction counts are not hardware cycles or elapsed gates.
+
+VM self instructions in that scope are19472541/23612742 for no-feature/Off at
+opt3, and18122325/21092514 at opts. This isolates substantial VM work without
+using throttled sampling weights as exact function counts. The existing native
+scratch is already outlined: current stack reservations are0x608/0x648 for
+no-feature/Off speed,0x5d8/0x6c8 for shipping, not a hidden4KiB probe page.
+
+One concrete compiler difference is visible: no-feature's sole64-opcode caller
+allows budget argument/zero-guard constant propagation; JIT's activation hosts
+also call the VM with variable budgets. An isolated trial clones the SAME VM
+body for actual64-opcode calls, retaining dynamic behavior for every other
+budget. It does not specialize Off/Auto or change counters, guards or ABI.
+Formatting and51 existing focused executions pass. A new direct fixed/dynamic
+fixture passes80 scenario pairs (scalar loops, return/error/callback-call,
+fuel, interruption and pending resumption), with exact state/accounting checks.
+Its initial Value/PartialEq compile failure is retained and corrected using
+tagged scalar bits and identity snapshots. No Miri claim is made for this trial.
+
+All six canonical release images build. No-feature allocated layout and bytes
+match controls except70 changed bytes in.data.rel.ro in EACH profile; full-file
+identity is false. This is consistent with shifted panic-location metadata,
+not proven harmless by a file-hash match. JIT cost images grow30720/31616 bytes
+in speed/shipping; code duplication is not hidden.
+
+REJECT the runtime trial.120 actual production Off-worker stat runs cover
+upvalues, integer/float loops, callbacks and arrays, both profiles/CPUs and
+three rotated control/candidate repeats. All instruction ratios worsen:
+upvalues about1.29%/2.06–2.07%, integer17.90–17.91%/21.00%,
+float17.65%/21.13%, callbacks1.20%/1.66%, arrays4.12%/5.62%, by speed/shipping.
+All PMU counters are100% scheduled. Startup and both warmups are INCLUDED;
+this is not warmed-only attribution or full timing acceptance. Do not retain
+the clone because its source-level budget argument looks simpler. Production
+VM/Make sources are restored exactly; the rejected source, parity fixture,
+patch, images, raw counters and no-feature section comparisons remain archived.
+Original performance, resource-policy, platform and release gates remain OPEN.
+Evidence: `production-scoped-read/reproducible-layout/{vm-ir-attribution,fixed-slice-budget}/`.
+
+### Owner-adjacent policy caching: three measured variants rejected
+
+An isolated charged RuntimeState places a policy Cell beside its Manager
+RefCell. Full mutable loans use an encapsulated RAII guard: WRITING rejects
+queries with the original RefCell failure, then Drop recomputes mode/pair flags
+before releasing the loan, including unwind. No raw RefCell escape, unsafe
+code, GC values, VM duplication, source cache or batched statistics. Actual
+RuntimeOwner allocation layout is charged through HeaderCharge; no constant
+padding assumption substitutes for resource acceptance.
+
+The base passes112 focused executions and17 Miri tests each with default and
+explicit Tree settings. All six canonical images build; BOTH no-feature images
+are fully byte-identical to controls. Its120 five-case Off PMU runs show more
+upvalue work, about0.46–0.49% speed and1.76–1.79% shipping. Other workloads are
+essentially unchanged or worse. It is not an accepted optimization.
+
+A refinement uses RefMut::map to expose ONLY JitStats during interpreter
+publication. That loan cannot mutate configuration/pair presence; policy reads
+remain coherent, full writers/snapshots remain borrow-excluded, and publication
+timing does not change.113 focused executions,18 default/18 Tree Miri tests and
+both no-feature full identities pass. Another120 actual Off runs save only
+about0.12% upvalue/0.29–0.31% callback instructions in speed; shipping still adds
+about1.23–1.26% upvalues and0.73–0.75% callbacks.
+
+An exact shipping map/sized-symbol companion isolates a code-generation issue:
+VM+callee simulated Ir rises41916158 to42276633. InterpreterStats Drop remains
+EXACTLY1440072 self instructions, but outer Runtime.active/call_pairs_enabled
+getters become outlined, adding300015/420021 self instructions. They were
+inlined in the baseline. Inner inline hints did not force those OUTER wrappers.
+This is inspected code/count evidence, not a hardware alignment explanation.
+
+Explicitly inlining those two outer getters passes the same113 focused checks
+and builds all six images, with both no-feature identities intact. Its120-run
+screen recovers most shipping work but still adds about0.32–0.34% upvalue and
+0.31–0.33% callback instructions there; speed savings remain below0.32%.
+All three screens include startup,two warmups and100 iterations on CPUs0/16,
+three rotated repeats, with100% active PMU scheduling. Cycle ratios vary under
+contention and are not full elapsed acceptance. Miri18 evidence applies to the
+pre-hint refinement, not an unrun post-hint Miri gate.
+
+REJECT all three runtime variants: none materially repairs the original Off
+tax, and shipping instruction work remains worse. No full timing/promotion or
+platform/resource completion is claimed. Restore production/Make exactly and
+retain source, tests, hashes, images and raw results under
+`production-scoped-read/reproducible-layout/owner-policy-cell/`, including
+`narrow-stats/` and `narrow-stats/inline-queries/`. Initial Miri filtering failed
+with SIGPIPE141 despite passing tests: grep-q closed the pipe before tee finished.
+Corrected gates consume the entire stream; only subsequent terminal0 runs count.
+Original full performance, resource-policy, platform and release gates stay OPEN.
+
+### Direct VM-state argument: measured and rejected
+
+The private Rust VM call was tested with its existing exclusive ThreadState
+reference exposed directly, while stack/fuel/pair-scope references traveled in
+a smaller parts aggregate. The same LuaFrame was reconstructed in the same VM
+body. No new unsafe code, heap fields, GC roots, counter changes, VM clones or
+external native ABI changes were introduced. Context was already two pointers
+in both feature configurations; context widening was not an established cause.
+
+Focused checks and the complete Off test campaign pass. Default and explicit
+Tree Miri each pass22 executions covering statistics, VM dispatch, frame and
+readonly publication. Auto validation was intentionally stopped after profiling
+showed regressions; Force/all-feature completion is NOT claimed. All six
+canonical images build. Both no-feature images retain identical allocated
+section layouts and text, but differ in75 data.rel.ro bytes; full-file identity
+does NOT hold. Changed panic locations are consistent with, not proof of, that
+metadata difference.
+
+Link-map/LLVM-IR companion images match their measured cost images byte for
+byte. The speed baseline passes a32-byte frame aggregate; the candidate exposes
+a136-byte noalias state reference and a24-byte parts aggregate. This confirms
+the argument transformation, not an optimization benefit. Exact-symbol copies
+preserve allocated bytes/layout and program headers. VM+callee simulated upvalue
+Ir rises37895534 to39185600 in speed and41916158 to42456107 in shipping.
+
+The real120-window Off hardware-counter screen confirms rejection: speed adds
+about2.49% upvalue instructions,5.42% integer,5.04% float,1.64% callbacks and
+3.08% arrays. Shipping adds about0.98–1.01% upvalues,0.15% integer,0.13–0.14%
+float,0.47% callbacks and0.09% arrays. All active counters are100% scheduled;
+scope includes startup,two warmups and100 iterations, with three rotated
+control/candidate repeats on CPUs0/16. No owned tests/builds/profilers overlap
+this capture. Cycles remain contended observations, not elapsed acceptance.
+
+REJECT and restore the runtime exactly. A direct noalias state parameter is
+not a demonstrated repair of the disabled-feature overhead. Keep source, patch,
+images, signatures, exact-code maps, profiles and raw work measurements under
+`production-scoped-read/reproducible-layout/vm-state-abi/`. The original0f
+acceptance control and full performance/resource/platform/release gates remain.
+
+### Complete borrowed VM arguments: measured and rejected
+
+A second private-ABI trial exposes all existing ThreadState, StackVec, Fuel
+and optional PairScope mutable borrows directly, without a parts aggregate.
+It reconstructs the same LuaFrame in the same VM; no new unsafe code, roots,
+allocations, fields, counters, VM clones or native-helper ABI changes.
+Formatting, all-target checking and51 focused executions pass. Six canonical
+images build. Both no-feature images have identical allocated layouts/text
+but76 changed data.rel.ro bytes, not full-file identity.
+
+An LLVM-IR/link-map companion matches the measured speed cost image byte for
+byte and shows separate noalias references for state, stack, fuel and pair
+scope. That confirms the intended argument exposure but does not make it fast.
+The unchanged120-window real Off PMU screen again rejects it: speed adds about
+1.80–1.82% upvalue instructions,5.32% integer,4.95% float,1.23–1.26% callbacks
+and3.01% arrays. Shipping adds0.28% upvalues,2.08% integer,1.95% float,0.36%
+callbacks and0.77% arrays. All active events are100% scheduled; both profiles,
+CPUs0/16, three rotated repeats, startup,two warmups and100 iterations remain.
+No owned build/test/profiler overlaps capture. Contended cycles are not elapsed
+acceptance, and no full-mode/Miri/platform acceptance is claimed for this trial.
+
+REJECT and restore the runtime exactly; explicit alias boundaries alone are
+not a demonstrated repair. Preserve source, images, patch, exact speed IR/map,
+no-feature comparisons and raw counters under
+`production-scoped-read/reproducible-layout/vm-borrow-args/`. Do not promote either
+argument trial based on the presence of noalias metadata. Original0f acceptance
+and full performance/resource/platform/release requirements remain unchanged.
+
+### Zero interpreter-statistics writes: measured and rejected
+
+Independent baseline-passing regression tests in5c21f373 cover zero-dispatch
+publication, positive report-only counts, saturation, shared current statistics
+and normal publication refusal under both shared and mutable manager loans.
+They remain useful without changing the runtime and pass within53 focused
+executions. A subsequent trial always takes the same full mutable manager loan,
+then skips redundant zero total/slice updates and uses a constant slice increment
+on nonzero dispatches. Positive report-only instructions still publish immediately.
+No batching, counter suppression, derived native counts, extra fields, caches,
+roots, unsafe code, VM clones or helper ABI changes.
+
+Candidate formatting/checking and53 focused executions pass, as do18 Miri
+executions EACH under default and explicit Tree settings. Six canonical images
+build and BOTH no-feature images remain FULLY byte-identical. These checks do
+not establish a performance improvement.
+
+Another120-window Off screen rejects the tradeoff: speed upvalues add about
+0.58–0.62% instructions and callbacks0.29–0.32%; integer/float/arrays add about
+0.05–0.08%. Shipping upvalues add0.19–0.22%, callbacks0.10%, and the other cases
+about0.02–0.03%. A separate120-window Auto screen finds small whole-worker
+instruction reductions for numeric loops(~0.42–0.49%) and arrays(~0.11–0.12%),
+but callbacks worsen in BOTH profiles and upvalue results are mixed. Startup,
+JIT compilation, two warmups and100 iterations are INCLUDED in Auto counts;
+they are not warmed-only native attribution or elapsed acceptance.
+
+Both screens retain both profiles/CPUs and three rotated repeats, exact results,
+100% active PMU scheduling and no overlapping owned builds/tests/profilers.
+Auto positive native-work counts match control/candidate across all repeats;
+that is not the independent full27-field/resource oracle. Its new reader passes
+valid/restored captures and eight altered-input refusal checks in a disposable
+copy, leaving raw data untouched. All original artifacts verify afterwards.
+
+REJECT the runtime change: modest native-only work savings do not compensate
+for extra disabled/callback work. Restore the publisher exactly; retain the
+two independently committed tests and archive raw evidence under
+`production-scoped-read/reproducible-layout/zero-stats-publication/`. Original0f
+full performance/resource/platform/release requirements are still OPEN.
+
+### Single-pass array mirror initialization: measured and rejected
+
+The existing64-prefix/two-access-mode initialization fixture already checks
+scalar/reference/NaN bits, zero tails, seeded counters, canonical identity and
+lease release. Baseline37 array/backend executions pass before changing code.
+The trial replaces NIL initialization plus prefix conversion with checked
+array::from_fn initialization, preserving every Slot value and the existing
+by-value constructor, scopes, layout and native ABI. It introduces no unsafe,
+unchecked/uninitialized storage, new roots or allocation. This is not the
+previously rejected scoped Window::with constructor.
+
+Candidate format/check and90 focused executions pass; default and explicit Tree
+Miri each pass19 tests. Six canonical images build and both no-feature images
+remain fully byte-identical. Exact LLVM-IR/map companions match both measured
+cost images; sized-symbol copies preserve allocated bytes/layout/program headers.
+Four whole-Auto profiles retain results and positive native-work proof, but array
+simulated totals grow35400033->35562460(speed),42525724->42621523(shipping).
+Speed construction moves into an outlined try_from_fn specialization with
+1355200 self Ir versus1122828 in the prior constructor; shipping constructor
+self grows1195080->1379620. A single source pass is not less generated work.
+
+Real120-window Off plus120-window Auto PMU screens complete and readers verify.
+Actual Auto array instructions INCREASE about1.964% speed and1.126–1.127%
+shipping on both CPUs. Other Auto changes are mixed; Off work is essentially
+flat. Both profiles/CPUs, three rotated repeats, startup,two warmups and100
+iterations remain; Auto includes JIT compilation. Active events are100%
+scheduled and no owned build/test/profiler overlaps capture. Cycles vary with
+contention and do not override the extra work or establish elapsed acceptance.
+The native reader passes valid/restored and eight altered-input checks without
+modifying raw captures. Printed native proof is not the full27-field/resource
+oracle. Valgrind guest JIT ISA identity is still unverified.
+
+REJECT and restore the constructor exactly. Preserve source, images, maps/IR,
+four profiles, raw240-window counters and checks under
+`production-scoped-read/reproducible-layout/array-window-single-pass/`.
+Original0f full performance/resource/platform/release acceptance remains OPEN.
+
+### Write-only array mirrors: work savings, elapsed regression unresolved
+
+The independent native reference-root fixture is committed before the runtime
+trial. It compares132 positive machine-code PC/budget prefixes and a zero-budget
+refusal to the generic backend, including exact scratch, counters and reference
+identities. Two collections retain only parent tables, then verify their shared
+table/string children. Its Make target rejects a zero-test run.
+
+The uncommitted write-only trial classifies only loops with SetTable and no
+GetTable anywhere in the selected source. The translation verifier independently
+re-derives that classification. Its fully initialized NIL mirror avoids unused
+canonical-cell conversions; canonical ownership, dirty-only writeback, admission
+guards, shared/exclusive leases and the preserving read/mixed path stay intact.
+There is no uninitialized storage, new root, allocation or native ABI change.
+Plan sizes remain24 bytes on x64 and12 on i686.
+
+The final first variant passes95 focused executions,22 Miri tests under each
+borrow model,8605 GNU mode/all-feature executions,3337 real i686 fallback
+executions and95 native x64-musl executions. Six canonical release images match
+the initially measured variant byte-for-byte, including both unchanged no-feature
+images. Its240-window real PMU screen reduces Auto array instructions about
+6.86-7.18%; exact host profiles also reduce constructor and total work. These
+counts do not establish elapsed performance or Valgrind guest-ISA identity.
+
+Each of the first variant, an outlined overwrite-wrapper variant and a fresh
+committed f16ed199 diagnostic control completes the unchanged144-command matrix
+against original0f7c6ba7:14256 native executions,285120 cost iterations and zero
+independent27-field counter/resource mismatches. Raw cost medians are recomputed;
+raw native medians are not available in this protocol and remain unaudited.
+All failed gates and same-image placebo observations are retained.
+
+Despite array gains, first-variant CPU0 speed Off float control/candidate elapsed
+ratio is0.862813 and Off integer cost ratio0.918836. Outlining only the new
+wrapper does not repair them:0.860214 and0.917672 respectively, plus a shipping
+CPU16 Auto allocation regression. Neither variant is performance-accepted.
+
+The fresh committed control reproduces neither of those two regressions:
+0.999239 and1.005957 respectively. Its six images have identical allocated code
+bytes/layouts to the older committed control; native-feature images differ only
+in20 speed/22 shipping data.rel.ro bytes, consistent with source-location shifts
+from separately committed tests. This rules out that test-only control change
+as the explanation for the two repeated observations; it does not establish
+their cause or erase other adverse control observations.
+
+The failed outline hint is removed. A separate unaccepted Linux hot-interpreter
+section trial is being checked for exact ELF RX/nonwritable placement, complete
+unwind coverage and the full unchanged timing matrix. No placement hypothesis,
+smaller instruction count or focused correctness result can waive the original
+Off/callback, resource-policy, platform or release requirements. Preserve the
+immutable sources, images, raw results and readers under
+`production-scoped-read/reproducible-layout/array-write-only/` and
+`production-scoped-read/reproducible-layout/f16-baseline/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
