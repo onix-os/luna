@@ -36405,7 +36405,14 @@ profile and other executed work offsets part of the saving. The whole totals,
 not the helper-only saving, are authoritative. These are **not elapsed speedups**
 or evidence that the original callback/disabled-mode gates pass. Four additional
 disabled-mode artifacts now finish with source/configuration/binary witnesses.
-Both no-feature binaries differ from control; equivalence remains unproven.
+Both no-feature binaries differ from control only in **27 /29 verified source
+location line words** (speed/shipping). Their complete executable code, literals
+and every other ELF byte are identical. The original proof refuses filenames
+outside its VM/executor/metamethod list; that refusal remains. A separately
+named mapped proof adds the two changed table source files, checks exact
+unchanged-line mappings and relocation-backed filename/column identity, and
+passes two valid/eight-corrupt fixtures per profile, including altered source
+contents. No executable or non-line metadata difference is allowed.
 
 A shipping-only disabled-cost diagnostic completes **36 commands / 142,560
 iterations**, all nine original cases, eleven samples, twenty iterations, six
@@ -36432,6 +36439,8 @@ size_of<u32>` bytes; three add24. Exact-limit runs succeed, one-byte-short limit
 refuse with typed errors, and all charges are reclaimed. Formatting/check-all
 and the focused regression pass. This proves the allocation rule in isolation,
 not that it alone accounts for the complete production compilation peak.
+Frozen test-only follow-up`c16477ef` also passes this regression under both
+Miri borrowing models, one execution each, with source/invocation/tool witnesses.
 Production code is unchanged by this test-only follow-up; the full Force,
 Miri/i686 and elapsed results above remain explicitly tied to frozen`6ed93f4d`.
 
