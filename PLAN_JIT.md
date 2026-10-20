@@ -36516,10 +36516,186 @@ regressions: **2,071 executions /91 summaries**, zero failures/compiler warnings
 23 existing ignores. Source/tool/binary witnesses verify. Archive checksums alone
 must not be treated as proof that a warm shared test executable used those bytes.
 
-This remains **unaccepted performance work**. Source-bound resource-audit verification,
-disabled-artifact comparisons, repeated original elapsed gates and all other
-outstanding resource/platform/release requirements remain open.
+This remains **unaccepted performance work**. The measured snapshot changes are
+accounted and no-feature equivalence is verified; the original performance gates
+still fail. Robust elapsed performance and all other outstanding resource,
+platform and release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
+
+### Interpreted scalar-prefix trial fd623c50 — rejected
+
+The next trial targets ordinary interpreter work, not another native entry
+wrapper. Only an already-classified interpreted slice may use a checked
+`GetUpValue / AddRR / SetUpValue` prefix in an exact four-opcode function ending
+in `Return`. Hooked, observing and compiled dispatches retain their original
+paths. The original return arm is unchanged: its instruction/fuel behavior is
+not interchangeable with the preceding operations.
+
+The prefix uses canonical registers and the existing upvalue accessors, checks
+declared and actual extents, publishes each dispatch before effects, and stops
+at exact budget/PC boundaries. Integer addition wraps; non-integer operands
+fall back before the addition's effects to the ordinary coercion/metamethod/error
+path. No owner, persistent cache, GC field or allocation is added.
+
+Fresh validation uses a main-checkout-only Cargo target, not the previously
+demonstrated stale shared-target shortcut. Formatting and all-feature checking
+pass; **4 no-feature plus 7 JIT-feature tests pass**, with zero ignored tests.
+These include 160 paired full executor schedules, 16 smaller paired schedules,
+8 full-public-stats/mode-transition schedules, source/actual-view bounds,
+nested typed-panic restoration and borrowed foreign-upvalue panic publication.
+Collection occurs between executor steps. The direct borrow fixture uses the
+existing test-stack constructor rather than widening private field visibility.
+
+This is **unaccepted** until production images show reduced work and the original
+elapsed/per-case gates pass. The extra plan lookup/branch can outweigh fewer
+source dispatches; reject the runtime change if measured work regresses. Miri,
+real unsupported-target fallback and full Force validation remain outstanding
+for this trial. Evidence: `target/jit-evidence/hook-resume-recovery/interpreter-scalar-prefix/`.
+
+The completed production work screen **rejects this loop-integrated shape**.
+It uses the original opt3/opts, LTO, one-codegen-unit, stripped configurations
+and the same builder path as the existing 6ed93f4d control images. Each profile
+positively rebuilds Luna twice. Forty-eight alternating image loads collect
+240 executions (144 post-warmup), with independent same-feature comparisons,
+all13 event partitions reconciled, and12 valid/24 corrupted-identity fixtures.
+Source, binary, link-map, configuration and tool witnesses verify.
+
+Whole `Lua::execute` instruction-count changes, candidate relative to control:
+
+| Workload | No-feature opt3 | No-feature opts | JIT-off opt3 | JIT-off opts |
+| --- | ---: | ---: | ---: | ---: |
+| Upvalue closure | +6.13% | +11.35% | +6.64% | +12.58% |
+| Integer loop | -1.87% | +1.53% | +5.04% | +3.79% |
+| Float loop | -2.71% | +1.42% | +4.69% | +4.03% |
+
+These are software-work observations, **not elapsed speedups or acceptance**.
+The closure's VM entry count remains20,001. Fusing three source operations
+does not remove those entries; the new inner-loop selection, prefix loop and
+out-of-line accessor work outweigh the removed generic dispatch work. Repeating
+elapsed campaigns cannot justify retaining this already adverse primary result.
+
+The structural follow-up removes the per-opcode selection entirely: check and
+execute the bounded prefix once at interpreted slice entry, then leave the
+original generic loop unchanged. Three straight-line guarded source operations
+replace the prefix's new mini-dispatch loop. Non-integer fallback uses the
+original remaining generic instructions; no extra descriptor is kept across
+that loop. Native/mock/hook observation ordering must remain unchanged. This
+follow-up is independently unaccepted until freshly checked and measured.
+Its entry-only implementation passes fresh formatting/all-feature checking and
+the same4+7 focused tests, including complete stats/fuel comparison at the new
+early budget return. Evidence: `target/jit-evidence/hook-resume-recovery/interpreter-prefix-entry/`.
+
+The complete8d8cc022 follow-up work screen improves no-feature opt3 closure work
+by2.04%, but still adds4.25% no-feature shipping and0.50/6.49% JIT-off opt3/opts
+closure work. Numeric no-feature work drops0.80–5.30%; JIT-off still adds0.09–1.72%.
+All48 loads/240 executions and12 valid/24 corrupt identity fixtures complete
+with verified partitions and original source/build configurations. It is not
+performance accepted.
+
+Symbol-level attribution identifies **1,220,000 shipping instructions in
+`ScalarPrefix::fits`**, previously absent: two array-iterator bounds checks per
+eligible function become out-of-line loops under the original opts profile.
+The next bounded correction replaces those arrays/loops with the maximum of all
+five register indexes and both upvalue indexes, then two extent comparisons.
+Both source and actual-view checks remain; no operands, bounds, counters or
+stores are omitted, and no inline/layout/build-flag tuning is substituted.
+Independent each-operand tests compare that maximum predicate to all seven
+separate bounds checks, including zero lengths and255/256 boundaries. This
+correction remains independently unaccepted pending fresh checks and production
+measurement; a VM-only instruction reduction never overrides whole-workload
+regression.
+Its fresh formatting/check-all and5+8 focused tests pass with zero ignored tests;
+production evidence is collected separately under
+`target/jit-evidence/hook-resume-recovery/interpreter-prefix-max-bounds/`.
+
+The complete11d4ade1 screen removes the outlined bounds-loop cost, but still
+**rejects the family**: closure whole-work changes are-1.41/-1.08% no-feature
+opt3/opts versus+0.56/+1.75% JIT-off. Integer JIT-off remains+0.10/+1.71%; float
+JIT-off+0.09/+1.60%. The no-feature gains do not cancel the feature-cost
+regressions. Again, all48 image loads/240 executions and12 valid/24 corrupt
+identity fixtures complete with verified source/config/image/partition witnesses.
+Across the three screens that is144 loads,720 executions (432 measured), with
+36 valid/72 corrupt fixtures, not an elapsed performance claim.
+
+The entire interpreter-prefix runtime, descriptors and temporary dedicated test
+targets are withdrawn. Their tests, source and images remain reproducible in
+the three frozen evidence directories and trial commits; no unchecked prefix,
+no-feature-only special case or persistent positive cache is retained. Restore
+the exact pre-trial source/Makefile, verify focused native-helper/resource gates,
+and bind restored production images before investigating a different execution
+boundary. Full original JIT/performance/platform/release acceptance stays open.
+The restored source/Makefile exactly match pre-trial127f0e0b. Fresh formatting,
+check-all and27 focused native-helper/entry-hint/compiler-resource executions
+pass across6 summaries, with zero failures/ignores. The real11-prototype/37-attempt
+compiler-resource replay remains intact. Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/interpreter-prefix-withdrawal/`.
+
+### Grouped read-only helper publication — unaccepted trial
+
+The complete source-bound callback work observation is reverified/recomputed,
+not the earlier incomplete `native-profile` capture (speed status1, two image
+loads only). The complete opt3/opts records retain all four loads and five
+executions each, and the recomputed symbol JSON equals its existing immutable
+counterpart. Ordinary seven-slot native transport contributes1,570,343/1,590,360
+instructions per callback workload execution; these are work counts, not times.
+
+The earlier sparse-counter experiment added eight independent zero checks.
+This trial instead uses **one bitwise-union guard for four actual deltas**:
+declines, table writes, upvalue writes and allocations. Calls, completions and
+table/upvalue reads retain their ordinary full-width saturating updates. When
+any of the four guarded deltas is nonzero, all four retain their original
+full-width saturating updates; otherwise all four additions are identities.
+There is no inference from helper-call counts, narrowed field, deferred
+publication, persistent cache, new allocation or metadata/GC/ABI layout change.
+Publication remains before native-exit reporting and transported panic rethrow.
+Macro expansion keeps the existing invocation boundary without an inline hint
+or a separately outlined publisher.
+
+Independent u128-sum fixtures exercise each of all eight fields and extreme
+values, zero/nonzero failure/write lanes,4096 mixed cases, and unchanged
+non-helper statistics. Formatting/all-feature checks and helper/publication/
+native/heap gates pass: **55 executions /6 summaries**, zero failures/ignores.
+Source **e8b58d65** is committed/pushed and frozen independently of later docs.
+
+The complete native work screen covers seven warm workloads, both original
+profiles,56 alternating image loads and280 executions (168 after warmup).
+All complete non-timing records match the exact6ed93f4d controls, all13 event
+partitions reconcile, and14 valid/28 corrupted-image-identity fixtures pass.
+Whole-workload instruction changes use the median of all six post-warmup
+observations per variant, not a selected first execution:
+
+| Workload | opt3 | opts |
+| --- | ---: | ---: |
+| Rust callbacks | -0.3184% | -0.3009% |
+| Upvalues | -0.2337% | -1.4121% |
+| Metamethods | -0.3740% | -0.0325% |
+| Allocation/GC | +0.0446% | +0.0329% |
+| Integer loop | -0.3680% | -0.3969% |
+| Float loop | -0.3553% | -0.3842% |
+| Array table | -0.1684% | -0.0123% |
+
+The adverse allocation counts are retained, not canceled by favorable cases;
+instruction counts neither prove elapsed improvement nor waive any threshold.
+The initially quoted upvalue1–2.3% referred only to the first measured execution;
+the complete six-observation aggregates above supersede it.
+
+Four original production feature-cost images also build with verified source,
+flags and worker protocols. Both no-feature images are byte-identical to their
+controls. Forty-eight disabled-mode image loads collect240 executions/144 measured
+with12 valid/24 corrupt identity fixtures. Numeric instruction totals are exactly
+unchanged; upvalue whole-work differences are below0.001%, including tiny
+differences between identical no-feature binaries. No causal improvement is
+attributed to those tiny disabled observations; this trial does not claim to
+repair the outstanding compiled-Off upvalue overhead.
+
+The full original elapsed campaign is now running: all nine cases,11 samples,
+20 cost iterations, six balanced A/candidate/B orders, CPUs0/16, opt3/opts and
+unchanged original thresholds/auditor. Its preflight enforces actual completed
+focused/work/image gates and no owned builds/tests/profilers, not fabricated
+Force/Miri/release statuses. Source/image/tool/runtime-patch witnesses pin the
+campaign to e8b58d65; it remains unaccepted pending complete elapsed results,
+the remaining Miri/unsupported/Force checks, and every original full-plan gate.
+Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
 ## 15. Primary references
 
