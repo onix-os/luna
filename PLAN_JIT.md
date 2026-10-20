@@ -38210,6 +38210,56 @@ patch, images, raw counters and no-feature section comparisons remain archived.
 Original performance, resource-policy, platform and release gates remain OPEN.
 Evidence: `production-scoped-read/reproducible-layout/{vm-ir-attribution,fixed-slice-budget}/`.
 
+### Owner-adjacent policy caching: three measured variants rejected
+
+An isolated charged RuntimeState places a policy Cell beside its Manager
+RefCell. Full mutable loans use an encapsulated RAII guard: WRITING rejects
+queries with the original RefCell failure, then Drop recomputes mode/pair flags
+before releasing the loan, including unwind. No raw RefCell escape, unsafe
+code, GC values, VM duplication, source cache or batched statistics. Actual
+RuntimeOwner allocation layout is charged through HeaderCharge; no constant
+padding assumption substitutes for resource acceptance.
+
+The base passes112 focused executions and17 Miri tests each with default and
+explicit Tree settings. All six canonical images build; BOTH no-feature images
+are fully byte-identical to controls. Its120 five-case Off PMU runs show more
+upvalue work, about0.46–0.49% speed and1.76–1.79% shipping. Other workloads are
+essentially unchanged or worse. It is not an accepted optimization.
+
+A refinement uses RefMut::map to expose ONLY JitStats during interpreter
+publication. That loan cannot mutate configuration/pair presence; policy reads
+remain coherent, full writers/snapshots remain borrow-excluded, and publication
+timing does not change.113 focused executions,18 default/18 Tree Miri tests and
+both no-feature full identities pass. Another120 actual Off runs save only
+about0.12% upvalue/0.29–0.31% callback instructions in speed; shipping still adds
+about1.23–1.26% upvalues and0.73–0.75% callbacks.
+
+An exact shipping map/sized-symbol companion isolates a code-generation issue:
+VM+callee simulated Ir rises41916158 to42276633. InterpreterStats Drop remains
+EXACTLY1440072 self instructions, but outer Runtime.active/call_pairs_enabled
+getters become outlined, adding300015/420021 self instructions. They were
+inlined in the baseline. Inner inline hints did not force those OUTER wrappers.
+This is inspected code/count evidence, not a hardware alignment explanation.
+
+Explicitly inlining those two outer getters passes the same113 focused checks
+and builds all six images, with both no-feature identities intact. Its120-run
+screen recovers most shipping work but still adds about0.32–0.34% upvalue and
+0.31–0.33% callback instructions there; speed savings remain below0.32%.
+All three screens include startup,two warmups and100 iterations on CPUs0/16,
+three rotated repeats, with100% active PMU scheduling. Cycle ratios vary under
+contention and are not full elapsed acceptance. Miri18 evidence applies to the
+pre-hint refinement, not an unrun post-hint Miri gate.
+
+REJECT all three runtime variants: none materially repairs the original Off
+tax, and shipping instruction work remains worse. No full timing/promotion or
+platform/resource completion is claimed. Restore production/Make exactly and
+retain source, tests, hashes, images and raw results under
+`production-scoped-read/reproducible-layout/owner-policy-cell/`, including
+`narrow-stats/` and `narrow-stats/inline-queries/`. Initial Miri filtering failed
+with SIGPIPE141 despite passing tests: grep-q closed the pipe before tee finished.
+Corrected gates consume the entire stream; only subsequent terminal0 runs count.
+Original full performance, resource-policy, platform and release gates stay OPEN.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
