@@ -37158,6 +37158,40 @@ dependency inputs verify unchanged after these gates. Elapsed comparison remains
 pending at this checkpoint; diagnostic controls cannot replace production gates.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-publication/`.
 
+### Lookup publication pilot — routing withdrawn
+
+Candidate **958f0e9b** completes two independent672-load diagnostic campaigns:
+one uses same-image ordinary A/B controls, and the second uses the frozen
+pre-publication ordinary/Off images. Both retain seven cases, opt3/opts,
+CPUs0/16, six balanced orders, five measured executions and two warmups per
+load, with queued compilation drained before measurement. Total:1344 loads,
+6720 measured executions and2688 warmups, without owned build/test/profile
+overlap. Counters, expected C-call reduction, resources and all source/image/tool/
+raw-log bindings reconcile; each reader passes2 valid/20 corrupted fixtures.
+
+| Callback ordinary/child ratio | opt3 CPU0 | opt3 CPU16 | opts CPU0 | opts CPU16 |
+| --- | ---: | ---: | ---: | ---: |
+| Same-image controls | 0.944900 | 0.975527 | 0.918498 | 0.966914 |
+| Frozen pre-change controls | 0.925928 | 0.984469 | 0.912738 | 0.966720 |
+
+Ratios above1 favor the child; none of these callback cohorts does. The second
+campaign also exposes adverse other-case observations, including opt3 upvalues
+0.981156/0.968312 and opts CPU0 upvalues0.964158. Contention/placebos remain
+visible; no wins cancel losses and no causal speedup is claimed.
+
+The optional publisher routing is removed. `src/jit/mod.rs` now matches the
+pre-trial09e2da37 runtime byte-for-byte; both ordinary and helper-eliding child
+again use the original eight-field publication. Only the independent pure
+source-plan/oracle models and focused Make gates remain. Restoration passes
+format/check-all and14 executions/four summaries, zero failures/ignores/warnings.
+
+The helper-eliding entry itself is still an unpromoted test-runtime candidate.
+Further work must target actual capture/entry costs rather than claim this
+counter-only change fixes the original performance failures. Full production
+performance/size/cold-cost/resource/platform/release acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-publication/`
+and its separate `cross-ordinary/` campaign.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
