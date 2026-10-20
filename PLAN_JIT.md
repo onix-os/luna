@@ -38366,6 +38366,43 @@ two independently committed tests and archive raw evidence under
 `production-scoped-read/reproducible-layout/zero-stats-publication/`. Original0f
 full performance/resource/platform/release requirements are still OPEN.
 
+### Single-pass array mirror initialization: measured and rejected
+
+The existing64-prefix/two-access-mode initialization fixture already checks
+scalar/reference/NaN bits, zero tails, seeded counters, canonical identity and
+lease release. Baseline37 array/backend executions pass before changing code.
+The trial replaces NIL initialization plus prefix conversion with checked
+array::from_fn initialization, preserving every Slot value and the existing
+by-value constructor, scopes, layout and native ABI. It introduces no unsafe,
+unchecked/uninitialized storage, new roots or allocation. This is not the
+previously rejected scoped Window::with constructor.
+
+Candidate format/check and90 focused executions pass; default and explicit Tree
+Miri each pass19 tests. Six canonical images build and both no-feature images
+remain fully byte-identical. Exact LLVM-IR/map companions match both measured
+cost images; sized-symbol copies preserve allocated bytes/layout/program headers.
+Four whole-Auto profiles retain results and positive native-work proof, but array
+simulated totals grow35400033->35562460(speed),42525724->42621523(shipping).
+Speed construction moves into an outlined try_from_fn specialization with
+1355200 self Ir versus1122828 in the prior constructor; shipping constructor
+self grows1195080->1379620. A single source pass is not less generated work.
+
+Real120-window Off plus120-window Auto PMU screens complete and readers verify.
+Actual Auto array instructions INCREASE about1.964% speed and1.126–1.127%
+shipping on both CPUs. Other Auto changes are mixed; Off work is essentially
+flat. Both profiles/CPUs, three rotated repeats, startup,two warmups and100
+iterations remain; Auto includes JIT compilation. Active events are100%
+scheduled and no owned build/test/profiler overlaps capture. Cycles vary with
+contention and do not override the extra work or establish elapsed acceptance.
+The native reader passes valid/restored and eight altered-input checks without
+modifying raw captures. Printed native proof is not the full27-field/resource
+oracle. Valgrind guest JIT ISA identity is still unverified.
+
+REJECT and restore the constructor exactly. Preserve source, images, maps/IR,
+four profiles, raw240-window counters and checks under
+`production-scoped-read/reproducible-layout/array-window-single-pass/`.
+Original0f full performance/resource/platform/release acceptance remains OPEN.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
