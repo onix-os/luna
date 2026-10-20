@@ -419,8 +419,6 @@ impl Code {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
     #[cfg(not(miri))]
-    RequireReadonlyLookup,
-    #[cfg(not(miri))]
     RefuseReadonlyOwnerStorage,
     #[cfg(not(miri))]
     RefuseReadonlyOwnerAllocation,
@@ -590,6 +588,8 @@ pub(super) fn compile_in(
         work,
         Selection {
             projected: false,
+            #[cfg(all(test, not(miri)))]
+            readonly_scope: false,
             #[cfg(not(miri))]
             scoped_helpers: false,
             #[cfg(test)]
@@ -621,6 +621,8 @@ pub(super) fn compile_projected_in(
         work,
         Selection {
             projected: true,
+            #[cfg(all(test, not(miri)))]
+            readonly_scope: false,
             #[cfg(not(miri))]
             scoped_helpers: false,
             leaf: false,
@@ -648,6 +650,8 @@ pub(super) fn compile_leaf_in(
         work,
         Selection {
             projected: false,
+            #[cfg(all(test, not(miri)))]
+            readonly_scope: false,
             #[cfg(not(miri))]
             scoped_helpers: false,
             leaf: true,
@@ -676,6 +680,7 @@ pub(super) fn compile_leaf_kernel_in(
         Selection {
             projected: false,
             scoped_helpers: false,
+            readonly_scope: false,
             leaf: true,
             cell_kernel: true,
             integer_activation: false,
@@ -748,6 +753,7 @@ fn compile_leaf_pair_selected(
             Selection {
                 projected: false,
                 scoped_helpers: false,
+                readonly_scope: false,
                 leaf: true,
                 cell_kernel: true,
                 integer_activation: true,
@@ -777,6 +783,8 @@ fn compile_leaf_pair_selected(
 
 struct Selection {
     projected: bool,
+    #[cfg(all(test, not(miri)))]
+    readonly_scope: bool,
     #[cfg(not(miri))]
     scoped_helpers: bool,
     #[cfg(test)]
@@ -807,6 +815,8 @@ pub(super) fn compile_scoped_in(
         Selection {
             projected: false,
             scoped_helpers: true,
+            #[cfg(all(test, not(miri)))]
+            readonly_scope: false,
             #[cfg(test)]
             leaf: false,
             #[cfg(test)]
@@ -955,13 +965,14 @@ fn compile_image(
     };
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     #[cfg(all(test, not(miri)))]
-    let readonly_plan = if failure == Failure::RequireReadonlyLookup {
+    let readonly_plan = if selection.readonly_scope {
         if rooted_moves
             || selection.projected
             || selection.leaf
             || selection.cell_kernel
             || selection.integer_activation
             || selection.scoped_helpers
+            || failure != Failure::None
         {
             return Err(JitError::Compilation(
                 "read-only lookup requires ordinary lowering".into(),

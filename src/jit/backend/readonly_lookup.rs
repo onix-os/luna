@@ -31,11 +31,12 @@ pub(in crate::jit) fn compile(
         work,
         Selection {
             projected: false,
+            readonly_scope: true,
             leaf: false,
             cell_kernel: false,
             integer_activation: false,
             scoped_helpers: false,
-            failure: Failure::RequireReadonlyLookup,
+            failure: Failure::None,
         },
         false,
     )?;

@@ -48,6 +48,8 @@ fn compile_source(source: &Snapshot, failure: Failure) -> Result<Code, JitError>
         BudgetAllocator(Ledger::child(2 * 1024 * 1024, root)),
         super::super::work::Limits::from(&super::super::JitConfig::default()),
         Selection {
+            #[cfg(all(test, not(miri)))]
+            readonly_scope: false,
             projected: false,
             scoped_helpers: true,
             leaf: false,

@@ -1031,6 +1031,8 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
                     continue;
                 }
                 let selection = Selection {
+                    #[cfg(all(test, not(miri)))]
+                    readonly_scope: false,
                     projected: mode == 0,
                     leaf: mode == 1,
                     cell_kernel: mode == 2,
