@@ -1,5 +1,8 @@
 use ottavino_gc_arena::Collect;
 
+mod scalar_prefix;
+pub(crate) use scalar_prefix::ScalarPrefix;
+
 use crate::types::{
     ConstantIndex16, ConstantIndex8, Opt254, PrototypeIndex, RegisterIndex, UpValueIndex, VarCount,
 };

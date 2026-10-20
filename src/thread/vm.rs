@@ -25,6 +25,7 @@ mod dispatch;
 mod hook_resume;
 #[cfg(test)]
 mod instantiate;
+pub(super) mod scalar_prefix;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
 // changed.
@@ -369,6 +370,11 @@ fn run_vm_slice<'gc>(
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     let mut pair_scope = lua_frame.pair_handoff.take();
+    let scalar_prefix = if matches!(native_dispatch, dispatch::Dispatch::Interpreted) {
+        scalar_prefix::plan(&current_prototype)
+    } else {
+        None
+    };
     let mut registers = lua_frame.registers();
     #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
@@ -519,6 +525,25 @@ fn run_vm_slice<'gc>(
             _ => {}
         }
 
+        if let Some(plan) = scalar_prefix {
+            let completed = scalar_prefix::run(
+                plan,
+                ctx,
+                current_upvalues,
+                &mut registers,
+                max_instructions - instructions_run,
+                || {
+                    #[cfg(feature = "jit")]
+                    {
+                        interpreter_stats.dispatches += 1;
+                    }
+                },
+            );
+            instructions_run += completed;
+            if instructions_run >= max_instructions {
+                break;
+            }
+        }
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {

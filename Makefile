@@ -180,6 +180,15 @@ jit-inline-loop-bridge:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-hashless-read jit-hashless-read-miri
+.PHONY: vm-scalar-prefix vm-scalar-prefix-miri
+vm-scalar-prefix:
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) scalar_prefix
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) scalar_prefix
+
+vm-scalar-prefix-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::executor::scalar_prefix_tests::interpreted_scalar_prefix_matches_small_miri_schedules -- --exact --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::scalar_prefix::tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
 .PHONY: jit-canonical-compiler-resources
 jit-canonical-compiler-resources:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::hashless_tests::native_canonical_reads_reduce_real_workload_snapshot_peaks -- --exact --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'

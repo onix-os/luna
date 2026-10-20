@@ -36522,6 +36522,36 @@ still fail. Robust elapsed performance and all other outstanding resource,
 platform and release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
 
+### Interpreted scalar-prefix trial — not performance accepted
+
+The next trial targets ordinary interpreter work, not another native entry
+wrapper. Only an already-classified interpreted slice may use a checked
+`GetUpValue / AddRR / SetUpValue` prefix in an exact four-opcode function ending
+in `Return`. Hooked, observing and compiled dispatches retain their original
+paths. The original return arm is unchanged: its instruction/fuel behavior is
+not interchangeable with the preceding operations.
+
+The prefix uses canonical registers and the existing upvalue accessors, checks
+declared and actual extents, publishes each dispatch before effects, and stops
+at exact budget/PC boundaries. Integer addition wraps; non-integer operands
+fall back before the addition's effects to the ordinary coercion/metamethod/error
+path. No owner, persistent cache, GC field or allocation is added.
+
+Fresh validation uses a main-checkout-only Cargo target, not the previously
+demonstrated stale shared-target shortcut. Formatting and all-feature checking
+pass; **4 no-feature plus 7 JIT-feature tests pass**, with zero ignored tests.
+These include 160 paired full executor schedules, 16 smaller paired schedules,
+8 full-public-stats/mode-transition schedules, source/actual-view bounds,
+nested typed-panic restoration and borrowed foreign-upvalue panic publication.
+Collection occurs between executor steps. The direct borrow fixture uses the
+existing test-stack constructor rather than widening private field visibility.
+
+This is **unaccepted** until production images show reduced work and the original
+elapsed/per-case gates pass. The extra plan lookup/branch can outweigh fewer
+source dispatches; reject the runtime change if measured work regresses. Miri,
+real unsupported-target fallback and full Force validation remain outstanding
+for this trial. Evidence: `target/jit-evidence/hook-resume-recovery/interpreter-scalar-prefix/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
