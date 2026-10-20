@@ -37288,10 +37288,42 @@ zero failures and25 intentionally ignored diagnostics. Both symbol-retained
 opt3/opts images built successfully from the same frozen source. This verifies
 the instrumentation checkpoint, not the outstanding performance requirements.
 
-Capture/results are pending at this checkpoint. Coupled raw PMU scheduling,
-selected hybrid event, lost-sample, native/Rust-image and source/tool identity
-reconciliation are required before drawing attribution conclusions; no elapsed
-acceptance or production speedup follows from building this instrumentation.
+The completed matrix contains60 coupled-counter windows and60 sampled windows,
+each2000 executions, with three balanced repeats across opt3/opts, CPUs0/16,
+callback Off/ordinary/readonly and upvalue Off/ordinary. All123215 samples and
+their period weights reconcile to exact selected-event totals, with zero lost
+samples and copied native-map address/name checks. Active counters report100%
+scheduling and common runtime; inactive hybrid counters remain not-counted.
+All25 runtime counters are repeat-identical, including the exact10000000 real
+C-helper calls/completions removed by each readonly callback window. Image,
+frozen/current source and collection-tool hashes remain unchanged. The reader
+accepts the valid matrix and rejects20 independently corrupted inputs.
+
+Callback median retired instructions per execution:
+
+| Opt | CPU | Off | Ordinary | Readonly |
+| --- | ---: | ---: | ---: | ---: |
+| 3 | 0 | 8796005 | 10693322 | 10859007 |
+| 3 | 16 | 8796011 | 10693667 | 10859129 |
+| s | 0 | 10760593 | 12918808 | 13089067 |
+| s | 16 | 10760510 | 12918816 | 13089069 |
+
+Removing the helper call therefore still adds approximately33–34 instructions
+per lookup. Self-attributed opt3 callback cycles put invoke_fresh at11.52/10.85%
+and invoke_captured at6.25/5.80% on CPUs0/16. Symbol-bound disassembly confirms
+an outlined fresh-entry function with136 bytes of local stack storage and
+materialization/copying of Bound before another outlined captured-entry call.
+This supports testing scoped-entry inlining next, not removing freshness,
+borrow, cookie, marker, budget or canonical writeback checks. The dominant
+ordinary/Off instruction gap also remains: this is not evidence that eliminating
+this one helper suffices for callback performance acceptance.
+
+The profiling lifecycle includes executor construction and result checking;
+these are attribution observations, not original elapsed-performance acceptance.
+Some identical callback bodies share an LLVM-folded symbol name from another
+fixture; source/input hashes and actual frozen callback setup, not that alias,
+establish workload identity. perf report -D supplies exact event statistics;
+perf script -D is retained only as raw trace, not misread as event statistics.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-profile/`.
 
 ## 15. Primary references
