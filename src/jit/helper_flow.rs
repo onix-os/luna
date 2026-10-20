@@ -72,6 +72,14 @@ fn refused() -> JitError {
 
 #[cfg(test)]
 impl Calls {
+    #[cfg(not(miri))]
+    pub(super) fn at(&self, pc: usize) -> Option<Inst> {
+        self.records
+            .iter()
+            .find(|record| record.pc == pc)
+            .map(|record| record.call)
+    }
+
     pub(super) fn read_cache_clobbers(&self, snapshot: &Snapshot, inst: Inst) -> u32 {
         let Some(record) = self.records.iter().find(|record| record.call == inst) else {
             return u32::MAX;

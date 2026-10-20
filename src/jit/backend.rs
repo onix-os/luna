@@ -46,6 +46,8 @@ mod integer_loop;
 mod projection_mode;
 #[cfg(test)]
 mod read_cache;
+#[cfg(all(test, not(miri)))]
+pub(super) mod readonly_lookup;
 #[cfg(not(miri))]
 pub(super) mod region;
 #[cfg(test)]
@@ -252,6 +254,8 @@ pub(super) struct Code {
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
+    #[cfg(all(test, not(miri)))]
+    pub readonly_lookup: Option<super::owner::Shared<readonly_lookup::ReadCode>>,
     #[cfg(not(miri))]
     pub array_kernels: Option<array::Kernels>,
 }
@@ -303,9 +307,16 @@ impl Code {
         let continuations = self.continuations.take().is_some();
         #[cfg(test)]
         let bound = self.bound_entry.take().is_some();
+        #[cfg(test)]
+        let readonly = if let Some(child) = self.readonly_lookup.take() {
+            self.relocations -= child.relocations;
+            true
+        } else {
+            false
+        };
         let arrays = self.array_kernels.take().is_some();
         #[cfg(test)]
-        let arrays = scalar || continuations || bound || arrays;
+        let arrays = scalar || continuations || bound || readonly || arrays;
         arrays
     }
 
@@ -405,6 +416,14 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    #[cfg(not(miri))]
+    RequireReadonlyLookup,
+    #[cfg(not(miri))]
+    RefuseReadonlyOwnerStorage,
+    #[cfg(not(miri))]
+    RefuseReadonlyOwnerAllocation,
+    #[cfg(not(miri))]
+    RefuseReadonlyCacheAllocation,
     RequirePayload,
     RequirePayloadLoop,
     RequirePayloadTags,
@@ -819,6 +838,27 @@ fn compile_selected_rooted(
     selection: Selection,
     rooted_moves: bool,
 ) -> Result<Code, JitError> {
+    compile_image(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        selection,
+        rooted_moves,
+    )?
+    .ordinary()
+}
+
+fn compile_image(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    selection: Selection,
+    rooted_moves: bool,
+) -> Result<Image, JitError> {
     #[cfg(test)]
     let failure = if selection.failure == Failure::PreferBoundPayload {
         let ordinary = rooted_moves
@@ -912,6 +952,32 @@ fn compile_selected_rooted(
         None
     };
     let expansion = super::work::Expansion::admit(snapshot, work)?;
+    #[cfg(all(test, not(miri)))]
+    let readonly_plan = if failure == Failure::RequireReadonlyLookup {
+        if rooted_moves
+            || selection.projected
+            || selection.leaf
+            || selection.cell_kernel
+            || selection.integer_activation
+            || selection.scoped_helpers
+        {
+            return Err(JitError::Compilation(
+                "read-only lookup requires ordinary lowering".into(),
+            ));
+        }
+        Some(
+            super::readonly_lookup::Plan::recognize(snapshot)
+                .ok_or_else(|| JitError::Compilation("invalid read-only lookup source".into()))?,
+        )
+    } else {
+        None
+    };
+    #[cfg(all(test, not(miri)))]
+    let expansion = if readonly_plan.is_some() {
+        readonly_lookup::expansion(expansion, work)?
+    } else {
+        expansion
+    };
     #[cfg(test)]
     let expansion = if matches!(
         failure,
@@ -1144,6 +1210,14 @@ fn compile_selected_rooted(
         helper_returns.len(),
         helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
+    #[cfg(all(test, not(miri)))]
+    let signature_bytes = signature_bytes
+        .checked_add(if readonly_plan.is_some() {
+            3 * Layout::new::<AbiParam>().size()
+        } else {
+            0
+        })
+        .ok_or(JitError::ResourceLimit("read-only signature size"))?;
     let signature_bytes = signature_bytes
         .checked_add(if wide_prepared {
             Layout::array::<AbiParam>(5)
@@ -1204,6 +1278,16 @@ fn compile_selected_rooted(
     signature_charge = Reservation::new(snapshot.operations.allocator().0.clone(), signature_bytes)
         .map_err(|_| JitError::ResourceLimit("native signatures"))?;
     let mut signature = module.make_signature();
+    #[cfg(all(test, not(miri)))]
+    if readonly_plan.is_some() {
+        fill_signature(
+            &mut signature.params,
+            [ptr, types::I64, types::I32, ptr, ptr, ptr],
+        )?;
+    } else {
+        fill_signature(&mut signature.params, entry_types)?;
+    }
+    #[cfg(not(all(test, not(miri))))]
     fill_signature(&mut signature.params, entry_types)?;
     #[cfg(test)]
     if failure == Failure::RequirePackedPayload {
@@ -1212,6 +1296,10 @@ fn compile_selected_rooted(
     let function = module
         .declare_anonymous_function(&signature)
         .map_err(fail)?;
+    #[cfg(all(test, not(miri)))]
+    if readonly_plan.is_some() {
+        signature.params.pop();
+    }
     #[cfg(test)]
     if failure == Failure::RequirePackedPayload {
         signature.returns.clear();
@@ -1922,6 +2010,40 @@ fn compile_selected_rooted(
         )?;
         entries.retain_only(pc as usize);
     }
+    #[cfg(all(test, not(miri)))]
+    let (instructions, block_count) = if let Some(plan) = readonly_plan {
+        let call = stores
+            .helper_calls
+            .at(plan.helper_pc() as usize)
+            .ok_or_else(|| JitError::Compilation("missing read-only helper".into()))?;
+        readonly_lookup::lower(
+            &mut context.func,
+            snapshot,
+            plan,
+            call,
+            parameters[0],
+            parameters[3],
+            snapshot.operations.allocator().clone(),
+        )?;
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        if context.func.signature != module.declarations().get_function_decl(function).signature {
+            return Err(JitError::Compilation(
+                "read-only declaration signature mismatch".into(),
+            ));
+        }
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum();
+        let blocks = context.func.layout.blocks().count();
+        expansion.verify_actual(actual, blocks)?;
+        (actual, blocks)
+    } else {
+        (instructions, block_count)
+    };
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
     let mut projection_instructions = 0;
@@ -2305,8 +2427,13 @@ fn compile_selected_rooted(
         );
     }
     module.finalize_definitions().map_err(fail)?;
-    let entry =
-        unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
+    let entry = module.get_finalized_function(function);
+    let entry_arity = module
+        .declarations()
+        .get_function_decl(function)
+        .signature
+        .params
+        .len();
     let image = memory
         .take()
         .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
@@ -2326,9 +2453,10 @@ fn compile_selected_rooted(
     }
     drop(provider_charge);
     drop(memory);
-    Ok(Code {
+    Ok(Image {
         _memory: image,
         entry,
+        entry_arity,
         #[cfg(test)]
         byte_len,
         #[cfg(test)]
@@ -7608,3 +7736,85 @@ mod return_words;
 mod payload;
 #[cfg(test)]
 pub(super) use payload::EntryKind;
+
+struct Image {
+    _memory: Memory,
+    entry: *const u8,
+    entry_arity: usize,
+    #[cfg(test)]
+    byte_len: usize,
+    #[cfg(test)]
+    preferred_entry: bool,
+    relocations: usize,
+    registers: usize,
+    entries: super::entry_bytes::EntryBytes,
+    projected_upvalues: bool,
+    #[cfg(test)]
+    continuations: Option<super::continuations::Continuations>,
+    #[cfg(all(test, not(miri)))]
+    bound_entry: Option<bound_pair::Binding>,
+    #[cfg(test)]
+    scalar_leaf: Option<super::leaf::Pattern>,
+    #[cfg(test)]
+    cell_kernel: bool,
+    #[cfg(test)]
+    entry_kind: payload::EntryKind,
+    #[cfg(test)]
+    strided_prepared: bool,
+    #[cfg(test)]
+    binding_requirements: Option<payload::binding_requirements::Requirements>,
+    #[cfg(test)]
+    packed_integer_loop: bool,
+    #[cfg(test)]
+    integer_activation: bool,
+    #[cfg(all(test, not(miri)))]
+    scalar_kernel: Option<super::owner::Shared<Code>>,
+    #[cfg(not(miri))]
+    array_kernels: Option<array::Kernels>,
+}
+
+impl Image {
+    fn ordinary(self) -> Result<Code, JitError> {
+        if self.entry_arity != 5 {
+            return Err(JitError::Compilation(
+                "non-ordinary native entry ABI".into(),
+            ));
+        }
+        Ok(Code {
+            _memory: self._memory,
+            entry: unsafe { std::mem::transmute::<*const u8, Entry>(self.entry) },
+            #[cfg(test)]
+            byte_len: self.byte_len,
+            #[cfg(test)]
+            preferred_entry: self.preferred_entry,
+            relocations: self.relocations,
+            registers: self.registers,
+            entries: self.entries,
+            projected_upvalues: self.projected_upvalues,
+            #[cfg(test)]
+            continuations: self.continuations,
+            #[cfg(all(test, not(miri)))]
+            bound_entry: self.bound_entry,
+            #[cfg(test)]
+            scalar_leaf: self.scalar_leaf,
+            #[cfg(test)]
+            cell_kernel: self.cell_kernel,
+            #[cfg(test)]
+            entry_kind: self.entry_kind,
+            #[cfg(test)]
+            strided_prepared: self.strided_prepared,
+            #[cfg(test)]
+            binding_requirements: self.binding_requirements,
+            #[cfg(test)]
+            packed_integer_loop: self.packed_integer_loop,
+            #[cfg(test)]
+            integer_activation: self.integer_activation,
+            #[cfg(all(test, not(miri)))]
+            scalar_kernel: self.scalar_kernel,
+            #[cfg(all(test, not(miri)))]
+            readonly_lookup: None,
+            #[cfg(not(miri))]
+            array_kernels: self.array_kernels,
+        })
+    }
+}

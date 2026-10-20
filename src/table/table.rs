@@ -367,3 +367,16 @@ impl<'gc> fmt::Debug for TableState<'gc> {
             .finish()
     }
 }
+
+#[cfg(all(test, feature = "jit"))]
+impl<'gc> Table<'gc> {
+    pub(crate) fn try_strong_canonical_hint(
+        self,
+        key: crate::String<'gc>,
+        hint: crate::jit::entry_bytes::Hint<'_>,
+    ) -> Option<(std::cell::Ref<'gc, TableState<'gc>>, Value<'gc>)> {
+        let state = self.0.try_borrow().ok()?;
+        let value = state.raw_table.strong_canonical_hint(key, hint)?;
+        Some((state, value))
+    }
+}

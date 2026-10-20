@@ -1600,6 +1600,26 @@ impl Runtime {
                 );
             let compile = |snapshot: &ir::Snapshot| {
                 #[cfg(all(test, not(miri)))]
+                if readonly_lookup::runtime::enabled()
+                    && readonly_lookup::Plan::recognize(snapshot).is_some()
+                    && matches!(
+                        failure,
+                        backend::Failure::None
+                            | backend::Failure::RefuseReadonlyOwnerStorage
+                            | backend::Failure::RefuseReadonlyOwnerAllocation
+                            | backend::Failure::RefuseReadonlyCacheAllocation
+                    )
+                {
+                    return backend::readonly_lookup::compile_pair(
+                        snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
+                #[cfg(all(test, not(miri)))]
                 if self.0.borrow().array_kernels {
                     return backend::array::compile_pair(
                         snapshot,
@@ -1706,7 +1726,19 @@ impl Runtime {
                         {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
+                        #[cfg(all(test, not(miri)))]
+                        let readonly_cache_refusal = failure
+                            == backend::Failure::RefuseReadonlyCacheAllocation
+                            && code.readonly_lookup.is_some();
+                        #[cfg(all(test, not(miri)))]
+                        if readonly_cache_refusal {
+                            manager.metadata.0.fail_after(0);
+                        }
                         let reserved = manager.code.try_reserve(1);
+                        #[cfg(all(test, not(miri)))]
+                        if readonly_cache_refusal {
+                            manager.metadata.0.fail_after(usize::MAX);
+                        }
                         #[cfg(not(miri))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
@@ -2166,6 +2198,24 @@ impl Runtime {
                 slot.write_back(dest);
             }
         }
+        #[cfg(all(test, not(miri)))]
+        let readonly_exit = if !PROJECTED && !CANONICAL {
+            code.readonly_lookup.as_ref().and_then(|child| {
+                child
+                    .plan
+                    .with_binding(closure, &code.entries, |bound| {
+                        let scratch =
+                            unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
+                        unsafe { bound.invoke(child.entry, &mut frame, scratch, pc, budget) }
+                            .expect("invalid read-only lookup exit")
+                    })
+                    .flatten()
+            })
+        } else {
+            None
+        };
+        #[cfg(all(test, miri))]
+        let readonly_exit: Option<abi::Exit> = None;
         let projection = if PROJECTED {
             frame
                 .projection
@@ -2203,7 +2253,7 @@ impl Runtime {
         #[cfg(all(test, miri))]
         let payload_exit: Option<abi::Exit> = None;
         #[cfg(test)]
-        let (exit, scalar_delta) = if let Some(exit) = payload_exit {
+        let (exit, scalar_delta) = if let Some(exit) = readonly_exit.or(payload_exit) {
             (exit, None)
         } else if let Some(binding) = scalar_binding {
             let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
@@ -3596,3 +3646,6 @@ mod slice_policy_tests;
 mod vm_progress;
 
 pub(crate) mod entry_bytes;
+
+#[cfg(test)]
+mod readonly_lookup;

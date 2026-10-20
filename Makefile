@@ -1809,6 +1809,48 @@ jit-import-bits-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact --test-threads=1
 
 .PHONY: jit-rooted-moves jit-rooted-preservation
+.PHONY: jit-readonly-lookup jit-readonly-lookup-miri
+.PHONY: jit-readonly-native
+.PHONY: jit-readonly-runtime
+jit-readonly-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::tests $(ARGS)
+
+.PHONY: jit-readonly-window jit-readonly-time-build jit-readonly-time-run
+READONLY_TIMING_DIR ?= target/jit-evidence/readonly-timing
+READONLY_TIMING_OPT ?= 3
+READONLY_TIMING_CASE ?= rust_callbacks
+READONLY_TIMING_MODE ?= ordinary
+READONLY_TIMING_ITERATIONS ?= 20
+jit-readonly-window:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::timing::frozen_workload_windows $(ARGS)
+
+jit-readonly-time-build:
+	@mkdir -p '$(READONLY_TIMING_DIR)'
+	@test ! -e '$(READONLY_TIMING_DIR)/test-binary'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL='$(READONLY_TIMING_OPT)' CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=true $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json > '$(READONLY_TIMING_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(READONLY_TIMING_DIR)/build.jsonl' > '$(READONLY_TIMING_DIR)/binary-path'
+	@test "$$(wc -l < '$(READONLY_TIMING_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(READONLY_TIMING_DIR)/binary-path')" '$(READONLY_TIMING_DIR)/test-binary'
+	@sha256sum '$(READONLY_TIMING_DIR)/test-binary' > '$(READONLY_TIMING_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs; } | sort -z | xargs -0 sha256sum > '$(READONLY_TIMING_DIR)/source.sha256'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=$(READONLY_TIMING_OPT)\nlto=true\ncodegen_units=1\nstrip=true\nscope=diagnostic test runtime; not production acceptance\nwarmups=2\n'; } > '$(READONLY_TIMING_DIR)/configuration'
+
+jit-readonly-time-run: jit-profile-cpu-check
+	@LUNA_READONLY_CASE='$(READONLY_TIMING_CASE)' LUNA_READONLY_MODE='$(READONLY_TIMING_MODE)' LUNA_READONLY_ITERATIONS='$(READONLY_TIMING_ITERATIONS)' taskset -c '$(PROFILE_CPU)' '$(READONLY_TIMING_DIR)/test-binary' jit::readonly_lookup::runtime::timing::time_frozen_runtime --exact --ignored --nocapture --test-threads=1
+
+jit-readonly-native:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::readonly_lookup::tests $(ARGS)
+
+jit-readonly-lookup:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::binding::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests::strong_peek $(ARGS)
+
+jit-readonly-lookup-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::binding::tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::code_read_hint_tests::strong_peek -- --test-threads=1
+
 .PHONY: jit-root-kind-validation jit-root-kind-validation-miri
 jit-root-kind-validation:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests::reference_slot_validation_classifies_all_root_kinds -- --exact

@@ -36836,8 +36836,289 @@ work screens are running next, before the unchanged full elapsed campaign.
 This is an unaccepted trial, not completion of the full JIT plan or performance
 gate; no callback or compiled-Off regression is claimed fixed.
 
+The candidate subsequently passes a fresh isolated all-feature Force gate:
+**2,074 executions /91 summaries**, zero failures and23 existing ignores, with
+the new root fixture and both retained helper-counter fixtures positively run.
+Four original cost images have verified source/config/protocol bindings; both
+no-feature binaries are byte-identical to controls. Disabled work screens
+complete48 loads/240 executions, all partitions and12 valid/24 corrupt identity
+fixtures. Numeric totals and shipping upvalues are unchanged; opt3 JIT-Off
+upvalue work differs+0.0000931%, not a causal improvement.
+
+Two complete, independently balanced original elapsed campaigns finish with
+the unchanged strict auditor: **288 commands,28,512 native executions and570,240
+cost iterations**, zero complete27-field counter/resource mismatches. Each
+campaign passes two valid/13 corrupted fixtures. Raw cost medians are
+recomputed; raw native medians are not available for recomputation. No rebuild
+or source/flag/order/threshold changes occur between campaigns.
+
+Candidate speed-native failures are9/96 then10/96, versus12/11 then9/10 for
+the controls. Cost failures are55/216 then54/216, versus56/56 then54/55. These
+counts are not performance acceptance. Across all12 rounds, native upvalue
+control/trial medians are1.002847/1.000147 (CPU0 opt3/opts) and0.996798/1.002251
+(CPU16), with4/6/7/5 adverse rounds respectively. Placebo medians are
+0.996340/1.001199/0.996445/1.006299. Instruction reductions therefore do not
+establish a reliable integrated benefit; neither do these contended results
+establish a precise hardware cause or a causal regression for every loss.
+
+**Withdraw the runtime predicate trial as unaccepted.** Restore the shared
+`Slot::from_value` classification; retain only the independent raw-reference
+validation fixture and exact Make/Miri selection. Source **d7c72349** passes
+fresh formatting/check-all and152 focused executions/13 summaries, zero failures
+and the same two existing diagnostic ignores. All source/Makefile content
+exactly equals the test-only pre-trial c521b440 state. Six original-profile
+restoration image rebuilds verify both native and JIT-Off text/rodata/section
+layouts equal the pre-trial controls; both no-feature whole files match.
+Read-only inspection uses explicit output copies and rechecks original hashes.
+The full Force/Miri results above belong to the frozen trial, not a claim of a
+new post-restoration full-suite run. No elapsed optimization from this family
+is retained. Callback transport, compiled-Off overhead and the remaining full
+performance/resource/platform/release requirements stay open.
+
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu-dense/`.
 Trial: `target/jit-evidence/hook-resume-recovery/materialize-root-kind/`.
+
+### Coupled hardware counters and invocation-scoped lookup groundwork
+
+After restoring production code,48 balanced FIFO-scoped hardware-stat runs
+measure cycles, retired instructions, branches and branch misses together on
+CPUs0/16, opt3/opts, Off/Auto, callbacks/upvalues and three mode-order rounds.
+The same symbol-retained e1fce384 diagnostic images are reused, not rebuilt or
+substituted for stripped acceptance binaries. Startup/two warmups are excluded;
+each measured window runs2000 verified executions with compilation delta0.
+All selected PMU counters are positive/raw/unscaled with reported100.00%
+scheduling and identical per-event runtimes. Inactive hybrid rows remain
+`<not counted>`, not zero measurements. All25 protocol counters match the
+earlier same-image capture; source/image/tool bindings verify. One valid and
+13 corrupted reader fixtures pass, including wrong PMU, missing/duplicate events,
+window/protocol/counter corruption and multiplexed/inactive-zero rows.
+
+Callback Auto retires about20.5% more instructions than Off in opt3 and21.8%
+more in opts. Median cycle Auto/Off ratios are approximately1.211/1.192 in
+opt3 (CPUs0/16),1.288/1.240 in opts. Branch-miss fractions are around
+0.002–0.003%; these observations do not support another branch-prediction/layout
+sweep. They localize excess work but do not establish a particular instruction's
+latency or a causal performance fix. Scope remains warmed execution lifecycle.
+
+The next structural candidate is a **fresh, invocation-scoped read-only global
+binding**, not a persistent value cache or another Slot codec rewrite. The goal
+is eliminating a helper transition in a source-proven global-function lookup /
+Call chain, while retaining ordinary native entries for every noneligible PC,
+budget, environment or table state. Nothing is production-enabled yet.
+
+Groundwork **48b43af4** is test-gated. A sealed source plan requires exactly one
+prepared constant-string GetUpTable, an explicit read-only opcode whitelist,
+and a straight-line chain that cannot read/overwrite the function destination
+before its Call. Other helpers, mutations, unknown operations and control-flow
+inside that chain refuse. Independent fixtures cover source mutations including
+unreachable operations and all callback source-entry/budget CFG choices.
+
+The live-hint primitive performs only fresh bounds/occupancy/string-allocation
+identity/strong-nonnil-slot checks. It has no Mutation argument, weak upgrade,
+hash fallback or hint update. Its Table adapter uses try_borrow and retains the
+shared guard; no borrowed-table panic is moved ahead of its original opcode.
+Three fixtures cover all256 hint bytes, equal-content distinct allocations,
+all value kinds, weak modes, removal, conflicting borrows and fresh reads after
+release. All seven source/live-hint fixtures and formatting/check-all pass.
+Test-only extensions follow production items, preserving original source spans.
+
+Native lowering is **not implemented**. Required next work is a CLOSED-env
+guard, a separate repr(C) sibling Slot/executed view and distinct typed child
+entry, independently verified source/effect/budget bindings, canonical reference
+commit before exit/panic/callback, ordinary fallback coverage, and aggregate
+compiler/mapping/metadata ownership/refusal handling. No Host/Value layout cast
+or Manager policy flag is planned. Eliminated C helper calls must be reported
+honestly, with explicit actual-counter/resource expectations rather than faked
+parity or a silent auditor waiver. Both Miri models now pass all seven fixtures
+across two summaries each, zero failures/ignores; actual i686-musl passes
+all-targets/all-feature checking and the same seven fixtures, with ELF32 execution
+verified. Existing Miri/unsupported-target warnings remain in the logs.
+Six original-profile production rebuilds are **whole-file byte-identical** to
+the immediate d7c72349 predecessor: native, JIT-Off and no-feature in opt3/opts.
+Original6ed93f4d text/rodata/section-layout comparisons also pass; those older
+native/JIT-Off whole files already differed before this groundwork and are not
+called identical. Source/tool/input hashes verify after read-only inspection.
+Full native integration, all-feature correctness and repeated original timing remain required before
+claiming a speedup or promotion. The full original goal remains incomplete.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-counters/`.
+Groundwork: `target/jit-evidence/hook-resume-recovery/readonly-entry-lookup/`.
+
+### Invocation-scoped closed binding — model acceptance
+
+The read-only source plan now supplies a synchronous, consumed-once binding
+over a CLOSED environment and a fresh strong-hint shared table borrow. The
+separate40-byte repr(C) view contains two source-binding words, one existing
+Slot and an execution marker. Its six-argument function type is distinct from
+the ordinary five-argument entry; neither Host nor Value layouts are cast.
+
+Invocation rechecks closure/environment identity, exact scratch/frame extents,
+canonical prefix, projection absence and pending panic before entering. Budgets
+retain the original64-instruction clamp. Only an executed lookup publishes the
+canonical destination and logical table/upvalue reads; it does not fabricate C
+helper calls/completions. Invalid post-entry marker/budget reports a fault, never
+an ordinary retry. The table guard is released before returning to user code.
+
+Four ABI/lifetime fixtures exercise actual helper reborrows, unused bindings,
+zero/clamped budgets, environment replacement/open cells, extent/pending-panic
+refusal and real caught helper panics both before and after lookup publication.
+The latter preserve pending scalar materialization, reference identity, helper
+counts, frame PC, original panic payload identity and borrow release. Together
+with the earlier source and strong-peek fixtures, all11 tests pass under both
+Miri borrow models and on actual i686-musl; unsupported-target check-all passes,
+and the executed fallback binary is independently identified as ELF32/i386.
+Existing Miri/unsupported-target warnings remain in the captured logs.
+
+These are test-gated binding models, not production integration or measured
+acceleration. Emitted-code verification, optional ownership/resource refusal,
+runtime integration and original repeated performance gates remain necessary.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-binding/`.
+
+### Distinct read-only native entry — emitted-code acceptance
+
+The test-only compiler now emits the six-argument entry rather than casting an
+ordinary entry. Cold finalization retains an untyped Image until the declaration
+arity is checked; the existing hot Code layout and five-argument entry remain
+unchanged. Ordinary construction explicitly refuses six-argument images and
+reclaims them. Runtime promotion is not enabled.
+
+The original source/helper/entry proofs run on the ordinary graph before a
+bounded transformation adds a null/view/source-cookie/unused-marker/tag guard
+and replaces only the verified GetUpTable call with Slot loads/stores and an
+execution marker. The original status result, source-PC dispatch, budget checks,
+instruction count, helper-failure edges and Call interpreter exit are retained.
+Refusal publishes the full-width original PC and zero instructions, without
+touching slots or dereferencing a host. Final declaration and Cranelift IR
+verification run before executable publication.
+
+An independent grammar checker validates every introduced pointer, offset,
+value type, comparison, branch target/forwarded argument, marker and exit store.
+Its allocation-accounted preservation witness checks original block/instruction
+order, arguments/results/definitions, branch-pool contents, resolved memory flags,
+imports, names and ABI signatures. It uses neither Function clones nor formatted
+IR strings. Mutation fixtures reject all33 introduced instructions individually
+and11 additional preservation corruptions, including extra effects and imports.
+
+Eight native fixtures pass. Actual emitted entries match ordinary execution at
+every source PC, including past-end PCs, and budgets0..65/u32::MAX; they preserve
+fresh scalar bits and all strong reference kinds across48 additional comparisons.
+Seventy-two null/corrupt-view cases refuse with a null host and untouched state.
+Nine workspace limits and five actual mapping/metadata/IR/block/relocation
+refusals reclaim partial ownership and retain usable ordinary code. The focused
+source/binding/peek/native gate passes19 executions/four summaries without
+failures/ignores/warnings. The broader JIT boundary/compiler-lifetime/relocation/
+configuration gate passes1413 executions/six summaries, with22 existing ignored
+diagnostics; its boundary binary precedes the last three added native fixtures.
+The final current-source Force all-target/all-feature campaign passes2093
+executions across91 summaries, zero failures and23 existing diagnostic ignores.
+All572 non-Markdown repository inputs and381 source/Make/dependency inputs
+verify unchanged after execution. These gates exercise the default ordinary
+runtime plus the explicitly selected emitted-entry fixtures; they do not prove
+the not-yet-integrated optional child runs through the public executor.
+
+Still required: optional parent/child owners and aggregate quotas, production
+Runtime/executor routing, callback/GC/hook/fuel/source-retirement lifecycle
+acceptance, and original repeated performance/size/cold-cost/platform gates.
+Eliminated helper transitions must be measured honestly; no release or speedup
+is established by these emitted-code tests.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-binding/`.
+
+### Optional read-only child — integrated runtime candidate
+
+The test-gated runtime now owns an optional shared six-argument child alongside
+the ordinary entry. Pair admission subtracts the ordinary expansion/relocations
+from aggregate limits, charges both images to existing mapping/metadata ledgers,
+and reserves ordinary-owner headroom during child compilation. Child compilation,
+admission or ownership refusal retains the ordinary image. Optional disposal
+reclaims the child and removes its relocation contribution; existing cache/owner
+recovery paths can discard it. No Manager policy field or persistent GC-value
+cache is added. A nested/panic-safe scoped selector chooses eligible sources at
+compilation only; ineligible sources retain their original lowering selection.
+
+Actual native invocation now tries the fresh closed binding before constructing
+the ordinary raw Host. A refused attempt therefore cannot leave an older raw
+Frame capability as the fallback. Successful exits join the existing canonical
+writeback, PC, panic, logical-read and actual-helper publication path. The shared
+table borrow has ended before callbacks, hooks or source retirement can run.
+
+Eight runtime fixtures cover16 rebinding/fuel schedules,20 callback lifecycle
+schedules, nine typed-error/noncallable/missing-value schedules and four open-env
+schedules. Physical frames, complete scalar-stack bits, dispatches and fuel match
+Off and ordinary Auto at executor boundaries, with collection between steps.
+Actual callback mutation proves guard release. Cases include source/cache
+retirement, mode changes, weak environments, missing-key/metamethod fallback,
+count-one hooks, original typed error identity, and an installed child's refusal
+of an open environment with unchanged helper counts. Parent and child leases
+independently pin executable ownership until their final release.
+
+Aggregate mapping/IR/block/relocation limits, child-owner storage/allocation
+refusal, recoverable ordinary-owner pressure and transient late cache allocation
+refusal retain usable ordinary ownership. The pressure fixture explicitly allows
+the ordinary Code owner: a smaller ReadCode is not assumed to free enough space
+under an arbitrary reduced cap. Short-source liveness fixtures explicitly warm,
+prepare and pin installed code before result consumption can retire its source.
+
+An additional diagnostic window fixture uses the original Lua::core workload
+bytes and host callback across all seven frozen cases, two warmups plus draining
+queued compilation before measurement. It verifies compilation-free windows,
+real child selection, unchanged logical counters and exactly5000 fewer actual C
+calls/completions per frozen callback execution, zero reduction for other cases.
+The focused format/check-all/runtime/window/native/binding/peek gate passes28
+executions across six summaries, zero failures/ignores/warnings.
+The final current-source Force all-target/all-feature gate passes2102 executions
+across91 summaries, zero failures and24 diagnostic ignores (one new explicit
+timing entry). Actual i686-musl check-all and all11 binding/source/peek fixtures
+also pass; the executed fallback is independently identified as ELF32/i386.
+Both frozen opt3/opts diagnostic images build with LTO, one codegen unit and
+stripping. Source/dependency/Make manifests verify unchanged after these gates.
+
+This remains an **integrated test-runtime candidate**, not enabled production
+acceleration. The opt3/opts release test-image diagnostics are explicitly separate
+from the original production-binary performance/size/cold-cost/platform gates.
+Full release acceptance and the original performance regressions remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/`.
+
+### Integrated lookup diagnostic — current form not promotable
+
+Integration milestone **a0fc55ff** completes a frozen diagnostic campaign:
+672 process loads,3360 measured executions and1344 warmups across all seven
+repository workloads, opt3/opts, CPUs0/16 and six balanced A/child/B orders.
+Separate Off observations alternate before/after the native order. A and B are
+independent ordinary-control runs of the same frozen test image. Startup and
+compilation are excluded; all measured windows prove compilation delta0.
+No owned builds, correctness jobs or profilers overlap collection; unrelated
+machine contention is retained rather than treated as a blocker.
+
+All25 execution counters match A/B and the child except the explicitly expected
+25000 fewer actual helper calls/completions per five-execution callback window.
+Logical reads, source instructions, exits and dispatches remain unchanged.
+The other six cases show no helper reduction. Ordinary resource controls match;
+the callback child reports its extra image/metadata ownership explicitly.
+Both images,584 frozen files, timing tools and all672 raw logs retain verified
+hash bindings. Two valid and20 corrupted reader fixtures pass.
+
+**Callback ordinary/child elapsed ratios** (greater than1 favors the child):
+
+| Profile | CPU0 | CPU16 |
+| --- | ---: | ---: |
+| opt3 | 0.932738 | 0.977668 |
+| opts | 0.908054 | 0.963088 |
+
+These are about7.2%/2.3% slower in opt3 and10.1%/3.8% slower in opts.
+Callback A/B placebos are0.996880/0.996782 and1.001569/1.000808 respectively.
+The current form therefore has **no retention/promotion case**, despite removing
+the targeted C transition. Other-case ordinary/child ratios are mostly near
+their placebos, not evidence of a general speedup. Upvalue Native/Off performance
+also remains poor; a read-only global lookup does not address its mutable cells.
+
+This is a diagnostic test-runtime result, not the original production-binary
+acceptance campaign. Its absolute Off/native ratios must not be substituted for
+the original gates. Production remains on the ordinary path. Further work must
+reduce verified binding/entry/publication cost and repeat measurement before any
+production promotion; all original performance, size, cold-cost, resource,
+platform and release requirements remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/summary.tsv`,
+`rows.sha256`, `reader-fixtures.log` and per-image source/binary manifests.
 
 ## 15. Primary references
 
