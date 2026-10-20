@@ -109,6 +109,11 @@ table-capacity-miri:
 	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' table::raw::capacity_tests -- --test-threads=1
 
 .PHONY: jit-array-window jit-array-window-miri
+.PHONY: jit-array-write-roots
+jit-array-write-roots:
+	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native array roots gate requires supported hardware'; exit 2;; esac
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window::kernel::tests::reference_roots::native_writes_preserve_reference_cells_at_every_pc_and_budget -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-code-index jit-code-index-miri
 jit-code-index:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::code_index:: $(ARGS)
