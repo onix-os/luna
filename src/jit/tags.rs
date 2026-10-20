@@ -3126,7 +3126,7 @@ mod tests {
     const SCALAR: u8 = (1 << abi::REFERENCE) - 1;
     const NUMERIC: u8 = (1 << abi::INTEGER) | (1 << abi::NUMBER);
 
-    fn fixture(
+    pub(super) fn fixture(
         action: impl FnOnce(&mut FunctionBuilder<'_>, Value, Value, &mut Stores),
     ) -> Result<(), JitError> {
         fixture_in(None, action)
@@ -4787,3 +4787,51 @@ mod tests {
 
 #[cfg(test)]
 mod known_bits;
+
+#[cfg(test)]
+mod workspace_accounting {
+    use super::*;
+    use cranelift_codegen::ir::{InstBuilder, MemFlagsData};
+
+    #[test]
+    fn canonical_read_constant_reduction_bounds_verifier_workspace() {
+        let measure = |extra, limit| {
+            let mut saved = None;
+            let result = super::tests::fixture(|builder, slots, _, stores| {
+                for value in 0..64 + extra {
+                    builder.ins().iconst(types::I32, value as i64);
+                }
+                let tag = builder.ins().iconst(types::I64, abi::INTEGER as i64);
+                let inst = builder.ins().store(MemFlagsData::new(), tag, slots, 0);
+                stores.record(inst, (1 << abi::REFERENCE) - 1);
+                builder.ins().return_(&[]);
+                let ledger = stores.records.allocator().0.clone();
+                if let Some(limit) = limit {
+                    ledger.set_limit(limit);
+                }
+                saved = Some(ledger);
+            });
+            let ledger = saved.unwrap();
+            assert_eq!(ledger.current(), 0);
+            (result, ledger.peak(), ledger.refusals())
+        };
+        let (result, base, refusals) = measure(0, None);
+        assert!(result.is_ok());
+        assert_eq!(refusals, 0);
+        let bytes = std::mem::size_of::<Value>() + std::mem::size_of::<u32>();
+        for extra in [0, 1, 3, 7] {
+            let expected = base + extra * bytes;
+            let (result, peak, refusals) = measure(extra, Some(expected));
+            assert!(result.is_ok());
+            assert_eq!((peak, refusals), (expected, 0));
+            let (result, peak, refusals) = measure(extra, Some(expected - 1));
+            assert!(matches!(
+                result,
+                Err(JitError::ResourceLimit("scalar tag verification"))
+            ));
+            assert!(peak < expected);
+            assert_eq!(refusals, 1);
+        }
+        assert_eq!(3 * bytes, 24);
+    }
+}

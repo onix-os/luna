@@ -180,6 +180,13 @@ jit-inline-loop-bridge:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-hashless-read jit-hashless-read-miri
+.PHONY: jit-canonical-workspace jit-canonical-workspace-miri
+jit-canonical-workspace:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::tags::workspace_accounting::canonical_read_constant_reduction_bounds_verifier_workspace -- --exact | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
+jit-canonical-workspace-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::tags::workspace_accounting::canonical_read_constant_reduction_bounds_verifier_workspace -- --exact --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
 jit-hashless-read:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::hashless_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests

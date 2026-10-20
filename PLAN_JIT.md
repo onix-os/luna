@@ -36404,7 +36404,36 @@ Whole callback instructions fall **9,438,782 -> 9,423,756 (0.159%)** speed and
 profile and other executed work offsets part of the saving. The whole totals,
 not the helper-only saving, are authoritative. These are **not elapsed speedups**
 or evidence that the original callback/disabled-mode gates pass. Four additional
-disabled-mode artifacts are building; elapsed collection has not started.
+disabled-mode artifacts now finish with source/configuration/binary witnesses.
+Both no-feature binaries differ from control; equivalence remains unproven.
+
+A shipping-only disabled-cost diagnostic completes **36 commands / 142,560
+iterations**, all nine original cases, eleven samples, twenty iterations, six
+balanced orders, CPUs0/16 and matched launch paths. No owned build/test/profiler
+overlaps collection. Raw medians, statuses, source/tool/image hashes and two
+valid/three-corrupt parser fixtures verify. This is not the full speed/shipping
+native matrix, nor a counter/resource acceptance audit. Its initial bootstrap
+stops after one baseline window because a candidate bundle lacks the legacy
+manifest alias; that failed run is retained separately. The completed retry
+verifies both bundles under the Nix Bash environment, not the host shell that
+cannot run the verifier's associative arrays.
+
+Across six rounds, CPU16 compiled-Off integer/float direct control/trial median
+ratios are **1.0470 /1.0559**, favorable in all six, with placebo medians near one.
+CPU0 numeric medians are approximately one and retain large adverse outliers;
+CPU0 upvalue median is **0.99594**, adverse in all six. These contended observations
+do not establish a causal or general speedup. The unchanged five-percent cost
+gate fails **23/108** candidate comparisons versus **15/108 and14/108** controls.
+The original overhead failures remain; do not promote on selected CPU16 results.
+
+A test-only follow-up checks the scalar verifier's value-sized pending/seen
+workspace. Each extra emitted constant adds exactly `size_of<Value> +
+size_of<u32>` bytes; three add24. Exact-limit runs succeed, one-byte-short limits
+refuse with typed errors, and all charges are reclaimed. Formatting/check-all
+and the focused regression pass. This proves the allocation rule in isolation,
+not that it alone accounts for the complete production compilation peak.
+Production code is unchanged by this test-only follow-up; the full Force,
+Miri/i686 and elapsed results above remain explicitly tied to frozen`6ed93f4d`.
 
 This remains **unaccepted performance work**. Resource-peak attribution,
 disabled-artifact comparisons, repeated original elapsed gates and all other
