@@ -37716,6 +37716,121 @@ performance, resource-cost, platform and production/release acceptance remain op
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/timing-summary.tsv`,
 `rows/`, manifests and reader outputs in the same artifact root.
 
+### Diagnostic-versus-production routing correction
+
+Source inspection confirms a material difference: pairs::State::new disables
+native-region promotion under cfg(test), while cfg(not(test)) installs the
+production schedule. The diagnostic rows above have region_entries/fragments0;
+they do not exercise the shipping integrated inline-loop path. Earlier real
+production screens already showed2.1–2.9x interpreter upvalue speedups. Those
+historical results must be refreshed, not transferred to the current checkout.
+
+Therefore the diagnostic Atom deficit is NOT established as a production
+regression. The immediate priority is the unchanged non-test jit_bench with
+original nine workloads,11 samples, shipping/speed profiles and thresholds.
+The opt-in single-call work must not replace a faster existing production batch
+path or stand in for fixing actual shipping callback/metamethod deficits.
+
+The bounded-scratch candidate uses initialized8/16/32/64/128/256-slot classes
+instead of clearing256 slots for every small caller. It retains all frame sizes,
+introduces no unsafe/uninitialized storage and passes34 distinct selected tests,
+including eleven actual interpreter/GC width-boundary cases. This is a verified
+implementation candidate, not a measured Atom fix or production promotion.
+
+### Fresh non-test production baseline and corrected optimization priority
+
+The immutable0f7c6ba7 source was also built as the ORIGINAL non-test jit_bench,
+opt3/opts with LTOtrue, CGU1 and striptrue. With no owned compilation or tests
+overlapping capture, twelve commands ran all nine original workloads on CPUs0/16
+for three rotated rounds, eleven paired samples and unchanged thresholds.
+Speed runs used --check; shipping runs retained printed failures without using
+the unsupported shipping --check combination. All source/image/tool hashes,
+108 workload-gate identities, results, resource fields and check exits reconcile.
+The capture's successful terminal status means evidence collection completed,
+NOT that performance gates passed.
+
+Unlike the libtest diagnostic, every production upvalue row has actual nonzero
+native-region entries/fragments. Upvalue passes12/12 gates: median paired-profile
+ratio-of-medians over the three rounds is2.683967/2.824659 for opt3 CPU0/16 and
+2.063363/2.565317 for opts CPU0/16. It is not the current shipping bottleneck.
+
+- Rust callbacks fail10/12 gates. Median profile ratios are
+  0.818276/0.820620/0.803856/0.812359 against the unchanged0.833333 minimum.
+- Metamethods fail3/12, all on CPU0; median opt3/opts CPU0 ratios are
+  0.835202/0.833157, with failed windows retained rather than averaged away.
+- Arrays fail4/12: all three opts CPU16 windows and one opts CPU0 window.
+  Median shipping ratios are1.268118/1.198557 against1.25.
+- Integer, float, allocation/GC and cold-config pass all observed gates;
+  Oslo remains explicitly unscored. This routing screen does not replace the
+  full candidate/placebo/cost/platform/release acceptance campaign.
+
+Production callback details show64836 actual table/upvalue helper reads and
+64849 native entries in the first speed screen, with no native-region batching.
+The next production optimization therefore targets the real callback/global-read
+helper/transport path, then the marginal metamethod/array cases. Do not promote
+the slower test-only single-call experiment as a replacement for working shipping
+batching. Earlier original/guarded/outlined closure identity caches were already
+rejected in the identity-cache experiments; do not replay them blindly.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/production-summary.tsv`,
+`production-rows/`, production image manifests and routing audit.
+
+### Rejected production strong-slot helper shortcut
+
+A bounded strong-slot peek inside the existing canonical global-read helper was
+tested without changing its ABI, panic/projection boundary, counters or fallback.
+The candidate passed full Force/all-features plus explicit projection checks
+(2183 passing test executions across93 summaries,26 deliberate ignores), the
+new13-case helper differential fixture under both Miri borrow models, and that
+fixture plus unsupported-target integration tests on actual ELF32 i686 binaries.
+These are correctness results, not a speedup.
+
+The actual non-test production screen used72 commands: six balanced A/C/B
+permutations, baseline-identical placebo B, CPUs0/16, opt3/opts, all original nine
+cases and11 paired samples. All27 counters/resources matched across images;
+source/image/tool hashes and unchanged gate/exit reconciliation passed. The reader
+also rejected15 corruptions. No owned verification/build overlapped capture.
+
+Callback gates failed22/24 candidate windows. Median baseline/candidate native
+time ratios were0.990615/0.992596/0.991429/0.988448 in opt3 CPU0/16, opts CPU0/16
+order: no target gain in any configuration. Shipping CPU0 metamethods also lost
+time. The shortcut and production-only visibility changes were therefore fully
+withdrawn, retaining only the differential regression tests. No original gate was
+relaxed; compiled-disabled/no-feature cost and full release acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/production-strong-hint/`,
+especially `balanced-summary.tsv`, immutable source/images, raw rows and manifests.
+Next attribution must use actual non-test production routing rather than the
+libtest pipeline that disables native-region promotion.
+
+### Current non-test warmed hardware attribution
+
+The unchanged production jit_cycles example now supplies actual off/auto
+attribution from immutable0f7c6ba7 source, opt3/opts, LTOtrue,CGU1,stripfalse.
+Ninety-six acknowledged windows cover both CPUs, callbacks/upvalues, three rotated
+repeats, coupled counters and cycle samples,2000 executions per window. All25
+counter deltas are stable; production upvalue promotion is genuinely nonzero.
+All53221 samples reconcile with event weights and generated-map ranges, with
+zero lost samples and100% active-PMU scheduling. Source/image/tool witnesses
+verify; the reader accepts valid/restored evidence and rejects17 corruptions.
+
+Callback retired work is about9.50M Auto versus7.88M Off instructions per
+execution in opt3,11.69M versus9.60M in opts. Shipping native transport accounts
+for27.60%/21.52% of sampled self cycles on CPUs0/16, versus11.58%/13.26% in opt3;
+the canonical-read helper accounts for only about6–9%. Exact-image annotations
+place much of shipping transport's samples around the existing Slot::value
+aggregate-result copy in the seven-register writeback loop. Sampling skid means
+this is not an exact instruction-latency or causal speedup claim.
+
+Twelve additional CPU0 coupled-event windows preserve identical workload/counter
+protocols. Shipping Auto/Off forwarding blocks are34827/40238 per execution;
+speed Auto/Off are5419/14755. Thus aggregate forwarding counts do NOT establish
+an excess unique to native execution. Do not blame the whole deficit on this
+event, repeat rejected global inlining/integer-first/scalar-only experiments
+blindly, or substitute attribution for unchanged elapsed/cost/release gates.
+Next work must reduce actual entry/publication or transition work with full
+canonical-state/panic/fuel guarantees. Evidence:
+`target/jit-evidence/hook-resume-recovery/production-warmed-profile/`, including
+`attribution.json`, exact annotations, forwarding summary and frozen manifests.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

@@ -185,11 +185,32 @@ impl Prepared {
         if !self.matches(ctx, caller) {
             return None;
         }
+        match self.region().registers {
+            0..=8 => self.invoke_sized::<8>(ctx, caller, registers, budget),
+            9..=16 => self.invoke_sized::<16>(ctx, caller, registers, budget),
+            17..=32 => self.invoke_sized::<32>(ctx, caller, registers, budget),
+            33..=64 => self.invoke_sized::<64>(ctx, caller, registers, budget),
+            65..=128 => self.invoke_sized::<128>(ctx, caller, registers, budget),
+            129..=256 => self.invoke_sized::<256>(ctx, caller, registers, budget),
+            _ => None,
+        }
+    }
+
+    fn invoke_sized<'gc, const CAPACITY: usize>(
+        &self,
+        ctx: Context<'gc>,
+        caller: Closure<'gc>,
+        registers: &mut LuaRegisters<'gc, '_>,
+        budget: u32,
+    ) -> Option<u32> {
         let count = self.region().registers;
+        if count > CAPACITY || registers.stack_frame.len() != count {
+            return None;
+        }
         let mut scratch = [abi::Slot {
             tag: abi::NIL,
             bits: 0,
-        }; 256];
+        }; CAPACITY];
         let slots = &mut scratch[..count];
         for (slot, &value) in slots.iter_mut().zip(registers.stack_frame.iter()) {
             *slot = abi::Slot::from_value(value);
