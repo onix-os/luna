@@ -36522,7 +36522,7 @@ still fail. Robust elapsed performance and all other outstanding resource,
 platform and release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
 
-### Interpreted scalar-prefix trial — not performance accepted
+### Interpreted scalar-prefix trial fd623c50 — rejected
 
 The next trial targets ordinary interpreter work, not another native entry
 wrapper. Only an already-classified interpreted slice may use a checked
@@ -36551,6 +36551,39 @@ elapsed/per-case gates pass. The extra plan lookup/branch can outweigh fewer
 source dispatches; reject the runtime change if measured work regresses. Miri,
 real unsupported-target fallback and full Force validation remain outstanding
 for this trial. Evidence: `target/jit-evidence/hook-resume-recovery/interpreter-scalar-prefix/`.
+
+The completed production work screen **rejects this loop-integrated shape**.
+It uses the original opt3/opts, LTO, one-codegen-unit, stripped configurations
+and the same builder path as the existing 6ed93f4d control images. Each profile
+positively rebuilds Luna twice. Forty-eight alternating image loads collect
+240 executions (144 post-warmup), with independent same-feature comparisons,
+all13 event partitions reconciled, and12 valid/24 corrupted-identity fixtures.
+Source, binary, link-map, configuration and tool witnesses verify.
+
+Whole `Lua::execute` instruction-count changes, candidate relative to control:
+
+| Workload | No-feature opt3 | No-feature opts | JIT-off opt3 | JIT-off opts |
+| --- | ---: | ---: | ---: | ---: |
+| Upvalue closure | +6.13% | +11.35% | +6.64% | +12.58% |
+| Integer loop | -1.87% | +1.53% | +5.04% | +3.79% |
+| Float loop | -2.71% | +1.42% | +4.69% | +4.03% |
+
+These are software-work observations, **not elapsed speedups or acceptance**.
+The closure's VM entry count remains20,001. Fusing three source operations
+does not remove those entries; the new inner-loop selection, prefix loop and
+out-of-line accessor work outweigh the removed generic dispatch work. Repeating
+elapsed campaigns cannot justify retaining this already adverse primary result.
+
+The structural follow-up removes the per-opcode selection entirely: check and
+execute the bounded prefix once at interpreted slice entry, then leave the
+original generic loop unchanged. Three straight-line guarded source operations
+replace the prefix's new mini-dispatch loop. Non-integer fallback uses the
+original remaining generic instructions; no extra descriptor is kept across
+that loop. Native/mock/hook observation ordering must remain unchanged. This
+follow-up is independently unaccepted until freshly checked and measured.
+Its entry-only implementation passes fresh formatting/all-feature checking and
+the same4+7 focused tests, including complete stats/fuel comparison at the new
+early budget return. Evidence: `target/jit-evidence/hook-resume-recovery/interpreter-prefix-entry/`.
 
 ## 15. Primary references
 

@@ -28,41 +28,48 @@ pub(super) fn run<'gc>(
     budget: u32,
     mut dispatched: impl FnMut(),
 ) -> u32 {
-    if !plan.fits(registers.stack_frame.len(), upvalues.len()) {
+    if budget == 0 || !plan.fits(registers.stack_frame.len(), upvalues.len()) {
         return 0;
     }
     let mut completed = 0;
-    while completed < budget {
-        match *registers.pc {
-            0 => {
-                dispatched();
-                *registers.pc = 1;
-                registers.stack_frame[usize::from(plan.get_dest.0)] =
-                    registers.get_upvalue(&ctx, upvalues[usize::from(plan.get_source.0)].get());
-            }
-            1 => {
-                let (Value::Integer(left), Value::Integer(right)) = (
-                    registers.stack_frame[usize::from(plan.left.0)],
-                    registers.stack_frame[usize::from(plan.right.0)],
-                ) else {
-                    break;
-                };
-                dispatched();
-                *registers.pc = 2;
-                registers.stack_frame[usize::from(plan.add_dest.0)] =
-                    Value::Integer(left.wrapping_add(right));
-            }
-            2 => {
-                dispatched();
-                *registers.pc = 3;
-                registers.set_upvalue(
-                    &ctx,
-                    upvalues[usize::from(plan.set_dest.0)].get(),
-                    registers.stack_frame[usize::from(plan.set_source.0)],
-                );
-            }
-            _ => break,
-        }
+    if *registers.pc == 0 {
+        dispatched();
+        *registers.pc = 1;
+        registers.stack_frame[usize::from(plan.get_dest.0)] =
+            registers.get_upvalue(&ctx, upvalues[usize::from(plan.get_source.0)].get());
+        completed += 1;
+        #[cfg(test)]
+        HITS.set(HITS.get() + 1);
+    }
+    if completed == budget {
+        return completed;
+    }
+    if *registers.pc == 1 {
+        let (Value::Integer(left), Value::Integer(right)) = (
+            registers.stack_frame[usize::from(plan.left.0)],
+            registers.stack_frame[usize::from(plan.right.0)],
+        ) else {
+            return completed;
+        };
+        dispatched();
+        *registers.pc = 2;
+        registers.stack_frame[usize::from(plan.add_dest.0)] =
+            Value::Integer(left.wrapping_add(right));
+        completed += 1;
+        #[cfg(test)]
+        HITS.set(HITS.get() + 1);
+    }
+    if completed == budget {
+        return completed;
+    }
+    if *registers.pc == 2 {
+        dispatched();
+        *registers.pc = 3;
+        registers.set_upvalue(
+            &ctx,
+            upvalues[usize::from(plan.set_dest.0)].get(),
+            registers.stack_frame[usize::from(plan.set_source.0)],
+        );
         completed += 1;
         #[cfg(test)]
         HITS.set(HITS.get() + 1);
