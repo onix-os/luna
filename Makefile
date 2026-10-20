@@ -1831,6 +1831,21 @@ READONLY_TIMING_ITERATIONS ?= 20
 jit-readonly-window:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::timing::frozen_workload_windows $(ARGS)
 
+.PHONY: jit-readonly-profile-tests jit-readonly-profile-build
+jit-readonly-profile-tests:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::profile $(ARGS)
+
+jit-readonly-profile-build:
+	@mkdir -p '$(READONLY_TIMING_DIR)'
+	@test ! -e '$(READONLY_TIMING_DIR)/test-binary'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL='$(READONLY_TIMING_OPT)' CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json > '$(READONLY_TIMING_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(READONLY_TIMING_DIR)/build.jsonl' > '$(READONLY_TIMING_DIR)/binary-path'
+	@test "$$(wc -l < '$(READONLY_TIMING_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(READONLY_TIMING_DIR)/binary-path')" '$(READONLY_TIMING_DIR)/test-binary'
+	@sha256sum '$(READONLY_TIMING_DIR)/test-binary' > '$(READONLY_TIMING_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs examples/jit_support/profile_control.rs; } | sort -z | xargs -0 sha256sum > '$(READONLY_TIMING_DIR)/source.sha256'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=$(READONLY_TIMING_OPT)\nlto=true\ncodegen_units=1\nstrip=false\nscope=warmed execution lifecycle attribution; not elapsed acceptance\nwarmups=2 plus compilation drain\n'; } > '$(READONLY_TIMING_DIR)/configuration'
+
 jit-readonly-time-build:
 	@mkdir -p '$(READONLY_TIMING_DIR)'
 	@test ! -e '$(READONLY_TIMING_DIR)/test-binary'

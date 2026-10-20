@@ -15,8 +15,15 @@ struct Sample {
     child_count: usize,
 }
 
-fn measure(name: &str, mode: &str, iterations: usize) -> Sample {
-    assert!((1..=1000).contains(&iterations));
+pub(super) struct Prepared {
+    pub lua: Lua,
+    pub closure: crate::StashedClosure,
+    pub expected: i64,
+    pub code_count: usize,
+    pub child_count: usize,
+}
+
+pub(super) fn prepare(name: &str, mode: &str) -> Prepared {
     let workload = workloads::WORKLOADS
         .iter()
         .find(|w| w.name == name)
@@ -69,6 +76,24 @@ fn measure(name: &str, mode: &str, iterations: usize) -> Sample {
         usize::from(mode == "readonly" && name == "rust_callbacks")
     );
     assert_eq!(code_count == 0, mode == "off");
+    Prepared {
+        lua,
+        closure,
+        expected: workload.expected,
+        code_count,
+        child_count,
+    }
+}
+
+fn measure(name: &str, mode: &str, iterations: usize) -> Sample {
+    assert!((1..=1000).contains(&iterations));
+    let Prepared {
+        mut lua,
+        closure,
+        expected,
+        code_count,
+        child_count,
+    } = prepare(name, mode);
     let before = lua.jit_stats();
     let mut elapsed_ns = 0;
     for _ in 0..iterations {
@@ -77,7 +102,7 @@ fn measure(name: &str, mode: &str, iterations: usize) -> Sample {
         let start = std::time::Instant::now();
         let actual = std::hint::black_box(lua.execute::<i64>(&executor).unwrap());
         elapsed_ns += start.elapsed().as_nanos();
-        assert_eq!(actual, workload.expected);
+        assert_eq!(actual, expected);
     }
     let after = lua.jit_stats();
     assert!(elapsed_ns > 0);

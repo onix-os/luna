@@ -24,3 +24,6 @@ mod tests;
 
 #[cfg(test)]
 mod timing;
+
+#[cfg(test)]
+mod profile;

@@ -37265,6 +37265,35 @@ platform/release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-fresh/`
 and its separate `cross-ordinary/` campaign.
 
+### Current-pipeline warmed attribution — diagnostic support
+
+A test-only profiling entry reuses the existing acknowledged perf FIFO control
+and the exact prepared Lua::core/frozen-workload/original-callback setup shared
+with elapsed diagnostics. Two warmups and queued compilation drain precede
+enable; disable precedes final statistics/reporting. The measured lifecycle
+includes executor construction/execution/result checking, not startup or codegen.
+Real child selection,25 counters, compilation/installation deltas0, unchanged
+mapping ownership and final cache reclamation remain asserted.
+
+Six reused protocol fixtures and two current-window fixtures verify successful
+acknowledgement, workload/error ordering and invalid acknowledgement refusal.
+Formatting/check-all/profile/window/runtime passes17 executions/three summaries,
+zero failures and one explicitly ignored profiling entry. Symbol-retained
+opt3/opts LTO/CGU1 images are separate from stripped elapsed/production artifacts.
+Cranelift's existing PERF_BUILDID_DIR-triggered native maps identify generated
+functions without adding a runtime owner field or guessing code ranges.
+
+The complete all-feature Force suite passes2115 tests across91 summaries with
+zero failures and25 intentionally ignored diagnostics. Both symbol-retained
+opt3/opts images built successfully from the same frozen source. This verifies
+the instrumentation checkpoint, not the outstanding performance requirements.
+
+Capture/results are pending at this checkpoint. Coupled raw PMU scheduling,
+selected hybrid event, lost-sample, native/Rust-image and source/tool identity
+reconciliation are required before drawing attribution conclusions; no elapsed
+acceptance or production speedup follows from building this instrumentation.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-profile/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
