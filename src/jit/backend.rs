@@ -48,7 +48,7 @@ mod integer_loop;
 mod projection_mode;
 #[cfg(test)]
 mod read_cache;
-#[cfg(all(test, not(miri)))]
+#[cfg(not(miri))]
 pub(super) mod readonly_lookup;
 #[cfg(not(miri))]
 pub(super) mod region;
@@ -256,7 +256,7 @@ pub(super) struct Code {
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     pub readonly_lookup: Option<super::owner::Shared<readonly_lookup::ReadCode>>,
     #[cfg(not(miri))]
     pub array_kernels: Option<array::Kernels>,
@@ -309,7 +309,6 @@ impl Code {
         let continuations = self.continuations.take().is_some();
         #[cfg(test)]
         let bound = self.bound_entry.take().is_some();
-        #[cfg(test)]
         let readonly = if let Some(child) = self.readonly_lookup.take() {
             self.relocations -= child.relocations;
             true
@@ -317,6 +316,7 @@ impl Code {
             false
         };
         let arrays = self.array_kernels.take().is_some();
+        let arrays = readonly || arrays;
         #[cfg(test)]
         let arrays = scalar || continuations || bound || readonly || arrays;
         arrays
@@ -588,7 +588,7 @@ pub(super) fn compile_in(
         work,
         Selection {
             projected: false,
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             readonly_scope: false,
             #[cfg(not(miri))]
             scoped_helpers: false,
@@ -621,7 +621,7 @@ pub(super) fn compile_projected_in(
         work,
         Selection {
             projected: true,
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             readonly_scope: false,
             #[cfg(not(miri))]
             scoped_helpers: false,
@@ -650,7 +650,7 @@ pub(super) fn compile_leaf_in(
         work,
         Selection {
             projected: false,
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             readonly_scope: false,
             #[cfg(not(miri))]
             scoped_helpers: false,
@@ -783,7 +783,7 @@ fn compile_leaf_pair_selected(
 
 struct Selection {
     projected: bool,
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     readonly_scope: bool,
     #[cfg(not(miri))]
     scoped_helpers: bool,
@@ -815,7 +815,7 @@ pub(super) fn compile_scoped_in(
         Selection {
             projected: false,
             scoped_helpers: true,
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             readonly_scope: false,
             #[cfg(test)]
             leaf: false,
@@ -964,16 +964,16 @@ fn compile_image(
         None
     };
     let expansion = super::work::Expansion::admit(snapshot, work)?;
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     let readonly_plan = if selection.readonly_scope {
-        if rooted_moves
-            || selection.projected
+        let incompatible = rooted_moves || selection.projected || selection.scoped_helpers;
+        #[cfg(test)]
+        let incompatible = incompatible
             || selection.leaf
             || selection.cell_kernel
             || selection.integer_activation
-            || selection.scoped_helpers
-            || failure != Failure::None
-        {
+            || failure != Failure::None;
+        if incompatible {
             return Err(JitError::Compilation(
                 "read-only lookup requires ordinary lowering".into(),
             ));
@@ -985,7 +985,7 @@ fn compile_image(
     } else {
         None
     };
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     let expansion = if readonly_plan.is_some() {
         readonly_lookup::expansion(expansion, work)?
     } else {
@@ -1223,7 +1223,7 @@ fn compile_image(
         helper_returns.len(),
         helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     let signature_bytes = signature_bytes
         .checked_add(if readonly_plan.is_some() {
             3 * Layout::new::<AbiParam>().size()
@@ -1291,7 +1291,7 @@ fn compile_image(
     signature_charge = Reservation::new(snapshot.operations.allocator().0.clone(), signature_bytes)
         .map_err(|_| JitError::ResourceLimit("native signatures"))?;
     let mut signature = module.make_signature();
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     if readonly_plan.is_some() {
         fill_signature(
             &mut signature.params,
@@ -1300,7 +1300,7 @@ fn compile_image(
     } else {
         fill_signature(&mut signature.params, entry_types)?;
     }
-    #[cfg(not(all(test, not(miri))))]
+    #[cfg(miri)]
     fill_signature(&mut signature.params, entry_types)?;
     #[cfg(test)]
     if failure == Failure::RequirePackedPayload {
@@ -1309,7 +1309,7 @@ fn compile_image(
     let function = module
         .declare_anonymous_function(&signature)
         .map_err(fail)?;
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     if readonly_plan.is_some() {
         signature.params.pop();
     }
@@ -2023,7 +2023,7 @@ fn compile_image(
         )?;
         entries.retain_only(pc as usize);
     }
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     let (instructions, block_count) = if let Some(plan) = readonly_plan {
         let call = stores
             .helper_calls
@@ -7824,7 +7824,7 @@ impl Image {
             integer_activation: self.integer_activation,
             #[cfg(all(test, not(miri)))]
             scalar_kernel: self.scalar_kernel,
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             readonly_lookup: None,
             #[cfg(not(miri))]
             array_kernels: self.array_kernels,

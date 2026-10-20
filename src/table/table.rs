@@ -368,7 +368,7 @@ impl<'gc> fmt::Debug for TableState<'gc> {
     }
 }
 
-#[cfg(all(test, feature = "jit"))]
+#[cfg(feature = "jit")]
 impl<'gc> Table<'gc> {
     pub(crate) fn try_strong_canonical_hint(
         self,

@@ -70,16 +70,18 @@ fn refused() -> JitError {
     JitError::ResourceLimit("helper call verification")
 }
 
-#[cfg(test)]
+#[cfg(not(miri))]
 impl Calls {
-    #[cfg(not(miri))]
     pub(super) fn at(&self, pc: usize) -> Option<Inst> {
         self.records
             .iter()
             .find(|record| record.pc == pc)
             .map(|record| record.call)
     }
+}
 
+#[cfg(test)]
+impl Calls {
     pub(super) fn read_cache_clobbers(&self, snapshot: &Snapshot, inst: Inst) -> u32 {
         let Some(record) = self.records.iter().find(|record| record.call == inst) else {
             return u32::MAX;

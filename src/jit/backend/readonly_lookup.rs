@@ -32,10 +32,14 @@ pub(in crate::jit) fn compile(
         Selection {
             projected: false,
             readonly_scope: true,
+            #[cfg(test)]
             leaf: false,
+            #[cfg(test)]
             cell_kernel: false,
+            #[cfg(test)]
             integer_activation: false,
             scoped_helpers: false,
+            #[cfg(test)]
             failure: Failure::None,
         },
         false,
@@ -58,7 +62,7 @@ pub(in crate::jit) fn compile_pair(
     limit: usize,
     metadata: BudgetAllocator,
     work: crate::jit::work::Limits,
-    failure: Failure,
+    #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
     let bound = crate::jit::work::Expansion::admit(source, work)?;
     let mut ordinary = compile_in(
@@ -67,6 +71,7 @@ pub(in crate::jit) fn compile_pair(
         limit,
         metadata.clone(),
         work,
+        #[cfg(test)]
         failure,
     )?;
     if Plan::recognize(source).is_none() {
@@ -93,13 +98,16 @@ pub(in crate::jit) fn compile_pair(
     else {
         return Ok(ordinary);
     };
+    #[cfg(test)]
     let previous_limit = metadata.0.limit();
+    #[cfg(test)]
     match failure {
         Failure::RefuseReadonlyOwnerStorage => metadata.0.set_limit(metadata.0.current()),
         Failure::RefuseReadonlyOwnerAllocation => metadata.0.fail_after(0),
         _ => {}
     }
     ordinary.readonly_lookup = crate::jit::owner::Shared::try_new(child, metadata.clone()).ok();
+    #[cfg(test)]
     match failure {
         Failure::RefuseReadonlyOwnerStorage => metadata.0.set_limit(previous_limit),
         Failure::RefuseReadonlyOwnerAllocation => metadata.0.fail_after(usize::MAX),
