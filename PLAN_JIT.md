@@ -38035,11 +38035,14 @@ models2 pass. The two cold-compiler annotations were exploratory only, built but
 never timed, and are removed pending unconfounded controls.
 
 Fresh independent-target builds now map source/target prefixes to fixed virtual
-filenames through the same wrapper path. The first image confirms all five
-generated paths use luna-build rather than the physical target. Independent-root
-byte-for-byte equality is still being tested; do not claim reproducibility yet.
-If it passes, rebuild original0f and candidate controls under the SAME protocol
-in both profiles, preserving original thresholds and all counters/resources.
+filenames through the same wrapper path. The control completes: native-benchmark,
+no-feature and compiled-JIT cost image pairs are ALL byte-identical across two
+independent source/target roots at opt3. All five generated paths use luna-build;
+the wrapper hash also reverifies. This closes this control's build-location
+confound, not full performance acceptance. Authoritative original0f and current
+candidate builds are now running under the SAME protocol in both profiles,
+preserving original thresholds and all counters/resources. No normalized timing
+or shipping-profile reproducibility result is claimed at this checkpoint.
 Evidence: `production-scoped-read/reproducible-layout/` under the artifact root.
 
 ## 15. Primary references
