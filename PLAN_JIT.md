@@ -36313,6 +36313,18 @@ Fresh identical-input focused executions and two original-profile native image
 comparisons will verify withdrawal; existing six-image/full-Force restoration
 evidence applies to the identical baseline inputs and is not relabelled fresh.
 
+Withdrawal **`f09dad92`** is now verified in `step-fuel-withdrawal`.
+Fresh formatting/check-all and **274 focused executions / 39 summaries** pass,
+zero failures, ignored checks or compiler warnings. These executions use the
+immutable `b3546663` archive with identical compiled/test/build inputs, rather
+than claiming a new archive compilation. Source witnesses verify before and
+after the checks. Both freshly rebuilt native benchmark images, speed and
+shipping, match the original controls **byte-for-byte**; configuration,
+environment, source and tool witnesses also verify. Full Force and the four
+feature-cost images were not rerun here. Their existing identical-input
+restoration evidence in `known-frame-withdrawal` remains separately identified.
+No performance gap is closed by restoring the original runtime.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
