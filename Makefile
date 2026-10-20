@@ -1825,6 +1825,21 @@ jit-call-fusion-publication: jit-call-fusion-runtime
 jit-call-fusion-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::runtime $(ARGS)
 
+.PHONY: jit-call-fusion-window jit-call-fusion-time-build jit-call-fusion-time-run
+FUSION_TIMING_DIR ?= target/jit-evidence/fusion-timing
+FUSION_TIMING_OPT ?= 3
+FUSION_TIMING_CASE ?= closure_upvalue
+FUSION_TIMING_MODE ?= fusion
+FUSION_TIMING_ITERATIONS ?= 20
+jit-call-fusion-window:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::runtime::timing::frozen_windows $(ARGS)
+
+jit-call-fusion-time-build:
+	@$(MAKE) jit-readonly-time-build READONLY_TIMING_DIR='$(FUSION_TIMING_DIR)' READONLY_TIMING_OPT='$(FUSION_TIMING_OPT)'
+
+jit-call-fusion-time-run: jit-profile-cpu-check
+	@LUNA_FUSION_CASE='$(FUSION_TIMING_CASE)' LUNA_FUSION_MODE='$(FUSION_TIMING_MODE)' LUNA_FUSION_ITERATIONS='$(FUSION_TIMING_ITERATIONS)' taskset -c '$(PROFILE_CPU)' '$(FUSION_TIMING_DIR)/test-binary' jit::call_fusion::runtime::timing::time_frozen_runtime --exact --ignored --nocapture --test-threads=1
+
 jit-call-fusion-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::site::kernel $(ARGS)
 

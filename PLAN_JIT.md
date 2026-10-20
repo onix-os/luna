@@ -37659,6 +37659,32 @@ and match interpreter frame/fuel traces with collections between steps. This is
 resource/correctness evidence, not a speedup result or production promotion.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/`.
 
+### Frozen fused-runtime timing instrumentation
+
+A new Make-driven diagnostic uses the unchanged repository workload bytes,
+Lua::core, the same wrapping host_increment callback, two warmups, compilation
+drain and the original opt3/opts, LTOtrue, CGU1, striptrue timing build settings.
+Every measured window checks exact results, no compilation/installation delta,
+stable live code/metadata, zero snapshots and complete code reclamation after
+cache retirement and final specialized lease release. The tagged JSON retains
+all25 raw execution counters, real fused-region count and resource values.
+
+The window audit passes for closure_upvalue and two ineligible controls,
+integer_loop and rust_callbacks. Ineligible candidate/ordinary25-counter arrays
+are identical. Upvalue dispatches and interpreted slices decrease by twice the
+actual fused count, code lookups decrease by that count, and normally-debited
+native+interpreted source work plus exact upvalue/heap/guard/panic effects are
+conserved. Real pair call/return/cache/helper scheduling changes are retained,
+not overwritten with baseline or invented callback counts.
+
+Initial new-test assumptions about identical native-pair scheduling and one
+strong lease per lookup were incorrect: the warmed ordinary runtime promotes
+native call pairs and can reuse existing resume-scope owners. Observed416 saved
+strong leases versus9804 fused regions are not9804 new owner acquisitions.
+Both failed expectations are preserved in diagnostic logs and corrected against
+the actual lookup/resume paths. Original acceptance auditors and thresholds are
+unchanged; this diagnostic is not production or full performance acceptance.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

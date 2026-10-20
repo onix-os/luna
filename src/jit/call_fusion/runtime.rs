@@ -246,3 +246,6 @@ pub(crate) fn with_prepared<R>(prepared: Lease, run: impl FnOnce() -> R) -> R {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod timing;
