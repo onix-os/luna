@@ -38403,6 +38403,59 @@ four profiles, raw240-window counters and checks under
 `production-scoped-read/reproducible-layout/array-window-single-pass/`.
 Original0f full performance/resource/platform/release acceptance remains OPEN.
 
+### Write-only array mirrors: work savings, elapsed regression unresolved
+
+The independent native reference-root fixture is committed before the runtime
+trial. It compares132 positive machine-code PC/budget prefixes and a zero-budget
+refusal to the generic backend, including exact scratch, counters and reference
+identities. Two collections retain only parent tables, then verify their shared
+table/string children. Its Make target rejects a zero-test run.
+
+The uncommitted write-only trial classifies only loops with SetTable and no
+GetTable anywhere in the selected source. The translation verifier independently
+re-derives that classification. Its fully initialized NIL mirror avoids unused
+canonical-cell conversions; canonical ownership, dirty-only writeback, admission
+guards, shared/exclusive leases and the preserving read/mixed path stay intact.
+There is no uninitialized storage, new root, allocation or native ABI change.
+Plan sizes remain24 bytes on x64 and12 on i686.
+
+The final first variant passes95 focused executions,22 Miri tests under each
+borrow model,8605 GNU mode/all-feature executions,3337 real i686 fallback
+executions and95 native x64-musl executions. Six canonical release images match
+the initially measured variant byte-for-byte, including both unchanged no-feature
+images. Its240-window real PMU screen reduces Auto array instructions about
+6.86-7.18%; exact host profiles also reduce constructor and total work. These
+counts do not establish elapsed performance or Valgrind guest-ISA identity.
+
+Each of the first variant, an outlined overwrite-wrapper variant and a fresh
+committed f16ed199 diagnostic control completes the unchanged144-command matrix
+against original0f7c6ba7:14256 native executions,285120 cost iterations and zero
+independent27-field counter/resource mismatches. Raw cost medians are recomputed;
+raw native medians are not available in this protocol and remain unaudited.
+All failed gates and same-image placebo observations are retained.
+
+Despite array gains, first-variant CPU0 speed Off float control/candidate elapsed
+ratio is0.862813 and Off integer cost ratio0.918836. Outlining only the new
+wrapper does not repair them:0.860214 and0.917672 respectively, plus a shipping
+CPU16 Auto allocation regression. Neither variant is performance-accepted.
+
+The fresh committed control reproduces neither of those two regressions:
+0.999239 and1.005957 respectively. Its six images have identical allocated code
+bytes/layouts to the older committed control; native-feature images differ only
+in20 speed/22 shipping data.rel.ro bytes, consistent with source-location shifts
+from separately committed tests. This rules out that test-only control change
+as the explanation for the two repeated observations; it does not establish
+their cause or erase other adverse control observations.
+
+The failed outline hint is removed. A separate unaccepted Linux hot-interpreter
+section trial is being checked for exact ELF RX/nonwritable placement, complete
+unwind coverage and the full unchanged timing matrix. No placement hypothesis,
+smaller instruction count or focused correctness result can waive the original
+Off/callback, resource-policy, platform or release requirements. Preserve the
+immutable sources, images, raw results and readers under
+`production-scoped-read/reproducible-layout/array-write-only/` and
+`production-scoped-read/reproducible-layout/f16-baseline/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
