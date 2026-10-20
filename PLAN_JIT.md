@@ -37078,6 +37078,48 @@ from the original production-binary performance/size/cold-cost/platform gates.
 Full release acceptance and the original performance regressions remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/`.
 
+### Integrated lookup diagnostic — current form not promotable
+
+Integration milestone **a0fc55ff** completes a frozen diagnostic campaign:
+672 process loads,3360 measured executions and1344 warmups across all seven
+repository workloads, opt3/opts, CPUs0/16 and six balanced A/child/B orders.
+Separate Off observations alternate before/after the native order. A and B are
+independent ordinary-control runs of the same frozen test image. Startup and
+compilation are excluded; all measured windows prove compilation delta0.
+No owned builds, correctness jobs or profilers overlap collection; unrelated
+machine contention is retained rather than treated as a blocker.
+
+All25 execution counters match A/B and the child except the explicitly expected
+25000 fewer actual helper calls/completions per five-execution callback window.
+Logical reads, source instructions, exits and dispatches remain unchanged.
+The other six cases show no helper reduction. Ordinary resource controls match;
+the callback child reports its extra image/metadata ownership explicitly.
+Both images,584 frozen files, timing tools and all672 raw logs retain verified
+hash bindings. Two valid and20 corrupted reader fixtures pass.
+
+**Callback ordinary/child elapsed ratios** (greater than1 favors the child):
+
+| Profile | CPU0 | CPU16 |
+| --- | ---: | ---: |
+| opt3 | 0.932738 | 0.977668 |
+| opts | 0.908054 | 0.963088 |
+
+These are about7.2%/2.3% slower in opt3 and10.1%/3.8% slower in opts.
+Callback A/B placebos are0.996880/0.996782 and1.001569/1.000808 respectively.
+The current form therefore has **no retention/promotion case**, despite removing
+the targeted C transition. Other-case ordinary/child ratios are mostly near
+their placebos, not evidence of a general speedup. Upvalue Native/Off performance
+also remains poor; a read-only global lookup does not address its mutable cells.
+
+This is a diagnostic test-runtime result, not the original production-binary
+acceptance campaign. Its absolute Off/native ratios must not be substituted for
+the original gates. Production remains on the ordinary path. Further work must
+reduce verified binding/entry/publication cost and repeat measurement before any
+production promotion; all original performance, size, cold-cost, resource,
+platform and release requirements remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/summary.tsv`,
+`rows.sha256`, `reader-fixtures.log` and per-image source/binary manifests.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
