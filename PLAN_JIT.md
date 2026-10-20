@@ -37858,7 +37858,8 @@ separately, and the complete campaign runs in the repository Nix shell.
 
 Shipping callback control/candidate ratios repeat at1.119517/1.140381 CPU0/16,
 and all12 shipping callback gates pass. Shipping integer/float ratios improve
-about8–10%; shipping native failed gates fall to2/108 versus controls22/24.
+about8–10%; shipping native failure rows fall to2/108 versus22/108 and24/108
+for controls A and B.
 THIS IS NOT FULL ACCEPTANCE: speed native still fails14/108 gates; cost fails
 37/108 speed and20/108 shipping. CPU16 speed float cost and shipping callback
 cost regress around3.3–3.5% against controls; inherited upvalue/cold costs remain.
@@ -37876,6 +37877,24 @@ this alone. Next investigate the publisher's duplicate cold panic metadata,
 preserving original panic payloads and measuring any refinement before acceptance.
 Evidence: `target/jit-evidence/hook-resume-recovery/production-frame-publication/`,
 especially `refinement/acceptance/production-audit.json` and `refinement/exact-maps/`.
+
+The cold panic-reuse refinement is separately measured and withdrawn. It passes
+the strengthened payload/partial-state oracle,45 focused native/heap/projection
+executions and both three-test Miri models. Another72-command production screen
+preserves every27-field record and all immutable witnesses. Removing the extra
+publisher source-path string reduces .rodata/.data.rel.ro sizes by32 bytes each,
+but other preceding sections change too: speed text moves another48 bytes rather
+than returning to the control placement. No alignment cause is established.
+
+Speed CPU0 Off float improves relative to the provisional image, but CPU0 Off
+arrays are7.5% slower than original controls; native array ratios are0.980156 /
+0.968254 CPU0/16. Shipping callback gains shrink to1.045369/1.052589, with one
+failed window. This is not an acceptable regression repair. The original
+publisher panic site is restored; the stronger oracle and all failed evidence
+remain.53d7268b is still provisional: do not replace original controls or claim
+full acceptance from its shipping win. Next separate actual retired-work savings
+from link-context timing effects before choosing another implementation.
+Evidence: `production-frame-publication/panic-reuse/` under the same artifact root.
 
 ## 15. Primary references
 
