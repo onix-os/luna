@@ -37774,6 +37774,33 @@ rejected in the identity-cache experiments; do not replay them blindly.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/production-summary.tsv`,
 `production-rows/`, production image manifests and routing audit.
 
+### Rejected production strong-slot helper shortcut
+
+A bounded strong-slot peek inside the existing canonical global-read helper was
+tested without changing its ABI, panic/projection boundary, counters or fallback.
+The candidate passed full Force/all-features plus explicit projection checks
+(2183 passing test executions across93 summaries,26 deliberate ignores), the
+new13-case helper differential fixture under both Miri borrow models, and that
+fixture plus unsupported-target integration tests on actual ELF32 i686 binaries.
+These are correctness results, not a speedup.
+
+The actual non-test production screen used72 commands: six balanced A/C/B
+permutations, baseline-identical placebo B, CPUs0/16, opt3/opts, all original nine
+cases and11 paired samples. All27 counters/resources matched across images;
+source/image/tool hashes and unchanged gate/exit reconciliation passed. The reader
+also rejected15 corruptions. No owned verification/build overlapped capture.
+
+Callback gates failed22/24 candidate windows. Median baseline/candidate native
+time ratios were0.990615/0.992596/0.991429/0.988448 in opt3 CPU0/16, opts CPU0/16
+order: no target gain in any configuration. Shipping CPU0 metamethods also lost
+time. The shortcut and production-only visibility changes were therefore fully
+withdrawn, retaining only the differential regression tests. No original gate was
+relaxed; compiled-disabled/no-feature cost and full release acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/production-strong-hint/`,
+especially `balanced-summary.tsv`, immutable source/images, raw rows and manifests.
+Next attribution must use actual non-test production routing rather than the
+libtest pipeline that disables native-region promotion.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
