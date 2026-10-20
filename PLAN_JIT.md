@@ -38479,6 +38479,57 @@ immutable sources, images, raw results and readers under
 `production-scoped-read/reproducible-layout/array-write-only/` and
 `production-scoped-read/reproducible-layout/f16-baseline/`.
 
+### Shared array admission: rejected; hardware front-end diagnosis
+
+A common runtime initialization policy replaces two const-policy admission and
+callback specializations, retaining source classification, independent binding,
+all refusal/GC/writeback rules and the existing native ABI. Four exact maps show
+one production admission body per image; benchmark files shrink432 speed/384
+shipping bytes.95 focused executions,33 Miri tests per borrow model and8605 GNU
+mode/all-feature executions over365 summaries pass. All six images build and
+both no-feature images remain fully byte-identical to original0f.
+
+The full unchanged144-command matrix completes14256 native executions and
+285120 cost iterations with zero source-specific independent27-field mismatches;
+reader valid/restored plus16bad-input checks pass. Auto array ratios improve,
+but native gates still fail9 speed callbacks/2 shipping arrays, and cost gates
+fail29 speed/15 shipping. CPU0speed native Offinteger control/candidate0.875022
+and Offfloat0.878106 remain adverse; cost Offfloat0.949434 andCPU16speed native
+Offallocation0.949539 are retained. The former Offinteger cost loss does not
+repeat (0.997586, placebo1.000663), but this is NOT acceptance of the new form.
+
+Withdraw the complete runtime trial after byte-verifying the saved patch.
+Runtime/test/Make/Cargo source again matches committed f16ed199; independently
+committed native root coverage remains. Restored92 focused executions over8
+summaries plus formatting/checking pass. No runtime change or new branch is
+committed. Preserve all immutable sources, images and negative observations.
+
+Follow-up CPU0 opt3 hardware diagnosis uses original0f a/b placebos, f16, V1 and
+the shared-policy candidate:240 coupled PMU windows and360000 measured calls,
+standalone Off versus paired execution, two pure numeric cases and1000 samples.
+All events are user-only,100% scheduled with coupled group runtimes. Standalone
+shared-policy integer cycles increase about16.46% and float13.33%, while retired
+instructions and branch misses remain effectively flat; f16 remains near1.0.
+Front-end groups show lower DSB delivery, higher MITE delivery and more
+undelivered uops. This supports a delivery problem, not a precise cache-causality
+claim, and the regression does not require interleaving Auto measurements.
+
+An initial diagnostic reader wrongly required source-invariant metadata and
+refused the known878/886-byte charge. Preserve its failed result. A separate
+reader uses the frozen independent source-specific27-field oracle, scaling
+only the analytically repeated numeric-loop execution counts from13 to1002;
+resource charges and initial compiler work remain frozen. It validates all240
+windows, passes two valid/restored and16altered-input checks, and leaves raw
+hashes unchanged. This limited model is not a new full-matrix oracle or waiver.
+
+Four additional lower-rate IP profiles pass no-loss/no-throttle checks with
+exact host-code/layout identity. Roughly95-97% of samples land in run_vm_slice,
+with dispatch-target construction among leading sites. Initial large-buffer
+refusal and throttled high-rate captures remain archived and superseded; no
+host setting was changed. Samples have skid and are not cycle-level proof.
+Evidence is under `production-scoped-read/reproducible-layout/disabled-frontend/`;
+all original performance/resource/platform/release requirements remain OPEN.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
