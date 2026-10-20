@@ -37737,6 +37737,43 @@ introduces no unsafe/uninitialized storage and passes34 distinct selected tests,
 including eleven actual interpreter/GC width-boundary cases. This is a verified
 implementation candidate, not a measured Atom fix or production promotion.
 
+### Fresh non-test production baseline and corrected optimization priority
+
+The immutable0f7c6ba7 source was also built as the ORIGINAL non-test jit_bench,
+opt3/opts with LTOtrue, CGU1 and striptrue. With no owned compilation or tests
+overlapping capture, twelve commands ran all nine original workloads on CPUs0/16
+for three rotated rounds, eleven paired samples and unchanged thresholds.
+Speed runs used --check; shipping runs retained printed failures without using
+the unsupported shipping --check combination. All source/image/tool hashes,
+108 workload-gate identities, results, resource fields and check exits reconcile.
+The capture's successful terminal status means evidence collection completed,
+NOT that performance gates passed.
+
+Unlike the libtest diagnostic, every production upvalue row has actual nonzero
+native-region entries/fragments. Upvalue passes12/12 gates: median paired-profile
+ratio-of-medians over the three rounds is2.683967/2.824659 for opt3 CPU0/16 and
+2.063363/2.565317 for opts CPU0/16. It is not the current shipping bottleneck.
+
+- Rust callbacks fail10/12 gates. Median profile ratios are
+  0.818276/0.820620/0.803856/0.812359 against the unchanged0.833333 minimum.
+- Metamethods fail3/12, all on CPU0; median opt3/opts CPU0 ratios are
+  0.835202/0.833157, with failed windows retained rather than averaged away.
+- Arrays fail4/12: all three opts CPU16 windows and one opts CPU0 window.
+  Median shipping ratios are1.268118/1.198557 against1.25.
+- Integer, float, allocation/GC and cold-config pass all observed gates;
+  Oslo remains explicitly unscored. This routing screen does not replace the
+  full candidate/placebo/cost/platform/release acceptance campaign.
+
+Production callback details show64836 actual table/upvalue helper reads and
+64849 native entries in the first speed screen, with no native-region batching.
+The next production optimization therefore targets the real callback/global-read
+helper/transport path, then the marginal metamethod/array cases. Do not promote
+the slower test-only single-call experiment as a replacement for working shipping
+batching. Earlier original/guarded/outlined closure identity caches were already
+rejected in the identity-cache experiments; do not replay them blindly.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/production-summary.tsv`,
+`production-rows/`, production image manifests and routing audit.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
