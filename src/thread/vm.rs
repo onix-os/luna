@@ -417,17 +417,66 @@ fn run_vm_slice<'gc>(
         match &native_dispatch {
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Compiled(code) if run_native => {
-                let completed = ctx.jit().run(
-                    code,
-                    ctx,
-                    current_function,
-                    &mut registers,
-                    max_instructions - instructions_run,
-                );
+                #[cfg(all(
+                    test,
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                let fused = crate::jit::call_fusion::runtime::current(ctx, native_id);
+                #[cfg(all(
+                    test,
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                if let Some(prepared) = &fused {
+                    if *registers.pc == prepared.region().entry {
+                        drop(registers);
+                        let completed = lua_frame.try_fused_region(
+                            ctx,
+                            prepared,
+                            max_instructions - instructions_run,
+                            instructions_run,
+                        );
+                        registers = lua_frame.registers();
+                        if let Some(completed) = completed {
+                            instructions_run += completed;
+                            native_instructions += completed;
+                            break;
+                        }
+                    }
+                }
+                let budget = max_instructions - instructions_run;
+                #[cfg(all(
+                    test,
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                let budget = fused
+                    .as_ref()
+                    .map_or(budget, |p| p.prefix_budget(*registers.pc, budget));
+                let completed = ctx
+                    .jit()
+                    .run(code, ctx, current_function, &mut registers, budget);
                 instructions_run += completed;
                 native_instructions += completed;
                 if instructions_run >= max_instructions {
                     break;
+                }
+                #[cfg(all(
+                    test,
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                if completed != 0
+                    && fused
+                        .as_ref()
+                        .is_some_and(|p| *registers.pc == p.region().entry)
+                {
+                    continue;
                 }
                 #[cfg(test)]
                 let transition = ctx

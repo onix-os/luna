@@ -18,7 +18,7 @@ pub(in crate::jit) struct Input {
     varargs: bool,
 }
 
-struct Bound<'entry, 'gc, 'frame> {
+pub(in crate::jit) struct Bound<'entry, 'gc, 'frame> {
     site: Site,
     sum: i64,
     argument: i64,
@@ -85,11 +85,11 @@ impl Input {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    pub(super) fn sources(&self) -> (&Snapshot, &Snapshot, Site) {
+    pub(in crate::jit) fn sources(&self) -> (&Snapshot, &Snapshot, Site) {
         (&self.parent, &self.child, self.site)
     }
 
-    fn with_binding<'gc, 'frame, R>(
+    pub(in crate::jit) fn with_binding<'gc, 'frame, R>(
         &self,
         caller: Closure<'gc>,
         registers: &LuaRegisters<'gc, 'frame>,

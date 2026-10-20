@@ -3649,4 +3649,4 @@ pub(crate) mod entry_bytes;
 mod readonly_lookup;
 
 #[cfg(test)]
-mod call_fusion;
+pub(crate) mod call_fusion;

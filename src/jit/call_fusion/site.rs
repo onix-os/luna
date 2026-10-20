@@ -89,6 +89,59 @@ pub(in crate::jit) struct Site {
 }
 
 impl Site {
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(in crate::jit) fn region(self) -> super::Region {
+        super::Region {
+            entry: self.region_pc as usize,
+            resume: self.return_pc as usize,
+            registers: usize::from(self.registers),
+            function: usize::from(self.temporary),
+            callee: usize::from(self.leaf.width),
+        }
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(in crate::jit) fn publish(
+        self,
+        registers: &mut crate::thread::LuaRegisters<'_, '_>,
+        slots: &[abi::Slot],
+    ) -> bool {
+        if slots.len() != usize::from(self.registers) || registers.stack_frame.len() != slots.len()
+        {
+            return false;
+        }
+        for (index, (&slot, &value)) in slots.iter().zip(registers.stack_frame.iter()).enumerate() {
+            if index == usize::from(self.leaf.parent) || index >= usize::from(self.temporary) {
+                if !matches!(slot.tag, abi::INTEGER | abi::NIL)
+                    || (slot.tag == abi::NIL && slot.bits != 0)
+                    || (index == usize::from(self.leaf.parent) && slot.tag != abi::INTEGER)
+                {
+                    return false;
+                }
+            } else {
+                let before = abi::Slot::from_value(value);
+                if before.tag != slot.tag || before.bits != slot.bits {
+                    return false;
+                }
+            }
+        }
+        for index in usize::from(self.temporary)..slots.len() {
+            slots[index].write_back(&mut registers.stack_frame[index]);
+        }
+        slots[usize::from(self.leaf.parent)]
+            .write_back(&mut registers.stack_frame[usize::from(self.leaf.parent)]);
+        *registers.pc = self.return_pc as usize;
+        true
+    }
+
     pub(super) fn recognize(source: &Snapshot, leaf: Leaf, prototype: u8) -> Option<Self> {
         if source.operations.len() > 256
             || source.constants.len() > 256

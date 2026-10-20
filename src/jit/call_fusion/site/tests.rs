@@ -41,6 +41,72 @@ const SIMPLE: &[u8] = b"local sum=11 local function add(v) sum=sum+v end add(7) 
 const LOOP: &[u8] =
     b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
 
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn invalid_native_publication_preserves_every_canonical_value_and_pc() {
+    use crate::{thread::LuaRegisters, Value};
+    let site = Sources::new(SIMPLE).site().unwrap();
+    Lua::empty().enter(|ctx| {
+        let held = Closure::load(ctx, None, b"return").unwrap();
+        let mut original = vec![Value::Integer(11); usize::from(site.registers)];
+        original[usize::from(site.holder)] = held.into();
+        let mut valid: Vec<_> = original
+            .iter()
+            .copied()
+            .map(abi::Slot::from_value)
+            .collect();
+        assert_eq!(site.materialize(&mut valid), Some(18));
+        for case in 0..9 {
+            let mut output = valid.clone();
+            match case {
+                0 => output[usize::from(site.leaf.parent)] = abi::Slot::canonical(),
+                1 => output[usize::from(site.temporary)] = abi::Slot::canonical(),
+                2 => output[usize::from(site.temporary)].tag = abi::NUMBER,
+                3 => {
+                    output[usize::from(site.temporary)] = abi::Slot {
+                        tag: abi::NIL,
+                        bits: 1,
+                    }
+                }
+                4 => output[usize::from(site.holder)].bits = 1,
+                5 => {
+                    output[usize::from(site.leaf.parent)] = abi::Slot {
+                        tag: abi::NIL,
+                        bits: 0,
+                    }
+                }
+                6 => {
+                    output.pop();
+                }
+                7 => output.push(abi::Slot::canonical()),
+                8 => output[usize::from(site.temporary)].tag = abi::BOOLEAN,
+                _ => unreachable!(),
+            }
+            let mut values = original.clone();
+            let mut pc = site.region_pc as usize;
+            let before: Vec<_> = values
+                .iter()
+                .map(|v| format!("{:?}", v.debug_shallow()))
+                .collect();
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                assert!(!site.publish(&mut registers, &output), "case={case}");
+            });
+            assert_eq!(pc, site.region_pc as usize);
+            assert_eq!(
+                values
+                    .iter()
+                    .map(|v| format!("{:?}", v.debug_shallow()))
+                    .collect::<Vec<_>>(),
+                before
+            );
+        }
+    });
+}
+
 fn pairs(slots: &[abi::Slot]) -> Vec<(u64, u64)> {
     slots.iter().map(|s| (s.tag, s.bits)).collect()
 }

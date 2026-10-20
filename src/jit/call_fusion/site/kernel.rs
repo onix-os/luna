@@ -11,9 +11,16 @@ use super::{abi, Argument, Input, Leaf, Site};
 use crate::jit::{exits::Kind, resources::BudgetAllocator, work, JitError};
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub(in crate::jit) struct View {
     binding: [u64; 4],
     completed: u64,
+}
+
+impl View {
+    pub(in crate::jit) fn completed_from(&self, original: &Self) -> bool {
+        self.binding == original.binding && original.completed == 0 && self.completed == 1
+    }
 }
 
 pub(in crate::jit) type Entry =

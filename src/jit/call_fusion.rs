@@ -2,6 +2,27 @@ use crate::Fuel;
 
 pub(in crate::jit) mod site;
 
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) mod runtime;
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[derive(Clone, Copy)]
+pub(crate) struct Region {
+    pub entry: usize,
+    pub resume: usize,
+    pub registers: usize,
+    pub function: usize,
+    pub callee: usize,
+}
+
 const VM_LIMIT: u32 = 64;
 const ATOMIC_REGION: u32 = 7;
 const CALL_FUEL: i32 = 5;

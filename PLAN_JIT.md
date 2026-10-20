@@ -37591,6 +37591,50 @@ all24 source/binding/native tests pass with the real-interpreter regression.
 Existing frozen scratch-kernel gates do not prove this later fuel correction.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-publication/fuel.*`.
 
+### Opt-in VM publication and real executor traces
+
+The native region is now connected to real Lua-frame publication through an
+explicitly scoped, test-only lease. Preparation snapshots the actual registered
+parent/child pair and compiles outside the VM. The charged lease contains no GC
+object pointer; current runtime identity and fresh registry identity must match.
+Nested scopes and unwinding restore the previous selection, and equal numeric
+source IDs in different Lua states cannot select each other's kernels.
+
+The VM caps ordinary native prefixes at the shortest CFG distance to the region
+and redispatches before interpreting its first Move. This handles forward and
+backward numeric loops without globally stepping one instruction at a time.
+After a successful kernel, it exits the VM at the logical callee-return boundary
+instead of continuing to interpret the next parent opcode in the same invocation.
+The adapter consumes13 extra fuel; the normal executor consumes the returned five
+debits and its surviving4-fuel step.
+
+Preflight requires hooks disabled, a current fixed/nonpending parent frame,
+existing capacity for the elided child frame and stack, available call depth,
+no captures/close markers in the call area and sufficient positive fuel after
+deferred work. Fresh callable/prototype/open-parent-cell binding occurs directly
+around the non-callback native entry. Validated scratch effects are published
+only to the proven parent sum and call-area slots. Real native/upvalue counters
+are recorded; no callback, physical-call or unrelated counters are fabricated.
+
+Formatting/check-all and30 distinct selected tests pass:28 call-fusion tests and
+two thread publication tests. Ten source/fuel combinations compare Off, ordinary
+native and fused native frame/stack/fuel traces with GC between every step.
+These include constant, register and sum-aliased arguments, wraparound and nested
+loops. Three low-fuel schedules retain ordinary physical calls with identical
+traces. Nineteen frame/depth/capacity/pending/fuel/hook/type/capture/reset refusals
+leave canonical state, fuel, markers, capacities and native entry counts unchanged.
+Nine invalid scratch-publication cases are atomic. Scoped image ownership survives
+cache retirement and returns code/snapshot charges to zero after the last lease.
+
+This is still an opt-in correctness integration, not release acceptance. It keeps
+the paired snapshots for exhaustive live source comparison; that retained snapshot
+charge and hot-path scan must be replaced by the already-verified immutable source
+identity before performance promotion. Automatic bounded scheduling, production
+enablement and the full original performance/platform/release gates remain open.
+The2139-test full matrix and19-test Miri/i686 gates belong to the earlier frozen
+scratch-kernel source, not this later adapter/fuel correction.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-publication/adapter.*`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

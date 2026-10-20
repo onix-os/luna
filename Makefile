@@ -1817,6 +1817,14 @@ jit-readonly-runtime:
 
 .PHONY: jit-call-fusion-fuel jit-call-fusion-fuel-miri
 .PHONY: jit-call-fusion-native
+.PHONY: jit-call-fusion-runtime
+.PHONY: jit-call-fusion-publication
+jit-call-fusion-publication: jit-call-fusion-runtime
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::fused_region $(ARGS)
+
+jit-call-fusion-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::runtime $(ARGS)
+
 jit-call-fusion-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::site::kernel $(ARGS)
 
