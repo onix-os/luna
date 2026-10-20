@@ -38627,6 +38627,42 @@ Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-re
 reproducible-layout/read-hint-single-load/RESULTS.md`, including failed readers
 and consumer preparation attempts. The full original objective remains open.
 
+### Loaded-index capture: retained work reduction
+
+`481753e3` keeps early empty-hint rejection, passes the already loaded index to
+the table-borrowed factory, and removes its second atomic read. Current weak,
+bounds, occupancy, exact canonical-key and strong non-NIL value checks remain.
+No new unsafe operation, persistent cache, owner, layout or native ABI is added.
+New tests cover arbitrary/current bucket indices, same-content foreign keys,
+weak modes, replacement/deletion, changed hints and protected table loans.
+
+Exact final-source checks pass 4,824 GNU executions and 18 tests under EACH
+Miri alias model. Six canonical images and four byte-identical map companions
+are verified; both no-feature images still match the original full bytes.
+VM addresses/sizes stay fixed, but relocated bytes differ. Emitted code proves
+one hint read with cold refusal before constant/upvalue/table resolution.
+
+Two complete hot/cold consumer campaigns provide 288 hardware windows across
+both CPU types and profiles, with 12 paired repeats per case and independent
+counter/result/compilation/reclamation checks. Hot retired work falls 0.259%
+(speed) and 0.175% (shipping). Missing-global work rises 0.058% in speed (an
+extra early decode operation) and falls 0.048% in shipping. The previous
+2.1–2.8% cold work loss is removed; cold work is NOT claimed unchanged.
+Timing remains mixed and contended, including large same-image placebo
+variation. This is a retained reduction of redundant work, not a universal
+speedup or full performance acceptance.
+
+The unchanged original matrix completes 14,256 native executions and 285,120
+cost iterations with zero source-specific counter/resource mismatches, but
+still fails 13 speed/11 shipping native gates and 22 speed/13 shipping
+compiled-disabled cost gates. Native raw timing vectors remain unavailable;
+cost raw medians are independently recomputed. All thresholds remain intact.
+The full semantic/resource/performance/platform/release objective stays open.
+
+Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-read/
+reproducible-layout/read-hint-loaded-index/RESULTS.md`, including both complete
+consumer cohorts, descriptive joint ratios and the original acceptance matrix.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
