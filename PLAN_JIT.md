@@ -36367,10 +36367,48 @@ releasing mappings. Formatting/check-all and **110 focused executions / twelve
 summaries** pass, zero failures, ignored checks or compiler warnings. Draft
 constructor and long-key fixture build failures remain in the evidence.
 
-This is **not accepted performance work yet**. Exact original-profile native
-images and whole-execution instruction/counter profiles come next. Full Force,
-source-bound Miri/i686, disabled-artifact comparisons, repeated original elapsed
-gates and all outstanding resource/platform/release requirements remain open.
+Frozen candidate **`6ed93f4d`** passes the full all-feature Force gate:
+**2,069 executions / 91 summaries**, zero failures, 23 existing ignores and no
+compiler warnings. Source witnesses verify before/after. Source-bound Miri
+passes **18 checks / four summaries per borrowing model**, zero failures or
+ignored checks; toolchain/dead-code warnings remain. Recorded invocation paths
+point to the immutable archive, and runtime Tree flags are recorded explicitly.
+Actual i686-musl passes **19 checks / four summaries**, with one existing ignored
+lookup-only profile. A fresh core-only repeat passes **13 / three summaries**,
+no ignores; its executed unit-test image is positively ELF32/Intel80386. These
+are helper/fallback checks, not native execution under Miri or i686. The initial
+safety driver incorrectly expected zero ignored supplemental profiles; its
+failure is preserved. A separately hashed finish driver verifies that exact
+known ignore, repeats the core checks and verifies source/tool witnesses.
+
+Both actual native images finish at the original builder path with opt3/opts,
+LTO, one codegen unit and stripping. The original strict callback comparison
+**refuses** the changed snapshot peak: **10,737 -> 10,713 bytes**. Every other
+printed execution/resource field matches. Do not call this equal-resource
+acceptance or attribute the 24 bytes to a particular allocation without proof.
+
+A separately named work-only observation preserves that failure and both full
+records. It allows only a lower snapshot peak for instruction attribution,
+refusing every other field difference. Its two valid/five-corrupt record fixtures
+pass; the original equal-record collector is unchanged. Eight alternating
+processes / forty execute dumps / sixteen warmups across both profiles reconcile
+all thirteen events and complete text-symbol partitions. Both original parser
+identity fixture suites pass, and source/image/configuration/tool witnesses
+verify. The first diagnostic retry misses a maps-status witness before any
+collection; that failure remains, followed by a separately recorded corrected
+run using the existing verified maps.
+
+Whole callback instructions fall **9,438,782 -> 9,423,756 (0.159%)** speed and
+**11,684,260 -> 11,634,263 (0.428%)** shipping. Helper self work falls by
+50,000 / 60,000 instructions, but transport initialization adds 10,002 in each
+profile and other executed work offsets part of the saving. The whole totals,
+not the helper-only saving, are authoritative. These are **not elapsed speedups**
+or evidence that the original callback/disabled-mode gates pass. Four additional
+disabled-mode artifacts are building; elapsed collection has not started.
+
+This remains **unaccepted performance work**. Resource-peak attribution,
+disabled-artifact comparisons, repeated original elapsed gates and all other
+outstanding resource/platform/release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/hashless-code-hint/`.
 
 ## 15. Primary references
