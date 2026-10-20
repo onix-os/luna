@@ -293,3 +293,85 @@ fn one_compiled_parent_keeps_interleaved_executor_captures_separate() {
     assert_eq!(candidate.1, off.1);
     assert!(candidate.2 > 0);
 }
+
+#[test]
+fn every_scratch_size_class_preserves_interpreter_frames_and_fuel() {
+    fn execute(width: u16, enabled: bool) -> (Vec<(Snapshot, i32)>, i64, u64) {
+        use crate::{compiler, FunctionPrototype};
+        let mut interner = compiler::interning::BasicInterner::default();
+        let parsed = compiler::parse_chunk(
+            b"local sum=0 local function add(v) sum=sum+v end for i=1,32 do add(i) end return sum",
+            &mut interner,
+        )
+        .unwrap();
+        let mut compiled = compiler::compile_chunk(&parsed, &mut interner).unwrap();
+        assert!(compiled.stack_size <= width);
+        compiled.stack_size = width;
+        let mut lua = Lua::empty();
+        lua.set_gc_pacing(false);
+        lua.set_jit_config(JitConfig {
+            mode: if enabled { JitMode::Auto } else { JitMode::Off },
+            ..Default::default()
+        })
+        .unwrap();
+        let (executor, request) = lua.enter(|ctx| {
+            let compiled = compiled.map_strings(|s| ctx.intern(s.as_ref()));
+            let proto = FunctionPrototype::from_compiled(
+                &ctx,
+                ctx.intern(b"fusion-scratch-size"),
+                &compiled,
+                false,
+            );
+            let caller = Closure::new(&ctx, proto, Some(ctx.globals())).unwrap();
+            ctx.jit_registry()
+                .borrow_mut(&ctx)
+                .register(ctx, caller.prototype());
+            (
+                ctx.stash(Executor::start(ctx, caller.into(), ())),
+                enabled.then(|| Request::new(ctx, caller).unwrap().unwrap()),
+            )
+        });
+        if enabled {
+            lua.prepare_jit().unwrap();
+        }
+        let prepared = request.map(|r| r.compile().unwrap());
+        assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+        let mut trace = Vec::new();
+        let mut run = || {
+            let mut done = false;
+            for _ in 0..1000 {
+                lua.gc_collect();
+                let mut fuel = Fuel::with(256);
+                done = lua.enter(|ctx| {
+                    let e = ctx.fetch(&executor);
+                    let done = e.step(ctx, &mut fuel).unwrap();
+                    trace.push((e.test_frame_snapshot(), fuel.remaining()));
+                    done
+                });
+                if done {
+                    break;
+                }
+            }
+            assert!(done);
+            lua.execute::<i64>(&executor).unwrap()
+        };
+        let value = if let Some(p) = &prepared {
+            with_prepared(p.clone(), run)
+        } else {
+            run()
+        };
+        (
+            trace,
+            value,
+            prepared.as_ref().map_or(0, |p| p.executions()),
+        )
+    }
+    for width in [8, 9, 16, 17, 32, 33, 64, 65, 128, 129, 256] {
+        let ordinary = execute(width, false);
+        let candidate = execute(width, true);
+        assert_eq!(candidate.0, ordinary.0, "width={width}");
+        assert_eq!(candidate.1, 528);
+        assert_eq!(candidate.1, ordinary.1);
+        assert!(candidate.2 > 0, "width={width}");
+    }
+}

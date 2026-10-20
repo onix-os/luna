@@ -37716,6 +37716,27 @@ performance, resource-cost, platform and production/release acceptance remain op
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/timing-summary.tsv`,
 `rows/`, manifests and reader outputs in the same artifact root.
 
+### Diagnostic-versus-production routing correction
+
+Source inspection confirms a material difference: pairs::State::new disables
+native-region promotion under cfg(test), while cfg(not(test)) installs the
+production schedule. The diagnostic rows above have region_entries/fragments0;
+they do not exercise the shipping integrated inline-loop path. Earlier real
+production screens already showed2.1–2.9x interpreter upvalue speedups. Those
+historical results must be refreshed, not transferred to the current checkout.
+
+Therefore the diagnostic Atom deficit is NOT established as a production
+regression. The immediate priority is the unchanged non-test jit_bench with
+original nine workloads,11 samples, shipping/speed profiles and thresholds.
+The opt-in single-call work must not replace a faster existing production batch
+path or stand in for fixing actual shipping callback/metamethod deficits.
+
+The bounded-scratch candidate uses initialized8/16/32/64/128/256-slot classes
+instead of clearing256 slots for every small caller. It retains all frame sizes,
+introduces no unsafe/uninitialized storage and passes34 distinct selected tests,
+including eleven actual interpreter/GC width-boundary cases. This is a verified
+implementation candidate, not a measured Atom fix or production promotion.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
