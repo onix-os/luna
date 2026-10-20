@@ -1815,6 +1815,13 @@ jit-import-bits-miri:
 jit-readonly-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::tests $(ARGS)
 
+.PHONY: jit-readonly-publication jit-readonly-publication-miri
+jit-readonly-publication:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::publication::tests $(ARGS)
+
+jit-readonly-publication-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::publication::tests -- --test-threads=1
+
 .PHONY: jit-readonly-window jit-readonly-time-build jit-readonly-time-run
 READONLY_TIMING_DIR ?= target/jit-evidence/readonly-timing
 READONLY_TIMING_OPT ?= 3

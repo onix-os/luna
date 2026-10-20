@@ -37120,6 +37120,44 @@ platform and release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/summary.tsv`,
 `rows.sha256`, `reader-fixtures.log` and per-image source/binary manifests.
 
+### Verified lookup publication — changed candidate, not accepted
+
+The helper-eliding entry creates a new hot distribution: most callback slices
+now report calls/completions/declines0 and one logical table/upvalue read. A
+test-gated producer owned by the sealed readonly source Plan skips those three
+identity updates when calls is0 and omits source-proven zero table-write,
+upvalue-write and allocation-counter deltas. Nonzero helper fields and both
+read fields retain independent full-u64 saturation. Existing write/allocation
+statistics from other sources are preserved, not reset.
+
+Only code retaining the verified readonly child uses this producer, including
+its same-source ordinary fallback. The ordinary eight-field publisher and
+production route remain unchanged. Source admission rejects other helpers even
+when unreachable, and current helper entries increment calls before publishing
+any outcome. Debug checks reject impossible effects before updating statistics.
+Publication remains before exit reporting and original panic transport.
+
+An independent u128 oracle covers4501 full-width cases plus20 zero/mixed/
+decline/panic-like/budget cases, comparing complete statistics. Five impossible
+effect inputs are rejected in debug builds without partial publication. The
+format/check-all/publication/runtime/window/native/binding/peek gate passes31
+executions/seven summaries, with no failures/ignores/warnings, retaining exact
+public-executor effects and5000 actually removed C transitions per callback run.
+
+This differs from the rejected generic/grouped publisher: only the new verified
+helper-eliding source can make the helper fields genuinely zero in hot slices.
+That distinction is a hypothesis to measure, not a speedup. Both Miri models,
+fallback/full correctness and identical frozen elapsed controls are still
+required before judging this form; original production acceptance stays open.
+The new and unchanged general publishers now pass five tests/two summaries
+under each Miri borrow model and actual i686-musl, including fallback check-all
+and independent ELF32/i386 identification. Full Force passes2105 executions
+across91 summaries, zero failures and24 existing diagnostic ignores. Both
+stripped opt3/opts LTO/CGU1 diagnostic images build, and all frozen code/Make/
+dependency inputs verify unchanged after these gates. Elapsed comparison remains
+pending at this checkpoint; diagnostic controls cannot replace production gates.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-publication/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

@@ -2369,6 +2369,13 @@ impl Runtime {
                 .saturating_add(u64::from(delta.writes));
         }
         let counts = frame.count;
+        #[cfg(all(test, not(miri)))]
+        if let Some(child) = &code.readonly_lookup {
+            child.plan.publish(&mut manager.stats, counts);
+        } else {
+            record_helper_counts!(manager.stats, counts);
+        }
+        #[cfg(not(all(test, not(miri))))]
         record_helper_counts!(manager.stats, counts);
         manager.stats.record_native_exit(&exit);
         if let Some(payload) = frame.panic.take() {
