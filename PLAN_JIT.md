@@ -37351,6 +37351,43 @@ capture, native checks, canonical commit and real counter semantics. This is
 pending implementation/verification, not acceptance.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-inline/`.
 
+### Direct scoped capture: fewer instructions, placement regression
+
+The immediate API now has a private capture constructor whose Bound lifetime is
+anchored to a local mutable scope token. The general higher-ranked callback
+factory delegates to the same constructor; its delayed closure/environment
+identity checks remain unchanged. The fresh API calls capture and native entry
+directly, with no factory closure. Guard/key/hint/weak-mode checks, native ABI,
+canonical commit and real counters are unchanged.
+
+This all-inlined shape passes38 focused tests, both Miri alias models13 tests
+each, actual i686 check-all/13 models and the complete Force2115/91 suite with
+zero failures. There are25 intentionally ignored full-suite diagnostics.
+Both optimized profiles have no outlined capture/fresh/captured/factory-closure
+symbols. Another120-window matrix reconciles every sample and all3000 matched
+runtime-counter values;20 corruption fixtures are rejected.
+
+Callback retired instructions fall3.685/3.688% at opt3 and2.484/2.484% at opts
+on CPUs0/16 versus the initial current-pipeline readonly baseline. This removes
+approximately80/65 instructions per lookup, respectively. However, the ineligible
+opts upvalue workload adds0.890/0.890% instructions. All-inlining grows the opt3
+seven-register transport from7702 to8493 bytes and is not accepted as the final
+placement. Mixed-profile improvement cannot cancel that unrelated regression.
+
+Next retain the shared scoped capture implementation but outline its complete
+fresh-entry transaction as one Rust function, inlining only its private capture
+and native/commit implementation. Test whether the ordinary transport retains
+its previous shape and work without restoring the factory/closure boundary.
+Both broader ordinary/Off gaps and original elapsed/resource/platform/release
+acceptance remain open; no production speedup is claimed here.
+
+The first capture attempt was refused before any measurement because `file` was
+absent from the host wrapper, leaving its ELF witness empty despite a success
+status. The collector's independent gate caught it. Failed records are retained;
+only the missing ELF proof was repaired using readelf, requiring exactly one
+ELF32 Intel80386 executable and its hash, before the successful capture.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-capture/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
