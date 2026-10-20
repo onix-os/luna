@@ -35,7 +35,15 @@ pub(crate) fn materialize<'gc>(
                     && usize::try_from(slot.bits)
                         .ok()
                         .and_then(|index| roots.get(index))
-                        .is_none_or(|value| Slot::from_value(*value).tag != REFERENCE))
+                        .is_none_or(|value| {
+                            matches!(
+                                value,
+                                Value::Nil
+                                    | Value::Boolean(_)
+                                    | Value::Integer(_)
+                                    | Value::Number(_)
+                            )
+                        }))
         })
     {
         return false;
