@@ -1178,12 +1178,11 @@ impl<'gc> RawTable<'gc> {
     pub(crate) fn strong_canonical_hint(
         &self,
         key: String<'gc>,
-        hint: crate::jit::entry_bytes::Hint<'_>,
+        index: usize,
     ) -> Option<Value<'gc>> {
         if self.weak_keys || self.weak_values {
             return None;
         }
-        let index = hint.load()?;
         let raw = self.map.raw_table();
         if index >= raw.buckets() || !unsafe { raw.is_bucket_full(index) } {
             return None;

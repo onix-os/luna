@@ -38447,14 +38447,221 @@ from separately committed tests. This rules out that test-only control change
 as the explanation for the two repeated observations; it does not establish
 their cause or erase other adverse control observations.
 
-The failed outline hint is removed. A separate unaccepted Linux hot-interpreter
-section trial is being checked for exact ELF RX/nonwritable placement, complete
-unwind coverage and the full unchanged timing matrix. No placement hypothesis,
-smaller instruction count or focused correctness result can waive the original
-Off/callback, resource-policy, platform or release requirements. Preserve the
+The failed outline hint is removed. A separate Linux hot-interpreter section
+trial passes95 focused checks,33 Miri tests per borrow model and exact
+RX/nonwritable placement/full unwind verification on four byte-identical map
+companions, including28 positive/refusal checks. Its no-feature images are NOT
+fully byte-identical: a narrow ELF/RELA decoder proves68 VM source locations per
+profile change only line -> line+4, with EVERY OTHER ELF byte identical to
+original0f. Eighteen mutation/valid checks reject all other byte/metadata changes.
+
+The hot-section trial also completes the full144-command matrix with14256
+native/285120 cost iterations and zero independent27-field mismatches. It still
+fails14 speed/2 shipping native and36 speed/12 shipping disabled-cost gates.
+CPU0speed Offfloat control/candidate0.901401 and Offinteger cost0.926477 retain
+placebos1.023583 and0.998733 respectively. This does not repair either regression.
+The unsafe section attribute is rejected and removed, not committed. Exact
+placement validity does not establish performance or cache-causality.
+
+A subsequent whole-ELF comparison closes an important diagnostic gap: all four
+hot-section feature images have IDENTICAL allocated code bytes and layouts to
+the first variant. Only73 data.rel.ro bytes differ per image. The linker did
+not actually move the interpreter relative to that variant. The timing change
+between these captures cannot therefore be attributed to changed interpreter
+placement; the trial is a repeated same-code observation, not an effective
+layout isolation experiment. Future layout hypotheses must establish an actual
+code/address difference before collecting another performance matrix.
+
+No placement hypothesis, smaller instruction count or focused correctness
+result can waive the original Off/callback, resource-policy, platform or release
+requirements. Preserve the
 immutable sources, images, raw results and readers under
 `production-scoped-read/reproducible-layout/array-write-only/` and
 `production-scoped-read/reproducible-layout/f16-baseline/`.
+
+### Shared array admission: rejected; hardware front-end diagnosis
+
+A common runtime initialization policy replaces two const-policy admission and
+callback specializations, retaining source classification, independent binding,
+all refusal/GC/writeback rules and the existing native ABI. Four exact maps show
+one production admission body per image; benchmark files shrink432 speed/384
+shipping bytes.95 focused executions,33 Miri tests per borrow model and8605 GNU
+mode/all-feature executions over365 summaries pass. All six images build and
+both no-feature images remain fully byte-identical to original0f.
+
+The full unchanged144-command matrix completes14256 native executions and
+285120 cost iterations with zero source-specific independent27-field mismatches;
+reader valid/restored plus16bad-input checks pass. Auto array ratios improve,
+but native gates still fail9 speed callbacks/2 shipping arrays, and cost gates
+fail29 speed/15 shipping. CPU0speed native Offinteger control/candidate0.875022
+and Offfloat0.878106 remain adverse; cost Offfloat0.949434 andCPU16speed native
+Offallocation0.949539 are retained. The former Offinteger cost loss does not
+repeat (0.997586, placebo1.000663), but this is NOT acceptance of the new form.
+
+Withdraw the complete runtime trial after byte-verifying the saved patch.
+Runtime/test/Make/Cargo source again matches committed f16ed199; independently
+committed native root coverage remains. Restored92 focused executions over8
+summaries plus formatting/checking pass. No runtime change or new branch is
+committed. Preserve all immutable sources, images and negative observations.
+
+Follow-up CPU0 opt3 hardware diagnosis uses original0f a/b placebos, f16, V1 and
+the shared-policy candidate:240 coupled PMU windows and360000 measured calls,
+standalone Off versus paired execution, two pure numeric cases and1000 samples.
+All events are user-only,100% scheduled with coupled group runtimes. Standalone
+shared-policy integer cycles increase about16.46% and float13.33%, while retired
+instructions and branch misses remain effectively flat; f16 remains near1.0.
+Front-end groups show lower DSB delivery, higher MITE delivery and more
+undelivered uops. This supports a delivery problem, not a precise cache-causality
+claim, and the regression does not require interleaving Auto measurements.
+
+An initial diagnostic reader wrongly required source-invariant metadata and
+refused the known878/886-byte charge. Preserve its failed result. A separate
+reader uses the frozen independent source-specific27-field oracle, scaling
+only the analytically repeated numeric-loop execution counts from13 to1002;
+resource charges and initial compiler work remain frozen. It validates all240
+windows, passes two valid/restored and16altered-input checks, and leaves raw
+hashes unchanged. This limited model is not a new full-matrix oracle or waiver.
+
+Four additional lower-rate IP profiles pass no-loss/no-throttle checks with
+exact host-code/layout identity. Roughly95-97% of samples land in run_vm_slice,
+with dispatch-target construction among leading sites. Initial large-buffer
+refusal and throttled high-rate captures remain archived and superseded; no
+host setting was changed. Samples have skid and are not cycle-level proof.
+Evidence is under `production-scoped-read/reproducible-layout/disabled-frontend/`;
+all original performance/resource/platform/release requirements remain OPEN.
+
+### Dedicated VM code section: real isolation, acceptance still open
+
+Exact prefix maps identify three changed compiler-function sizes before the
+first array variant's VM, plus a144-byte .text-base displacement. Moving only
+those helpers cannot establish a stable absolute VM start. The previous merged
+.text.hot name changed no allocated code/layout and is not repeated.
+
+Independent a1b6bcf9 adds an actual VM unwind-boundary fixture before changing
+placement. A valid LoadConstant is given a zero-register activation; the Rust
+bounds panic crosses run_vm_slice, advances PC once, publishes one dispatch,
+preserves sentinel/fuel and releases the stack/manager loans. Both feature lanes
+pass, and default/Tree Miri each pass both lanes. The fixture tests host unwinding,
+not safe execution of arbitrary guest bytecode. Initial formatting/Value-equality
+fixture errors are corrected and retained. Named Make gates reject zero tests.
+
+The first placement trial uses a distinct .luna.vm.text executable section and
+assembly directives containing ONLY section selection/alignment, no instructions,
+data, trampoline or lifecycle entry. It changes neither VM logic nor ABI, adds
+no compiler/linker flags and leaves unsupported targets/Miri on the old path.
+Live pointer/RX checks and unwind fixtures pass. Six canonical images build;
+four byte-identical map companions show4096-byte alignment, VM-only contents,
+file-backed RX/non-W LOADs and complete FDEs.52 valid/refusal/restored checks pass.
+Exactly68 no-feature line fields shift by source-derived9, with matching source
+statements/columns and EVERY OTHER ELF byte identical;20 checks validate this.
+
+The first full original0f144-command matrix still fails:16 speed/9 shipping
+native gates and33 speed/12 shipping disabled-cost gates. CPU16shipping cost
+control/candidate ratios0.925355 integer and0.940167 array have near1.0 placebos.
+It completes14256 native/285120 cost iterations with zero source-specific
+independent27-field mismatches and passes16 reader-corruption refusals, but
+valid placement does NOT excuse8.07%/6.36% disabled slowdowns. No placement
+runtime has been committed or accepted.
+
+A bounded second candidate uses64 bytes, the actual cache-line unit on CPUs0/16,
+stabilizing only intraline geometry rather than page offsets. It is not a sweep
+through arbitrary pad counts; reject this approach if the second unit also
+fails. Its focused/live/unwind checks and both Miri lanes pass. An actual
+non-LTO,256-CGU debug embedding example also verifies64-byte VM alignment,
+complete RX/FDE bounds and the correct result, not only a library-unit binary.
+Original-profile images, code layout, complete elapsed controls and all remaining
+platform/resource/release gates still decide retention. No final performance
+claim is made. Sources, initial failures and raw data are retained under
+`production-scoped-read/reproducible-layout/native-text-isolation/`.
+
+The64-byte candidate also completes the full144-command original matrix with
+14256 native executions/285120 cost iterations and zero independent
+source-specific27-field mismatches; valid/restored reader and16 corruptions pass.
+It still fails11 speed/8 shipping native gates and36 speed/12 shipping cost
+gates. CPU16shipping integer cost ratio0.925184 (placebo1.000063) and array
+0.941811 (placebo0.996936) remain adverse; CPU16speed Auto allocation0.941165
+(placebo0.995403) also regresses. The shipping native image has identical allocated
+bytes/layouts to the4KiB image, so its varying observations are not a placement
+effect. Other image address differences are verified before attribution.
+
+REJECT and withdraw the whole section approach. Byte-compare the live patch to
+the archived patch, reverse it, and remove only its owned intent-to-add entry.
+Runtime/test/Make/Cargo source again matches a1b6bcf9, retaining the independently
+committed unwind regression. Restored94 focused executions/10 summaries plus
+format/check pass. No runtime placement change or new branch/worktree is kept.
+Do not scan further alignment values. Actual RX/alignment/unwind validity and
+non-LTO embedding compatibility are not performance acceptance; the original
+full objective remains open.
+
+### Empty-hint precheck: rejected hot/cold tradeoff
+
+`be4d6fc2` independently exhausts all 256 hint bytes, three values and three
+table-loan states (2,304 cases). Baseline and candidate pass both Miri alias
+models; the candidate also passes 4,802 GNU executions. Removing only the outer
+hint read preserves the guarded factory's machine code and reduces cached
+callback instructions, with roughly 1.7–1.8% shipping-profile timing gains in
+72 rotated hardware windows. This is not sufficient acceptance.
+
+An additional public consumer keeps the raw global absent and resolves the
+callback through an `__index` table. Its 144 rotated hardware windows show
+**2.1–2.8% more retired instructions and roughly 1–3% slower execution** on the
+missing-binding path. Native/helper/interpreter counters, results, compilation
+stability and code reclamation are checked explicitly. Strong-binding gains
+do not excuse this repeatable loss. Withdraw the one-line runtime change;
+retain the separately committed test and immutable evidence.
+
+The unchanged original-baseline matrix also completes 14,256 native executions
+and 285,120 cost iterations with zero source-specific counter/resource
+mismatches, but performance acceptance remains false. Candidate failures are
+11 speed/6 shipping native gates and 20 speed/13 shipping compiled-disabled
+cost gates. Native raw timing vectors remain unavailable; cost raw medians are
+independently recomputed. No thresholds or workload definitions change.
+
+Next design: preserve early empty-hint rejection, load/decode the advisory
+index once, and validate it against the current table under the existing
+shared borrow. Keep weak-mode, bounds, occupancy, exact key identity and strong
+non-NIL value checks; never treat a stale hint as authoritative. Both hot/cold
+consumers and the original acceptance matrix remain required.
+
+Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-read/
+reproducible-layout/read-hint-single-load/RESULTS.md`, including failed readers
+and consumer preparation attempts. The full original objective remains open.
+
+### Loaded-index capture: retained work reduction
+
+`481753e3` keeps early empty-hint rejection, passes the already loaded index to
+the table-borrowed factory, and removes its second atomic read. Current weak,
+bounds, occupancy, exact canonical-key and strong non-NIL value checks remain.
+No new unsafe operation, persistent cache, owner, layout or native ABI is added.
+New tests cover arbitrary/current bucket indices, same-content foreign keys,
+weak modes, replacement/deletion, changed hints and protected table loans.
+
+Exact final-source checks pass 4,824 GNU executions and 18 tests under EACH
+Miri alias model. Six canonical images and four byte-identical map companions
+are verified; both no-feature images still match the original full bytes.
+VM addresses/sizes stay fixed, but relocated bytes differ. Emitted code proves
+one hint read with cold refusal before constant/upvalue/table resolution.
+
+Two complete hot/cold consumer campaigns provide 288 hardware windows across
+both CPU types and profiles, with 12 paired repeats per case and independent
+counter/result/compilation/reclamation checks. Hot retired work falls 0.259%
+(speed) and 0.175% (shipping). Missing-global work rises 0.058% in speed (an
+extra early decode operation) and falls 0.048% in shipping. The previous
+2.1–2.8% cold work loss is removed; cold work is NOT claimed unchanged.
+Timing remains mixed and contended, including large same-image placebo
+variation. This is a retained reduction of redundant work, not a universal
+speedup or full performance acceptance.
+
+The unchanged original matrix completes 14,256 native executions and 285,120
+cost iterations with zero source-specific counter/resource mismatches, but
+still fails 13 speed/11 shipping native gates and 22 speed/13 shipping
+compiled-disabled cost gates. Native raw timing vectors remain unavailable;
+cost raw medians are independently recomputed. All thresholds remain intact.
+The full semantic/resource/performance/platform/release objective stays open.
+
+Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-read/
+reproducible-layout/read-hint-loaded-index/RESULTS.md`, including both complete
+consumer cohorts, descriptive joint ratios and the original acceptance matrix.
 
 ## 15. Primary references
 

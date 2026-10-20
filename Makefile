@@ -862,6 +862,15 @@ jit-runtime-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)
 
 .PHONY: vm-activation-tests jit-activation-tests vm-activation-miri
+.PHONY: vm-unwind vm-unwind-miri
+vm-unwind:
+	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::unwind::interpreter_panics_unwind_through_the_vm_boundary -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --features jit --lib $(TARGET_ARG) thread::vm::unwind::interpreter_panics_unwind_through_the_vm_boundary -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+vm-unwind-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::unwind::interpreter_panics_unwind_through_the_vm_boundary -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --no-default-features --features jit --lib --target '$(MIRI_TARGET)' thread::vm::unwind::interpreter_panics_unwind_through_the_vm_boundary -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: vm-upvalue-returns
 vm-upvalue-returns:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests $(ARGS)

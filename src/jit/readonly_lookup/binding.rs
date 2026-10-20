@@ -65,7 +65,7 @@ impl Plan {
         _scope: &'entry mut (),
     ) -> Option<Bound<'entry, 'gc>> {
         let hint = hints.hint(self.helper_pc() as usize)?;
-        hint.load()?;
+        let index = hint.load()?;
         let prototype = closure.prototype();
         let Constant::String(key) = *prototype.constants.get(usize::from(self.constant))? else {
             return None;
@@ -78,7 +78,7 @@ impl Plan {
         else {
             return None;
         };
-        let (guard, value) = table.try_strong_canonical_hint(key, hint)?;
+        let (guard, value) = table.try_strong_canonical_hint(key, index)?;
         Some(Bound {
             plan: self,
             #[cfg(test)]
