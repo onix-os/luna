@@ -3596,3 +3596,6 @@ mod slice_policy_tests;
 mod vm_progress;
 
 pub(crate) mod entry_bytes;
+
+#[cfg(test)]
+mod readonly_lookup;

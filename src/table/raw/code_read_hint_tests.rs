@@ -67,6 +67,129 @@ fn code_hint_checks_every_offset_and_current_table_key() {
 }
 
 #[test]
+fn strong_peek_checks_live_identity_without_changing_any_hint_byte() {
+    crate::Lua::empty().enter(|ctx| {
+        let key = ctx.intern(b"target");
+        let equal = String::from_buffer(&ctx, b"target".to_vec().into_boxed_slice());
+        let missing = ctx.intern(b"absent");
+        assert!(!Gc::ptr_eq(key.into_inner(), equal.into_inner()));
+        let hint = AtomicU8::new(0);
+        let mut successes = 0;
+        for count in [0, 1, 4, 16, 128, 300] {
+            let mut table = RawTable::new(&ctx);
+            for i in 0..count {
+                table
+                    .set(
+                        &ctx,
+                        ctx.intern(format!("key-{i}").as_bytes()).into(),
+                        Value::Integer(i),
+                    )
+                    .unwrap();
+            }
+            table.set(&ctx, key.into(), Value::Integer(71)).unwrap();
+            for byte in 0..=u8::MAX {
+                for query in [key, equal, missing] {
+                    hint.store(byte, Ordering::Relaxed);
+                    if let Some(value) = table.strong_canonical_hint(query, Hint::new(&hint)) {
+                        assert!(Gc::ptr_eq(query.into_inner(), key.into_inner()));
+                        same(value, Value::Integer(71));
+                        successes += 1;
+                    }
+                    assert_eq!(hint.load(Ordering::Relaxed), byte);
+                }
+            }
+            table.set(&ctx, key.into(), Value::Nil).unwrap();
+            for byte in 0..=u8::MAX {
+                hint.store(byte, Ordering::Relaxed);
+                assert!(table.strong_canonical_hint(key, Hint::new(&hint)).is_none());
+                assert_eq!(hint.load(Ordering::Relaxed), byte);
+            }
+        }
+        assert!(successes >= 8);
+    });
+}
+
+#[test]
+fn strong_peek_observes_current_values_and_refuses_all_weak_modes() {
+    crate::Lua::empty().enter(|ctx| {
+        let key = ctx.intern(b"target");
+        let hint = AtomicU8::new(0);
+        let closure = Closure::load(ctx, None, b"return").unwrap();
+        let values = [
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::from_bits(0x7ff8000000000055)),
+            ctx.intern(b"value").into(),
+            Table::new(&ctx).into(),
+            closure.into(),
+            Callback::from_fn(&ctx, |_, _, _| panic!("peek invoked callback")).into(),
+            Thread::new(ctx).into(),
+            UserData::new_static(&ctx, ()).into(),
+        ];
+        for mode in 0..4 {
+            let mut table = RawTable::new(&ctx);
+            if mode & 1 != 0 {
+                table.make_keys_weak(&ctx);
+            }
+            if mode & 2 != 0 {
+                table.make_values_weak(&ctx);
+            }
+            for value in values {
+                table.set(&ctx, key.into(), value).unwrap();
+                same(cached(&table, &ctx, key, &hint), value);
+                let before = hint.load(Ordering::Relaxed);
+                let result = table.strong_canonical_hint(key, Hint::new(&hint));
+                assert_eq!(result.is_some(), mode == 0);
+                if let Some(result) = result {
+                    same(result, value);
+                }
+                assert_eq!(hint.load(Ordering::Relaxed), before);
+            }
+        }
+    });
+}
+
+#[test]
+fn strong_peek_borrow_refusal_and_release_do_not_cross_invocations() {
+    crate::Lua::empty().enter(|ctx| {
+        let table = Table::new(&ctx);
+        let inner = table.into_inner();
+        let key = ctx.intern(b"target");
+        let hint = AtomicU8::new(0);
+        table.set(ctx, key, 71).unwrap();
+        same(
+            table.get_canonical_string(ctx, key, Some(Hint::new(&hint))),
+            Value::Integer(71),
+        );
+        let held = inner.borrow_mut(&ctx);
+        assert!(table
+            .try_strong_canonical_hint(key, Hint::new(&hint))
+            .is_none());
+        drop(held);
+        let (held, value) = table
+            .try_strong_canonical_hint(key, Hint::new(&hint))
+            .unwrap();
+        same(value, Value::Integer(71));
+        assert!(inner.try_borrow_mut(&ctx).is_err());
+        drop(held);
+        table.set(ctx, key, 93).unwrap();
+        let (held, value) = table
+            .try_strong_canonical_hint(key, Hint::new(&hint))
+            .unwrap();
+        same(value, Value::Integer(93));
+        drop(held);
+        table.set(ctx, key, Value::Nil).unwrap();
+        assert!(table
+            .try_strong_canonical_hint(key, Hint::new(&hint))
+            .is_none());
+        assert!(inner.try_borrow_mut(&ctx).is_ok());
+    });
+}
+
+#[test]
 fn code_hint_tracks_growth_removal_and_weak_transitions() {
     crate::Lua::empty().enter(|ctx| {
         let key = String::from_buffer(&ctx, std::vec![b'x'; 257].into_boxed_slice());

@@ -1172,3 +1172,33 @@ mod prehashed_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod code_read_hint_tests;
+
+#[cfg(all(test, feature = "jit"))]
+impl<'gc> RawTable<'gc> {
+    pub(crate) fn strong_canonical_hint(
+        &self,
+        key: String<'gc>,
+        hint: crate::jit::entry_bytes::Hint<'_>,
+    ) -> Option<Value<'gc>> {
+        if self.weak_keys || self.weak_values {
+            return None;
+        }
+        let index = hint.load()?;
+        let raw = self.map.raw_table();
+        if index >= raw.buckets() || !unsafe { raw.is_bucket_full(index) } {
+            return None;
+        }
+        // The occupied bucket is protected by the immutable table borrow.
+        let bucket = unsafe { raw.bucket(index).as_ref() };
+        let Key::Live(CanonicalKey::String(stored)) = bucket.0 else {
+            return None;
+        };
+        if !Gc::ptr_eq(stored.into_inner(), key.into_inner()) {
+            return None;
+        }
+        match bucket.1 .0 {
+            Slot::Strong(value) if !value.is_nil() => Some(value),
+            _ => None,
+        }
+    }
+}
