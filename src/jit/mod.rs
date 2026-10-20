@@ -1308,26 +1308,33 @@ impl PreparedPair {
     }
 }
 
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
 macro_rules! record_helper_counts {
-    ($stats:expr, $counts:expr) => {{
-        let stats = &mut $stats;
-        let counts = &$counts;
-        stats.helper_calls = stats.helper_calls.saturating_add(counts.calls);
-        stats.helper_instructions = stats.helper_instructions.saturating_add(counts.completed);
-        stats.native_table_reads = stats.native_table_reads.saturating_add(counts.table_reads);
-        stats.native_upvalue_reads = stats
+    ($stats:expr, $counts:ident) => {{
+        $stats.helper_calls = $stats.helper_calls.saturating_add($counts.calls);
+        $stats.helper_instructions = $stats.helper_instructions.saturating_add($counts.completed);
+        $stats.helper_declines = $stats.helper_declines.saturating_add($counts.declined);
+        $stats.native_table_reads = $stats
+            .native_table_reads
+            .saturating_add($counts.table_reads);
+        $stats.native_table_writes = $stats
+            .native_table_writes
+            .saturating_add($counts.table_writes);
+        $stats.native_upvalue_reads = $stats
             .native_upvalue_reads
-            .saturating_add(counts.upvalue_reads);
-        if counts.declined | counts.table_writes | counts.upvalue_writes | counts.allocations != 0 {
-            stats.helper_declines = stats.helper_declines.saturating_add(counts.declined);
-            stats.native_table_writes = stats
-                .native_table_writes
-                .saturating_add(counts.table_writes);
-            stats.native_upvalue_writes = stats
-                .native_upvalue_writes
-                .saturating_add(counts.upvalue_writes);
-            stats.native_allocations = stats.native_allocations.saturating_add(counts.allocations);
-        }
+            .saturating_add($counts.upvalue_reads);
+        $stats.native_upvalue_writes = $stats
+            .native_upvalue_writes
+            .saturating_add($counts.upvalue_writes);
+        $stats.native_allocations = $stats
+            .native_allocations
+            .saturating_add($counts.allocations);
     }};
 }
 

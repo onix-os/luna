@@ -885,9 +885,12 @@ vm-callback-setup:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::callback_setup:: $(ARGS)
 
 .PHONY: jit-helper-counts jit-helper-counts-miri
-.PHONY: jit-helper-publication
+.PHONY: jit-helper-publication jit-helper-publication-miri
 jit-helper-publication:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_publication_tests:: | awk '/^test result: ok[.] 2 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
+jit-helper-publication-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helper_publication_tests:: -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
 
 jit-helper-counts:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_counts:: $(ARGS)
@@ -1806,6 +1809,13 @@ jit-import-bits-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact --test-threads=1
 
 .PHONY: jit-rooted-moves jit-rooted-preservation
+.PHONY: jit-root-kind-validation jit-root-kind-validation-miri
+jit-root-kind-validation:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests::reference_slot_validation_classifies_all_root_kinds -- --exact
+
+jit-root-kind-validation-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::roots::tests::reference_slot_validation_classifies_all_root_kinds -- --exact --test-threads=1
+
 jit-rooted-moves:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::rooted_moves_tests $(ARGS)

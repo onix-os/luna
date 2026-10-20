@@ -36630,7 +36630,7 @@ pass across6 summaries, with zero failures/ignores. The real11-prototype/37-atte
 compiler-resource replay remains intact. Restoration evidence:
 `target/jit-evidence/hook-resume-recovery/interpreter-prefix-withdrawal/`.
 
-### Grouped read-only helper publication — unaccepted trial
+### Grouped read-only helper publication — measured and withdrawn
 
 The complete source-bound callback work observation is reverified/recomputed,
 not the earlier incomplete `native-profile` capture (speed status1, two image
@@ -36695,7 +36695,149 @@ focused/work/image gates and no owned builds/tests/profilers, not fabricated
 Force/Miri/release statuses. Source/image/tool/runtime-patch witnesses pin the
 campaign to e8b58d65; it remains unaccepted pending complete elapsed results,
 the remaining Miri/unsupported/Force checks, and every original full-plan gate.
+
+The first complete elapsed campaign exits0: **144 commands,14,256 native
+executions and285,120 cost iterations**. The unchanged strict auditor reports
+zero complete27-field counter/resource mismatches, recomputes every raw cost
+median, and passes two valid/13 corrupted fixtures. Its completion is not a
+performance pass: candidate scored speed-native gates fail15/96 versus control
+10/96 and5/96; cost gates fail49/216 versus52/216 and50/216.
+
+Adverse cross-revision observations remain explicit. Upvalue control/trial
+medians are0.99253/0.98942 (CPU0 opt3/opts) and0.99290/0.99154 (CPU16), with21/24
+rounds adverse. Callback medians are1.00236/1.01196 on CPU0 and0.98900/1.01185
+on CPU16; all six CPU16 opt3 callback rounds are adverse. Values above1 favor
+the trial. A large trial-only CPU0 shipping favorable outlier is preserved,
+not promoted to causal proof. The lower source-work counts do not repair these
+elapsed regressions.
+
+A second complete unchanged-image campaign is active in `elapsed-repeat/`,
+retaining the same nine cases, original gates and controls. No runtime rebuild
+or tuning occurs between campaigns. Wait for its complete audited record;
+withdraw the runtime if the upvalue/CPU16 callback regressions persist instead
+of keeping an instruction-count-only optimization. Every other original
+acceptance requirement remains open.
+
+The repeat also exits0 with the unchanged strict auditor and two valid/13 corrupt
+fixtures. Combined totals are **288 commands,28,512 native executions and570,240
+cost iterations**, zero complete counter/resource mismatches. Candidate speed
+native failures remain15/96 versus11/96 and9/96 controls; cost failures46/216
+versus46/216 and44/216 controls. Native CPU0 shipping upvalue control/trial median
+is0.975708 (all six rounds adverse), CPU16 speed/shipping upvalue0.990455/0.988877
+(five adverse rounds each), and CPU16 speed callback0.995041 (five adverse).
+Favorable callback/shipping observations and lower instruction counts do not
+justify retaining these repeated losses. Hardware cause is unproven.
+
+Withdraw the grouped predicate, alias locals, reordered and conditional updates.
+Retain only the independent full-width saturation fixtures and a source-faithful
+macro expanding the **original eight expressions in their original order** at
+the same invocation boundary. The macro cfg matches the existing native-exit
+publisher's supported/test targets. Restored correctness and generated-code
+parity still need fresh verification; none of this closes performance acceptance.
+Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/helper-publication-restoration/`.
+
+Restored source **e1fce384** passes fresh formatting/check-all and55 focused
+executions. Six original-flag image rebuilds prove both native and JIT-off
+`.text`, `.rodata` and section layouts equal the6ed93f4d controls in opt3/opts;
+both no-feature whole files are byte-identical. Explicit inspection outputs
+and post-inspection original-image hashes verify. Both selected Miri model
+runs and actual i686-musl each pass the two retained counter fixtures; real
+ELF32 execution and absence of the new unused-macro warning are verified.
+A genuinely isolated all-feature Force target positively executes both new
+fixtures: **2,073 executions /91 summaries**, zero failures,23 existing ignores.
+These checks validate the retained counter contracts and restoration, not a
+performance fix or complete release acceptance.
+
+Current hardware-counter access has changed since the older denied probes:
+the live policy is2 and user-only cycles/instructions/branch counters actually
+count on pinned CPUs0/16. CPU0 selects `cpu_core`, CPU16 `cpu_atom`; inactive
+hybrid rows are not zero-count measurements. No system setting was changed.
+Same-source, symbol-retained warmed FIFO-scoped Off/Auto profiling is now running
+for callbacks/upvalues in both profiles and CPU types, with three balanced mode
+orders. Startup and two warmups are excluded and compilation delta is checked0.
+This is hardware attribution, not the original elapsed acceptance campaign.
+All48 hardware captures now complete with zero lost samples. The initial
+reader reconciles every selected-event sample count and period weight, retaining
+generated/anonymous/unknown samples. Provisional shipping callback transport
+shares are about24–31%; upvalues instead emphasize `Session::complete_inline`
+and `Preserved::materialize`. These are broad sampled observations, not exact
+latency/cause proof: aggregate groups contain only149–721 samples. Reader
+corruption fixtures and independently higher-density repeats remain required
+before choosing the next implementation. No new performance fix is accepted.
+Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu/`.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
+
+### Higher-density attribution and root-kind validation trial
+
+An independent balanced repeat raises each capture from200 to2000 warmed
+iterations, reusing exact copies of the same symbol-retained e1fce384 images.
+All48 captures finish with zero lost samples. **51,882 samples** reconcile
+exactly with selected hybrid-event counts and period weights; groups now have
+1,357–7,067 samples. Generated/unknown/other weights remain in the denominator.
+The scope is still warmed execution lifecycle, not stripped-binary acceptance
+timing or pure VM instruction latency.
+
+The original reader refuses these larger reports because `perf report`
+abbreviates1287 samples as `1K`. A separate reader compares exact per-event
+counts from raw perf records, rounded-display consistency, period totals, order,
+loaded image and protocol checks. One valid and ten corrupted fixtures pass,
+including rounded-count and exact-event/count mutations. Original low-density
+tools/data remain unchanged; dense source/image/collector hashes verify.
+
+Shipping Auto upvalue materialization accounts for12.47%/9.32% of weighted
+cycles on CPUs0/16, alongside23.81%/23.53% in `Session::complete_inline`.
+The corresponding opt3 materialization shares are4.73%/4.24%. Shipping callback
+transport remains26.36%/22.36%; that distinct bottleneck is not claimed fixed.
+These distributions select investigation boundaries, not causal speedups.
+
+The next trial replaces only the reference-root predicate inside
+`abi::roots::materialize`: match scalar `Value` variants directly rather than
+encoding a complete `Slot` merely to discard its payload and inspect its tag.
+Every slot/index/root is still freshly validated before **any** destination
+write. Reference identity, canonical writes, numeric bits, GC rooting, lengths,
+late-invalid atomic refusal, counters and lifecycle boundaries are unchanged.
+No unchecked access, positive cache, writeback omission or inline/layout tuning
+is added. The earlier unused-destination-input hypothesis is not implemented:
+disassembly passes the value by pointer, not an unconditional dead scalar load.
+
+The independent baseline fixture uses explicit expected acceptance for all
+value kinds, both function kinds, numeric extrema/NaN/signed-zero, source and
+destination permutations, widths1/2/17/256, exact identity, preserved tail and
+whole-destination refusal. It passes before the runtime change. Source
+**b35ad27e** then passes fresh formatting/check-all and **152 executions across
+13 summaries**, zero failures and two existing ignored release diagnostics.
+Both original-profile native images now build with verified source/config/tool
+bindings. Shipping materialization no longer calls the full scalar encoder;
+its function shrinks251 to246 bytes. Both Miri models pass all six root tests,
+including the new independent fixture; actual i686-musl passes all-targets/
+all-feature checking and the exact new fixture, with ELF32 execution verified.
+Existing Miri/fallback warnings remain in the logs.
+
+The complete native work screen covers seven warm cases, both profiles,
+56 alternating image loads and280 executions (168 measured after warmup).
+Complete non-timing records match, all13-event partitions reconcile, and
+14 valid/28 corrupted image-identity fixtures pass. Whole-work instruction
+changes, using all six post-warmup observations per variant, are:
+
+| Workload | opt3 | opts |
+| --- | ---: | ---: |
+| Upvalues | -1.9237% | -0.1010% |
+| Rust callbacks | 0% | 0% |
+| Metamethods | +0.0100% | 0% |
+| Allocation/GC | +0.0007% | 0% |
+| Integer loop | 0% | 0% |
+| Float loop | 0% | 0% |
+| Array table | +0.0298% | -0.0200% |
+
+Adverse counts remain explicit; this is not an elapsed speedup. Four original
+disabled-cost images, a fresh isolated all-feature Force gate and disabled
+work screens are running next, before the unchanged full elapsed campaign.
+This is an unaccepted trial, not completion of the full JIT plan or performance
+gate; no callback or compiled-Off regression is claimed fixed.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu-dense/`.
+Trial: `target/jit-evidence/hook-resume-recovery/materialize-root-kind/`.
 
 ## 15. Primary references
 
