@@ -8,9 +8,17 @@ pub(super) struct Plan {
     destination: u8,
     upvalue: u8,
     constant: u8,
+    registers: u16,
 }
 
 impl Plan {
+    pub(in crate::jit) fn helper_pc(self) -> u32 {
+        self.helper_pc
+    }
+    pub(in crate::jit) fn destination(self) -> u8 {
+        self.destination
+    }
+
     pub fn recognize(source: &Snapshot) -> Option<Self> {
         source.verify().ok()?;
         source.prepared_keys.as_ref()?;
@@ -56,6 +64,7 @@ impl Plan {
                     destination,
                     upvalue,
                     constant,
+                    registers: source.registers as u16,
                 });
             }
             match op {
@@ -78,3 +87,5 @@ impl Plan {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) mod binding;

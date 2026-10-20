@@ -1812,10 +1812,12 @@ jit-import-bits-miri:
 .PHONY: jit-readonly-lookup jit-readonly-lookup-miri
 jit-readonly-lookup:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::binding::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests::strong_peek $(ARGS)
 
 jit-readonly-lookup-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::binding::tests -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::code_read_hint_tests::strong_peek -- --test-threads=1
 
 .PHONY: jit-root-kind-validation jit-root-kind-validation-miri

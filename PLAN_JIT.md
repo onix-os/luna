@@ -36944,6 +36944,36 @@ claiming a speedup or promotion. The full original goal remains incomplete.
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-counters/`.
 Groundwork: `target/jit-evidence/hook-resume-recovery/readonly-entry-lookup/`.
 
+### Invocation-scoped closed binding — model acceptance
+
+The read-only source plan now supplies a synchronous, consumed-once binding
+over a CLOSED environment and a fresh strong-hint shared table borrow. The
+separate40-byte repr(C) view contains two source-binding words, one existing
+Slot and an execution marker. Its six-argument function type is distinct from
+the ordinary five-argument entry; neither Host nor Value layouts are cast.
+
+Invocation rechecks closure/environment identity, exact scratch/frame extents,
+canonical prefix, projection absence and pending panic before entering. Budgets
+retain the original64-instruction clamp. Only an executed lookup publishes the
+canonical destination and logical table/upvalue reads; it does not fabricate C
+helper calls/completions. Invalid post-entry marker/budget reports a fault, never
+an ordinary retry. The table guard is released before returning to user code.
+
+Four ABI/lifetime fixtures exercise actual helper reborrows, unused bindings,
+zero/clamped budgets, environment replacement/open cells, extent/pending-panic
+refusal and real caught helper panics both before and after lookup publication.
+The latter preserve pending scalar materialization, reference identity, helper
+counts, frame PC, original panic payload identity and borrow release. Together
+with the earlier source and strong-peek fixtures, all11 tests pass under both
+Miri borrow models and on actual i686-musl; unsupported-target check-all passes,
+and the executed fallback binary is independently identified as ELF32/i386.
+Existing Miri/unsupported-target warnings remain in the captured logs.
+
+These are test-gated binding models, not production integration or measured
+acceleration. Emitted-code verification, optional ownership/resource refusal,
+runtime integration and original repeated performance gates remain necessary.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-binding/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
