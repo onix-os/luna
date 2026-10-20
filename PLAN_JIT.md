@@ -36757,6 +36757,14 @@ Same-source, symbol-retained warmed FIFO-scoped Off/Auto profiling is now runnin
 for callbacks/upvalues in both profiles and CPU types, with three balanced mode
 orders. Startup and two warmups are excluded and compilation delta is checked0.
 This is hardware attribution, not the original elapsed acceptance campaign.
+All48 hardware captures now complete with zero lost samples. The initial
+reader reconciles every selected-event sample count and period weight, retaining
+generated/anonymous/unknown samples. Provisional shipping callback transport
+shares are about24–31%; upvalues instead emphasize `Session::complete_inline`
+and `Preserved::materialize`. These are broad sampled observations, not exact
+latency/cause proof: aggregate groups contain only149–721 samples. Reader
+corruption fixtures and independently higher-density repeats remain required
+before choosing the next implementation. No new performance fix is accepted.
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu/`.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
