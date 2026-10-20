@@ -37232,6 +37232,39 @@ stripped LTO/CGU1 diagnostic images build and all source/Make/dependency hashes
 verify after gates. Elapsed results remain pending at this checkpoint.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-fresh/`.
 
+### Fresh-capture elapsed controls — no promotion
+
+Candidate **d9bf0553** completes both same-image and frozen pre-change ordinary
+control campaigns:1344 loads,6720 measured executions and2688 warmups across
+seven cases, opt3/opts, CPUs0/16 and six balanced A/child/B orders plus Off.
+All25 counters match except the expected25000 removed C calls/completions per
+five-execution callback window. Both reader families pass2 valid/20 corrupted
+fixtures, and source/image/tool/raw-log hashes verify after collection. No owned
+builds, correctness jobs or profilers overlap the elapsed windows.
+
+| Callback ordinary/child ratio | opt3 CPU0 | opt3 CPU16 | opts CPU0 | opts CPU16 |
+| --- | ---: | ---: | ---: | ---: |
+| Same-image controls | 1.008513 | 0.992512 | 0.930896 | 0.958882 |
+| Frozen pre-change controls | 0.951604 | 0.984316 | 0.921597 | 0.955024 |
+
+The same-image opt3 CPU0 observation is slightly favorable, but the other
+cohorts and all frozen ordinary-control comparisons are not. It does not meet
+retention/promotion requirements. Other-case and A/B placebo observations remain
+in the full summaries; no favorable row cancels a loss or establishes a causal
+speedup. These test-image absolute Off ratios are not production acceptance.
+
+The immediate API remains an unpromoted, test-gated source/lifetime candidate;
+the delayed API retains its revalidation guarantees, and production is still
+ordinary. Further small changes need attribution first: reuse the existing
+acknowledged perf-control protocol to profile compilation-free warmed execution
+of ordinary and fresh paths, including the still-poor upvalue workload. Preserve
+startup/compile exclusion, exact counters and source/image identity; do not use
+whole-process startup samples or prior ordinary-only profiles as proof of the
+current fresh path's cost. All original performance/size/cold-cost/resource/
+platform/release requirements remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-fresh/`
+and its separate `cross-ordinary/` campaign.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
