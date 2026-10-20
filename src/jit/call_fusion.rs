@@ -7,7 +7,7 @@ const ATOMIC_REGION: u32 = 7;
 const CALL_FUEL: i32 = 5;
 const RETURN_FUEL: i32 = 4;
 const STEP_FUEL: i32 = 4;
-const EXTRA_FUEL: i32 = CALL_FUEL + RETURN_FUEL + STEP_FUEL - 2;
+const EXTRA_FUEL: i32 = CALL_FUEL + RETURN_FUEL + STEP_FUEL;
 
 struct Permit {
     budget: u32,
@@ -108,6 +108,11 @@ fn ordinary_leaf_call_exposes_transition_fuel_and_physical_frames() {
         executor.test_frame_snapshot()
     });
     assert_eq!(return_fuel.remaining(), 1 - 3 - RETURN_FUEL - STEP_FUEL);
+    let region_pc = call_pc - 2;
+    let region_cost =
+        (1 - call_fuel.remaining()) + (1 - return_fuel.remaining()) - region_pc as i32;
+    assert_eq!(region_cost, 22);
+    assert_eq!(region_cost, 5 + EXTRA_FUEL + STEP_FUEL);
     let (header, pending) = before.0[0][0].rsplit_once(':').unwrap();
     assert_eq!(
         pending,
@@ -132,12 +137,14 @@ fn ordinary_leaf_call_exposes_transition_fuel_and_physical_frames() {
 }
 
 #[test]
-fn single_call_debit_accounts_for_both_executor_steps() {
-    let ordinary = CALL_FUEL + 3 + RETURN_FUEL + 2 * STEP_FUEL;
+fn single_region_debit_includes_caller_moves_and_both_executor_steps() {
+    let leaf = CALL_FUEL + 3 + RETURN_FUEL + 2 * STEP_FUEL;
+    let ordinary = 2 + leaf;
     let fused = 5 + EXTRA_FUEL + STEP_FUEL;
-    assert_eq!(ordinary, 20);
+    assert_eq!(leaf, 20);
+    assert_eq!(ordinary, 22);
     assert_eq!(ordinary, fused);
-    assert_ne!(ordinary, 5 + 7 + STEP_FUEL);
+    assert_ne!(ordinary, 5 + 11 + STEP_FUEL);
 }
 
 #[test]
@@ -162,7 +169,7 @@ fn permit_preserves_positive_fuel_at_every_bounded_prefix() {
             assert_eq!(permit.budget, budget);
             assert_eq!(permit.cost_bound, bound);
             for prefix in 0..=budget {
-                let cost = prefix as i32 + CALL_FUEL + RETURN_FUEL + 2 * STEP_FUEL - 2;
+                let cost = prefix as i32 + CALL_FUEL + RETURN_FUEL + 2 * STEP_FUEL;
                 assert!(permit.cost_bound + 1 - cost > 0);
             }
         }

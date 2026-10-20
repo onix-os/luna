@@ -37458,10 +37458,13 @@ unsupported shape must keep the ordinary call and physical child frame.
 The real interpreter oracle verifies physical call/return boundaries with GC
 between steps. Call/Return exit before the VM's ordinary instruction debit;
 transition costs and BOTH executor iteration costs still apply. The leaf call
-costs20 fuel, not12. A single fused five-source-op call followed by the one
-surviving executor step therefore needs11 extra fuel, not7. The conservative
+costs20 fuel, not12, EXCLUDING the two caller Moves. The complete region costs22.
+The initial11-extra-fuel model incorrectly compared that transition-only cost
+with a region containing both Moves. Corrected integration uses13 extra fuel
+with five normally-debited source operations and one surviving executor step.
+Eleven would be correct only with a seven-operation native debit. The conservative
 permit requires a complete7-source-op Move/Move/Call region and fuel strictly
-above deferred work plus source budget plus15. A successful fusion must end at
+above deferred work plus source budget plus17. A successful fusion must end at
 the logical callee-return boundary; arbitrary multi-call coalescing is not
 covered by this model.
 
@@ -37529,8 +37532,8 @@ This remains a read-only model, not runtime admission or publication. Its operan
 snapshot is not permission to execute after an arbitrary intervening callback:
 native entry must revalidate the current closure/cell immediately before use.
 Native lowering must account separately for seven logical source operations
-and five normally debited operations; the11 extra fuel model must not be
-combined blindly with a seven-instruction fuel debit. The original call path,
+and five normally debited operations. The corrected13 extra fuel applies to the
+five-debit kernel; the earlier11-extra model omitted the two caller Moves. The original call path,
 frame/capture/capacity limits, hook/fuel fallback, typed entry ownership and full
 counter/resource/performance acceptance remain required.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-binding/`.
@@ -37564,13 +37567,29 @@ signatures, budget parameter width and an incorrect seven-instead-of-five debit.
 This kernel only changes owned scratch buffers in tests. It does not publish
 canonical Lua state, alter counters or enable runtime fusion. Future integration
 must freshly validate the callable/cell immediately before entry, preserve all
-frame/capture/capacity/fuel/hook contracts, apply the11 extra fuel correctly,
+frame/capture/capacity/fuel/hook contracts, apply the13 extra fuel correctly,
 force the logical callee-return executor boundary and validate effects before
 publication. Full original acceptance, including integrated performance,
 remains open. Miri validates the source/binding/materialization model, not
 machine-code execution; unsupported-target fallback must continue to omit the
 native kernel.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-native-kernel/`.
+
+### Complete-region fuel correction before canonical publication
+
+An independent assertion now reads BOTH actual interpreter fuel balances and
+subtracts only the pre-region source prefix. The complete region consumes22:
+two caller Moves,5 call fuel,3 leaf body debits,4 return fuel and two4-fuel
+executor iterations. The native kernel returns five ordinary debits, so its
+future adapter must consume13 extra fuel before the surviving executor charges
+the five debits and its own4-fuel iteration. The13-extra correction preserves
+the kernel's source/counter convention rather than inventing two native debits.
+
+This corrects a test-model error, not a previously enabled fused runtime path:
+no canonical publication had been connected. Focused formatting/check-all and
+all24 source/binding/native tests pass with the real-interpreter regression.
+Existing frozen scratch-kernel gates do not prove this later fuel correction.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-publication/fuel.*`.
 
 ## 15. Primary references
 
