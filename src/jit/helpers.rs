@@ -25,6 +25,9 @@ mod direct_tests;
 #[cfg(test)]
 mod hashless_tests;
 
+#[cfg(test)]
+mod strong_global_tests;
+
 pub(super) trait Transport<'gc> {
     fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
     fn read_alias(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;

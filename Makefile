@@ -1843,6 +1843,13 @@ jit-call-fusion-time-run: jit-profile-cpu-check
 jit-call-fusion-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::site::kernel $(ARGS)
 
+.PHONY: jit-strong-global-helper jit-strong-global-helper-miri
+jit-strong-global-helper:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::strong_global_tests $(ARGS)
+
+jit-strong-global-helper-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::strong_global_tests -- --test-threads=1
+
 jit-call-fusion-fuel:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion $(ARGS)
 
