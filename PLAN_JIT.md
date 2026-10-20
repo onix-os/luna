@@ -37963,11 +37963,52 @@ cost-speed and cost-shipping images byte-for-byte. Their relocation-normalized
 VM instruction streams still match original controls exactly, with10911/11116/
 8615 static instructions. This excludes added VM instructions, not changes in
 callees or every possible elapsed cause; no alignment cause is established.
-The additional complete Force suite remains running at this checkpoint. New
-actual-production symbol images are building for retired-work attribution;
-no profiling capture may overlap owned builds or correctness work.
+The additional complete Force suite passes2159 executions across92 summaries
+(26 intentional ignores). Both actual-production symbol images finish before
+the next profiling campaign; no capture overlaps owned builds or correctness.
 Evidence: `target/jit-evidence/hook-resume-recovery/production-scoped-read/`,
 especially `integration/{screen.json,cost-screen.json,reader-tests.log}`.
+
+### Scoped-read retired work and rejected identity prepacking
+
+The new0f/1b production comparison completes192 acknowledged windows, both
+profiles/CPUs, callbacks/upvalues, Off/Auto and three rotated stat/record repeats.
+All107249 samples reconcile with zero loss and100% active-PMU scheduling.
+The unchanged per-side readers each pass valid/restored plus17 corruptions.
+The effect-aware cross-source check preserves2352 counters exactly and checks48
+physical-helper changes:10million calls/completions removed per warmed callback
+Auto window. No lookup count or physical helper statistic is fabricated.
+
+Removed helpers do not prove less work: callback instructions rise9.497M to
+9.667M in opt3 (~1.8%), while opts falls11.693M to11.583M (~0.94%). The latter
+is a smaller reduction than the earlier publisher-only result. Off callback and
+upvalue instruction counts are essentially unchanged. Timing/cycles differ by
+profile/core/context; these counts do not establish a layout or alignment cause.
+The outlined fresh entry accounts for11.86% of aggregate opt3/CPU0 callback self
+cycles, with repeated immutable binding-word shifts/ORs visible in its exact
+image. This motivates measuring prepacking, not claiming its success.
+
+ee7893d7 adds a test-only two-word identity model with1728 boundary combinations,
+native/i686 and both Miri-model evidence. An isolated activation replaces Plan's
+field storage, retaining every source/extent/borrow/panic/ABI/view check. Activated
+focused tests pass37, each Miri model15 and actual i68615. Another144-command
+original-control campaign retains14256 native executions,285120 cost iterations,
+all nine cases and original thresholds. An independent pretrial1b oracle checks
+every one of the27 candidate counter/resource fields exactly. Both no-feature
+images remain byte-identical to original controls; readers reject10 native and9
+cost corruptions after valid/restored checks.
+
+REJECT the activation. Native failures are9/108 speed and7/108 shipping. Cost
+failures are19/108 speed and49/108 shipping versus controls57/21 and57/23.
+Shipping compiled-Off arrays are about20.6%/14.2% slower on CPUs0/16; callbacks
+about10.0%/8.7% slower, with near-parity same-image placebos. The speed-profile
+aggregate improvement cannot compensate. The five activation edits are restored
+exactly; only the test-only model remains. Restored formatting/check-all and37
+focused executions pass. A fresh six-image restoration identity rebuild is still
+running at this checkpoint. Full performance/platform/resource/release acceptance
+remains open; do not repeat this rejected packing trial as an untested idea.
+Evidence: `production-scoped-read/integration/retired-work/` and
+`production-scoped-read/prepacked-identity/` under the same ignored artifact root.
 
 ## 15. Primary references
 
