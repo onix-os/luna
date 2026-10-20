@@ -36878,6 +36878,65 @@ performance/resource/platform/release requirements stay open.
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu-dense/`.
 Trial: `target/jit-evidence/hook-resume-recovery/materialize-root-kind/`.
 
+### Coupled hardware counters and invocation-scoped lookup groundwork
+
+After restoring production code,48 balanced FIFO-scoped hardware-stat runs
+measure cycles, retired instructions, branches and branch misses together on
+CPUs0/16, opt3/opts, Off/Auto, callbacks/upvalues and three mode-order rounds.
+The same symbol-retained e1fce384 diagnostic images are reused, not rebuilt or
+substituted for stripped acceptance binaries. Startup/two warmups are excluded;
+each measured window runs2000 verified executions with compilation delta0.
+All selected PMU counters are positive/raw/unscaled with reported100.00%
+scheduling and identical per-event runtimes. Inactive hybrid rows remain
+`<not counted>`, not zero measurements. All25 protocol counters match the
+earlier same-image capture; source/image/tool bindings verify. One valid and
+13 corrupted reader fixtures pass, including wrong PMU, missing/duplicate events,
+window/protocol/counter corruption and multiplexed/inactive-zero rows.
+
+Callback Auto retires about20.5% more instructions than Off in opt3 and21.8%
+more in opts. Median cycle Auto/Off ratios are approximately1.211/1.192 in
+opt3 (CPUs0/16),1.288/1.240 in opts. Branch-miss fractions are around
+0.002–0.003%; these observations do not support another branch-prediction/layout
+sweep. They localize excess work but do not establish a particular instruction's
+latency or a causal performance fix. Scope remains warmed execution lifecycle.
+
+The next structural candidate is a **fresh, invocation-scoped read-only global
+binding**, not a persistent value cache or another Slot codec rewrite. The goal
+is eliminating a helper transition in a source-proven global-function lookup /
+Call chain, while retaining ordinary native entries for every noneligible PC,
+budget, environment or table state. Nothing is production-enabled yet.
+
+Groundwork **48b43af4** is test-gated. A sealed source plan requires exactly one
+prepared constant-string GetUpTable, an explicit read-only opcode whitelist,
+and a straight-line chain that cannot read/overwrite the function destination
+before its Call. Other helpers, mutations, unknown operations and control-flow
+inside that chain refuse. Independent fixtures cover source mutations including
+unreachable operations and all callback source-entry/budget CFG choices.
+
+The live-hint primitive performs only fresh bounds/occupancy/string-allocation
+identity/strong-nonnil-slot checks. It has no Mutation argument, weak upgrade,
+hash fallback or hint update. Its Table adapter uses try_borrow and retains the
+shared guard; no borrowed-table panic is moved ahead of its original opcode.
+Three fixtures cover all256 hint bytes, equal-content distinct allocations,
+all value kinds, weak modes, removal, conflicting borrows and fresh reads after
+release. All seven source/live-hint fixtures and formatting/check-all pass.
+Test-only extensions follow production items, preserving original source spans.
+
+Native lowering is **not implemented**. Required next work is a CLOSED-env
+guard, a separate repr(C) sibling Slot/executed view and distinct typed child
+entry, independently verified source/effect/budget bindings, canonical reference
+commit before exit/panic/callback, ordinary fallback coverage, and aggregate
+compiler/mapping/metadata ownership/refusal handling. No Host/Value layout cast
+or Manager policy flag is planned. Eliminated C helper calls must be reported
+honestly, with explicit actual-counter/resource expectations rather than faked
+parity or a silent auditor waiver. Both Miri models, real i686 and production
+parity builds are being checked for the groundwork; full native integration,
+all-feature correctness and repeated original timing remain required before
+claiming a speedup or promotion. The full original goal remains incomplete.
+
+Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-counters/`.
+Groundwork: `target/jit-evidence/hook-resume-recovery/readonly-entry-lookup/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
