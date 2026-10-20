@@ -37685,6 +37685,37 @@ Both failed expectations are preserved in diagnostic logs and corrected against
 the actual lookup/resume paths. Original acceptance auditors and thresholds are
 unchanged; this diagnostic is not production or full performance acceptance.
 
+### No-snapshot fused timing: measured improvement and Atom regression
+
+Frozen0f7c6ba7 passed full Force2148 tests across91 summaries (26 intentional
+ignores), both Miri19 models and actual ELF32 Intel8038619 fallback tests. Both
+stripped release images also passed the window audit. With no owned compiler or
+correctness job overlapping capture,216 timed loads covered three cases, both
+profiles, CPUs0/16, all six mode permutations and20 executions per load (4320
+timed executions). All counters/resources and source/image/tool hashes reconcile;
+the reader passed24 corrupt parse and11 corrupt reconciliation fixtures plus a
+complete216-row synthetic capture. Background user load was retained and logged.
+
+For closure_upvalue, median paired ordinary/fusion ratios in opt3 CPU0/16,
+opts CPU0/16 order are1.495367/0.942574/1.333600/1.059238. The second configuration
+REGRESSES relative to ordinary native. Interpreter/fusion ratios are
+0.777403/0.573744/0.699675/0.566045: all four remain below the original1.25
+upvalue acceptance minimum. Integer-loop and Rust-callback controls retain exact
+counter identity, with ordinary/fusion ratios around0.994–1.013.
+
+Each upvalue load executes196080 real fused regions and preserves200000 upvalue
+reads/writes. Live snapshots remain zero. The extra kernel mapping is4096 bytes
+(77824 versus73728 total mapped bytes), and metadata is5690 versus4882 bytes;
+these resource changes are reported, not hidden as full cost acceptance.
+
+The current invocation initializes256 scalar slots even for an eight-slot caller.
+That4 KiB-per-call initialization is the next source-grounded performance
+hypothesis, not an established cause. A measured size-class ablation is needed
+before attributing the Atom regression or promoting a candidate. Full original
+performance, resource-cost, platform and production/release acceptance remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/timing-summary.tsv`,
+`rows/`, manifests and reader outputs in the same artifact root.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
