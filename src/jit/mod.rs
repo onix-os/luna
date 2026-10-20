@@ -2201,15 +2201,13 @@ impl Runtime {
         #[cfg(all(test, not(miri)))]
         let readonly_exit = if !PROJECTED && !CANONICAL {
             code.readonly_lookup.as_ref().and_then(|child| {
-                child
-                    .plan
-                    .with_binding(closure, &code.entries, |bound| {
-                        let scratch =
-                            unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
-                        unsafe { bound.invoke(child.entry, &mut frame, scratch, pc, budget) }
-                            .expect("invalid read-only lookup exit")
-                    })
-                    .flatten()
+                let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
+                unsafe {
+                    child
+                        .plan
+                        .invoke_fresh(child.entry, &mut frame, scratch, pc, budget)
+                }
+                .expect("invalid read-only lookup exit")
             })
         } else {
             None

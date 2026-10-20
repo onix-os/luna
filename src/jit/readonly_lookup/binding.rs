@@ -71,6 +71,42 @@ impl Plan {
             _entry: PhantomData,
         }))
     }
+
+    /// Captures a current closed binding and enters it without an intervening callback.
+    ///
+    /// # Safety
+    /// Entry implements this plan's verified six-argument ABI with disjoint frame,
+    /// slot and view storage, retains no pointers and cannot invoke users or mutate
+    /// the environment before its terminating Call exit.
+    /// It observes no lookup destination before that exit and marks execution once.
+    pub(in crate::jit) unsafe fn invoke_fresh<'gc>(
+        self,
+        entry: Entry,
+        frame: &mut helpers::Frame<'gc, '_, '_, '_>,
+        slots: &mut [abi::Slot],
+        pc: usize,
+        budget: u32,
+    ) -> Result<Option<abi::Exit>, Fault> {
+        if !self.fits(frame, slots) {
+            return Ok(None);
+        }
+        let Some(hints) = frame.read_hints else {
+            return Ok(None);
+        };
+        self.with_binding(frame.closure, hints, |bound| unsafe {
+            bound.invoke_captured(entry, frame, slots, pc, budget)
+        })
+        .unwrap_or(Ok(None))
+    }
+
+    fn fits(self, frame: &helpers::Frame<'_, '_, '_, '_>, slots: &[abi::Slot]) -> bool {
+        let width = usize::from(self.registers);
+        frame.slot_count == width
+            && slots.len() == width
+            && frame.registers.stack_frame.len() >= width
+            && frame.projection.is_none()
+            && frame.panic.is_none()
+    }
 }
 
 impl<'gc> Bound<'_, 'gc> {
@@ -88,7 +124,6 @@ impl<'gc> Bound<'_, 'gc> {
         pc: usize,
         budget: u32,
     ) -> Result<Option<abi::Exit>, Fault> {
-        let width = usize::from(self.plan.registers);
         let current = frame
             .closure
             .upvalues()
@@ -96,14 +131,21 @@ impl<'gc> Bound<'_, 'gc> {
             .map(|cell| cell.get().get());
         if frame.closure != self.closure
             || !matches!(current, Some(UpValueState::Closed(Value::Table(table))) if table == self.table)
-            || frame.slot_count != width
-            || slots.len() != width
-            || frame.registers.stack_frame.len() < width
-            || frame.projection.is_some()
-            || frame.panic.is_some()
+            || !self.plan.fits(frame, slots)
         {
             return Ok(None);
         }
+        unsafe { self.invoke_captured(entry, frame, slots, pc, budget) }
+    }
+
+    unsafe fn invoke_captured(
+        self,
+        entry: Entry,
+        frame: &mut helpers::Frame<'gc, '_, '_, '_>,
+        slots: &mut [abi::Slot],
+        pc: usize,
+        budget: u32,
+    ) -> Result<Option<abi::Exit>, Fault> {
         let mut view = View {
             binding: self.plan.binding(),
             slot: abi::Slot::from_value(self.value),

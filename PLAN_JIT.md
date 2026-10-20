@@ -37120,6 +37120,274 @@ platform and release requirements remain open.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/summary.tsv`,
 `rows.sha256`, `reader-fixtures.log` and per-image source/binary manifests.
 
+### Verified lookup publication — changed candidate, not accepted
+
+The helper-eliding entry creates a new hot distribution: most callback slices
+now report calls/completions/declines0 and one logical table/upvalue read. A
+test-gated producer owned by the sealed readonly source Plan skips those three
+identity updates when calls is0 and omits source-proven zero table-write,
+upvalue-write and allocation-counter deltas. Nonzero helper fields and both
+read fields retain independent full-u64 saturation. Existing write/allocation
+statistics from other sources are preserved, not reset.
+
+Only code retaining the verified readonly child uses this producer, including
+its same-source ordinary fallback. The ordinary eight-field publisher and
+production route remain unchanged. Source admission rejects other helpers even
+when unreachable, and current helper entries increment calls before publishing
+any outcome. Debug checks reject impossible effects before updating statistics.
+Publication remains before exit reporting and original panic transport.
+
+An independent u128 oracle covers4501 full-width cases plus20 zero/mixed/
+decline/panic-like/budget cases, comparing complete statistics. Five impossible
+effect inputs are rejected in debug builds without partial publication. The
+format/check-all/publication/runtime/window/native/binding/peek gate passes31
+executions/seven summaries, with no failures/ignores/warnings, retaining exact
+public-executor effects and5000 actually removed C transitions per callback run.
+
+This differs from the rejected generic/grouped publisher: only the new verified
+helper-eliding source can make the helper fields genuinely zero in hot slices.
+That distinction is a hypothesis to measure, not a speedup. Both Miri models,
+fallback/full correctness and identical frozen elapsed controls are still
+required before judging this form; original production acceptance stays open.
+The new and unchanged general publishers now pass five tests/two summaries
+under each Miri borrow model and actual i686-musl, including fallback check-all
+and independent ELF32/i386 identification. Full Force passes2105 executions
+across91 summaries, zero failures and24 existing diagnostic ignores. Both
+stripped opt3/opts LTO/CGU1 diagnostic images build, and all frozen code/Make/
+dependency inputs verify unchanged after these gates. Elapsed comparison remains
+pending at this checkpoint; diagnostic controls cannot replace production gates.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-publication/`.
+
+### Lookup publication pilot — routing withdrawn
+
+Candidate **958f0e9b** completes two independent672-load diagnostic campaigns:
+one uses same-image ordinary A/B controls, and the second uses the frozen
+pre-publication ordinary/Off images. Both retain seven cases, opt3/opts,
+CPUs0/16, six balanced orders, five measured executions and two warmups per
+load, with queued compilation drained before measurement. Total:1344 loads,
+6720 measured executions and2688 warmups, without owned build/test/profile
+overlap. Counters, expected C-call reduction, resources and all source/image/tool/
+raw-log bindings reconcile; each reader passes2 valid/20 corrupted fixtures.
+
+| Callback ordinary/child ratio | opt3 CPU0 | opt3 CPU16 | opts CPU0 | opts CPU16 |
+| --- | ---: | ---: | ---: | ---: |
+| Same-image controls | 0.944900 | 0.975527 | 0.918498 | 0.966914 |
+| Frozen pre-change controls | 0.925928 | 0.984469 | 0.912738 | 0.966720 |
+
+Ratios above1 favor the child; none of these callback cohorts does. The second
+campaign also exposes adverse other-case observations, including opt3 upvalues
+0.981156/0.968312 and opts CPU0 upvalues0.964158. Contention/placebos remain
+visible; no wins cancel losses and no causal speedup is claimed.
+
+The optional publisher routing is removed. `src/jit/mod.rs` now matches the
+pre-trial09e2da37 runtime byte-for-byte; both ordinary and helper-eliding child
+again use the original eight-field publication. Only the independent pure
+source-plan/oracle models and focused Make gates remain. Restoration passes
+format/check-all and14 executions/four summaries, zero failures/ignores/warnings.
+
+The helper-eliding entry itself is still an unpromoted test-runtime candidate.
+Further work must target actual capture/entry costs rather than claim this
+counter-only change fixes the original performance failures. Full production
+performance/size/cold-cost/resource/platform/release acceptance remains open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-publication/`
+and its separate `cross-ordinary/` campaign.
+
+### Immediate fresh capture/entry — unaccepted runtime candidate
+
+The optional lookup child now has a private immediate path with no caller-supplied
+intervening closure. It checks frame/scratch/canonical extents, projection absence
+and pending panic, captures the current closed environment through the unchanged
+strong-hint factory, and enters verified code immediately. These capture steps
+only inspect existing prototype/cell/strong-table state: no user invocation,
+hashing fallback, weak upgrade or allocation can interleave capture and entry.
+
+The general delayed Bound API still revalidates closure/environment identity;
+its caller-provided closure may legitimately replace either before invocation.
+Both paths share a private invocation body retaining the separate40-byte View,
+ordinary Host,64-instruction clamp, native guards, execution marker, canonical
+reference commit, real logical counters and post-entry faults. The immediate
+path omits only redundant delayed-capability identity checks. The outer hint
+precheck and original eight-field publication remain unchanged.
+
+Checked and fresh ABI fixtures now both exercise real helper reborrows and
+helper panics, zero/clamped budgets, slot/canonical extents and pending payloads.
+Additional fixtures check current environments across three replacements,
+missing/cold hints, borrow conflicts, open cells, guard release and explicit
+retained closure-identity refusal in the checked API. Actual emitted-entry
+PC/budget and scalar/reference tests use the fresh path, while public executor
+fixtures retain all existing callback/GC/hook/fuel/error/resource checks.
+The focused format/check-all/binding/runtime/window/native gate passes30
+executions/six summaries, zero failures/ignores/warnings.
+
+No native null/cookie/tag/marker/PC/budget guard is removed, no public ABI or
+GC/Host layout is cast, and no Manager policy flag or persistent value cache is
+introduced. This remains test-gated and unaccepted until changed safety/full
+correctness and identical elapsed controls verify; original production release
+and performance requirements remain open.
+The expanded binding/source/peek fixtures pass13 tests/three summaries under
+each Miri borrow model and actual i686-musl, with all-feature checking and
+independent ELF32/i386 identification. Full Force passes2107 executions across91
+summaries, zero failures and24 existing diagnostic ignores. Frozen opt3/opts
+stripped LTO/CGU1 diagnostic images build and all source/Make/dependency hashes
+verify after gates. Elapsed results remain pending at this checkpoint.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-fresh/`.
+
+### Fresh-capture elapsed controls — no promotion
+
+Candidate **d9bf0553** completes both same-image and frozen pre-change ordinary
+control campaigns:1344 loads,6720 measured executions and2688 warmups across
+seven cases, opt3/opts, CPUs0/16 and six balanced A/child/B orders plus Off.
+All25 counters match except the expected25000 removed C calls/completions per
+five-execution callback window. Both reader families pass2 valid/20 corrupted
+fixtures, and source/image/tool/raw-log hashes verify after collection. No owned
+builds, correctness jobs or profilers overlap the elapsed windows.
+
+| Callback ordinary/child ratio | opt3 CPU0 | opt3 CPU16 | opts CPU0 | opts CPU16 |
+| --- | ---: | ---: | ---: | ---: |
+| Same-image controls | 1.008513 | 0.992512 | 0.930896 | 0.958882 |
+| Frozen pre-change controls | 0.951604 | 0.984316 | 0.921597 | 0.955024 |
+
+The same-image opt3 CPU0 observation is slightly favorable, but the other
+cohorts and all frozen ordinary-control comparisons are not. It does not meet
+retention/promotion requirements. Other-case and A/B placebo observations remain
+in the full summaries; no favorable row cancels a loss or establishes a causal
+speedup. These test-image absolute Off ratios are not production acceptance.
+
+The immediate API remains an unpromoted, test-gated source/lifetime candidate;
+the delayed API retains its revalidation guarantees, and production is still
+ordinary. Further small changes need attribution first: reuse the existing
+acknowledged perf-control protocol to profile compilation-free warmed execution
+of ordinary and fresh paths, including the still-poor upvalue workload. Preserve
+startup/compile exclusion, exact counters and source/image identity; do not use
+whole-process startup samples or prior ordinary-only profiles as proof of the
+current fresh path's cost. All original performance/size/cold-cost/resource/
+platform/release requirements remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-fresh/`
+and its separate `cross-ordinary/` campaign.
+
+### Current-pipeline warmed attribution — diagnostic support
+
+A test-only profiling entry reuses the existing acknowledged perf FIFO control
+and the exact prepared Lua::core/frozen-workload/original-callback setup shared
+with elapsed diagnostics. Two warmups and queued compilation drain precede
+enable; disable precedes final statistics/reporting. The measured lifecycle
+includes executor construction/execution/result checking, not startup or codegen.
+Real child selection,25 counters, compilation/installation deltas0, unchanged
+mapping ownership and final cache reclamation remain asserted.
+
+Six reused protocol fixtures and two current-window fixtures verify successful
+acknowledgement, workload/error ordering and invalid acknowledgement refusal.
+Formatting/check-all/profile/window/runtime passes17 executions/three summaries,
+zero failures and one explicitly ignored profiling entry. Symbol-retained
+opt3/opts LTO/CGU1 images are separate from stripped elapsed/production artifacts.
+Cranelift's existing PERF_BUILDID_DIR-triggered native maps identify generated
+functions without adding a runtime owner field or guessing code ranges.
+
+The complete all-feature Force suite passes2115 tests across91 summaries with
+zero failures and25 intentionally ignored diagnostics. Both symbol-retained
+opt3/opts images built successfully from the same frozen source. This verifies
+the instrumentation checkpoint, not the outstanding performance requirements.
+
+The completed matrix contains60 coupled-counter windows and60 sampled windows,
+each2000 executions, with three balanced repeats across opt3/opts, CPUs0/16,
+callback Off/ordinary/readonly and upvalue Off/ordinary. All123215 samples and
+their period weights reconcile to exact selected-event totals, with zero lost
+samples and copied native-map address/name checks. Active counters report100%
+scheduling and common runtime; inactive hybrid counters remain not-counted.
+All25 runtime counters are repeat-identical, including the exact10000000 real
+C-helper calls/completions removed by each readonly callback window. Image,
+frozen/current source and collection-tool hashes remain unchanged. The reader
+accepts the valid matrix and rejects20 independently corrupted inputs.
+
+Callback median retired instructions per execution:
+
+| Opt | CPU | Off | Ordinary | Readonly |
+| --- | ---: | ---: | ---: | ---: |
+| 3 | 0 | 8796005 | 10693322 | 10859007 |
+| 3 | 16 | 8796011 | 10693667 | 10859129 |
+| s | 0 | 10760593 | 12918808 | 13089067 |
+| s | 16 | 10760510 | 12918816 | 13089069 |
+
+Removing the helper call therefore still adds approximately33–34 instructions
+per lookup. Self-attributed opt3 callback cycles put invoke_fresh at11.52/10.85%
+and invoke_captured at6.25/5.80% on CPUs0/16. Symbol-bound disassembly confirms
+an outlined fresh-entry function with136 bytes of local stack storage and
+materialization/copying of Bound before another outlined captured-entry call.
+This supports testing scoped-entry inlining next, not removing freshness,
+borrow, cookie, marker, budget or canonical writeback checks. The dominant
+ordinary/Off instruction gap also remains: this is not evidence that eliminating
+this one helper suffices for callback performance acceptance.
+
+The profiling lifecycle includes executor construction and result checking;
+these are attribution observations, not original elapsed-performance acceptance.
+Some identical callback bodies share an LLVM-folded symbol name from another
+fixture; source/input hashes and actual frozen callback setup, not that alias,
+establish workload identity. perf report -D supplies exact event statistics;
+perf script -D is retained only as raw trace, not misread as event statistics.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-profile/`.
+
+### Boundary-only inlining trial: rejected
+
+Always-inlining invoke_fresh and invoke_captured passes38 focused tests and the
+complete2115-test/91-summary Force suite, with zero failures. Another60 coupled
+counter and60 sampled windows reconcile all123777 samples with zero loss and
+all3000 corresponding runtime-counter values identical to the frozen baseline.
+The reader again accepts the matrix and rejects20 corruptions.
+
+It does not remove the measured overhead: callback retired instructions rise
+0.0450/0.0383% at opt3 and0.6877/0.6878% at opts on CPUs0/16. The ineligible
+upvalue workload also adds0.7411% instructions at opts. Sampled symbols and
+disassembly show that LLVM moved the outlines into the generic with_binding
+factory and its closure rather than eliminating the aggregate boundaries.
+Contended, non-interleaved cycle ratios are mixed and are not causal speedups.
+The two attributes are withdrawn; no production or experimental speedup is
+claimed from this trial.
+
+Next test a direct private capture operation for the immediate API, with its
+brand tied to a local mutable scope token. The general callback factory must
+retain its higher-ranked lifetime and delayed identity checks, while the
+immediate path must retain the same strong table guard, current closure/env
+capture, native checks, canonical commit and real counter semantics. This is
+pending implementation/verification, not acceptance.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-inline/`.
+
+### Direct scoped capture: fewer instructions, placement regression
+
+The immediate API now has a private capture constructor whose Bound lifetime is
+anchored to a local mutable scope token. The general higher-ranked callback
+factory delegates to the same constructor; its delayed closure/environment
+identity checks remain unchanged. The fresh API calls capture and native entry
+directly, with no factory closure. Guard/key/hint/weak-mode checks, native ABI,
+canonical commit and real counters are unchanged.
+
+This all-inlined shape passes38 focused tests, both Miri alias models13 tests
+each, actual i686 check-all/13 models and the complete Force2115/91 suite with
+zero failures. There are25 intentionally ignored full-suite diagnostics.
+Both optimized profiles have no outlined capture/fresh/captured/factory-closure
+symbols. Another120-window matrix reconciles every sample and all3000 matched
+runtime-counter values;20 corruption fixtures are rejected.
+
+Callback retired instructions fall3.685/3.688% at opt3 and2.484/2.484% at opts
+on CPUs0/16 versus the initial current-pipeline readonly baseline. This removes
+approximately80/65 instructions per lookup, respectively. However, the ineligible
+opts upvalue workload adds0.890/0.890% instructions. All-inlining grows the opt3
+seven-register transport from7702 to8493 bytes and is not accepted as the final
+placement. Mixed-profile improvement cannot cancel that unrelated regression.
+
+Next retain the shared scoped capture implementation but outline its complete
+fresh-entry transaction as one Rust function, inlining only its private capture
+and native/commit implementation. Test whether the ordinary transport retains
+its previous shape and work without restoring the factory/closure boundary.
+Both broader ordinary/Off gaps and original elapsed/resource/platform/release
+acceptance remain open; no production speedup is claimed here.
+
+The first capture attempt was refused before any measurement because `file` was
+absent from the host wrapper, leaving its ELF witness empty despite a success
+status. The collector's independent gate caught it. Failed records are retained;
+only the missing ELF proof was repaired using readelf, requiring exactly one
+ELF32 Intel80386 executable and its hash, before the successful capture.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-capture/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

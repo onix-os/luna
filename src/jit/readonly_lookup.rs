@@ -90,6 +90,8 @@ mod tests;
 
 pub(super) mod binding;
 
+mod publication;
+
 #[cfg(all(
     not(miri),
     target_os = "linux",
