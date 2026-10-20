@@ -1810,6 +1810,10 @@ jit-import-bits-miri:
 
 .PHONY: jit-rooted-moves jit-rooted-preservation
 .PHONY: jit-readonly-lookup jit-readonly-lookup-miri
+.PHONY: jit-readonly-native
+jit-readonly-native:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::readonly_lookup::tests $(ARGS)
+
 jit-readonly-lookup:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::binding::tests $(ARGS)

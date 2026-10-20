@@ -36974,6 +36974,55 @@ acceleration. Emitted-code verification, optional ownership/resource refusal,
 runtime integration and original repeated performance gates remain necessary.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-binding/`.
 
+### Distinct read-only native entry — emitted-code acceptance
+
+The test-only compiler now emits the six-argument entry rather than casting an
+ordinary entry. Cold finalization retains an untyped Image until the declaration
+arity is checked; the existing hot Code layout and five-argument entry remain
+unchanged. Ordinary construction explicitly refuses six-argument images and
+reclaims them. Runtime promotion is not enabled.
+
+The original source/helper/entry proofs run on the ordinary graph before a
+bounded transformation adds a null/view/source-cookie/unused-marker/tag guard
+and replaces only the verified GetUpTable call with Slot loads/stores and an
+execution marker. The original status result, source-PC dispatch, budget checks,
+instruction count, helper-failure edges and Call interpreter exit are retained.
+Refusal publishes the full-width original PC and zero instructions, without
+touching slots or dereferencing a host. Final declaration and Cranelift IR
+verification run before executable publication.
+
+An independent grammar checker validates every introduced pointer, offset,
+value type, comparison, branch target/forwarded argument, marker and exit store.
+Its allocation-accounted preservation witness checks original block/instruction
+order, arguments/results/definitions, branch-pool contents, resolved memory flags,
+imports, names and ABI signatures. It uses neither Function clones nor formatted
+IR strings. Mutation fixtures reject all33 introduced instructions individually
+and11 additional preservation corruptions, including extra effects and imports.
+
+Eight native fixtures pass. Actual emitted entries match ordinary execution at
+every source PC, including past-end PCs, and budgets0..65/u32::MAX; they preserve
+fresh scalar bits and all strong reference kinds across48 additional comparisons.
+Seventy-two null/corrupt-view cases refuse with a null host and untouched state.
+Nine workspace limits and five actual mapping/metadata/IR/block/relocation
+refusals reclaim partial ownership and retain usable ordinary code. The focused
+source/binding/peek/native gate passes19 executions/four summaries without
+failures/ignores/warnings. The broader JIT boundary/compiler-lifetime/relocation/
+configuration gate passes1413 executions/six summaries, with22 existing ignored
+diagnostics; its boundary binary precedes the last three added native fixtures.
+The final current-source Force all-target/all-feature campaign passes2093
+executions across91 summaries, zero failures and23 existing diagnostic ignores.
+All572 non-Markdown repository inputs and381 source/Make/dependency inputs
+verify unchanged after execution. These gates exercise the default ordinary
+runtime plus the explicitly selected emitted-entry fixtures; they do not prove
+the not-yet-integrated optional child runs through the public executor.
+
+Still required: optional parent/child owners and aggregate quotas, production
+Runtime/executor routing, callback/GC/hook/fuel/source-retirement lifecycle
+acceptance, and original repeated performance/size/cold-cost/platform gates.
+Eliminated helper transitions must be measured honestly; no release or speedup
+is established by these emitted-code tests.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-binding/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
