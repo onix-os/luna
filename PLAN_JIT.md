@@ -36585,6 +36585,29 @@ Its entry-only implementation passes fresh formatting/all-feature checking and
 the same4+7 focused tests, including complete stats/fuel comparison at the new
 early budget return. Evidence: `target/jit-evidence/hook-resume-recovery/interpreter-prefix-entry/`.
 
+The complete8d8cc022 follow-up work screen improves no-feature opt3 closure work
+by2.04%, but still adds4.25% no-feature shipping and0.50/6.49% JIT-off opt3/opts
+closure work. Numeric no-feature work drops0.80–5.30%; JIT-off still adds0.09–1.72%.
+All48 loads/240 executions and12 valid/24 corrupt identity fixtures complete
+with verified partitions and original source/build configurations. It is not
+performance accepted.
+
+Symbol-level attribution identifies **1,220,000 shipping instructions in
+`ScalarPrefix::fits`**, previously absent: two array-iterator bounds checks per
+eligible function become out-of-line loops under the original opts profile.
+The next bounded correction replaces those arrays/loops with the maximum of all
+five register indexes and both upvalue indexes, then two extent comparisons.
+Both source and actual-view checks remain; no operands, bounds, counters or
+stores are omitted, and no inline/layout/build-flag tuning is substituted.
+Independent each-operand tests compare that maximum predicate to all seven
+separate bounds checks, including zero lengths and255/256 boundaries. This
+correction remains independently unaccepted pending fresh checks and production
+measurement; a VM-only instruction reduction never overrides whole-workload
+regression.
+Its fresh formatting/check-all and5+8 focused tests pass with zero ignored tests;
+production evidence is collected separately under
+`target/jit-evidence/hook-resume-recovery/interpreter-prefix-max-bounds/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

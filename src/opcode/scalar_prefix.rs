@@ -40,24 +40,60 @@ impl ScalarPrefix {
     }
 
     pub(crate) fn fits(self, registers: usize, upvalues: usize) -> bool {
-        [
-            self.get_dest,
-            self.add_dest,
-            self.left,
-            self.right,
-            self.set_source,
-        ]
-        .into_iter()
-        .all(|r| usize::from(r.0) < registers)
-            && [self.get_source, self.set_dest]
-                .into_iter()
-                .all(|u| usize::from(u.0) < upvalues)
+        let register = self
+            .get_dest
+            .0
+            .max(self.add_dest.0)
+            .max(self.left.0)
+            .max(self.right.0)
+            .max(self.set_source.0);
+        let upvalue = self.get_source.0.max(self.set_dest.0);
+        usize::from(register) < registers && usize::from(upvalue) < upvalues
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maximum_bounds_match_independent_checks_for_each_operand() {
+        for slot in 0..7 {
+            for index in [0, 1, 7, 127, 255] {
+                let mut plan = ScalarPrefix {
+                    get_dest: RegisterIndex(0),
+                    get_source: UpValueIndex(0),
+                    add_dest: RegisterIndex(0),
+                    left: RegisterIndex(0),
+                    right: RegisterIndex(0),
+                    set_source: RegisterIndex(0),
+                    set_dest: UpValueIndex(0),
+                };
+                match slot {
+                    0 => plan.get_dest.0 = index,
+                    1 => plan.add_dest.0 = index,
+                    2 => plan.left.0 = index,
+                    3 => plan.right.0 = index,
+                    4 => plan.set_source.0 = index,
+                    5 => plan.get_source.0 = index,
+                    6 => plan.set_dest.0 = index,
+                    _ => unreachable!(),
+                }
+                for registers in [0, 1, 2, 8, 128, 255, 256] {
+                    for upvalues in [0, 1, 2, 8, 128, 255, 256] {
+                        let expected = usize::from(plan.get_dest.0) < registers
+                            && usize::from(plan.add_dest.0) < registers
+                            && usize::from(plan.left.0) < registers
+                            && usize::from(plan.right.0) < registers
+                            && usize::from(plan.set_source.0) < registers
+                            && usize::from(plan.get_source.0) < upvalues
+                            && usize::from(plan.set_dest.0) < upvalues;
+                        assert_eq!(plan.fits(registers, upvalues), expected);
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn source_shape_matches_decoded_operations_and_all_extents() {
