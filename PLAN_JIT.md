@@ -37388,6 +37388,34 @@ only the missing ELF proof was repaired using readelf, requiring exactly one
 ELF32 Intel80386 executable and its hash, before the successful capture.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-capture/`.
 
+### Contained scoped entry: correctness and retired-work checkpoint
+
+The fresh capture/native/commit transaction is now one outlined Rust function;
+its private capture and commit implementations inline inside it. The ordinary
+seven-register transport returns to7702 bytes, exactly its original symbol size,
+while the scoped entry is682 bytes instead of separate430/397-byte bodies.
+No factory closure is introduced on the immediate path.
+
+All38 focused checks, both Miri models13 each, actual i686 check-all/13 models,
+and complete Force2115/91 pass; the full suite retains25 deliberately ignored
+diagnostics. The safety driver now records actual inherited Miri flags and
+requires Make/readelf ELF32 Intel80386 identification before aggregate success.
+
+The120-window matrix reconciles122491 samples with zero loss, all3000 matched
+runtime-counter values, full native-map/source/image identity and100% active
+counter scheduling. Twenty corruption fixtures are rejected. Versus the initial
+readonly baseline, callback retired instructions fall1.981/1.982% at opt3 and
+1.565/1.567% at opts on CPUs0/16, approximately43/41 fewer per lookup. Ineligible
+upvalue native work returns to the original level: differences are under0.0004%
+instead of the rejected0.890% increase.
+
+This retains the direct scoped-capture implementation as a test-only checkpoint,
+not production promotion. Stripped opt3/opts LTO/CGU1 timing images and balanced
+same-image/frozen-ordinary elapsed controls remain pending. The ordinary/Off
+gap and full original performance/resource/platform/release acceptance are not
+resolved by the retired-instruction reduction.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-contained/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
