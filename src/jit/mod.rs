@@ -2287,13 +2287,10 @@ impl Runtime {
         let write_back = write_back && !CANONICAL;
         if write_back {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
-            for (slot, dest) in slots
-                .iter()
-                .copied()
-                .zip(frame.registers.stack_frame[..register_count].iter_mut())
-            {
-                slot.write_back(dest);
-            }
+            abi::frame_publication::publish(
+                slots,
+                &mut frame.registers.stack_frame[..register_count],
+            );
         }
         if frame.panic.is_none() {
             *frame.registers.pc = usize::try_from(exit.pc).expect("native PC exceeds host range");

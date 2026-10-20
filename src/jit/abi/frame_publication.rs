@@ -1,7 +1,6 @@
 use super::{Slot, BOOLEAN, INTEGER, NIL, NUMBER, REFERENCE};
 use crate::Value;
 
-#[inline(never)]
 pub(in crate::jit) fn publish(slots: &[Slot], frame: &mut [Value<'_>]) {
     for (slot, dest) in slots.iter().zip(frame) {
         match slot.tag {
