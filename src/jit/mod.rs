@@ -540,6 +540,53 @@ mod stats_tests {
     }
 
     #[test]
+    fn zero_dispatch_publication_preserves_report_only_counts_and_current_stats() {
+        for initial in [0, u64::MAX - 1, u64::MAX] {
+            for report in [None, Some(0), Some(1), Some(u32::MAX)] {
+                let runtime = Runtime::new();
+                let shared = runtime.clone();
+                let mut slice = runtime.interpreter_stats();
+                slice.reported_instructions = report;
+                let before = JitStats {
+                    total_dispatches: initial,
+                    interpreted_slices: initial,
+                    interpreted_instructions: initial,
+                    native_instructions: 19,
+                    compilation_requests: 23,
+                    ..Default::default()
+                };
+                shared.0.borrow_mut().stats = before;
+                drop(slice);
+                let mut expected = before;
+                expected.interpreted_instructions =
+                    initial.saturating_add(u64::from(report.unwrap_or(0)));
+                assert_eq!(shared.0.borrow().stats, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn zero_dispatch_publication_still_checks_shared_and_mutable_manager_loans() {
+        for report in [None, Some(0), Some(7)] {
+            for writer in [false, true] {
+                let runtime = Runtime::new();
+                let mut slice = runtime.interpreter_stats();
+                slice.reported_instructions = report;
+                let before = runtime.0.borrow().stats;
+                let result = if writer {
+                    let _loan = runtime.0.borrow_mut();
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(slice)))
+                } else {
+                    let _loan = runtime.0.borrow();
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(slice)))
+                };
+                assert!(result.is_err());
+                assert_eq!(runtime.0.borrow().stats, before);
+            }
+        }
+    }
+
+    #[test]
     fn mixed_dispatches_preserve_native_totals_and_successful_reports() {
         for initial in [0, u64::MAX - 1, u64::MAX] {
             for native in [0, 1, 3, 64] {
