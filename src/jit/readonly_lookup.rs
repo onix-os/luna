@@ -88,6 +88,9 @@ impl Plan {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod identity;
+
 pub(super) mod binding;
 
 #[cfg(test)]
