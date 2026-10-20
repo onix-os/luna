@@ -1810,6 +1810,28 @@ jit-import-bits-miri:
 
 .PHONY: jit-rooted-moves jit-rooted-preservation
 .PHONY: jit-readonly-lookup jit-readonly-lookup-miri
+.PHONY: jit-readonly-identity jit-readonly-identity-miri
+.PHONY: jit-repro-wrapper-tests jit-repro-images jit-repro-build-tests
+JIT_REPRO_SOURCE ?= $(TOP_DIR)
+JIT_REPRO_WRAPPER ?= $(TOP_DIR)/examples/jit_support/rustc_repro.sh
+JIT_REPRO_HASH = $(shell sha256sum '$(JIT_REPRO_WRAPPER)' examples/jit_support/build_repro.sh | sha256sum | cut -d ' ' -f1)
+JIT_REPRO_TARGET_DIR ?= $(TOP_DIR)/target/jit-repro/$(JIT_REPRO_HASH)/$(JIT_BENCH_OPT)$(if $(TARGET),-$(TARGET),)
+JIT_REPRO_DIR ?= $(TOP_DIR)/target/jit-evidence/repro-images/$(JIT_REPRO_HASH)/$(JIT_BENCH_OPT)$(if $(TARGET),-$(TARGET),)
+jit-repro-images:
+	@bash examples/jit_support/build_repro.sh '$(CARGO)' '$(JIT_REPRO_SOURCE)' '$(abspath $(JIT_REPRO_TARGET_DIR))' '$(abspath $(JIT_REPRO_DIR))' '$(JIT_BENCH_OPT)' '$(TARGET)' '$(JIT_REPRO_WRAPPER)'
+
+jit-repro-build-tests:
+	@bash tests/test-jit-repro-build.sh '$(SHELL)'
+
+jit-repro-wrapper-tests:
+	@bash tests/test-jit-rustc-repro.sh
+
+jit-readonly-identity:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::tests::identity::tests $(ARGS) | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-readonly-identity-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::tests::identity::tests -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-readonly-native
 .PHONY: jit-readonly-runtime
 .PHONY: jit-scoped-read-production

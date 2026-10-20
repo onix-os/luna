@@ -37958,11 +37958,212 @@ and placebo variation remain explicit. Native gates still fail7/108 speed and
 12.5% slower than original controls; shipping scalar regressions also remain.
 Do not discard these failures or substitute fewer physical helpers for elapsed
 acceptance. Separate readers pass valid/restored fixtures and10 native plus9
-cost corruptions. Next verify exact-image VM instruction maps before attributing
-these regressions or choosing another implementation. The additional complete
-Force suite and exact-map builds are not yet terminal at this checkpoint.
+cost corruptions. Three new map companions reproduce the measured native-speed,
+cost-speed and cost-shipping images byte-for-byte. Their relocation-normalized
+VM instruction streams still match original controls exactly, with10911/11116/
+8615 static instructions. This excludes added VM instructions, not changes in
+callees or every possible elapsed cause; no alignment cause is established.
+The additional complete Force suite passes2159 executions across92 summaries
+(26 intentional ignores). Both actual-production symbol images finish before
+the next profiling campaign; no capture overlaps owned builds or correctness.
 Evidence: `target/jit-evidence/hook-resume-recovery/production-scoped-read/`,
 especially `integration/{screen.json,cost-screen.json,reader-tests.log}`.
+
+### Scoped-read retired work and rejected identity prepacking
+
+The new0f/1b production comparison completes192 acknowledged windows, both
+profiles/CPUs, callbacks/upvalues, Off/Auto and three rotated stat/record repeats.
+All107249 samples reconcile with zero loss and100% active-PMU scheduling.
+The unchanged per-side readers each pass valid/restored plus17 corruptions.
+The effect-aware cross-source check preserves2352 counters exactly and checks48
+physical-helper changes:10million calls/completions removed per warmed callback
+Auto window. No lookup count or physical helper statistic is fabricated.
+
+Removed helpers do not prove less work: callback instructions rise9.497M to
+9.667M in opt3 (~1.8%), while opts falls11.693M to11.583M (~0.94%). The latter
+is a smaller reduction than the earlier publisher-only result. Off callback and
+upvalue instruction counts are essentially unchanged. Timing/cycles differ by
+profile/core/context; these counts do not establish a layout or alignment cause.
+The outlined fresh entry accounts for11.86% of aggregate opt3/CPU0 callback self
+cycles, with repeated immutable binding-word shifts/ORs visible in its exact
+image. This motivates measuring prepacking, not claiming its success.
+
+ee7893d7 adds a test-only two-word identity model with1728 boundary combinations,
+native/i686 and both Miri-model evidence. An isolated activation replaces Plan's
+field storage, retaining every source/extent/borrow/panic/ABI/view check. Activated
+focused tests pass37, each Miri model15 and actual i68615. Another144-command
+original-control campaign retains14256 native executions,285120 cost iterations,
+all nine cases and original thresholds. An independent pretrial1b oracle checks
+every one of the27 candidate counter/resource fields exactly. Both no-feature
+images remain byte-identical to original controls; readers reject10 native and9
+cost corruptions after valid/restored checks.
+
+REJECT the activation. Native failures are9/108 speed and7/108 shipping. Cost
+failures are19/108 speed and49/108 shipping versus controls57/21 and57/23.
+Shipping compiled-Off arrays are about20.6%/14.2% slower on CPUs0/16; callbacks
+about10.0%/8.7% slower, with near-parity same-image placebos. The speed-profile
+aggregate improvement cannot compensate. The five activation edits are restored
+exactly; only the test-only model remains. Restored formatting/check-all and37
+focused executions pass. Restoration image identity is not established: the
+cross-directory rebuild fails its JIT image comparison, as investigated below.
+Full performance/platform/resource/release acceptance
+remains open; do not repeat this rejected packing trial as an untested idea.
+Evidence: `production-scoped-read/integration/retired-work/` and
+`production-scoped-read/prepacked-identity/` under the same ignored artifact root.
+
+### Build-directory filenames contaminate binary-layout comparisons
+
+A second restoration control restores every non-test library source file and
+moves the pure identity fixture inside the existing test-only module. Its JIT
+images still differ from1b in both profiles, while both no-feature images match.
+Therefore do NOT blame the test-only declaration for the initial mismatch.
+
+The JIT images contain five absolute Cranelift generated-source filenames under
+their respective CARGO_TARGET_DIRs: settings-x86.rs,settings.rs,inst_builder.rs,
+isle_opt.rs andisle_x64.rs. The second target prefix is22 bytes longer, and its
+opt3 .rodata grows112 bytes (5*22 plus alignment), shifting .text despite equal
+runtime sources. This is direct evidence of build-location contamination, not
+proof of a hardware alignment/cache cause or permission to waive any regression.
+Historical timing observations remain archived; they do not isolate source
+effects from differing build-directory metadata.
+
+49744c51 adds an opt-in rustc filename-remapping wrapper, exact argument/refusal
+fixtures and nonzero-test checks for the relocated identity model. No optimization
+flags, VM, native ABI, counter or numerical threshold changes. Six invalid inputs
+fail before invoking rustc. Native17 tests, relocated-model i6862 and both Miri
+models2 pass. The two cold-compiler annotations were exploratory only, built but
+never timed, and are removed pending unconfounded controls.
+
+Fresh independent-target builds now map source/target prefixes to fixed virtual
+filenames through the same wrapper path. The control completes: native-benchmark,
+no-feature and compiled-JIT cost image pairs are ALL byte-identical across two
+independent source/target roots at opt3. All five generated paths use luna-build;
+the wrapper hash also reverifies. This closes this control's build-location
+confound, not full performance acceptance. Authoritative original0f and current
+candidate builds are now running under the SAME protocol in both profiles,
+preserving original thresholds and all counters/resources. No normalized timing
+or shipping-profile reproducibility result is claimed at this checkpoint.
+Evidence: `production-scoped-read/reproducible-layout/` under the artifact root.
+
+### Normalized original-control campaign: acceptance still fails
+
+The original0f/current1b comparison now completes under the filename-remapping
+protocol in BOTH profiles. All12 images build; corresponding no-feature pairs
+also match the original unnormalized controls byte-for-byte. All five Cranelift
+generated paths are canonical. The144-command interleaved campaign retains the
+original nine workloads,11 samples,20 cost iterations, six balanced orders and
+CPUs0/16:14256 native executions and285120 cost iterations. No owned build or
+correctness job overlaps capture. External contention is recorded, not waived.
+
+An independent pretrial oracle verifies all27 per-source counter/resource
+fields with zero mismatches. The reader passes two valid/restored fixtures and
+rejects16 corruptions, including duplicate fields, changed physical helper
+counts and changed independent oracle values. Cost raw medians are recomputed;
+native raw medians are not independently recomputed. A manifest-preflight
+failure occurred before any timed command, is archived separately, and was
+fixed by verifying checkout-relative tool paths from the checkout.
+
+Candidate failures out of108 gates per kind/profile:
+
+| Profile | Native speedup failures | Compiled-Off overhead failures |
+| --- | --- | --- |
+| speed |11: callbacks9, arrays2 |23: upvalues12, cold9, callbacks2 |
+| shipping |7: arrays7 |15: upvalues12, callbacks3 |
+
+The original thresholds remain unchanged. Shipping array speedups are about
+1.13–1.24 where1.25 is required. Compiled-Off upvalue overhead remains about
+5.6–15% in speed and10.5–25% in shipping, depending on CPU/order. These consistent
+feature costs require direct no-feature/Off attribution; comparing two
+feature-enabled revisions cannot identify that tax.
+
+Normalized callback control/candidate time ratios are1.004644/0.988658 for
+speed CPUs0/16 and1.075103/1.062366 for shipping. No aggregate direct source
+regression exceeds5% here. This does not erase failing workload gates or prove
+the earlier directory-confounded regressions were caused by alignment.
+Performance, platform, resource-policy and release acceptance remain OPEN.
+Evidence: `production-scoped-read/reproducible-layout/acceptance/`, especially
+`production-audit.json`, `runtime-oracle.json` and `production-screen/`.
+
+### Repository-native reproducible benchmark images
+
+`make jit-repro-images JIT_BENCH_OPT=3` (or `s`) builds the three stripped,
+LTO=true, codegen-units=1 images under fixed virtual source/target prefixes.
+This is opt-in; existing normal builds are unchanged. Outputs include image and
+source hashes, toolchain/configuration records and a completion marker emitted
+only after all builds and source verification succeed. Default cache/artifact
+directories are keyed by builder/wrapper hashes, profile and target.
+
+For immutable snapshot comparisons, use the SAME wrapper path and distinct
+physical caches/artifacts per source, for example:
+
+```sh
+make jit-repro-images JIT_BENCH_OPT=3 \
+  JIT_REPRO_SOURCE=/absolute/snapshot \
+  JIT_REPRO_TARGET_DIR=/absolute/fresh-cache \
+  JIT_REPRO_DIR=/absolute/evidence
+```
+
+Changed configuration/source roots, unmarked nonempty directories, existing
+compiler wrappers and locked cache/artifact directories are refused rather than
+silently overwritten. `TARGET=...` forwards the cross target explicitly.
+`make jit-repro-build-tests jit-repro-wrapper-tests` exercises forwarding,
+refusal, incremental rebuild and failure-publication behavior. Actual fresh
+public-target builds in BOTH profiles reproduce all six normalized candidate
+images byte-for-byte; their source and image manifests verify. This validates
+the image-building protocol, not performance acceptance.
+Evidence: `production-scoped-read/reproducible-layout/public-validation/`.
+
+### Disabled-feature attribution and rejected manager-reference trial
+
+Four linker-map companions reproduce the normalized production no-feature/Off
+images byte-for-byte, both profiles. ELF executable-segment offsets, not raw
+file offsets mistaken for virtual addresses, resolve sampled instructions.
+Two48-command diagnostic campaigns cover CPUs0/16 and three rotated repeats:
+ordinary cycles plus lower-rate retired-instruction sampling. Scope is the
+entire existing production upvalue worker, including startup, two warmups and100
+iterations; this is NOT warmed-only attribution or elapsed acceptance.
+
+The lower-rate campaign confirms about13.34% extra retired instructions in
+speed and12.36% in shipping for compiled-Off versus no-feature, on BOTH CPU
+types. All stat counters are100% scheduled. Its19677 samples reconcile exactly,
+with zero loss, zero throttling and no unresolved image samples. Sampling
+weights locate the VM as a priority; they are not exact per-function work counts
+or proof that a particular instruction caused the elapsed overhead. The reader
+accepts valid/restored captures and rejects15 corruptions, including throttling,
+lost samples, wrong ELF offsets, counter scheduling and overlapping symbol maps.
+
+An earlier100000-instruction-period capture produced103046 samples but kernel
+THROTTLE/UNTHROTTLE records. REJECT its attribution despite zero lost samples and
+reconciled sample weights. The replacement uses2000000-instruction periods;
+do not use the throttled run as stronger hotspot evidence.
+
+A narrow runtime trial stores InterpreterStats' shared RefCell<Manager>
+reference directly instead of reloading it through Runtime. It retains borrow,
+publication, overflow, unwind and owner-lifetime contracts;52 focused executions
+pass. All six release images build, and both no-feature images remain identical.
+Nevertheless24 actual production Off/upvalue stat runs show about1.20–1.27%
+MORE instructions in speed, with shipping essentially unchanged. REJECT and
+restore the trial, rather than promoting a shorter source path as an optimization.
+The restored source is byte-identical to HEAD and passes51 focused executions
+plus formatting. No runtime change from this trial remains. Original full
+performance, platform, resource-policy and release acceptance stays OPEN.
+Evidence: `production-scoped-read/reproducible-layout/` directories `feature-tax`,
+`instruction-tax` (rejected), `instruction-tax-calm` and `guard-manager-reference`.
+
+### Shared-cache image publication is one locked transaction
+
+The public builder initially locked only its artifact directory. Two callers
+using different artifact directories but one Cargo cache could therefore copy
+an example overwritten by the other caller after Cargo released its own lock.
+The builder now locks BOTH cache and artifacts before validating/writing markers,
+and holds those locks across all three builds, image copies and publication.
+Failures release only locks acquired by that invocation. Preexisting foreign
+locks and user data are retained. Nine refusal fixtures, all compiler-call lock
+assertions, failure cleanup and exact forwarding checks pass. A concurrent real
+second invocation is refused before writing configuration or publishing images.
+Fresh locked-builder image revalidation is recorded separately in
+`production-scoped-read/reproducible-layout/public-cache-lock-validation/`;
+completion requires its `validation.status` to be0, not the presence of a lock.
 
 ## 15. Primary references
 
