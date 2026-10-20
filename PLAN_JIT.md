@@ -36654,8 +36654,47 @@ or a separately outlined publisher.
 Independent u128-sum fixtures exercise each of all eight fields and extreme
 values, zero/nonzero failure/write lanes,4096 mixed cases, and unchanged
 non-helper statistics. Formatting/all-feature checks and helper/publication/
-native/heap gates pass. The production speed/shipping work screen and every
-original elapsed/per-case/platform/resource/release requirement remain open.
+native/heap gates pass: **55 executions /6 summaries**, zero failures/ignores.
+Source **e8b58d65** is committed/pushed and frozen independently of later docs.
+
+The complete native work screen covers seven warm workloads, both original
+profiles,56 alternating image loads and280 executions (168 after warmup).
+All complete non-timing records match the exact6ed93f4d controls, all13 event
+partitions reconcile, and14 valid/28 corrupted-image-identity fixtures pass.
+Whole-workload instruction changes use the median of all six post-warmup
+observations per variant, not a selected first execution:
+
+| Workload | opt3 | opts |
+| --- | ---: | ---: |
+| Rust callbacks | -0.3184% | -0.3009% |
+| Upvalues | -0.2337% | -1.4121% |
+| Metamethods | -0.3740% | -0.0325% |
+| Allocation/GC | +0.0446% | +0.0329% |
+| Integer loop | -0.3680% | -0.3969% |
+| Float loop | -0.3553% | -0.3842% |
+| Array table | -0.1684% | -0.0123% |
+
+The adverse allocation counts are retained, not canceled by favorable cases;
+instruction counts neither prove elapsed improvement nor waive any threshold.
+The initially quoted upvalue1–2.3% referred only to the first measured execution;
+the complete six-observation aggregates above supersede it.
+
+Four original production feature-cost images also build with verified source,
+flags and worker protocols. Both no-feature images are byte-identical to their
+controls. Forty-eight disabled-mode image loads collect240 executions/144 measured
+with12 valid/24 corrupt identity fixtures. Numeric instruction totals are exactly
+unchanged; upvalue whole-work differences are below0.001%, including tiny
+differences between identical no-feature binaries. No causal improvement is
+attributed to those tiny disabled observations; this trial does not claim to
+repair the outstanding compiled-Off upvalue overhead.
+
+The full original elapsed campaign is now running: all nine cases,11 samples,
+20 cost iterations, six balanced A/candidate/B orders, CPUs0/16, opt3/opts and
+unchanged original thresholds/auditor. Its preflight enforces actual completed
+focused/work/image gates and no owned builds/tests/profilers, not fabricated
+Force/Miri/release statuses. Source/image/tool/runtime-patch witnesses pin the
+campaign to e8b58d65; it remains unaccepted pending complete elapsed results,
+the remaining Miri/unsupported/Force checks, and every original full-plan gate.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
 ## 15. Primary references
