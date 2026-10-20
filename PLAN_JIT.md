@@ -36630,7 +36630,7 @@ pass across6 summaries, with zero failures/ignores. The real11-prototype/37-atte
 compiler-resource replay remains intact. Restoration evidence:
 `target/jit-evidence/hook-resume-recovery/interpreter-prefix-withdrawal/`.
 
-### Grouped read-only helper publication — unaccepted trial
+### Grouped read-only helper publication — measured and withdrawn
 
 The complete source-bound callback work observation is reverified/recomputed,
 not the earlier incomplete `native-profile` capture (speed status1, two image
@@ -36717,6 +36717,25 @@ or tuning occurs between campaigns. Wait for its complete audited record;
 withdraw the runtime if the upvalue/CPU16 callback regressions persist instead
 of keeping an instruction-count-only optimization. Every other original
 acceptance requirement remains open.
+
+The repeat also exits0 with the unchanged strict auditor and two valid/13 corrupt
+fixtures. Combined totals are **288 commands,28,512 native executions and570,240
+cost iterations**, zero complete counter/resource mismatches. Candidate speed
+native failures remain15/96 versus11/96 and9/96 controls; cost failures46/216
+versus46/216 and44/216 controls. Native CPU0 shipping upvalue control/trial median
+is0.975708 (all six rounds adverse), CPU16 speed/shipping upvalue0.990455/0.988877
+(five adverse rounds each), and CPU16 speed callback0.995041 (five adverse).
+Favorable callback/shipping observations and lower instruction counts do not
+justify retaining these repeated losses. Hardware cause is unproven.
+
+Withdraw the grouped predicate, alias locals, reordered and conditional updates.
+Retain only the independent full-width saturation fixtures and a source-faithful
+macro expanding the **original eight expressions in their original order** at
+the same invocation boundary. The macro cfg matches the existing native-exit
+publisher's supported/test targets. Restored correctness and generated-code
+parity still need fresh verification; none of this closes performance acceptance.
+Restoration evidence:
+`target/jit-evidence/hook-resume-recovery/helper-publication-restoration/`.
 Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
 
 ## 15. Primary references

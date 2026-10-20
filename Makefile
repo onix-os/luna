@@ -885,9 +885,12 @@ vm-callback-setup:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::callback_setup:: $(ARGS)
 
 .PHONY: jit-helper-counts jit-helper-counts-miri
-.PHONY: jit-helper-publication
+.PHONY: jit-helper-publication jit-helper-publication-miri
 jit-helper-publication:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_publication_tests:: | awk '/^test result: ok[.] 2 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
+
+jit-helper-publication-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helper_publication_tests:: -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ {valid=1} {print} END {exit !valid}'
 
 jit-helper-counts:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_counts:: $(ARGS)
