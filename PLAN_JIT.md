@@ -37416,6 +37416,70 @@ gap and full original performance/resource/platform/release acceptance are not
 resolved by the retired-instruction reduction.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-contained/`.
 
+### Contained entry elapsed controls: original requirements still fail
+
+Both stripped opt3/opts LTO/CGU1 images build. Two672-load campaigns use the
+unchanged seven workloads,5 measured executions,2 Lua warmups,6 balanced orders,
+CPUs0/16,25 runtime counters and complete resource comparisons. Same-image
+callback ordinary/C ratios are1.004528/1.002194/1.003378/1.011342; frozen-ordinary
+ratios are1.000852/1.000245/0.995697/1.013927 (opt3 CPU0/16,then opts CPU0/16).
+The reader passes2 valid/20 corrupted fixtures per campaign. Small mixed gains
+are not an acceptance claim.
+
+CPU0 Off samples have a substantial predecessor effect: unprimed opt3 callback
+windows are4.25–4.35ms when Off follows Off, versus1.92–2.06ms after a native
+process, while native windows stay near2.05ms. The resulting inflated Off/C
+ratios must not be called JIT speedups. Two additional672-load campaigns apply
+identical pinned32MiB zero/SHA256 CPU conditioning before EVERY label, outside
+Lua setup and timing; all original source/image/VM counts/resource checks remain.
+This is an explicitly separate diagnostic protocol, not replacement of the
+original gate. All2688 timed loads pass their data/identity audits.
+
+Primed same-image callback ordinary/C ratios are
+1.007285/1.015308/1.005559/1.011292; primed frozen-ordinary ratios are
+1.008638/0.999644/0.992085/1.021818. Primed frozen Off/C is
+0.963063/0.860044/0.880778/0.824395. The CPU0 Off spread shrinks substantially,
+but this does not establish its precise cause or make the remaining deficits
+acceptable. Upvalue primed frozen Off/C remains0.531319/0.575235/0.484332/0.516428.
+Metamethod/GC and other negative controls also remain part of full acceptance;
+one favorable profile cannot compensate for another failure.
+
+The next performance work targets the much larger call/activation overhead,
+not another unsupported speed claim from lookup-only tuning.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-contained/elapsed-*`.
+
+### Integer leaf-call fusion: fuel/frame model only
+
+A new test-only model investigates an atomic fixed-one-argument/no-result leaf
+call, with a captured integer get/add/set/return body. No runtime admission or
+machine-code implementation exists at this checkpoint. Low fuel/hooks or any
+unsupported shape must keep the ordinary call and physical child frame.
+
+The real interpreter oracle verifies physical call/return boundaries with GC
+between steps. Call/Return exit before the VM's ordinary instruction debit;
+transition costs and BOTH executor iteration costs still apply. The leaf call
+costs20 fuel, not12. A single fused five-source-op call followed by the one
+surviving executor step therefore needs11 extra fuel, not7. The conservative
+permit requires a complete7-source-op Move/Move/Call region and fuel strictly
+above deferred work plus source budget plus15. A successful fusion must end at
+the logical callee-return boundary; arbitrary multi-call coalescing is not
+covered by this model.
+
+The oracle also requires caller expected_return to change from Some(Normal(0))
+to None and reproduces every caller stack slot. Zero results do NOT imply a
+nil-filled call area: return_values_to retains overlapping callee registers,
+truncating or growing only to caller height. Initial mistaken metadata/format
+expectations are preserved in failed logs, corrected against source and actual
+execution rather than by changing the shared snapshot implementation.
+
+Recognition, current closure/open-parent-cell binding, aliases, type guards,
+temporary materialization, PC/budget proof, native lowering, ownership and all
+counter/resource/performance integration remain required before this can be
+enabled. Source prototype fields remain public; no hidden source-id cache field
+is added to FunctionPrototype, and registry weak-upgrade/identity/reset checks
+must not be bypassed.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-evaluation/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
