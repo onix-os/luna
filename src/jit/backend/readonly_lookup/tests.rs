@@ -52,13 +52,12 @@ fn execute<'gc>(
                 read_hints: Some(&ordinary.entries),
             };
             let exit = if let Some(read) = read {
-                read.plan
-                    .with_binding(closure, &ordinary.entries, |bound| unsafe {
-                        bound.invoke(read.entry, &mut frame, &mut slots, pc, budget)
-                    })
-                    .unwrap()
-                    .unwrap()
-                    .unwrap()
+                unsafe {
+                    read.plan
+                        .invoke_fresh(read.entry, &mut frame, &mut slots, pc, budget)
+                }
+                .unwrap()
+                .unwrap()
             } else {
                 let mut host = abi::Host {
                     data: (&mut frame as *mut helpers::Frame<'_, '_, '_, '_>).cast(),

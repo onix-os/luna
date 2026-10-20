@@ -34,6 +34,25 @@ fn prepared<'gc>(ctx: crate::Context<'gc>) -> (Plan, Closure<'gc>, Table<'gc>, E
     (plan, closure, environment, hints)
 }
 
+fn enter<'gc>(
+    fresh: bool,
+    plan: Plan,
+    entry: Entry,
+    frame: &mut helpers::Frame<'gc, '_, '_, '_>,
+    slots: &mut [abi::Slot],
+    pc: usize,
+    budget: u32,
+) -> Result<Option<abi::Exit>, Fault> {
+    if fresh {
+        unsafe { plan.invoke_fresh(entry, frame, slots, pc, budget) }
+    } else {
+        plan.with_binding(frame.closure, frame.read_hints.unwrap(), |bound| unsafe {
+            bound.invoke(entry, frame, slots, pc, budget)
+        })
+        .unwrap()
+    }
+}
+
 unsafe extern "C" fn probe(
     slots: *mut abi::Slot,
     pc: u64,
@@ -112,7 +131,10 @@ fn helper_panic_preserves_materialization_payload_and_releases_binding() {
             panic!()
         };
         let expected = environment.get_raw(&ctx, key.into());
-        for read in [false, true] {
+        for (read, fresh) in [false, true]
+            .into_iter()
+            .flat_map(|read| [false, true].map(|fresh| (read, fresh)))
+        {
             let mut values = vec![Value::Integer(-7); width];
             let mut pc = 0;
             LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
@@ -132,11 +154,7 @@ fn helper_panic_preserves_materialization_payload_and_releases_binding() {
                 } else {
                     panicked_helper::<false>
                 };
-                let exit = plan
-                    .with_binding(closure, &hints, |bound| unsafe {
-                        bound.invoke(entry, &mut frame, &mut slots, 17, 64)
-                    })
-                    .unwrap()
+                let exit = enter(fresh, plan, entry, &mut frame, &mut slots, 17, 64)
                     .unwrap()
                     .unwrap();
                 assert_eq!(
@@ -194,7 +212,10 @@ fn typed_entry_reborrows_real_helpers_and_publishes_only_executed_reads() {
         };
         let expected = environment.get_raw(&ctx, key.into());
         let width = usize::from(plan.registers);
-        for budget in [0, 1, 64, 65, u32::MAX] {
+        for (budget, fresh) in [0, 1, 64, 65, u32::MAX]
+            .into_iter()
+            .flat_map(|budget| [false, true].map(|fresh| (budget, fresh)))
+        {
             let mut values = vec![Value::Integer(-7); width];
             let mut pc = plan.helper_pc as usize;
             LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
@@ -209,19 +230,17 @@ fn typed_entry_reborrows_real_helpers_and_publishes_only_executed_reads() {
                     projection: None,
                     read_hints: Some(&hints),
                 };
-                let exit = plan
-                    .with_binding(closure, &hints, |bound| unsafe {
-                        bound.invoke(
-                            probe,
-                            &mut frame,
-                            &mut slots,
-                            plan.helper_pc as usize,
-                            budget,
-                        )
-                    })
-                    .unwrap()
-                    .unwrap()
-                    .unwrap();
+                let exit = enter(
+                    fresh,
+                    plan,
+                    probe,
+                    &mut frame,
+                    &mut slots,
+                    plan.helper_pc as usize,
+                    budget,
+                )
+                .unwrap()
+                .unwrap();
                 assert_eq!(exit.instructions, u32::from(budget != 0));
                 let expected = if budget == 0 {
                     Value::Integer(-7)
@@ -313,8 +332,8 @@ fn pending_panic_and_bad_register_extents_do_not_enter_or_replace_state() {
     Lua::empty().enter(|ctx| {
         let (plan, closure, environment, hints) = prepared(ctx);
         let width = usize::from(plan.registers);
-        for case in 0..3 {
-            let mut values = vec![Value::Integer(-7); width];
+        for (case, fresh) in (0..4).flat_map(|case| [false, true].map(|fresh| (case, fresh))) {
+            let mut values = vec![Value::Integer(-7); width - usize::from(case == 3)];
             let mut pc = 0;
             LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
                 let mut slots =
@@ -329,12 +348,7 @@ fn pending_panic_and_bad_register_extents_do_not_enter_or_replace_state() {
                     projection: None,
                     read_hints: Some(&hints),
                 };
-                let result = plan
-                    .with_binding(closure, &hints, |bound| unsafe {
-                        bound.invoke(never, &mut frame, &mut slots, 0, 64)
-                    })
-                    .unwrap()
-                    .unwrap();
+                let result = enter(fresh, plan, never, &mut frame, &mut slots, 0, 64).unwrap();
                 assert!(result.is_none());
                 if case == 2 {
                     assert_eq!(*frame.panic.take().unwrap().downcast::<u32>().unwrap(), 19);
@@ -347,5 +361,151 @@ fn pending_panic_and_bad_register_extents_do_not_enter_or_replace_state() {
                 assert!(environment.into_inner().try_borrow_mut(&ctx).is_ok());
             });
         }
+    });
+}
+
+#[test]
+fn fresh_entry_samples_replaced_environments_and_refuses_missing_or_borrowed_views() {
+    Lua::empty().enter(|ctx| {
+        let (plan, closure, environment, hints) = prepared(ctx);
+        let width = usize::from(plan.registers);
+        let Constant::String(key) = closure.prototype().constants[usize::from(plan.constant)]
+        else {
+            panic!()
+        };
+        let mut values = vec![Value::Integer(-7); width];
+        let mut pc = 0;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut slots = vec![abi::Slot::from_value(Value::Integer(-7)); width];
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: width,
+                panic: None,
+                projection: None,
+                read_hints: None,
+            };
+            assert!(
+                unsafe { plan.invoke_fresh(never, &mut frame, &mut slots, 0, 64) }
+                    .unwrap()
+                    .is_none()
+            );
+            frame.read_hints = Some(&hints);
+            {
+                let _conflict = environment.into_inner().borrow_mut(&ctx);
+                assert!(
+                    unsafe { plan.invoke_fresh(never, &mut frame, &mut slots, 0, 64) }
+                        .unwrap()
+                        .is_none()
+                );
+            }
+            hints.hint(plan.helper_pc as usize).unwrap().remember(None);
+            assert!(
+                unsafe { plan.invoke_fresh(never, &mut frame, &mut slots, 0, 64) }
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.table_reads,
+                    frame.count.upvalue_reads
+                ),
+                (0, 0, 0)
+            );
+            for turn in 0..3 {
+                let current = if turn == 0 {
+                    environment
+                } else {
+                    Table::new(&ctx)
+                };
+                let callback = Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return));
+                current.set(ctx, key, callback).unwrap();
+                closure.set_upvalue(
+                    &ctx,
+                    usize::from(plan.upvalue),
+                    UpValue::new(&ctx, UpValueState::Closed(current.into())),
+                );
+                current.get_canonical_string(ctx, key, hints.hint(plan.helper_pc as usize));
+                let exit = unsafe { plan.invoke_fresh(probe, &mut frame, &mut slots, 0, 64) }
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(exit.instructions, 1);
+                same(
+                    frame.registers.stack_frame[usize::from(plan.destination)],
+                    callback.into(),
+                );
+                assert!(current.into_inner().try_borrow_mut(&ctx).is_ok());
+                assert!(environment.into_inner().try_borrow_mut(&ctx).is_ok());
+            }
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.table_reads,
+                    frame.count.upvalue_reads
+                ),
+                (3, 3, 3, 3)
+            );
+            let open = frame
+                .registers
+                .open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            closure.set_upvalue(&ctx, usize::from(plan.upvalue), open);
+            assert!(
+                unsafe { plan.invoke_fresh(never, &mut frame, &mut slots, 0, 64) }
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.table_reads,
+                    frame.count.upvalue_reads
+                ),
+                (3, 3, 3)
+            );
+        });
+    });
+}
+
+#[test]
+fn checked_capability_keeps_its_closure_identity_revalidation() {
+    Lua::empty().enter(|ctx| {
+        let (plan, closure, environment, hints) = prepared(ctx);
+        let peer = Closure::load_with_env(ctx, None, SOURCE, environment).unwrap();
+        let width = usize::from(plan.registers);
+        let mut values = vec![Value::Integer(-7); width];
+        let mut pc = 0;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut slots = vec![abi::Slot::from_value(Value::Integer(-7)); width];
+            let mut frame = helpers::Frame {
+                ctx,
+                closure: peer,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: width,
+                panic: None,
+                projection: None,
+                read_hints: Some(&hints),
+            };
+            assert!(plan
+                .with_binding(closure, &hints, |bound| unsafe {
+                    bound.invoke(never, &mut frame, &mut slots, 0, 64)
+                })
+                .unwrap()
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.table_reads,
+                    frame.count.upvalue_reads
+                ),
+                (0, 0, 0)
+            );
+            assert!(environment.into_inner().try_borrow_mut(&ctx).is_ok());
+        });
     });
 }

@@ -37192,6 +37192,46 @@ performance/size/cold-cost/resource/platform/release acceptance remains open.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-publication/`
 and its separate `cross-ordinary/` campaign.
 
+### Immediate fresh capture/entry — unaccepted runtime candidate
+
+The optional lookup child now has a private immediate path with no caller-supplied
+intervening closure. It checks frame/scratch/canonical extents, projection absence
+and pending panic, captures the current closed environment through the unchanged
+strong-hint factory, and enters verified code immediately. These capture steps
+only inspect existing prototype/cell/strong-table state: no user invocation,
+hashing fallback, weak upgrade or allocation can interleave capture and entry.
+
+The general delayed Bound API still revalidates closure/environment identity;
+its caller-provided closure may legitimately replace either before invocation.
+Both paths share a private invocation body retaining the separate40-byte View,
+ordinary Host,64-instruction clamp, native guards, execution marker, canonical
+reference commit, real logical counters and post-entry faults. The immediate
+path omits only redundant delayed-capability identity checks. The outer hint
+precheck and original eight-field publication remain unchanged.
+
+Checked and fresh ABI fixtures now both exercise real helper reborrows and
+helper panics, zero/clamped budgets, slot/canonical extents and pending payloads.
+Additional fixtures check current environments across three replacements,
+missing/cold hints, borrow conflicts, open cells, guard release and explicit
+retained closure-identity refusal in the checked API. Actual emitted-entry
+PC/budget and scalar/reference tests use the fresh path, while public executor
+fixtures retain all existing callback/GC/hook/fuel/error/resource checks.
+The focused format/check-all/binding/runtime/window/native gate passes30
+executions/six summaries, zero failures/ignores/warnings.
+
+No native null/cookie/tag/marker/PC/budget guard is removed, no public ABI or
+GC/Host layout is cast, and no Manager policy flag or persistent value cache is
+introduced. This remains test-gated and unaccepted until changed safety/full
+correctness and identical elapsed controls verify; original production release
+and performance requirements remain open.
+The expanded binding/source/peek fixtures pass13 tests/three summaries under
+each Miri borrow model and actual i686-musl, with all-feature checking and
+independent ELF32/i386 identification. Full Force passes2107 executions across91
+summaries, zero failures and24 existing diagnostic ignores. Frozen opt3/opts
+stripped LTO/CGU1 diagnostic images build and all source/Make/dependency hashes
+verify after gates. Elapsed results remain pending at this checkpoint.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-fresh/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
