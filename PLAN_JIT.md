@@ -37896,6 +37896,30 @@ full acceptance from its shipping win. Next separate actual retired-work savings
 from link-context timing effects before choosing another implementation.
 Evidence: `production-frame-publication/panic-reuse/` under the same artifact root.
 
+Fresh interleaved non-test0f-versus53 attribution now completes192 acknowledged
+windows, both profiles/CPUs, callbacks/upvalues, Off/Auto, three rotated repeats,
+2000 executions and coupled stat/record collection. All110234 samples reconcile;
+all2400 cross-source checks preserve25 exact runtime counter deltas. Active PMUs
+run100%, inactive rows remain explicit, source/image/tool hashes verify, and the
+unchanged per-side readers each pass valid/restored plus17 corruptions.
+Callback retired work falls about0.9% in opt3 and2.2% in opts; Off callback counts
+are essentially unchanged. The12–14% elapsed shipping gain must not be attributed
+entirely to instruction-count reduction. The read helper still accounts for6–9%
+of observed native callback self cycles.
+
+Preparation b39fa484 separates the existing scoped-read lowering selection from
+the RequireReadonlyLookup failure enum. It retains the typed six-argument ReadCode
+and ordinary five-argument constructor rejection, with zero owners/mappings left
+after rejected mixed modes. Formatting/check-all and30 focused native/runtime/
+binding/source/strong-hint tests pass. This selector is still TEST-ONLY; no new
+production activation, speedup, unguarded table access or ABI cast is claimed.
+Production promotion must retain fresh guarded binding, scope/source proofs,
+optional resource ownership and ordinary fallback; actual removed C calls must
+not be falsely reported to keep counter-identity audits green. All original
+cost/performance/platform/release gates remain required.
+Evidence: `production-frame-publication/retired-work/` and
+`production-scoped-read/` under the same artifact prefix.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
