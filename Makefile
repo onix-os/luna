@@ -1815,6 +1815,13 @@ jit-import-bits-miri:
 jit-readonly-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::tests $(ARGS)
 
+.PHONY: jit-call-fusion-fuel jit-call-fusion-fuel-miri
+jit-call-fusion-fuel:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion $(ARGS)
+
+jit-call-fusion-fuel-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::call_fusion -- --test-threads=1
+
 .PHONY: jit-readonly-publication jit-readonly-publication-miri
 jit-readonly-publication:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::publication::tests $(ARGS)
