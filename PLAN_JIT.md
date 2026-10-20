@@ -38530,6 +38530,50 @@ host setting was changed. Samples have skid and are not cycle-level proof.
 Evidence is under `production-scoped-read/reproducible-layout/disabled-frontend/`;
 all original performance/resource/platform/release requirements remain OPEN.
 
+### Dedicated VM code section: real isolation, acceptance still open
+
+Exact prefix maps identify three changed compiler-function sizes before the
+first array variant's VM, plus a144-byte .text-base displacement. Moving only
+those helpers cannot establish a stable absolute VM start. The previous merged
+.text.hot name changed no allocated code/layout and is not repeated.
+
+Independent a1b6bcf9 adds an actual VM unwind-boundary fixture before changing
+placement. A valid LoadConstant is given a zero-register activation; the Rust
+bounds panic crosses run_vm_slice, advances PC once, publishes one dispatch,
+preserves sentinel/fuel and releases the stack/manager loans. Both feature lanes
+pass, and default/Tree Miri each pass both lanes. The fixture tests host unwinding,
+not safe execution of arbitrary guest bytecode. Initial formatting/Value-equality
+fixture errors are corrected and retained. Named Make gates reject zero tests.
+
+The first placement trial uses a distinct .luna.vm.text executable section and
+assembly directives containing ONLY section selection/alignment, no instructions,
+data, trampoline or lifecycle entry. It changes neither VM logic nor ABI, adds
+no compiler/linker flags and leaves unsupported targets/Miri on the old path.
+Live pointer/RX checks and unwind fixtures pass. Six canonical images build;
+four byte-identical map companions show4096-byte alignment, VM-only contents,
+file-backed RX/non-W LOADs and complete FDEs.52 valid/refusal/restored checks pass.
+Exactly68 no-feature line fields shift by source-derived9, with matching source
+statements/columns and EVERY OTHER ELF byte identical;20 checks validate this.
+
+The first full original0f144-command matrix still fails:16 speed/9 shipping
+native gates and33 speed/12 shipping disabled-cost gates. CPU16shipping cost
+control/candidate ratios0.925355 integer and0.940167 array have near1.0 placebos.
+It completes14256 native/285120 cost iterations with zero source-specific
+independent27-field mismatches and passes16 reader-corruption refusals, but
+valid placement does NOT excuse8.07%/6.36% disabled slowdowns. No placement
+runtime has been committed or accepted.
+
+A bounded second candidate uses64 bytes, the actual cache-line unit on CPUs0/16,
+stabilizing only intraline geometry rather than page offsets. It is not a sweep
+through arbitrary pad counts; reject this approach if the second unit also
+fails. Its focused/live/unwind checks and both Miri lanes pass. An actual
+non-LTO,256-CGU debug embedding example also verifies64-byte VM alignment,
+complete RX/FDE bounds and the correct result, not only a library-unit binary.
+Original-profile images, code layout, complete elapsed controls and all remaining
+platform/resource/release gates still decide retention. No final performance
+claim is made. Sources, initial failures and raw data are retained under
+`production-scoped-read/reproducible-layout/native-text-isolation/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
