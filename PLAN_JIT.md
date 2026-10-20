@@ -37920,6 +37920,50 @@ cost/performance/platform/release gates remain required.
 Evidence: `production-frame-publication/retired-work/` and
 `production-scoped-read/` under the same artifact prefix.
 
+### Production scoped reads: integrated, performance acceptance still open
+
+Commit1b4a2fe3 enables the checked six-argument child in the actual non-test
+runtime. Ordinary five-argument code remains independently typed and retained;
+ineligible prototypes keep the existing array/upvalue production routes.
+Bindings are captured fresh, hold only a synchronous strong-table borrow and
+release it before interpreted calls or user code. Refused optional compilation,
+ownership or code budgets retain ordinary execution. No helper work is invented
+to preserve historical counter equality.
+
+Five external production tests cover warmed physical helper elimination,
+callback rebinding, missing-key metamethods, small code budgets and exact
+interrupted-fuel/collection slices. The broad all-feature/doc run passes2165
+executions across96 summaries; the final focused run adds27 passing executions.
+Both explicit Tree/default Stacked Miri models pass13 source/binding/strong-peek
+tests each. The complete actual ELF32 i686 fallback gate passes3316 executions
+across366 summaries after05671b1e repairs an Oslo diagnostic that incorrectly
+required native work on unsupported targets. Failed logs remain available.
+
+A diagnostic native campaign retains all nine workloads,11 samples, six rotated
+A/candidate/B orders, CPUs0/16, opt3/opts, original0f controls and all27 fields:
+14256 measured executions. Callback helper completions fall64836 to1 while
+native instructions, logical reads and all other execution counters stay exact.
+The callback child costs another4096 mapped bytes,200 live metadata bytes and
+91004 peak snapshot/workspace bytes. Other compiled owners add8 bytes each.
+Both no-feature images remain byte-identical to the original controls.
+
+This is NOT acceptance. The combined candidate's shipping callback control/trial
+ratios are1.153378/1.127087, but speed callback ratios are1.018338/0.978667.
+Those elapsed changes cannot be attributed entirely to this lookup change:
+the candidate also contains the provisional frame publisher, and contention
+and placebo variation remain explicit. Native gates still fail7/108 speed and
+5/108 shipping rows. A separate original-protocol compiled-Off campaign retains
+11 samples,20 iterations and285120 iterations overall, with27/108 speed and
+14/108 shipping gate failures. CPU16 shipping compiled-Off upvalues are about
+12.5% slower than original controls; shipping scalar regressions also remain.
+Do not discard these failures or substitute fewer physical helpers for elapsed
+acceptance. Separate readers pass valid/restored fixtures and10 native plus9
+cost corruptions. Next verify exact-image VM instruction maps before attributing
+these regressions or choosing another implementation. The additional complete
+Force suite and exact-map builds are not yet terminal at this checkpoint.
+Evidence: `target/jit-evidence/hook-resume-recovery/production-scoped-read/`,
+especially `integration/{screen.json,cost-screen.json,reader-tests.log}`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
