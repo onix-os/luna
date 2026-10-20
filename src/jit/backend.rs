@@ -47,7 +47,7 @@ mod projection_mode;
 #[cfg(test)]
 mod read_cache;
 #[cfg(all(test, not(miri)))]
-mod readonly_lookup;
+pub(super) mod readonly_lookup;
 #[cfg(not(miri))]
 pub(super) mod region;
 #[cfg(test)]
@@ -254,6 +254,8 @@ pub(super) struct Code {
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
+    #[cfg(all(test, not(miri)))]
+    pub readonly_lookup: Option<super::owner::Shared<readonly_lookup::ReadCode>>,
     #[cfg(not(miri))]
     pub array_kernels: Option<array::Kernels>,
 }
@@ -305,9 +307,16 @@ impl Code {
         let continuations = self.continuations.take().is_some();
         #[cfg(test)]
         let bound = self.bound_entry.take().is_some();
+        #[cfg(test)]
+        let readonly = if let Some(child) = self.readonly_lookup.take() {
+            self.relocations -= child.relocations;
+            true
+        } else {
+            false
+        };
         let arrays = self.array_kernels.take().is_some();
         #[cfg(test)]
-        let arrays = scalar || continuations || bound || arrays;
+        let arrays = scalar || continuations || bound || readonly || arrays;
         arrays
     }
 
@@ -409,6 +418,12 @@ impl Code {
 pub(super) enum Failure {
     #[cfg(not(miri))]
     RequireReadonlyLookup,
+    #[cfg(not(miri))]
+    RefuseReadonlyOwnerStorage,
+    #[cfg(not(miri))]
+    RefuseReadonlyOwnerAllocation,
+    #[cfg(not(miri))]
+    RefuseReadonlyCacheAllocation,
     RequirePayload,
     RequirePayloadLoop,
     RequirePayloadTags,
@@ -7796,6 +7811,8 @@ impl Image {
             integer_activation: self.integer_activation,
             #[cfg(all(test, not(miri)))]
             scalar_kernel: self.scalar_kernel,
+            #[cfg(all(test, not(miri)))]
+            readonly_lookup: None,
             #[cfg(not(miri))]
             array_kernels: self.array_kernels,
         })

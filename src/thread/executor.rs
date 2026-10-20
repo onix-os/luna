@@ -1700,3 +1700,47 @@ mod builtin_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod static_off_tests;
+
+#[cfg(test)]
+impl Executor<'_> {
+    pub(crate) fn test_frame_snapshot(
+        self,
+    ) -> (Vec<Vec<std::string::String>>, Vec<Vec<std::string::String>>) {
+        use crate::Value;
+        let state = self.0.borrow();
+        let mut frames = Vec::new();
+        let mut stacks = Vec::new();
+        for thread in &state.thread_stack {
+            let thread = thread.into_inner().borrow();
+            frames.push(thread.frames.iter().map(|frame| match frame {
+                Frame::Lua {pc,base,bottom,stack_size,is_variable,expected_return,..} => format!("lua:{pc}:{base}:{bottom}:{stack_size}:{is_variable}:{expected_return:?}"),
+                Frame::Callback {bottom,..} => format!("callback:{bottom}"),
+                Frame::Sequence {bottom,pending_error,..} => format!("sequence:{bottom}:{}",pending_error.is_some()),
+                Frame::Close {bottom,pending_error,..} => format!("close:{bottom}:{}",pending_error.is_some()),
+                Frame::Start(_) => "start".to_owned(),
+                Frame::HookResume => "hook-resume".to_owned(),
+                Frame::Yielded => "yielded".to_owned(),
+                Frame::WaitThread => "wait".to_owned(),
+                Frame::Result {bottom} => format!("result:{bottom}"),
+                Frame::Error(error) => format!("error:{error}"),
+            }).collect());
+            stacks.push(
+                thread
+                    .stack
+                    .borrow()
+                    .iter()
+                    .copied()
+                    .map(|value| match value {
+                        Value::Number(n) => format!("number:{:016x}", n.to_bits()),
+                        Value::String(s) => format!("string:{:?}", s.as_bytes()),
+                        Value::Nil | Value::Boolean(_) | Value::Integer(_) => {
+                            format!("{}:{}", value.type_name(), value.display())
+                        }
+                        _ => value.type_name().to_owned(),
+                    })
+                    .collect(),
+            );
+        }
+        (frames, stacks)
+    }
+}

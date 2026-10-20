@@ -12,6 +12,7 @@ pub(in crate::jit) struct ReadCode {
     pub entry: ReadEntry,
     pub plan: Plan,
     pub registers: usize,
+    pub relocations: usize,
 }
 
 pub(in crate::jit) fn compile(
@@ -46,7 +47,67 @@ pub(in crate::jit) fn compile(
         entry: unsafe { std::mem::transmute::<*const u8, ReadEntry>(image.entry) },
         plan,
         registers: image.registers,
+        relocations: image.relocations,
     })
+}
+
+pub(in crate::jit) fn compile_pair(
+    source: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: crate::jit::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    let bound = crate::jit::work::Expansion::admit(source, work)?;
+    let mut ordinary = compile_in(
+        source,
+        total.clone(),
+        limit,
+        metadata.clone(),
+        work,
+        failure,
+    )?;
+    if Plan::recognize(source).is_none() {
+        return Ok(ordinary);
+    }
+    let Ok(_owner) = Reservation::new(
+        metadata.0.clone(),
+        crate::jit::owner::Shared::<Code>::allocation_bytes(),
+    ) else {
+        return Ok(ordinary);
+    };
+    let remaining = crate::jit::work::Limits {
+        instructions: work.instructions.saturating_sub(bound.instructions),
+        blocks: work.blocks.saturating_sub(bound.blocks),
+        relocations: work.relocations.saturating_sub(ordinary.relocations),
+    };
+    let Ok(child) = compile(source, total, limit, metadata.clone(), remaining) else {
+        return Ok(ordinary);
+    };
+    let Some(relocations) = ordinary
+        .relocations
+        .checked_add(child.relocations)
+        .filter(|&count| count <= work.relocations)
+    else {
+        return Ok(ordinary);
+    };
+    let previous_limit = metadata.0.limit();
+    match failure {
+        Failure::RefuseReadonlyOwnerStorage => metadata.0.set_limit(metadata.0.current()),
+        Failure::RefuseReadonlyOwnerAllocation => metadata.0.fail_after(0),
+        _ => {}
+    }
+    ordinary.readonly_lookup = crate::jit::owner::Shared::try_new(child, metadata.clone()).ok();
+    match failure {
+        Failure::RefuseReadonlyOwnerStorage => metadata.0.set_limit(previous_limit),
+        Failure::RefuseReadonlyOwnerAllocation => metadata.0.fail_after(usize::MAX),
+        _ => {}
+    }
+    if ordinary.readonly_lookup.is_some() {
+        ordinary.relocations = relocations;
+    }
+    Ok(ordinary)
 }
 
 fn invalid() -> JitError {

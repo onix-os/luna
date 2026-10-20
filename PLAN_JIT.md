@@ -37023,6 +37023,61 @@ Eliminated helper transitions must be measured honestly; no release or speedup
 is established by these emitted-code tests.
 Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-binding/`.
 
+### Optional read-only child — integrated runtime candidate
+
+The test-gated runtime now owns an optional shared six-argument child alongside
+the ordinary entry. Pair admission subtracts the ordinary expansion/relocations
+from aggregate limits, charges both images to existing mapping/metadata ledgers,
+and reserves ordinary-owner headroom during child compilation. Child compilation,
+admission or ownership refusal retains the ordinary image. Optional disposal
+reclaims the child and removes its relocation contribution; existing cache/owner
+recovery paths can discard it. No Manager policy field or persistent GC-value
+cache is added. A nested/panic-safe scoped selector chooses eligible sources at
+compilation only; ineligible sources retain their original lowering selection.
+
+Actual native invocation now tries the fresh closed binding before constructing
+the ordinary raw Host. A refused attempt therefore cannot leave an older raw
+Frame capability as the fallback. Successful exits join the existing canonical
+writeback, PC, panic, logical-read and actual-helper publication path. The shared
+table borrow has ended before callbacks, hooks or source retirement can run.
+
+Eight runtime fixtures cover16 rebinding/fuel schedules,20 callback lifecycle
+schedules, nine typed-error/noncallable/missing-value schedules and four open-env
+schedules. Physical frames, complete scalar-stack bits, dispatches and fuel match
+Off and ordinary Auto at executor boundaries, with collection between steps.
+Actual callback mutation proves guard release. Cases include source/cache
+retirement, mode changes, weak environments, missing-key/metamethod fallback,
+count-one hooks, original typed error identity, and an installed child's refusal
+of an open environment with unchanged helper counts. Parent and child leases
+independently pin executable ownership until their final release.
+
+Aggregate mapping/IR/block/relocation limits, child-owner storage/allocation
+refusal, recoverable ordinary-owner pressure and transient late cache allocation
+refusal retain usable ordinary ownership. The pressure fixture explicitly allows
+the ordinary Code owner: a smaller ReadCode is not assumed to free enough space
+under an arbitrary reduced cap. Short-source liveness fixtures explicitly warm,
+prepare and pin installed code before result consumption can retire its source.
+
+An additional diagnostic window fixture uses the original Lua::core workload
+bytes and host callback across all seven frozen cases, two warmups plus draining
+queued compilation before measurement. It verifies compilation-free windows,
+real child selection, unchanged logical counters and exactly5000 fewer actual C
+calls/completions per frozen callback execution, zero reduction for other cases.
+The focused format/check-all/runtime/window/native/binding/peek gate passes28
+executions across six summaries, zero failures/ignores/warnings.
+The final current-source Force all-target/all-feature gate passes2102 executions
+across91 summaries, zero failures and24 diagnostic ignores (one new explicit
+timing entry). Actual i686-musl check-all and all11 binding/source/peek fixtures
+also pass; the executed fallback is independently identified as ELF32/i386.
+Both frozen opt3/opts diagnostic images build with LTO, one codegen unit and
+stripping. Source/dependency/Make manifests verify unchanged after these gates.
+
+This remains an **integrated test-runtime candidate**, not enabled production
+acceleration. The opt3/opts release test-image diagnostics are explicitly separate
+from the original production-binary performance/size/cold-cost/platform gates.
+Full release acceptance and the original performance regressions remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/readonly-entry-runtime/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
