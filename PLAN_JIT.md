@@ -36836,6 +36836,45 @@ work screens are running next, before the unchanged full elapsed campaign.
 This is an unaccepted trial, not completion of the full JIT plan or performance
 gate; no callback or compiled-Off regression is claimed fixed.
 
+The candidate subsequently passes a fresh isolated all-feature Force gate:
+**2,074 executions /91 summaries**, zero failures and23 existing ignores, with
+the new root fixture and both retained helper-counter fixtures positively run.
+Four original cost images have verified source/config/protocol bindings; both
+no-feature binaries are byte-identical to controls. Disabled work screens
+complete48 loads/240 executions, all partitions and12 valid/24 corrupt identity
+fixtures. Numeric totals and shipping upvalues are unchanged; opt3 JIT-Off
+upvalue work differs+0.0000931%, not a causal improvement.
+
+Two complete, independently balanced original elapsed campaigns finish with
+the unchanged strict auditor: **288 commands,28,512 native executions and570,240
+cost iterations**, zero complete27-field counter/resource mismatches. Each
+campaign passes two valid/13 corrupted fixtures. Raw cost medians are
+recomputed; raw native medians are not available for recomputation. No rebuild
+or source/flag/order/threshold changes occur between campaigns.
+
+Candidate speed-native failures are9/96 then10/96, versus12/11 then9/10 for
+the controls. Cost failures are55/216 then54/216, versus56/56 then54/55. These
+counts are not performance acceptance. Across all12 rounds, native upvalue
+control/trial medians are1.002847/1.000147 (CPU0 opt3/opts) and0.996798/1.002251
+(CPU16), with4/6/7/5 adverse rounds respectively. Placebo medians are
+0.996340/1.001199/0.996445/1.006299. Instruction reductions therefore do not
+establish a reliable integrated benefit; neither do these contended results
+establish a precise hardware cause or a causal regression for every loss.
+
+**Withdraw the runtime predicate trial as unaccepted.** Restore the shared
+`Slot::from_value` classification; retain only the independent raw-reference
+validation fixture and exact Make/Miri selection. Source **d7c72349** passes
+fresh formatting/check-all and152 focused executions/13 summaries, zero failures
+and the same two existing diagnostic ignores. All source/Makefile content
+exactly equals the test-only pre-trial c521b440 state. Six original-profile
+restoration image rebuilds verify both native and JIT-Off text/rodata/section
+layouts equal the pre-trial controls; both no-feature whole files match.
+Read-only inspection uses explicit output copies and rechecks original hashes.
+The full Force/Miri results above belong to the frozen trial, not a claim of a
+new post-restoration full-suite run. No elapsed optimization from this family
+is retained. Callback transport, compiled-Off overhead and the remaining full
+performance/resource/platform/release requirements stay open.
+
 Evidence: `target/jit-evidence/hook-resume-recovery/current-warmed-pmu-dense/`.
 Trial: `target/jit-evidence/hook-resume-recovery/materialize-root-kind/`.
 
