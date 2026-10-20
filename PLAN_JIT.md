@@ -38165,6 +38165,51 @@ Fresh locked-builder image revalidation is recorded separately in
 `production-scoped-read/reproducible-layout/public-cache-lock-validation/`;
 completion requires its `validation.status` to be0, not the presence of a lock.
 
+### Exact-code VM instruction attribution and rejected budget cloning
+
+Four disposable profiling copies now carry sized symbols recovered from their
+exact linker maps. Their allocated section bytes/layout and program headers are
+identical to the normalized production images; only nonallocated symbol/section
+metadata differs. Frozen originals are not rewritten. Four Callgrind runs
+collect VM slices and callees, including both warmups and one worker iteration.
+These simulated instruction counts are not hardware cycles or elapsed gates.
+
+VM self instructions in that scope are19472541/23612742 for no-feature/Off at
+opt3, and18122325/21092514 at opts. This isolates substantial VM work without
+using throttled sampling weights as exact function counts. The existing native
+scratch is already outlined: current stack reservations are0x608/0x648 for
+no-feature/Off speed,0x5d8/0x6c8 for shipping, not a hidden4KiB probe page.
+
+One concrete compiler difference is visible: no-feature's sole64-opcode caller
+allows budget argument/zero-guard constant propagation; JIT's activation hosts
+also call the VM with variable budgets. An isolated trial clones the SAME VM
+body for actual64-opcode calls, retaining dynamic behavior for every other
+budget. It does not specialize Off/Auto or change counters, guards or ABI.
+Formatting and51 existing focused executions pass. A new direct fixed/dynamic
+fixture passes80 scenario pairs (scalar loops, return/error/callback-call,
+fuel, interruption and pending resumption), with exact state/accounting checks.
+Its initial Value/PartialEq compile failure is retained and corrected using
+tagged scalar bits and identity snapshots. No Miri claim is made for this trial.
+
+All six canonical release images build. No-feature allocated layout and bytes
+match controls except70 changed bytes in.data.rel.ro in EACH profile; full-file
+identity is false. This is consistent with shifted panic-location metadata,
+not proven harmless by a file-hash match. JIT cost images grow30720/31616 bytes
+in speed/shipping; code duplication is not hidden.
+
+REJECT the runtime trial.120 actual production Off-worker stat runs cover
+upvalues, integer/float loops, callbacks and arrays, both profiles/CPUs and
+three rotated control/candidate repeats. All instruction ratios worsen:
+upvalues about1.29%/2.06–2.07%, integer17.90–17.91%/21.00%,
+float17.65%/21.13%, callbacks1.20%/1.66%, arrays4.12%/5.62%, by speed/shipping.
+All PMU counters are100% scheduled. Startup and both warmups are INCLUDED;
+this is not warmed-only attribution or full timing acceptance. Do not retain
+the clone because its source-level budget argument looks simpler. Production
+VM/Make sources are restored exactly; the rejected source, parity fixture,
+patch, images, raw counters and no-feature section comparisons remain archived.
+Original performance, resource-policy, platform and release gates remain OPEN.
+Evidence: `production-scoped-read/reproducible-layout/{vm-ir-attribution,fixed-slice-budget}/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
