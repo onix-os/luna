@@ -43,7 +43,6 @@ impl<'gc> LuaFrame<'gc, '_> {
             || self.state.frames.len() >= self.state.max_call_depth
             || self.state.frames.len() >= self.state.frames.capacity()
             || !self.state.captures_below(bottom)
-            || !prepared.matches(ctx, caller)
         {
             return None;
         }

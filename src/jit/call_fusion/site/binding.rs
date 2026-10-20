@@ -96,29 +96,52 @@ impl Input {
         run: impl for<'entry> FnOnce(Bound<'entry, 'gc, 'frame>) -> R,
     ) -> Option<R> {
         let prototype = caller.prototype();
-        if !registers.fixed_list_stack()
-            || *registers.pc != self.site.region_pc as usize
-            || registers.stack_frame.len() != usize::from(self.site.registers)
-            || prototype.fixed_params != self.fixed_params
+        if prototype.fixed_params != self.fixed_params
             || prototype.has_varargs != self.varargs
             || !matches_source(&self.parent, &prototype)
         {
             return None;
         }
+        let child = *prototype.prototypes.get(usize::from(self.site.prototype))?;
+        if !matches_source(&self.child, &child) {
+            return None;
+        }
+        self.site.with_live_binding(caller, registers, run)
+    }
+}
+
+impl Site {
+    pub(in crate::jit) fn with_live_binding<'gc, 'frame, R>(
+        self,
+        caller: Closure<'gc>,
+        registers: &LuaRegisters<'gc, 'frame>,
+        run: impl for<'entry> FnOnce(Bound<'entry, 'gc, 'frame>) -> R,
+    ) -> Option<R> {
+        let prototype = caller.prototype();
+        if !registers.fixed_list_stack()
+            || *registers.pc != self.region_pc as usize
+            || registers.stack_frame.len() != usize::from(self.registers)
+            || usize::from(prototype.stack_size) != usize::from(self.registers)
+        {
+            return None;
+        }
         let Value::Function(Function::Closure(callee)) =
-            *registers.stack_frame.get(usize::from(self.site.holder))?
+            *registers.stack_frame.get(usize::from(self.holder))?
         else {
             return None;
         };
-        let child = *prototype.prototypes.get(usize::from(self.site.prototype))?;
+        let child = *prototype.prototypes.get(usize::from(self.prototype))?;
         if !Gc::ptr_eq(callee.prototype(), child)
             || child.fixed_params != 1
             || child.has_varargs
+            || child.stack_size != self.leaf.width
+            || child.opcodes.len() != 4
+            || !child.constants.is_empty()
+            || !child.prototypes.is_empty()
             || child.upvalues.as_ref()
                 != [crate::types::UpValueDescriptor::ParentLocal(
-                    crate::types::RegisterIndex(self.site.leaf.parent),
+                    crate::types::RegisterIndex(self.leaf.parent),
                 )]
-            || !matches_source(&self.child, &child)
         {
             return None;
         }
@@ -130,10 +153,10 @@ impl Input {
         else {
             return None;
         };
-        if index != usize::from(self.site.leaf.parent) {
+        if index != usize::from(self.leaf.parent) {
             return None;
         }
-        let argument = match self.site.argument {
+        let argument = match self.argument {
             Argument::Integer(value) => value,
             Argument::Register(index) => {
                 let Value::Integer(value) = *registers.stack_frame.get(usize::from(index))? else {
@@ -144,7 +167,7 @@ impl Input {
         };
         let mut scope = ();
         Some(run(Bound {
-            site: self.site,
+            site: self,
             sum,
             argument,
             _registers: registers,

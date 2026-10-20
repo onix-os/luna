@@ -37635,6 +37635,30 @@ The2139-test full matrix and19-test Miri/i686 gates belong to the earlier frozen
 scratch-kernel source, not this later adapter/fuel correction.
 Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-publication/adapter.*`.
 
+### Immutable identity binding without retained snapshots
+
+The scoped prepared owner no longer retains Input snapshots or scans parent and
+child bytecode at each call. The private Request constructor pairs its source ID
+with snapshots from the actual registered immutable parent and its selected
+child. Full source/IR verification remains at compilation. Both snapshots drop
+before compile returns, and snapshot_bytes is asserted zero while leases remain
+live, including through interleaved execution and cache retirement.
+
+Immediately before native entry, runtime identity and registry weak-upgrade/
+prototype identity are checked afresh. The bounded live binder still checks PC,
+frame width, actual holder closure and selected child pointer, fixed signature/
+metadata, exact current open parent-cell origin and current integer operands.
+No GC object or source pointer is cached. The exhaustive snapshot binder remains
+an independent reference oracle rather than being removed from the tests.
+
+The existing30 selected integration/guard tests and two new identity regressions
+pass. Equal-shaped other registered parents cannot use the lease. Reset and
+reregistration invalidate it even for the SAME still-live prototype pointer.
+Two interleaved executors of one compiled parent preserve separate captured sums
+and match interpreter frame/fuel traces with collections between steps. This is
+resource/correctness evidence, not a speedup result or production promotion.
+Evidence: `target/jit-evidence/hook-resume-recovery/call-fusion-identity/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

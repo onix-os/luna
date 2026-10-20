@@ -27,6 +27,7 @@ fn run(source: &[u8], mode: JitMode, enabled: bool, fuels: &[i32]) -> Outcome {
         assert!(lua.prepare_jit().unwrap() > 0);
     }
     let prepared = request.map(|request| request.compile().unwrap());
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
     let mut trace = Vec::new();
     let mut execute = || {
         let mut done = false;
@@ -113,7 +114,9 @@ fn scoped_leases_restore_after_nested_unwind_and_isolate_runtime_identity() {
             (ctx.stash(Executor::start(ctx, caller.into(), ())), Request::new(ctx, caller).unwrap().unwrap())
         });
         lua.prepare_jit().unwrap();
-        (executor, request.compile().unwrap())
+        let prepared = request.compile().unwrap();
+        assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+        (executor, prepared)
     }
     let mut first = Lua::empty();
     let mut second = Lua::empty();
@@ -160,4 +163,133 @@ fn scoped_leases_restore_after_nested_unwind_and_isolate_runtime_identity() {
     drop(second_executor);
     first.gc_collect();
     second.gc_collect();
+}
+
+#[test]
+fn compiled_source_identity_is_not_reused_for_other_parents_or_after_reset() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        ..Default::default()
+    })
+    .unwrap();
+    let (a, b, request) = lua.enter(|ctx| {
+        let a = Closure::load(
+            ctx,
+            None,
+            b"local sum=0 local function add(v) sum=sum+v end for i=1,40 do add(i) end return sum",
+        )
+        .unwrap();
+        let b = Closure::load(
+            ctx,
+            None,
+            b"local sum=99 local function add(v) sum=sum+v end for i=1,40 do add(i) end return sum",
+        )
+        .unwrap();
+        (
+            ctx.stash(a),
+            ctx.stash(b),
+            Request::new(ctx, a).unwrap().unwrap(),
+        )
+    });
+    lua.prepare_jit().unwrap();
+    let prepared = request.compile().unwrap();
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+    lua.enter(|ctx| {
+        assert!(prepared.matches(ctx, ctx.fetch(&a)));
+        assert!(!prepared.matches(ctx, ctx.fetch(&b)));
+    });
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&b).into(), ())));
+    assert_eq!(
+        with_prepared(prepared.clone(), || lua.execute::<i64>(&executor)).unwrap(),
+        919
+    );
+    assert_eq!(prepared.executions(), 0);
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&a).into(), ())));
+    assert_eq!(
+        with_prepared(prepared.clone(), || lua.execute::<i64>(&executor)).unwrap(),
+        820
+    );
+    let count = prepared.executions();
+    assert!(count > 0);
+    lua.enter(|ctx| {
+        ctx.jit_registry().borrow_mut(&ctx).reset(ctx);
+        ctx.jit_registry()
+            .borrow_mut(&ctx)
+            .register(ctx, ctx.fetch(&a).prototype());
+        assert!(!prepared.matches(ctx, ctx.fetch(&a)));
+    });
+    lua.prepare_jit().unwrap();
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&a).into(), ())));
+    assert_eq!(
+        with_prepared(prepared.clone(), || lua.execute::<i64>(&executor)).unwrap(),
+        820
+    );
+    assert_eq!(prepared.executions(), count);
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+}
+
+#[test]
+fn one_compiled_parent_keeps_interleaved_executor_captures_separate() {
+    fn execute(mode: JitMode, enabled: bool) -> (Vec<Vec<(Snapshot, i32)>>, [i64; 2], u64) {
+        use allocator_api2::vec::Vec as ArenaVec;
+        use ottavino_gc_arena::allocator_api::MetricsAlloc;
+        let mut lua = Lua::empty();
+        lua.set_gc_pacing(false);
+        lua.set_jit_config(JitConfig {
+            mode,
+            ..Default::default()
+        })
+        .unwrap();
+        let (executors, request) = lua.enter(|ctx| {
+            let outer = Closure::load(ctx, None, b"local function run(seed) local sum=seed local function add(v) sum=sum+v end for i=1,100 do add(i) end return sum end return run").unwrap();
+            let proto = outer.prototype().prototypes[0];
+            assert!(proto.upvalues.is_empty());
+            let caller = Closure::from_parts(&ctx, proto, ArenaVec::new_in(MetricsAlloc::new(&ctx)));
+            let request = enabled.then(|| Request::new(ctx, caller).unwrap().unwrap());
+            ([ctx.stash(Executor::start(ctx, caller.into(), (11,))), ctx.stash(Executor::start(ctx, caller.into(), (97,)))], request)
+        });
+        if mode == JitMode::Auto {
+            lua.prepare_jit().unwrap();
+        }
+        let prepared = request.map(|r| r.compile().unwrap());
+        assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+        let mut traces = vec![Vec::new(), Vec::new()];
+        let run = || {
+            let mut done = [false; 2];
+            for _ in 0..1000 {
+                lua.gc_collect();
+                for index in 0..2 {
+                    if done[index] {
+                        continue;
+                    }
+                    let mut fuel = Fuel::with(256);
+                    done[index] = lua.enter(|ctx| {
+                        let executor = ctx.fetch(&executors[index]);
+                        let done = executor.step(ctx, &mut fuel).unwrap();
+                        traces[index].push((executor.test_frame_snapshot(), fuel.remaining()));
+                        done
+                    });
+                }
+                if done == [true; 2] {
+                    break;
+                }
+            }
+            assert_eq!(done, [true; 2]);
+            executors.map(|e| lua.execute::<i64>(&e).unwrap())
+        };
+        let values = if let Some(p) = &prepared {
+            with_prepared(p.clone(), run)
+        } else {
+            run()
+        };
+        let count = prepared.as_ref().map_or(0, |p| p.executions());
+        (traces, values, count)
+    }
+    let off = execute(JitMode::Off, false);
+    let candidate = execute(JitMode::Auto, true);
+    assert_eq!(candidate.0, off.0);
+    assert_eq!(candidate.1, [5061, 5147]);
+    assert_eq!(candidate.1, off.1);
+    assert!(candidate.2 > 0);
 }

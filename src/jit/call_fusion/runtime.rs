@@ -34,7 +34,6 @@ pub(crate) struct Request {
 pub(crate) struct Prepared {
     runtime: Runtime,
     source: u64,
-    input: Input,
     code: backend::call_fusion::Code,
     view: kernel::View,
     site: Site,
@@ -131,7 +130,6 @@ impl Request {
             Prepared {
                 runtime: self.runtime,
                 source: self.source,
-                input: self.input,
                 code,
                 view,
                 site,
@@ -184,6 +182,9 @@ impl Prepared {
         registers: &mut LuaRegisters<'gc, '_>,
         budget: u32,
     ) -> Option<u32> {
+        if !self.matches(ctx, caller) {
+            return None;
+        }
         let count = self.region().registers;
         let mut scratch = [abi::Slot {
             tag: abi::NIL,
@@ -195,8 +196,8 @@ impl Prepared {
         }
         let mut view = self.view;
         let exit = self
-            .input
-            .with_binding(caller, registers, |_| {
+            .site
+            .with_live_binding(caller, registers, |_| {
                 self.code
                     .invoke_scratch(slots, self.region().entry as u64, budget, Some(&mut view))
             })?
