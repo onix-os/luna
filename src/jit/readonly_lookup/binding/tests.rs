@@ -139,13 +139,12 @@ fn capture_matches_guarded_lookup_for_every_hint_encoding() {
                     hints.set(pc, enabled);
                     let hint = hints.hint(pc).unwrap();
                     hint.remember(offset);
-                    let expected =
-                        environment
-                            .try_strong_canonical_hint(key, hint)
-                            .map(|(guard, value)| {
-                                drop(guard);
-                                value
-                            });
+                    let expected = environment
+                        .try_strong_canonical_hint(key, hint.load().unwrap_or(usize::MAX))
+                        .map(|(guard, value)| {
+                            drop(guard);
+                            value
+                        });
                     let mut scope = ();
                     let captured = plan.capture(closure, &hints, &mut scope);
                     assert_eq!(captured.is_some(), expected.is_some());
