@@ -17,24 +17,26 @@ for path in "$source_root" "$target_root" "$artifacts"; do
 done
 [[ $artifacts != "$source_root" && $target_root != "$source_root" && $target_root != "$artifacts" ]] || fail 'source, target and artifacts must be separate'
 expected=$(mktemp)
-lock=
-cleanup() { rm -f "$expected"; if [[ -n $lock ]]; then rmdir "$lock" || :; fi; }
+locks=()
+cleanup() { rm -f "$expected"; for lock in "${locks[@]}"; do rmdir "$lock" || :; done; }
 trap cleanup EXIT
 wrapper_hash=$(sha256sum "$wrapper")
 builder_hash=$(sha256sum "$0")
 printf 'protocol=luna-jit-repro-v1\nsource=%s\nwrapper_sha256=%s\nbuilder_sha256=%s\nopt=%s\ntriple=%s\nRUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' \
     "$source_root" "${wrapper_hash%% *}" "${builder_hash%% *}" "$opt" "$triple" "${RUSTFLAGS:-}" "${CARGO_ENCODED_RUSTFLAGS:-}" > "$expected"
 for directory in "$target_root" "$artifacts"; do
+    mkdir -p "$directory"
+    mkdir "$directory/.building" || fail 'cache or artifacts are locked; use fresh directories if an interrupted build left a lock'
+    locks+=("$directory/.building")
+done
+for directory in "$target_root" "$artifacts"; do
     if [[ -e $directory/.luna-jit-repro ]]; then
         cmp -s "$expected" "$directory/.luna-jit-repro" || fail 'incompatible cache or artifacts; select fresh directories'
     else
-        [[ ! -d $directory || -z $(find "$directory" -mindepth 1 -maxdepth 1 -print -quit) ]] || fail 'unmarked directory is not empty'
-        mkdir -p "$directory"
+        [[ -z $(find "$directory" -mindepth 1 -maxdepth 1 ! -name .building -print -quit) ]] || fail 'unmarked directory is not empty'
         cp "$expected" "$directory/.luna-jit-repro"
     fi
 done
-mkdir "$artifacts/.building" || fail 'artifacts are locked; use a fresh directory if an interrupted build left the lock'
-lock=$artifacts/.building
 export RUSTC_WRAPPER=$wrapper LUNA_REPRO_SOURCE=$source_root LUNA_REPRO_TARGET=$target_root
 export CARGO_TARGET_DIR=$target_root
 export CARGO_PROFILE_RELEASE_OPT_LEVEL=$opt CARGO_PROFILE_RELEASE_LTO=true

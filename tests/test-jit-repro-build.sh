@@ -9,6 +9,7 @@ cat > "$tmp/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -eu
 if [[ $1 == --version ]]; then printf 'cargo mock\n'; exit; fi
+[[ -d $CARGO_TARGET_DIR/.building ]] || exit 22
 printf 'source=%s target=%s opt=%s lto=%s cgu=%s strip=%s wrapper=%s args=%s\n' "$LUNA_REPRO_SOURCE" "$LUNA_REPRO_TARGET" "$CARGO_PROFILE_RELEASE_OPT_LEVEL" "$CARGO_PROFILE_RELEASE_LTO" "$CARGO_PROFILE_RELEASE_CODEGEN_UNITS" "$CARGO_PROFILE_RELEASE_STRIP" "$RUSTC_WRAPPER" "$*" >> "$REPRO_CALLS"
 [[ ${REPRO_FAIL:-0} == 0 ]] || exit 17
 example= triple=
@@ -40,6 +41,7 @@ test "$(cat "$tmp/images/completed")" = complete
 test "$(wc -l < "$REPRO_CALLS")" = 3
 sha256sum -c "$tmp/images/images.sha256" > "$tmp/images-verified.log"
 test ! -d "$tmp/images/.building"
+test ! -d "$tmp/cache/.building"
 grep -Fq 'opt=3 lto=true cgu=1 strip=true' "$REPRO_CALLS"
 grep -Fq -- '--no-default-features --features jit --example jit_feature_cost' "$REPRO_CALLS"
 run > "$tmp/repeat.log" 2>&1
@@ -55,7 +57,13 @@ refuse JIT_REPRO_TARGET_DIR="$tmp/unmarked"
 test "$(cat "$tmp/unmarked/user-data")" = preserve
 mkdir "$tmp/images/.building"
 refuse
+test ! -d "$tmp/cache/.building"
 rmdir "$tmp/images/.building"
+mkdir "$tmp/cache/.building"
+refuse JIT_REPRO_DIR="$tmp/competing-images"
+test -d "$tmp/cache/.building"
+test ! -d "$tmp/competing-images/.building"
+rmdir "$tmp/cache/.building"
 cp "$repo/examples/jit_support/rustc_repro.sh" "$tmp/wrapper"
 printf '\n' >> "$tmp/wrapper"
 chmod +x "$tmp/wrapper"
@@ -68,6 +76,7 @@ test ! -f "$tmp/images/completed"
 test ! -f "$tmp/images/images.sha256"
 test ! -f "$tmp/images/binary-sha256.log"
 test ! -d "$tmp/images/.building"
+test ! -d "$tmp/cache/.building"
 make --no-print-directory -C "$repo" SHELL="$shell" jit-repro-images CARGO="$tmp/cargo" \
     JIT_BENCH_OPT=s TARGET=i686-unknown-linux-musl \
     JIT_REPRO_TARGET_DIR="$tmp/cross-cache" JIT_REPRO_DIR="$tmp/cross-images" > "$tmp/cross.log" 2>&1
@@ -75,4 +84,4 @@ test -x "$tmp/cross-cache/i686-unknown-linux-musl/release/examples/jit_bench"
 test "$(cat "$tmp/cross-images/completed")" = complete
 grep -Fq 'opt=s lto=true cgu=1 strip=true' "$REPRO_CALLS"
 grep -Fq -- '--target i686-unknown-linux-musl' "$REPRO_CALLS"
-printf 'jit_repro_build=passed incremental=1 refusals=8 compiler_failure=propagated target_forwarding=exact\n'
+printf 'jit_repro_build=passed incremental=1 refusals=9 compiler_failure=propagated target_forwarding=exact cache_lock=transactional\n'
