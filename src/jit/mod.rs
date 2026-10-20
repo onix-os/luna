@@ -1308,6 +1308,32 @@ impl PreparedPair {
     }
 }
 
+macro_rules! record_helper_counts {
+    ($stats:expr, $counts:expr) => {{
+        let stats = &mut $stats;
+        let counts = &$counts;
+        stats.helper_calls = stats.helper_calls.saturating_add(counts.calls);
+        stats.helper_instructions = stats.helper_instructions.saturating_add(counts.completed);
+        stats.native_table_reads = stats.native_table_reads.saturating_add(counts.table_reads);
+        stats.native_upvalue_reads = stats
+            .native_upvalue_reads
+            .saturating_add(counts.upvalue_reads);
+        if counts.declined | counts.table_writes | counts.upvalue_writes | counts.allocations != 0 {
+            stats.helper_declines = stats.helper_declines.saturating_add(counts.declined);
+            stats.native_table_writes = stats
+                .native_table_writes
+                .saturating_add(counts.table_writes);
+            stats.native_upvalue_writes = stats
+                .native_upvalue_writes
+                .saturating_add(counts.upvalue_writes);
+            stats.native_allocations = stats.native_allocations.saturating_add(counts.allocations);
+        }
+    }};
+}
+
+#[cfg(test)]
+mod helper_publication_tests;
+
 pub(crate) struct InterpreterStats<'a> {
     runtime: &'a Runtime,
     pub dispatches: u32,
@@ -2286,35 +2312,7 @@ impl Runtime {
                 .saturating_add(u64::from(delta.writes));
         }
         let counts = frame.count;
-        manager.stats.helper_calls = manager.stats.helper_calls.saturating_add(counts.calls);
-        manager.stats.helper_instructions = manager
-            .stats
-            .helper_instructions
-            .saturating_add(counts.completed);
-        manager.stats.helper_declines = manager
-            .stats
-            .helper_declines
-            .saturating_add(counts.declined);
-        manager.stats.native_table_reads = manager
-            .stats
-            .native_table_reads
-            .saturating_add(counts.table_reads);
-        manager.stats.native_table_writes = manager
-            .stats
-            .native_table_writes
-            .saturating_add(counts.table_writes);
-        manager.stats.native_upvalue_reads = manager
-            .stats
-            .native_upvalue_reads
-            .saturating_add(counts.upvalue_reads);
-        manager.stats.native_upvalue_writes = manager
-            .stats
-            .native_upvalue_writes
-            .saturating_add(counts.upvalue_writes);
-        manager.stats.native_allocations = manager
-            .stats
-            .native_allocations
-            .saturating_add(counts.allocations);
+        record_helper_counts!(manager.stats, counts);
         manager.stats.record_native_exit(&exit);
         if let Some(payload) = frame.panic.take() {
             drop(manager);

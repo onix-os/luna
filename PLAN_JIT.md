@@ -36630,6 +36630,34 @@ pass across6 summaries, with zero failures/ignores. The real11-prototype/37-atte
 compiler-resource replay remains intact. Restoration evidence:
 `target/jit-evidence/hook-resume-recovery/interpreter-prefix-withdrawal/`.
 
+### Grouped read-only helper publication — unaccepted trial
+
+The complete source-bound callback work observation is reverified/recomputed,
+not the earlier incomplete `native-profile` capture (speed status1, two image
+loads only). The complete opt3/opts records retain all four loads and five
+executions each, and the recomputed symbol JSON equals its existing immutable
+counterpart. Ordinary seven-slot native transport contributes1,570,343/1,590,360
+instructions per callback workload execution; these are work counts, not times.
+
+The earlier sparse-counter experiment added eight independent zero checks.
+This trial instead uses **one bitwise-union guard for four actual deltas**:
+declines, table writes, upvalue writes and allocations. Calls, completions and
+table/upvalue reads retain their ordinary full-width saturating updates. When
+any of the four guarded deltas is nonzero, all four retain their original
+full-width saturating updates; otherwise all four additions are identities.
+There is no inference from helper-call counts, narrowed field, deferred
+publication, persistent cache, new allocation or metadata/GC/ABI layout change.
+Publication remains before native-exit reporting and transported panic rethrow.
+Macro expansion keeps the existing invocation boundary without an inline hint
+or a separately outlined publisher.
+
+Independent u128-sum fixtures exercise each of all eight fields and extreme
+values, zero/nonzero failure/write lanes,4096 mixed cases, and unchanged
+non-helper statistics. Formatting/all-feature checks and helper/publication/
+native/heap gates pass. The production speed/shipping work screen and every
+original elapsed/per-case/platform/resource/release requirement remain open.
+Evidence: `target/jit-evidence/hook-resume-recovery/helper-readonly-publication/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
