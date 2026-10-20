@@ -73,7 +73,6 @@ impl<T> Shared<T> {
         left.pointer == right.pointer
     }
 
-    #[cfg(test)]
     pub fn allocation_bytes() -> usize {
         Layout::new::<Inner<T>>().size()
     }

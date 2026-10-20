@@ -2,6 +2,15 @@ use crate::{Constant, Value};
 
 pub(super) mod roots;
 
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+pub(super) mod frame_publication;
+
 #[cfg(test)]
 pub(crate) mod split;
 

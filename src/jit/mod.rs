@@ -1599,6 +1599,16 @@ impl Runtime {
                     backend::Failure::None | backend::Failure::PreferBoundPair
                 );
             let compile = |snapshot: &ir::Snapshot| {
+                #[cfg(not(any(test, miri)))]
+                if readonly_lookup::Plan::recognize(snapshot).is_some() {
+                    return backend::readonly_lookup::compile_pair(
+                        snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                    );
+                }
                 #[cfg(all(test, not(miri)))]
                 if readonly_lookup::runtime::enabled()
                     && readonly_lookup::Plan::recognize(snapshot).is_some()
@@ -2198,21 +2208,24 @@ impl Runtime {
                 slot.write_back(dest);
             }
         }
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         let readonly_exit = if !PROJECTED && !CANONICAL {
-            code.readonly_lookup.as_ref().and_then(|child| {
-                let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
-                unsafe {
-                    child
-                        .plan
-                        .invoke_fresh(child.entry, &mut frame, scratch, pc, budget)
-                }
-                .expect("invalid read-only lookup exit")
-            })
+            code.readonly_lookup
+                .as_ref()
+                .filter(|child| child.registers == register_count)
+                .and_then(|child| {
+                    let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
+                    unsafe {
+                        child
+                            .plan
+                            .invoke_fresh(child.entry, &mut frame, scratch, pc, budget)
+                    }
+                    .expect("invalid read-only lookup exit")
+                })
         } else {
             None
         };
-        #[cfg(all(test, miri))]
+        #[cfg(miri)]
         let readonly_exit: Option<abi::Exit> = None;
         let projection = if PROJECTED {
             frame
@@ -2269,7 +2282,8 @@ impl Runtime {
             )
         };
         #[cfg(not(test))]
-        let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
+        let exit = readonly_exit
+            .unwrap_or_else(|| unsafe { code.invoke_raw(slots, pc, budget, &mut host) });
         #[cfg(not(miri))]
         let exit = if let Some(prefix) = &array_prefix {
             abi::Exit {
@@ -2287,13 +2301,10 @@ impl Runtime {
         let write_back = write_back && !CANONICAL;
         if write_back {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
-            for (slot, dest) in slots
-                .iter()
-                .copied()
-                .zip(frame.registers.stack_frame[..register_count].iter_mut())
-            {
-                slot.write_back(dest);
-            }
+            abi::frame_publication::publish(
+                slots,
+                &mut frame.registers.stack_frame[..register_count],
+            );
         }
         if frame.panic.is_none() {
             *frame.registers.pc = usize::try_from(exit.pc).expect("native PC exceeds host range");
@@ -3645,7 +3656,14 @@ mod vm_progress;
 
 pub(crate) mod entry_bytes;
 
-#[cfg(test)]
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
 mod readonly_lookup;
 
 #[cfg(test)]

@@ -169,11 +169,55 @@ fn ordinary_constructor_refuses_the_distinct_entry_and_releases_ownership() {
         let source=Snapshot::new(&closure.prototype(),4096,8<<20).unwrap();
         let maps=MappingCounter::new(Ledger::new(usize::MAX));
         let ledger=Ledger::new(8<<20);
-        let result=super::super::compile_in(&source,maps.clone(),8<<20,BudgetAllocator(ledger.clone()),(&JitConfig::default()).into(),Failure::RequireReadonlyLookup);
+        let result=super::super::compile_selected(&source,maps.clone(),8<<20,BudgetAllocator(ledger.clone()),(&JitConfig::default()).into(),Selection {
+            projected: false,
+            readonly_scope: true,
+            scoped_helpers: false,
+            leaf: false,
+            cell_kernel: false,
+            integer_activation: false,
+            failure: Failure::None,
+        });
         assert!(matches!(result,Err(JitError::Compilation(message)) if message=="non-ordinary native entry ABI"));
         assert_eq!(maps.load(Ordering::Relaxed),0);
         assert_eq!(maps.requested(),0);
         assert_eq!(ledger.current(),0);
+    });
+}
+
+#[test]
+fn readonly_selection_rejects_incompatible_lowering_without_retained_ownership() {
+    Lua::empty().enter(|ctx| {
+        let closure = Closure::load(ctx, None, SOURCE).unwrap();
+        let source = Snapshot::new(&closure.prototype(), 4096, 8 << 20).unwrap();
+        let maps = MappingCounter::new(Ledger::new(usize::MAX));
+        let ledger = Ledger::new(8 << 20);
+        for (projected, scoped_helpers, failure) in [
+            (true, false, Failure::None),
+            (false, true, Failure::None),
+            (false, false, Failure::RequirePayload),
+        ] {
+            let result = super::super::compile_selected(
+                &source,
+                maps.clone(),
+                8 << 20,
+                BudgetAllocator(ledger.clone()),
+                (&JitConfig::default()).into(),
+                Selection {
+                    projected,
+                    scoped_helpers,
+                    readonly_scope: true,
+                    leaf: false,
+                    cell_kernel: false,
+                    integer_activation: false,
+                    failure,
+                },
+            );
+            assert!(matches!(result, Err(JitError::Compilation(_))));
+            assert_eq!(maps.load(Ordering::Relaxed), 0);
+            assert_eq!(maps.requested(), 0);
+            assert_eq!(ledger.current(), 0);
+        }
     });
 }
 

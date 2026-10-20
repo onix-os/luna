@@ -1,6 +1,8 @@
 use std::{cell::Ref, marker::PhantomData};
 
-use crate::{closure::UpValueState, table::TableState, Closure, Constant, Table, Value};
+#[cfg(test)]
+use crate::Table;
+use crate::{closure::UpValueState, table::TableState, Closure, Constant, Value};
 
 use super::super::{abi, entry_bytes::EntryBytes, helpers};
 use super::Plan;
@@ -23,7 +25,9 @@ pub(in crate::jit) enum Fault {
 
 pub(in crate::jit) struct Bound<'entry, 'gc> {
     plan: Plan,
+    #[cfg(test)]
     closure: Closure<'gc>,
+    #[cfg(test)]
     table: Table<'gc>,
     value: Value<'gc>,
     _guard: Ref<'gc, TableState<'gc>>,
@@ -41,6 +45,7 @@ impl Plan {
         ]
     }
 
+    #[cfg(test)]
     pub(in crate::jit) fn with_binding<'gc, R>(
         self,
         closure: Closure<'gc>,
@@ -76,7 +81,9 @@ impl Plan {
         let (guard, value) = table.try_strong_canonical_hint(key, hint)?;
         Some(Bound {
             plan: self,
+            #[cfg(test)]
             closure,
+            #[cfg(test)]
             table,
             value,
             _guard: guard,
@@ -130,6 +137,7 @@ impl<'gc> Bound<'_, 'gc> {
     /// Entry implements this plan's six-argument ABI and cannot call users, mutate the
     /// environment or observe the lookup destination before its terminating Call exit.
     /// It retains no pointers and reports the lookup with a single execution marker.
+    #[cfg(test)]
     pub(in crate::jit) unsafe fn invoke(
         self,
         entry: Entry,

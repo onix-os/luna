@@ -1173,7 +1173,7 @@ mod prehashed_tests;
 #[cfg(all(test, feature = "jit"))]
 mod code_read_hint_tests;
 
-#[cfg(all(test, feature = "jit"))]
+#[cfg(feature = "jit")]
 impl<'gc> RawTable<'gc> {
     pub(crate) fn strong_canonical_hint(
         &self,

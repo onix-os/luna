@@ -37831,6 +37831,139 @@ canonical-state/panic/fuel guarantees. Evidence:
 `target/jit-evidence/hook-resume-recovery/production-warmed-profile/`, including
 `attribution.json`, exact annotations, forwarding summary and frozen manifests.
 
+### Full-frame publication: real shipping gain, acceptance still open
+
+Test-first ccb5f991 adds an independent full-frame publication oracle. Provisional
+runtime candidate53d7268b replaces only the ordinary exit writeback loop with a
+safe Rust, unit-return frame publisher. It retains every scalar write, canonical
+reference, partial-panic commit, existing deferred/projected boundary, PC and
+counter behavior; no generated ABI, dirty mask, cached object or allocation is
+added. Slot::value and all other Slot::write_back users remain unchanged.
+
+The forced-out-of-line first form is rejected: speed callbacks regress despite
+shipping gains. The refinement lets the ordinary compiler specialize the new
+frame boundary, rather than forcing global Slot conversion inlining. Full
+Force/all-features plus projection validation passes2182 executions/92 summaries,
+zero failures,26 intentional ignores. Both Miri models pass three publisher
+oracles; actual ELF32 i686 publisher/fallback checks pass. Both no-feature
+executables are byte-identical to original controls.
+
+A complete original144-command campaign retains all nine workloads,11 samples,
+20 cost iterations, six balanced A/candidate/B orders, CPUs0/16, speed/shipping,
+all27 native counters/resources and native cost proofs. The unchanged original
+auditor and valid/restored plus13 corruptions pass. Native executions14256,
+cost iterations285120. No owned builds/tests/profilers overlap capture. An initial
+host-Bash launcher fails before any timed command; its evidence is retained
+separately, and the complete campaign runs in the repository Nix shell.
+
+Shipping callback control/candidate ratios repeat at1.119517/1.140381 CPU0/16,
+and all12 shipping callback gates pass. Shipping integer/float ratios improve
+about8–10%; shipping native failure rows fall to2/108 versus22/108 and24/108
+for controls A and B.
+THIS IS NOT FULL ACCEPTANCE: speed native still fails14/108 gates; cost fails
+37/108 speed and20/108 shipping. CPU16 speed float cost and shipping callback
+cost regress around3.3–3.5% against controls; inherited upvalue/cold costs remain.
+The CPU0 speed native-benchmark Off float slowdown also repeats (control/candidate
+0.861860), while the separate feature-cost float improves. None is discarded.
+
+Six exact linker-map rebuilds reproduce the measured images byte-for-byte.
+The VM's relocation-normalized instruction streams are identical in baseline
+and candidate for native-speed, cost-speed and cost-shipping (10911/11116/8615
+static instructions respectively). Their VM offsets within .text also match;
+preceding ELF data growth moves the text base160/144/224 bytes. This excludes
+added static VM instructions, not every possible cause of elapsed differences.
+Do not repeat rejected VM/policy/enum rewrites or assert an alignment cause from
+this alone. Next investigate the publisher's duplicate cold panic metadata,
+preserving original panic payloads and measuring any refinement before acceptance.
+Evidence: `target/jit-evidence/hook-resume-recovery/production-frame-publication/`,
+especially `refinement/acceptance/production-audit.json` and `refinement/exact-maps/`.
+
+The cold panic-reuse refinement is separately measured and withdrawn. It passes
+the strengthened payload/partial-state oracle,45 focused native/heap/projection
+executions and both three-test Miri models. Another72-command production screen
+preserves every27-field record and all immutable witnesses. Removing the extra
+publisher source-path string reduces .rodata/.data.rel.ro sizes by32 bytes each,
+but other preceding sections change too: speed text moves another48 bytes rather
+than returning to the control placement. No alignment cause is established.
+
+Speed CPU0 Off float improves relative to the provisional image, but CPU0 Off
+arrays are7.5% slower than original controls; native array ratios are0.980156 /
+0.968254 CPU0/16. Shipping callback gains shrink to1.045369/1.052589, with one
+failed window. This is not an acceptable regression repair. The original
+publisher panic site is restored; the stronger oracle and all failed evidence
+remain.53d7268b is still provisional: do not replace original controls or claim
+full acceptance from its shipping win. Next separate actual retired-work savings
+from link-context timing effects before choosing another implementation.
+Evidence: `production-frame-publication/panic-reuse/` under the same artifact root.
+
+Fresh interleaved non-test0f-versus53 attribution now completes192 acknowledged
+windows, both profiles/CPUs, callbacks/upvalues, Off/Auto, three rotated repeats,
+2000 executions and coupled stat/record collection. All110234 samples reconcile;
+all2400 cross-source checks preserve25 exact runtime counter deltas. Active PMUs
+run100%, inactive rows remain explicit, source/image/tool hashes verify, and the
+unchanged per-side readers each pass valid/restored plus17 corruptions.
+Callback retired work falls about0.9% in opt3 and2.2% in opts; Off callback counts
+are essentially unchanged. The12–14% elapsed shipping gain must not be attributed
+entirely to instruction-count reduction. The read helper still accounts for6–9%
+of observed native callback self cycles.
+
+Preparation b39fa484 separates the existing scoped-read lowering selection from
+the RequireReadonlyLookup failure enum. It retains the typed six-argument ReadCode
+and ordinary five-argument constructor rejection, with zero owners/mappings left
+after rejected mixed modes. Formatting/check-all and30 focused native/runtime/
+binding/source/strong-hint tests pass. This selector is still TEST-ONLY; no new
+production activation, speedup, unguarded table access or ABI cast is claimed.
+Production promotion must retain fresh guarded binding, scope/source proofs,
+optional resource ownership and ordinary fallback; actual removed C calls must
+not be falsely reported to keep counter-identity audits green. All original
+cost/performance/platform/release gates remain required.
+Evidence: `production-frame-publication/retired-work/` and
+`production-scoped-read/` under the same artifact prefix.
+
+### Production scoped reads: integrated, performance acceptance still open
+
+Commit1b4a2fe3 enables the checked six-argument child in the actual non-test
+runtime. Ordinary five-argument code remains independently typed and retained;
+ineligible prototypes keep the existing array/upvalue production routes.
+Bindings are captured fresh, hold only a synchronous strong-table borrow and
+release it before interpreted calls or user code. Refused optional compilation,
+ownership or code budgets retain ordinary execution. No helper work is invented
+to preserve historical counter equality.
+
+Five external production tests cover warmed physical helper elimination,
+callback rebinding, missing-key metamethods, small code budgets and exact
+interrupted-fuel/collection slices. The broad all-feature/doc run passes2165
+executions across96 summaries; the final focused run adds27 passing executions.
+Both explicit Tree/default Stacked Miri models pass13 source/binding/strong-peek
+tests each. The complete actual ELF32 i686 fallback gate passes3316 executions
+across366 summaries after05671b1e repairs an Oslo diagnostic that incorrectly
+required native work on unsupported targets. Failed logs remain available.
+
+A diagnostic native campaign retains all nine workloads,11 samples, six rotated
+A/candidate/B orders, CPUs0/16, opt3/opts, original0f controls and all27 fields:
+14256 measured executions. Callback helper completions fall64836 to1 while
+native instructions, logical reads and all other execution counters stay exact.
+The callback child costs another4096 mapped bytes,200 live metadata bytes and
+91004 peak snapshot/workspace bytes. Other compiled owners add8 bytes each.
+Both no-feature images remain byte-identical to the original controls.
+
+This is NOT acceptance. The combined candidate's shipping callback control/trial
+ratios are1.153378/1.127087, but speed callback ratios are1.018338/0.978667.
+Those elapsed changes cannot be attributed entirely to this lookup change:
+the candidate also contains the provisional frame publisher, and contention
+and placebo variation remain explicit. Native gates still fail7/108 speed and
+5/108 shipping rows. A separate original-protocol compiled-Off campaign retains
+11 samples,20 iterations and285120 iterations overall, with27/108 speed and
+14/108 shipping gate failures. CPU16 shipping compiled-Off upvalues are about
+12.5% slower than original controls; shipping scalar regressions also remain.
+Do not discard these failures or substitute fewer physical helpers for elapsed
+acceptance. Separate readers pass valid/restored fixtures and10 native plus9
+cost corruptions. Next verify exact-image VM instruction maps before attributing
+these regressions or choosing another implementation. The additional complete
+Force suite and exact-map builds are not yet terminal at this checkpoint.
+Evidence: `target/jit-evidence/hook-resume-recovery/production-scoped-read/`,
+especially `integration/{screen.json,cost-screen.json,reader-tests.log}`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

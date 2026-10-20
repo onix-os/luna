@@ -187,6 +187,8 @@ fn native_transport_selection_preserves_existing_specialized_modes() {
                     metadata.clone(),
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
                     Selection {
+                        #[cfg(all(test, not(miri)))]
+                        readonly_scope: false,
                         projected,
                         scoped_helpers,
                         leaf: false,

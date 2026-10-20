@@ -1812,6 +1812,10 @@ jit-import-bits-miri:
 .PHONY: jit-readonly-lookup jit-readonly-lookup-miri
 .PHONY: jit-readonly-native
 .PHONY: jit-readonly-runtime
+.PHONY: jit-scoped-read-production
+jit-scoped-read-production:
+	@$(CARGO) test --locked -p luna --features jit --test jit_scoped_read $(TARGET_ARG) $(ARGS)
+
 jit-readonly-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::runtime::tests $(ARGS)
 
@@ -1844,6 +1848,13 @@ jit-call-fusion-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::call_fusion::site::kernel $(ARGS)
 
 .PHONY: jit-strong-global-helper jit-strong-global-helper-miri
+.PHONY: jit-frame-publication jit-frame-publication-miri
+jit-frame-publication:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::frame_publication $(ARGS)
+
+jit-frame-publication-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::frame_publication -- --test-threads=1
+
 jit-strong-global-helper:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::strong_global_tests $(ARGS)
 
