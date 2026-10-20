@@ -38045,6 +38045,74 @@ preserving original thresholds and all counters/resources. No normalized timing
 or shipping-profile reproducibility result is claimed at this checkpoint.
 Evidence: `production-scoped-read/reproducible-layout/` under the artifact root.
 
+### Normalized original-control campaign: acceptance still fails
+
+The original0f/current1b comparison now completes under the filename-remapping
+protocol in BOTH profiles. All12 images build; corresponding no-feature pairs
+also match the original unnormalized controls byte-for-byte. All five Cranelift
+generated paths are canonical. The144-command interleaved campaign retains the
+original nine workloads,11 samples,20 cost iterations, six balanced orders and
+CPUs0/16:14256 native executions and285120 cost iterations. No owned build or
+correctness job overlaps capture. External contention is recorded, not waived.
+
+An independent pretrial oracle verifies all27 per-source counter/resource
+fields with zero mismatches. The reader passes two valid/restored fixtures and
+rejects16 corruptions, including duplicate fields, changed physical helper
+counts and changed independent oracle values. Cost raw medians are recomputed;
+native raw medians are not independently recomputed. A manifest-preflight
+failure occurred before any timed command, is archived separately, and was
+fixed by verifying checkout-relative tool paths from the checkout.
+
+Candidate failures out of108 gates per kind/profile:
+
+| Profile | Native speedup failures | Compiled-Off overhead failures |
+| --- | --- | --- |
+| speed |11: callbacks9, arrays2 |23: upvalues12, cold9, callbacks2 |
+| shipping |7: arrays7 |15: upvalues12, callbacks3 |
+
+The original thresholds remain unchanged. Shipping array speedups are about
+1.13–1.24 where1.25 is required. Compiled-Off upvalue overhead remains about
+5.6–15% in speed and10.5–25% in shipping, depending on CPU/order. These consistent
+feature costs require direct no-feature/Off attribution; comparing two
+feature-enabled revisions cannot identify that tax.
+
+Normalized callback control/candidate time ratios are1.004644/0.988658 for
+speed CPUs0/16 and1.075103/1.062366 for shipping. No aggregate direct source
+regression exceeds5% here. This does not erase failing workload gates or prove
+the earlier directory-confounded regressions were caused by alignment.
+Performance, platform, resource-policy and release acceptance remain OPEN.
+Evidence: `production-scoped-read/reproducible-layout/acceptance/`, especially
+`production-audit.json`, `runtime-oracle.json` and `production-screen/`.
+
+### Repository-native reproducible benchmark images
+
+`make jit-repro-images JIT_BENCH_OPT=3` (or `s`) builds the three stripped,
+LTO=true, codegen-units=1 images under fixed virtual source/target prefixes.
+This is opt-in; existing normal builds are unchanged. Outputs include image and
+source hashes, toolchain/configuration records and a completion marker emitted
+only after all builds and source verification succeed. Default cache/artifact
+directories are keyed by builder/wrapper hashes, profile and target.
+
+For immutable snapshot comparisons, use the SAME wrapper path and distinct
+physical caches/artifacts per source, for example:
+
+```sh
+make jit-repro-images JIT_BENCH_OPT=3 \
+  JIT_REPRO_SOURCE=/absolute/snapshot \
+  JIT_REPRO_TARGET_DIR=/absolute/fresh-cache \
+  JIT_REPRO_DIR=/absolute/evidence
+```
+
+Changed configuration/source roots, unmarked nonempty directories, existing
+compiler wrappers and locked artifact directories are refused rather than
+silently overwritten. `TARGET=...` forwards the cross target explicitly.
+`make jit-repro-build-tests jit-repro-wrapper-tests` exercises forwarding,
+refusal, incremental rebuild and failure-publication behavior. Actual fresh
+public-target builds in BOTH profiles reproduce all six normalized candidate
+images byte-for-byte; their source and image manifests verify. This validates
+the image-building protocol, not performance acceptance.
+Evidence: `production-scoped-read/reproducible-layout/public-validation/`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
