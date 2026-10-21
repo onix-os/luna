@@ -38849,6 +38849,63 @@ Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-re
 reproducible-layout/read-hint-loaded-index/RESULTS.md`, including both complete
 consumer cohorts, descriptive joint ratios and the original acceptance matrix.
 
+### Compact scalar-array validation: retained work reduction
+
+Keep the existing unsigned tag-at-most-3 guard. Within that range, valid
+payloads are exactly `tag >= 2 || bits <= tag`, using unsigned comparisons.
+Compile-time assertions pin the four scalar tags; the independent IR verifier
+checks the exact operands, unsigned comparison and OR. Nil/Boolean malformed
+payload refusal, reference refusal, descriptor guards, borrowing, dirty
+writeback, budget and counter contracts are unchanged.
+
+The exhaustive committed native tag/payload fixture remains in the 42 passing
+array/transport executions. Final-main source matches all 574 entries of the
+frozen integrated candidate manifest. Formatting and all-target checking pass.
+A fresh final-main campaign also passes 1,024 general plus 96 heap cases
+across four seeds. Earlier native Memcheck remains component evidence, not
+silently relabeled current full-platform acceptance.
+
+Production-builder kernels shrink from 614 to 570 bytes (fill) and 934 to 902
+bytes (read/sum), removing nine predicate instructions per access. Two complete
+unchanged original benchmark cohorts use the integrated source and six
+canonical images: 288 commands, 28,512 benchmark executions and 570,240 cost
+iterations, with zero independent 27-field native/resource oracle mismatches.
+Both no-feature images retain original full-file identity. Shipping array
+Off/Auto medians are 1.2750/1.3138 on Core/Atom in the first cohort and
+1.2983/1.2621 in the repeat. Some windows still fail the original 1.25 gate.
+
+Retain the smaller equivalent predicate, not a full-performance acceptance
+claim. Persistent speed Atom native callbacks remain 0.8143/0.8113 against
+the 0.8333 minimum; compiled-Off callback cost remains 1.0622/1.0578 against
+1.05. Core cold-config and other isolated native/cost failures also remain.
+All original semantic/resource/performance/platform/release gates stay open.
+Evidence: ignored `production-scoped-read/array-scalar-integrated/`, including
+both complete cohorts, manifests, independent audits and negative windows.
+
+### Actual callback work attribution
+
+On the same integrated public images, 36 coupled hardware-counter windows
+cover both CPU types, opt3/opts and three rotated repeats of no-feature,
+compiled-Off and Auto. All four user-only events share one runtime and report
+100% scheduling. Results and positive/zero native work are checked; images are
+hashed before/after. Whole-worker scope includes startup, compilation and two
+warmups. Opt3 Off retires about 7.22-7.25% more instructions than no-feature;
+Auto adds about 24.34% over Off. Shipping adds about 5.07-5.10% and 22.38-22.43%
+respectively. Contended cycles are mixed, not causal elapsed acceptance.
+
+Exact allocated-code symbol companions permit six Executor::step-only
+Callgrind profiles. Opt3 self costs identify VM dispatch, outer execution,
+generic native transport and fresh lookup binding as remaining work, while
+the actual host callback has identical 5,460,000 self instructions across
+the three opt3 modes. All per-PC self costs reconcile to complete profile
+totals. Constructor-only profiles show about 0.71%/0.60% extra simulated
+instructions in speed/shipping; this does not explain the observed cold
+elapsed regressions by itself. Instrumented durations are invalid. Do not
+repeat previously rejected inline, sparse-counter, owner-cache or VM-ABI
+trials without a materially different, source-grounded hypothesis.
+Evidence: integrated `callback-counters/`, `callback-profile/`,
+`callback-annotate/` and `constructor-profile/`.
+
 ### Rust-only Miri watchdog correction
 
 Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is

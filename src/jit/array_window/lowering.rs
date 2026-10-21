@@ -176,16 +176,17 @@ pub(super) fn guard_scalar(
     let numeric = b
         .ins()
         .icmp_imm_u(IntCC::UnsignedGreaterThanOrEqual, tag, abi::INTEGER as i64);
-    let nil = b.ins().icmp_imm_u(IntCC::Equal, tag, abi::NIL as i64);
-    let empty = b.ins().icmp_imm_u(IntCC::Equal, bits, 0);
-    let nil = b.ins().band(nil, empty);
-    let boolean = b.ins().icmp_imm_u(IntCC::Equal, tag, abi::BOOLEAN as i64);
-    let boolean_bits = b.ins().icmp_imm_u(IntCC::UnsignedLessThanOrEqual, bits, 1);
-    let boolean = b.ins().band(boolean, boolean_bits);
-    let valid = b.ins().bor(nil, boolean);
-    let valid = b.ins().bor(valid, numeric);
+    let payload = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, bits, tag);
+    let valid = b.ins().bor(payload, numeric);
     guard(b, valid, decline);
 }
+
+const _: () = {
+    assert!(abi::NIL == 0);
+    assert!(abi::BOOLEAN == 1);
+    assert!(abi::INTEGER == 2);
+    assert!(abi::NUMBER == 3);
+};
 
 #[cfg(test)]
 mod tests;
