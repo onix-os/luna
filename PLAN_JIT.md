@@ -39004,6 +39004,40 @@ keep both seeds, every component invocation and artifact uploads unchanged.
 `make ci-check` passes. This only permits validation to finish; it does not
 turn the cancelled run into a pass or waive any acceptance requirement.
 
+### Initialized lookup output: both return-shape trials rejected
+
+Two frozen snapshots replace the private fresh-entry wide result with an
+initialized caller-owned Exit, preserving guards, borrowed current binding,
+marker-before-budget faults, canonical commit, native ABI and real counters.
+The first returns Result<bool, Fault>; the refinement returns one repr(u8)
+status with an inline typed-fault adapter. Neither changes the VM source or
+adds an unsafe memory operation. Neither is retained in production.
+
+Each passes 57 focused executions and 19 tests under each Miri borrow model.
+Six canonical images and exact map companions verify. Both no-feature images
+match the integrated control fully, not original 0f. Each independent oracle
+checks 72 records with 27 unchanged fields, zero mismatches, and rejects 12
+corruptions. Each completes 336 core PMU windows plus 144 standalone consumer
+windows / 144,000 measured executions, with positive native coverage and no
+owned build/test/profiler overlap. The readers reject 17/16 mutations.
+
+The first candidate increases strong-consumer instructions 1.243% in opt3 and
+0.701% in opts. The flat refinement really returns in AL and reduces the opt3
+entry local frame from 0x68 to 0x58 bytes, but still increases strong work
+0.518%/0.219% in opt3/opts on both CPU types. Its missing-binding work falls
+0.287%/0.048%; elapsed effects remain mixed, including Core opt3 missing loss.
+Smaller code/frames and cold work savings do not offset hot regression.
+The VM keeps its size but moves in the flat candidate; unchanged placement
+is not claimed. Both trials are rejected; original performance and full
+resource/platform/size/release acceptance remain open.
+
+The refinement's initial wrapper omitted a required capture-status handoff;
+audit correctly refused after all 336 observations completed. Original failure
+logs remain. A separate Make recovery validates the finished immutable capture,
+runs unchanged readers, and completes consumers without replacing observations.
+Evidence: ignored production-scoped-read/readonly-exit-output/RESULTS.md and
+flat-status/{RESULTS.md,CAPTURE_RECOVERY.md}, exact images/maps and raw records.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
