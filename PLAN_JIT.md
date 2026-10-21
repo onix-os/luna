@@ -146,7 +146,9 @@ reference-root/GC/quota tests and the independent all-byte/wide-tag fixture.
 Exact production-builder output shrinks fill **614->570 bytes**, read/sum
 **934->902 bytes**; nine predicate instructions disappear per access. Fill also
 saves one callee-saved register and reduces stack reservation 48->32 bytes.
-Native Memcheck remains running, not counted as passed.
+Native Memcheck passes all 34 array checks with zero errors and zero
+definitely/indirectly lost bytes; 48 possibly lost and 632 reachable bytes
+remain reported by the test process. This is not a blanket leak-free claim.
 
 All six canonical images and **64 whole-worker instruction profiles** finish;
 both no-feature images match the prior continuation images byte-for-byte.
