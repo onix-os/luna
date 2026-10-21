@@ -39525,6 +39525,36 @@ performance, platform, resource, size and release gates are not waived. Evidence
 production-scoped-read/paired-vm-progress/{source.sha256,native.log,
 miri-default.log,miri-tree.log,fallback.log,fallback-image.log}.
 
+### Paired-counter integration screen — not promoted
+
+A frozen ordinary-source trial integrates full-width packed counters into the
+single existing VM loop. An independent source audit classifies31 terminal opcode
+exits,6 outside-opcode exits and1 rollback; the opcode effects are otherwise
+byte-identical after normalization. Final focused/accounting/hook/fuel/native
+checks pass256 executions/37 summaries,zero ignores. Five scoped arithmetic/guard
+tests pass under both Miri models and actual ELF32/i686-musl. This is not a full
+platform pass: the existing i686 phase-model layout assertion fails16 versus20
+bytes and needs an explicit historical-layout fixture before promotion.
+
+Six canonical images and exact map companions verify; the unchanged independent
+oracle matches72 records x27 fields. In each profile, the entire no-feature image
+is unchanged except68 decoded VM panic-line fields mapped to exactly unchanged
+source lines. Each strict reader accepts1 valid input and rejects7 corruptions,
+including one missing line remap. No executable-code difference is waived.
+
+Step-inclusive opt3 instruction counts improve Off integer3.247%, float3.016%,
+array2.083%, upvalue1.166%, callbacks0.767% and allocation1.838%. The callback
+reduction is entirely VM self work:31,148,316 ->30,428,088. However, opts callback
+Off is effectively unchanged; opts Auto upvalue/callbacks increase0.890%/0.544%.
+These are diagnostic instruction counts, not elapsed-time wins or passing gates.
+
+The runtime remains unchanged on the working branch. This integration is NOT
+promoted; shipping/native tradeoffs and the layout test must be addressed before
+the unchanged timing/PMU, performance, resource, size, platform and release gates.
+Initial compiler, capture-tool-hash and mapping-wrapper failures remain separate
+from final passing diagnostics. Evidence and the next refinement hypothesis:
+production-scoped-read/paired-vm-progress/runtime/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
