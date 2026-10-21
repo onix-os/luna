@@ -39254,6 +39254,21 @@ not full release acceptance. Evidence: array-budget-window/final-main/
 {evidence.mk,platform-gnu-evidence.json,repeat/rechecked-audit.json,
 repeat/rechecked-reader.log,platform-gnu.log}.
 
+Current-runtime CI run39598752194 at345143b9 completes all7 jobs successfully.
+Independent Make verification checks all6 downloaded archive digests against
+GitHub metadata and exact source/run/job provenance. GNU, musl and actual ARM
+native gates each pass11,347 executions/554 summaries/134 reported existing
+ignores, with the positive native example. Each platform's10 individual artifact
+hashes and both shipping executable ELF machines verify (30 hashes total).
+The20 additional feature-cost test summaries in each archive are not added to
+the native-gate totals. Actual i686musl fallback passes3,362 executions across
+366 summaries,8 reported existing ignores. Default Rust-only Miri seeds0 and1
+each pass324 checks/43 summaries,zero ignores; this is neither Tree Miri nor
+native machine-code execution. These source-current platform results do not
+waive outstanding performance, resource-policy, size or release requirements.
+Evidence: array-budget-window/final-main/{ci-evidence.json,ci-evidence.pl,
+ci-artifacts-current.json,ci-jobs-current.json,ci-artifacts/}.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
