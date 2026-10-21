@@ -23,10 +23,30 @@ public executor. Nine boundary cases and four fuel budgets compare complete
 canonical frame/stack/fuel/dispatch traces and results, collecting after every
 host step; supported Auto schedules prove the selector does not enter Off.
 Positive route counts and nested/panic selector restoration are required.
-The focused two-test lane and 17 existing activation checks pass. Miri and
-broader lanes are still running. No production continuation is enabled and no
-performance improvement is established. Canonical release measurements and all
-original acceptance gates remain required. Evidence:
+The focused two-test lane and 17 existing activation checks pass. The retained
+foundation's full GNU normal/Force/all-feature/doc sequence also passes **4810
+executions / 276 summaries**, with 56 reported existing ignores. Miri remains
+running. No production continuation is enabled in the tracked runtime.
+
+An ordinary source snapshot implements the actual runtime candidate with one
+three-case activation-policy query and unchanged Auto/no-feature cadence.
+Thirteen focused boundary/hook/policy checks pass; six canonical release images
+build. In 48 whole-worker Callgrind profiles, closure/upvalue work falls
+**14.276% / 12.147%** against the retained runtime (opt3/opts), but Rust-callback
+work rises **2.620% / 2.570%**. These counts include startup and warmups; all
+instrumented worker durations are invalid, not elapsed-speed acceptance. The
+callback regression prevents promotion. A separate plain-source refinement
+adds a cheap Lua-top-frame guard before continuation-host setup; its validation
+is in progress, not an accepted performance fix.
+
+No-feature images are **not byte-identical**: exactly seventeen executor panic
+line coordinates move by22 in both profiles. A strict ELF/relocation/source-line
+audit proves every other image byte, including complete executable text, is
+identical to original `0f7c6ba7`; four valid pairs and twenty corruption cases
+pass. Original images, performance limits and resource/counter oracles remain
+unchanged. The callback-guard refinement must repeat this proof for its two
+additional source lines. Original elapsed, final-source safety/platform/resource
+and release gates remain open. Evidence:
 `target/jit-evidence/hook-resume-recovery/production-scoped-read/interpreted-tail/`.
 
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
