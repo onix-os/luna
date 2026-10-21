@@ -39038,6 +39038,33 @@ runs unchanged readers, and completes consumers without replacing observations.
 Evidence: ignored production-scoped-read/readonly-exit-output/RESULTS.md and
 flat-status/{RESULTS.md,CAPTURE_RECOVERY.md}, exact images/maps and raw records.
 
+### Completed retained-runtime musl and both Miri seeds
+
+Run 39547641154 at a3e41e61 completes native x86_64 musl successfully:
+11,307 passing executions across 554 summaries, with 134 reported existing
+ignores. The real native example returns 5000050000 with six prepared entries
+and 200007 native instructions. Its matched shipping images and finalized
+kernel artifacts verify all ten individual hashes; both shipping ELFs are
+x86_64. The downloaded archive matches GitHub's published digest. This is a
+complete pass, unlike the earlier dbbc musl watchdog cancellation.
+
+The only source difference under src, Cargo.toml, Cargo.lock and Makefile
+between a3e41e61 and retained-runtime checkpoint 7188a807 is the subsequently
+added src/jit/pairs/tests.rs fixture. Runtime code is identical; that newer
+fixture is not relabeled as covered by the older job. Default-model Miri seeds
+0 and 1 both complete at a3e41e61: each 324 passes / 43 summaries / no ignores.
+They validate Rust components, not native machine-code execution or Tree Miri.
+
+The earlier dbbc GNU job also completes 11,307 / 554 / 134 with the same real
+native example and ten verified individual artifact hashes. Its source is
+older, so this remains baseline evidence, not current-runtime acceptance.
+Current GNU/ARM jobs were still running at the last direct API inspection.
+Shipping artifact construction is not a passing size/performance budget.
+Full original resource/performance/platform/size/release acceptance stays open.
+Evidence: ignored production-scoped-read/ci-current-source/
+additional-evidence.{mk,pl,json,log,status}, downloaded archives, source delta,
+job/run metadata and individual manifests. Verification status is zero.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
