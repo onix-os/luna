@@ -38849,6 +38849,16 @@ Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-re
 reproducible-layout/read-hint-loaded-index/RESULTS.md`, including both complete
 consumer cohorts, descriptive joint ratios and the original acceptance matrix.
 
+### Rust-only Miri watchdog correction
+
+Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is
+cancelled by the documented 45-minute job watchdog. Its uploaded artifact
+contains 39 completed test summaries and an unfinished backend-exit gate,
+not a complete Miri pass. Increase that job's timeout to 180 minutes;
+keep both seeds, every component invocation and artifact uploads unchanged.
+`make ci-check` passes. This only permits validation to finish; it does not
+turn the cancelled run into a pass or waive any acceptance requirement.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
