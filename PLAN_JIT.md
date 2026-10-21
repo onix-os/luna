@@ -39172,6 +39172,27 @@ The separate invocation-local SSA descriptor trial is not promoted by those
 tests. Its elapsed performance and original acceptance remain unverified.
 Evidence: production-scoped-read/array-header-once/main-regressions.*.
 
+The isolated invocation-local descriptor-proof trial subsequently passes46
+focused checks, both Miri models (19+2 Rust checks each),38 native Memcheck
+tests with zero reported errors, and3043 general plus110 proof-flow verifier
+corruptions. Six canonical images and exact map companions verify; no-feature
+images equal retained controls in full. All72 independent27-field records match.
+Its336 coupled Core/Atom windows show about4.5%/4.1% fewer Auto array instructions
+(speed/shipping), not a universal elapsed improvement. Startup-inclusive one-
+iteration Callgrind work increases about0.76%/1.00%; at100 iterations it falls
+4.30%/3.93%. Instrumented times are not elapsed acceptance.
+
+The complete unchanged original matrix finishes144 commands,14,256 benchmark
+executions and285,120 cost iterations with zero counter/resource mismatches;
+the reader passes2 valid/16 corrupt cases. Shipping Atom arrays pass all6 original
+1.25 gates, median1.284670; speed Atom passes6/6, median1.397029. Core arrays still
+fail4/6 speed and6/6 shipping rounds, medians1.233151/1.187514. Overall native
+failures are15 speed/17 shipping and cost failures26/5. These different-cohort
+counts are not a causal regression proof against the older retained source.
+The SSA trial stays unpromoted; callback, cold, polymorphic and original release
+acceptance remain open. Evidence: production-scoped-read/array-header-once/
+{RESULTS.md,acceptance/production-audit.json,hardware/report.json,work-report.json}.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
