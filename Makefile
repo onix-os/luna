@@ -1232,6 +1232,13 @@ vm-jump-offset:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::offset_tests $(ARGS)
 
 .PHONY: jit-activation-host-miri
+.PHONY: jit-interpreted-tail jit-interpreted-tail-miri
+jit-interpreted-tail:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::interpreted_tail $(ARGS)
+
+jit-interpreted-tail-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::executor::interpreted_tail -- --test-threads=1
+
 jit-activation-host-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::scoped_activation_host_releases_before_nested_executor_callbacks -- --exact --test-threads=1
 
