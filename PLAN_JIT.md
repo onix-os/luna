@@ -39157,6 +39157,16 @@ Evidence: ignored production-scoped-read/readonly-hint-inline/raw-inline/
 {RESULTS.md,ASSEMBLY.md,joint.json}, both original matrices, standalone cohorts,
 source/images/maps, Miri logs and unchanged mutation readers.
 
+Array descriptor regression coverage is retained independently of the next
+optimization. Three actual native-kernel tests enforce lazy validation for
+zero budget/non-access entries, malformed-header refusal, reset on every call,
+read-then-write read-only protection, current scalar checks and saturated
+counters. They pass against the existing runtime; formatting, all-target
+checking and45 focused array/transport executions pass with zero ignores.
+The separate invocation-local SSA descriptor trial is not promoted by those
+tests. Its elapsed performance and original acceptance remain unverified.
+Evidence: production-scoped-read/array-header-once/main-regressions.*.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
