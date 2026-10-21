@@ -1,7 +1,20 @@
 use super::*;
+use crate::{jit::ir::Snapshot, opcode::Operation};
 use crate::{types::*, Closure, Lua};
 
 const CALLBACK: &[u8] = b"local sum=0 for i=1,5000 do sum=sum+host_increment(i) end return sum";
+
+#[test]
+fn scalar_plan_layout_witness() {
+    assert_eq!(std::mem::size_of::<Plan>(), 16);
+    assert_eq!(std::mem::align_of::<Plan>(), 4);
+    eprintln!(
+        "scalar_layout pointer={} plan={} align={}",
+        std::mem::size_of::<usize>(),
+        std::mem::size_of::<Plan>(),
+        std::mem::align_of::<Plan>()
+    );
+}
 
 fn snapshot(ctx: crate::Context<'_>, text: &[u8]) -> Snapshot {
     let closure = Closure::load(ctx, None, text).unwrap();
@@ -25,7 +38,7 @@ fn source_capability_rejects_reference_loads_including_unreachable_ones() {
             count: VarCount::constant(0),
         });
         source.verify().unwrap();
-        assert_eq!(Plan::recognize(&source), Some(plan));
+        assert_eq!(Plan::recognize(&source).unwrap().binding(), plan.binding());
         assert!(Source::admit(&source).is_none());
         source.operations.pop();
         source.operations.pop();
@@ -80,6 +93,49 @@ fn current_inputs_require_valid_scalars_in_every_slot_and_actual_extents() {
             bits: 0,
         });
         assert!(!proof.fits(&slots, &frame));
+    });
+}
+
+#[test]
+fn tag_union_matches_independent_per_slot_validation() {
+    assert_eq!(abi::NUMBER, 3);
+    Lua::empty().enter(|ctx| {
+        let mut source = snapshot(ctx, CALLBACK);
+        let widths: &[usize] = if cfg!(miri) {
+            &[7, 8]
+        } else {
+            &[7, 8, 16, 32, 64, 127, 128, 255, 256]
+        };
+        let mut examined = 0;
+        for &width in widths {
+            source.registers = width;
+            let proof = Source::admit(&source).unwrap();
+            let frame = vec![Value::Nil; width];
+            let mut slots: Vec<_> = (0..width)
+                .map(|lane| abi::Slot {
+                    tag: (lane % 4) as u64,
+                    bits: u64::MAX.wrapping_sub(lane as u64),
+                })
+                .collect();
+            assert!(proof.fits(&slots, &frame));
+            for lane in 0..width {
+                let original = slots[lane];
+                for bit in 0..64 {
+                    for low in 0..4 {
+                        slots[lane].tag = low | (1 << bit);
+                        let expected = slots.iter().all(|slot| slot.tag <= abi::NUMBER);
+                        assert_eq!(proof.fits(&slots, &frame), expected);
+                        examined += 1;
+                    }
+                }
+                slots[lane] = original;
+            }
+            for lane in 0..width {
+                slots[lane].tag = u64::MAX;
+                assert!(!proof.fits(&slots, &frame));
+            }
+        }
+        eprintln!("tag_union_equivalence_cases={examined}");
     });
 }
 

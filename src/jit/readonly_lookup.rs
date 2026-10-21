@@ -9,6 +9,7 @@ pub(super) struct Plan {
     upvalue: u8,
     constant: u8,
     registers: u16,
+    scalar_entry: bool,
 }
 
 impl Plan {
@@ -23,6 +24,7 @@ impl Plan {
         source.verify().ok()?;
         source.prepared_keys.as_ref()?;
         let mut lookup = None;
+        let mut scalar_entry = true;
         for (pc, &op) in source.operations.iter().enumerate() {
             match op {
                 Operation::GetUpTable {
@@ -35,7 +37,11 @@ impl Plan {
                     }
                     lookup = Some((pc, dest.0, table.0, key.0));
                 }
-                Operation::Move { .. } | Operation::LoadConstant { .. } => {}
+                Operation::Move { .. } => {}
+                Operation::LoadConstant { constant, .. } => {
+                    scalar_entry &=
+                        source.constants[usize::from(constant.0)].tag <= super::abi::NUMBER;
+                }
                 Operation::LoadBool { .. }
                 | Operation::LoadNil { .. }
                 | Operation::NumericForPrep { .. }
@@ -65,6 +71,7 @@ impl Plan {
                     upvalue,
                     constant,
                     registers: source.registers as u16,
+                    scalar_entry,
                 });
             }
             match op {
@@ -88,7 +95,6 @@ impl Plan {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
 pub(in crate::jit) mod scalar_entry;
 
 pub(super) mod binding;

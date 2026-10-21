@@ -2133,6 +2133,59 @@ impl Runtime {
                 },
             )
         } else {
+            #[cfg(not(miri))]
+            if !CANONICAL && {
+                #[cfg(test)]
+                {
+                    readonly_lookup::scalar_entry::enabled()
+                }
+                #[cfg(not(test))]
+                {
+                    true
+                }
+            } {
+                if let Some((child, source)) = code
+                    .readonly_lookup
+                    .as_ref()
+                    .filter(|child| child.registers == register_count)
+                    .and_then(|child| {
+                        readonly_lookup::scalar_entry::Source::from_plan(child.plan)
+                            .map(|source| (child, source))
+                    })
+                {
+                    if let Some(outcome) = unsafe {
+                        source.invoke_scalar_fresh(
+                            child.entry,
+                            closure,
+                            &code.entries,
+                            registers,
+                            slots,
+                            *registers.pc,
+                            budget,
+                        )
+                    }
+                    .expect("invalid read-only lookup exit")
+                    {
+                        #[cfg(test)]
+                        readonly_lookup::scalar_entry::record_entry();
+                        abi::frame_publication::publish(
+                            slots,
+                            &mut registers.stack_frame[..register_count],
+                        );
+                        *registers.pc =
+                            usize::try_from(outcome.exit.pc).expect("native PC exceeds host range");
+                        let counts = helpers::Counts {
+                            table_reads: outcome.reads,
+                            upvalue_reads: outcome.reads,
+                            ..Default::default()
+                        };
+                        let mut manager = self.0.borrow_mut();
+                        record_helper_counts!(manager.stats, counts);
+                        manager.stats.record_native_exit(&outcome.exit);
+                        return outcome.exit.instructions;
+                    }
+                }
+            }
             self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL>(
                 code,
                 ctx,
