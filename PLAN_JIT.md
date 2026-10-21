@@ -38942,6 +38942,47 @@ source, proofs, adverse measurements and diagnosis under ignored
 `production-scoped-read/slice-policy-read/RESULTS.md`. Original performance,
 resource-policy, platform, size and release requirements remain open.
 
+### Existing-source pair gate: measured and rejected
+
+An independent test retained in `0d66d160` covers 96 registration-boundary
+schedules: Rust-created registered/unregistered closures, registration within
+a host callback, hooks, fuel interruption, Off/Auto and three budgets, with GC
+after every step. Both call-site observation counts, source identities, result
+and queue/native/compile counters pass on the original runtime.
+
+The subsequent one-line VM trial gates pair-policy reads on existing native
+source eligibility, without introducing live flags or a tuple. It passes 70
+focused executions, six canonical builds, full-byte no-feature identity and
+the independent 72-record/27-field oracle. Its 336 coupled hardware windows
+still reject it: speed Off integer +5.297%, float +4.923%, arrays +2.825-2.827%
+and callbacks +0.542-0.568% instructions. Shipping Off also regresses; shipping
+Auto callbacks add 0.168%. Positive native work, results, hashes and fully
+scheduled coupled events verify; reader tests reject 17 corruptions. Keep
+mixed results and cycle outliers, not causal claims from contended cycles.
+
+Retain the source-registration test, not the gate. No runtime change from this
+trial is on the branch. Source, exact images, all results and the next measured
+ABI-copy investigation are under ignored `production-scoped-read/pair-source-policy/`.
+The original full acceptance scope remains open.
+
+### Completed ARM baseline and current Miri component evidence
+
+Run `39539001853` completes the full native aarch64 job at `dbbc3248` on
+recorded Linux aarch64 hardware: 11,307 passing executions/554 summaries,
+134 reported diagnostic ignores, real example result 5,000,050,000 with
+200,007 native instructions, finalized kernel dumps and matched shipping
+ELF64 AArch64 artifacts. Ten artifact hashes verify. This is a BASELINE pass,
+not current-source platform acceptance: the later Off continuation, scalar
+guard and registration test differ in six source files. Current runs remain
+necessary; no partial/superseded source is silently relabeled.
+
+At `a3e41e61`, run `39547641154` Miri seed 0 completes all 324 tests across
+43 summaries with zero failures/ignores. Downloaded environment records the
+pinned nightly and default model with seed 0, not Tree and not native JIT
+execution. This validates the completed component scope only, not both seeds
+or all outstanding release requirements. API job provenance, raw artifacts,
+hashes and independent checks are under ignored `ci-current-source/`.
+
 ### Rust-only Miri watchdog correction
 
 Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is
