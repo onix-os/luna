@@ -168,6 +168,25 @@ All original performance, resource, platform and release gates remain open.
 Evidence: `array-view-readonly/` and `array-scalar-predicate/` under the parent
 evidence directory. Neither runtime trial is committed or release-accepted.
 
+The scalar candidate's original-matrix preflight now passes. Its complete
+seven-file patch applies to recorded `3077c23f` and reproduces all **573 frozen
+source manifest entries**; the earlier production patch was only a delta from
+the continuation source. Strict no-feature proof is repeated on this candidate,
+including four valid/twenty corrupt inputs. No image or source is changed.
+
+Both canonical profiles and original/candidate binaries pass **72 case/mode
+records x 27 independent fields**, with zero counter/resource mismatches against
+the unchanged frozen oracle. Reader checks pass one valid/twelve bad records.
+These probes retain eleven samples but explicitly discard every timing field:
+owned validation still runs, so this is **not elapsed acceptance**. The prepared
+144-command campaign retains its original owned-compute refusal, thresholds,
+workloads, two CPUs, profiles and rotation; actual capture remains unrun.
+
+Native fuzz smoke passes, including supervisor panic/signal/timeout detection.
+An expanded four-seed campaign also passes **1024 general and 96 heap cases**
+with positive native execution; source hashes verify before/after. This is
+bounded fuzz evidence, not exhaustive correctness or performance acceptance.
+
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
 
 **Outcome: rejected by two complete original elapsed campaigns.** The refined
