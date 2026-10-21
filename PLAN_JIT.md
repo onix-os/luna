@@ -38983,6 +38983,17 @@ execution. This validates the completed component scope only, not both seeds
 or all outstanding release requirements. API job provenance, raw artifacts,
 hashes and independent checks are under ignored `ci-current-source/`.
 
+### Native musl watchdog after observed complete-matrix duration
+
+Run `39539001853` finishes ARM and GNU native jobs, but the musl job's check
+annotation explicitly reports the three-hour watchdog. Its partial artifact
+contains 10,757 passing executions across 459 summaries and stops during the
+last all-feature Force integration sequence. It is not a full pass or a test
+assertion failure. Extend only the native-job deadline from 180 to 240 minutes;
+every declared platform, mode, test, fuzz, documentation, finalized-image and
+shipping-artifact command remains unchanged. Completed-source provenance must
+still be checked; a deadline extension does not waive any performance target.
+
 ### Rust-only Miri watchdog correction
 
 Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is
