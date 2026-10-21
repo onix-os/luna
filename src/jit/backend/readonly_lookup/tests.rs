@@ -4,6 +4,8 @@ use crate::{thread::LuaRegisters, Callback, CallbackReturn, Closure, Constant, L
 
 const SOURCE: &[u8] = b"local sum=0 for i=1,5000 do sum=sum+host_increment(i) end return sum";
 
+mod scalar_entry;
+
 fn same<'gc>(a: Value<'gc>, b: Value<'gc>) {
     match (a, b) {
         (Value::Nil, Value::Nil) => {}
