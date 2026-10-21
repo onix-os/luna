@@ -9,6 +9,21 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Latest verified checkpoint — 2026-10-21
+
+- Retained runtime345143b9 passes **48/48 original array gates** across two
+  complete matrices, including the1.25x target on both CPU types/profiles.
+- Exact-source GNU and all three native CI platforms pass11,347 executions
+  each; all7 current-runtime CI jobs succeed. Platform artifacts are independently
+  verified, not inferred from green status alone. Test checkpointc697f082 adds
+  independent publication coverage without promoting another runtime change.
+- Overall acceptance is still false: callback/polymorphic native speed and
+  compiled-disabled cold/callback costs remain. Full resource-policy, size and
+  release acceptance are not implied by these checkpoints.
+- The next publication boundary experiment is isolated and unretained. Its
+  shipping work reduction does not excuse additional speed-build work; the
+  narrower slice-boundary refinement must earn its own evidence.
+
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
 The retained optimization targets inherited disabled-JIT closure/upvalue overhead:
@@ -39268,6 +39283,44 @@ native machine-code execution. These source-current platform results do not
 waive outstanding performance, resource-policy, size or release requirements.
 Evidence: array-budget-window/final-main/{ci-evidence.json,ci-evidence.pl,
 ci-artifacts-current.json,ci-jobs-current.json,ci-artifacts/}.
+
+### Small-only publication boundary — measured, not promoted
+
+Independent test checkpointc697f082 adds fixed-width publication comparisons
+for scalar bits, references, zero/short widths and exact partial-panic state.
+Main formatting/checkall and4 publisher tests pass before selecting any new
+runtime path. An isolated ordinary-source trial then uses an inlined fixed-array
+publisher only for existing exact small capacities<=7; general publication is
+unchanged. No unsafe, ABI, owner, field, allocation or counter change is added.
+
+Candidate formatting/checkall and1,568 executions/18 summaries pass, with25
+reported existing diagnostic ignores. Default and Tree Miri each pass4 scoped
+publisher tests,zero ignores. Scoped Memcheck passes4 publisher tests plus1
+actual native callback integration,zero reported errors and no definite/indirect
+lost bytes; each report retains48 possibly lost bytes, not called leak-free.
+A pre-capture test-list grep-q/pipefail EPIPE is preserved separately and fixed
+by reading complete list files; it is not relabeled a runtime failure or pass.
+All576 source entries, six canonical images and exact map companions verify.
+Both no-feature images equal the current baseline in full. The unchanged
+independent72-record/27-field oracle has0mismatches and1valid/12corrupt checks.
+
+Eight exact-image Executor::step-inclusive callback profiles preserve results
+and239424 native instructions per Auto worker. Both Off work counts are exactly
+unchanged. Auto speed work increases113543723->113603571 (ratio1.000527092);
+shipping decreases136281925->135503901 (ratio0.994291070). Shipping removes
+the outlined publisher's5326496 self instructions, while transport adds4548472,
+net778024 fewer collected instructions. These are NOT elapsed performance gates.
+
+Exact-map speed Cap7 normalized instructions isolate one additional
+`movq $0,0x4c0(%rsp)`; padding differs too. This normalization is not full ELF,
+CFG, relocation or timing equivalence. Speed transport grows5394->5406 bytes,
+shipping3155->3262. No full elapsed/PMU campaign has run for this runtime trial,
+and it is not promoted. A contained fresh-source refinement keeps the old slice
+parameter types at the small-only inline boundary, removing the new array
+try_into/unwrap path. Its correctness, safety, generated work and original
+performance acceptance must be measured independently. Evidence:
+production-scoped-read/fixed-frame-publication/{RESULTS.md,profile-report.json,
+assembly-3.diff,source/,maps/,slice-boundary/}.
 
 ## 15. Primary references
 
