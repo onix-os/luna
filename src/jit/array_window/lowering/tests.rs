@@ -80,6 +80,78 @@ fn generated_accesses_execute_without_rust_helpers() {
 }
 
 #[test]
+fn scalar_guards_match_all_byte_tags_and_wide_payload_boundaries() {
+    with_entries(|read, write| {
+        for tag in (0..=255).chain([1 << 31, 1 << 32, i64::MAX as u64, 1 << 63, u64::MAX]) {
+            for bits in [
+                0,
+                1,
+                2,
+                3,
+                4,
+                i64::MIN as u64,
+                i64::MAX as u64,
+                u64::MAX,
+                0x7ff8_0000_0000_1234,
+                0x8000_0000_0000_0000,
+            ] {
+                let value = Slot { tag, bits };
+                for (entry, model, writing) in [
+                    (read, native::tests::read as Entry, false),
+                    (write, native::tests::write as Entry, true),
+                ] {
+                    let run = |entry: Entry| {
+                        let sentinel = Slot::from_value(Value::Integer(99));
+                        let mut cells = [if writing { sentinel } else { value }];
+                        let mut slot = if writing { value } else { sentinel };
+                        let mut dirty = 0;
+                        let mut counts = Counts {
+                            reads: u32::MAX - 1,
+                            writes: u32::MAX - 1,
+                        };
+                        let view = View {
+                            version: native::VERSION,
+                            slots: cells.as_mut_ptr(),
+                            length: 1,
+                            first: 1,
+                            dirty: &mut dirty,
+                            counts: &mut counts,
+                            writable: u64::from(writing),
+                        };
+                        let mut trace = Vec::new();
+                        for _ in 0..3 {
+                            let outcome =
+                                unsafe { entry((&view as *const View).cast(), 1, &mut slot) };
+                            let valid = match tag {
+                                abi::NIL => bits == 0,
+                                abi::BOOLEAN => bits <= 1,
+                                abi::INTEGER | abi::NUMBER => true,
+                                _ => false,
+                            };
+                            assert_eq!(outcome, u32::from(valid));
+                            trace.push((
+                                outcome,
+                                (slot.tag, slot.bits),
+                                (cells[0].tag, cells[0].bits),
+                                dirty,
+                                counts.reads,
+                                counts.writes,
+                            ));
+                        }
+                        trace
+                    };
+                    assert_eq!(
+                        run(entry),
+                        run(model),
+                        "tag={tag} bits={bits:#x} writing={writing}"
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn native_accesses_match_the_model_across_scalar_and_index_boundaries() {
     with_entries(|read, write| {
         for length in [1, 2, 31, 32, 63, 64] {
