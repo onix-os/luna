@@ -213,6 +213,86 @@ fn rejects_well_typed_changes_to_guards_effects_arithmetic_and_control() {
 }
 
 #[test]
+fn rejects_forged_descriptor_proofs_on_every_source_edge_and_cache_branch() {
+    let mut edges = 0;
+    let mut cache_branches = 0;
+    fixtures(|source, plan, original, isa| {
+        for block in original.layout.blocks() {
+            for inst in original.layout.block_insts(block) {
+                let destinations = original.dfg.insts[inst]
+                    .branch_destination(&original.dfg.jump_tables, &original.dfg.exception_tables);
+                for (edge, call) in destinations.iter().enumerate() {
+                    for (index, argument) in call.args(&original.dfg.value_lists).enumerate() {
+                        let value = argument.as_value().unwrap();
+                        if original.dfg.value_type(value) != types::I8 {
+                            continue;
+                        }
+                        for forged in [0, 1] {
+                            let mut changed = original.clone();
+                            let mut cursor = FuncCursor::new(&mut changed);
+                            cursor.goto_inst(inst);
+                            let replacement = cursor.ins().iconst(types::I8, forged);
+                            let mut call = changed.dfg.insts[inst].branch_destination(
+                                &changed.dfg.jump_tables,
+                                &changed.dfg.exception_tables,
+                            )[edge];
+                            let mut position = 0;
+                            call.update_args(&mut changed.dfg.value_lists, |old| {
+                                let argument = if position == index {
+                                    BlockArg::Value(replacement)
+                                } else {
+                                    old
+                                };
+                                position += 1;
+                                argument
+                            });
+                            cranelift_codegen::verify_function(&changed, isa).unwrap();
+                            assert!(
+                                verify(source, plan, &changed, isa).is_err(),
+                                "accepted forged source edge: {}",
+                                changed.display()
+                            );
+                            edges += 1;
+                        }
+                    }
+                }
+                if let InstructionData::Brif { arg, .. } = original.dfg.insts[inst] {
+                    if !matches!(original.dfg.value_def(arg), ValueDef::Param(_, 1)) {
+                        continue;
+                    }
+                    assert_eq!(original.dfg.value_type(arg), types::I8);
+                    for forged in [0, 1] {
+                        let mut changed = original.clone();
+                        let mut cursor = FuncCursor::new(&mut changed);
+                        cursor.goto_inst(inst);
+                        let replacement = cursor.ins().iconst(types::I8, forged);
+                        match &mut changed.dfg.insts[inst] {
+                            InstructionData::Brif { arg, .. } => *arg = replacement,
+                            _ => unreachable!(),
+                        }
+                        cranelift_codegen::verify_function(&changed, isa).unwrap();
+                        assert!(
+                            verify(source, plan, &changed, isa).is_err(),
+                            "accepted forged cache branch: {}",
+                            changed.display()
+                        );
+                        cache_branches += 1;
+                    }
+                }
+            }
+        }
+    });
+    assert!(edges >= 28, "only {edges} source-edge mutations");
+    assert!(
+        cache_branches >= 14,
+        "only {cache_branches} cache-branch mutations"
+    );
+    eprintln!(
+        "array_descriptor_proof_mutations: source_edges={edges} cache_branches={cache_branches}"
+    );
+}
+
+#[test]
 fn rejects_changed_source_and_forged_plans() {
     fixtures(|source, plan, function, isa| {
         for forged in [

@@ -1175,6 +1175,7 @@ mod code_read_hint_tests;
 
 #[cfg(feature = "jit")]
 impl<'gc> RawTable<'gc> {
+    #[inline(always)]
     pub(crate) fn strong_canonical_hint(
         &self,
         key: String<'gc>,

@@ -123,6 +123,46 @@ impl Plan {
         let start = usize::try_from(first - 1).ok()?;
         Some((first, (array_length - start).min(LIMIT)))
     }
+
+    pub(super) fn budget_window(
+        self,
+        pc: usize,
+        slots: &[Slot],
+        array_length: usize,
+        budget: u32,
+    ) -> Option<(i64, usize)> {
+        let original = self.window(pc, slots, array_length)?;
+        let base = usize::from(self.base);
+        let control = &slots[base..base + 4];
+        if control[0].bits != control[3].bits || budget == 0 {
+            return Some(original);
+        }
+        let fuel = budget.min(LIMIT as u32) as usize;
+        let Some(until_loop) = (self.end - pc).checked_add(1) else {
+            return Some(original);
+        };
+        let Some(span) = (self.end - self.start).checked_add(1) else {
+            return Some(original);
+        };
+        let advances = if fuel > until_loop {
+            1 + (fuel - until_loop - 1) / span
+        } else {
+            0
+        };
+        let key = control[3].bits as i64;
+        let Some(last) = (control[2].bits as i64)
+            .checked_mul(advances as i64)
+            .and_then(|delta| key.checked_add(delta))
+        else {
+            return Some(original);
+        };
+        let Some(high) = original.0.checked_add(original.1 as i64 - 1) else {
+            return Some(original);
+        };
+        let first = key.min(last).max(original.0);
+        let last = key.max(last).min(high);
+        Some((first, (last - first + 1) as usize))
+    }
 }
 
 #[cfg(test)]

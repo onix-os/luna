@@ -340,11 +340,15 @@ fn table_access(
     read: Option<IrValue>,
     write: Option<(IrValue, IrValue)>,
     decline: Block,
-) -> Result<(), JitError> {
+    validated: IrValue,
+) -> Result<IrValue, JitError> {
+    let edges = s.edges(validated)?;
+    let ready = edges[0].block(&s.function.dfg.value_lists);
+    let check = s.next_block()?;
+    s.edge(edges[0], ready, &[])?;
+    s.edge(edges[1], check, &[])?;
+    s.advance(check, &[])?;
     s.guarded_imm(IntCC::NotEqual, view, 0, decline)?;
-    if let Some(dest) = read {
-        s.guarded_imm(IntCC::NotEqual, dest, 0, decline)?;
-    }
     let version = s.load(types::I64, view, offset_of!(View, version) as i32)?;
     s.guarded_imm(
         IntCC::Equal,
@@ -357,28 +361,34 @@ fn table_access(
     s.guarded_imm(IntCC::NotEqual, length, 0, decline)?;
     let first = s.load(types::I64, view, offset_of!(View, first) as i32)?;
     s.guarded_imm(IntCC::SignedGreaterThan, first, 0, decline)?;
-    let valid = s.compare(IntCC::SignedGreaterThanOrEqual, key, first)?;
-    s.guard(valid, decline)?;
-    let index = s.binary(Opcode::Isub, types::I64, key, first)?;
-    let valid = s.compare(IntCC::UnsignedLessThan, index, length)?;
-    s.guard(valid, decline)?;
     let writable = s.load(types::I64, view, offset_of!(View, writable) as i32)?;
-    s.guarded_imm(
-        if write.is_some() {
-            IntCC::Equal
-        } else {
-            IntCC::UnsignedLessThanOrEqual
-        },
-        writable,
-        1,
-        decline,
-    )?;
+    s.guarded_imm(IntCC::UnsignedLessThanOrEqual, writable, 1, decline)?;
     let cells = s.load(types::I64, view, offset_of!(View, slots) as i32)?;
     let dirty = s.load(types::I64, view, offset_of!(View, dirty) as i32)?;
     let counts = s.load(types::I64, view, offset_of!(View, counts) as i32)?;
     for pointer in [cells, dirty, counts] {
         s.guarded_imm(IntCC::NotEqual, pointer, 0, decline)?;
     }
+    s.jump(ready, &[])?;
+    s.advance(ready, &[])?;
+    let validated = s.constant(types::I8, 1)?;
+    if let Some(dest) = read {
+        s.guarded_imm(IntCC::NotEqual, dest, 0, decline)?;
+    }
+    let length = s.load(types::I64, view, offset_of!(View, length) as i32)?;
+    let first = s.load(types::I64, view, offset_of!(View, first) as i32)?;
+    let valid = s.compare(IntCC::SignedGreaterThanOrEqual, key, first)?;
+    s.guard(valid, decline)?;
+    let index = s.binary(Opcode::Isub, types::I64, key, first)?;
+    let valid = s.compare(IntCC::UnsignedLessThan, index, length)?;
+    s.guard(valid, decline)?;
+    if write.is_some() {
+        let writable = s.load(types::I64, view, offset_of!(View, writable) as i32)?;
+        s.guarded_imm(IntCC::Equal, writable, 1, decline)?;
+    }
+    let cells = s.load(types::I64, view, offset_of!(View, slots) as i32)?;
+    let dirty = s.load(types::I64, view, offset_of!(View, dirty) as i32)?;
+    let counts = s.load(types::I64, view, offset_of!(View, counts) as i32)?;
     let offset = s.immediate(Opcode::Ishl, index, 4)?;
     let cell = s.binary(Opcode::Iadd, types::I64, cells, offset)?;
     let (tag, bits, dest) = if let Some((tag, bits)) = write {
@@ -409,7 +419,8 @@ fn table_access(
     let saturated = s.compare_imm(IntCC::Equal, previous, i64::from(u32::MAX))?;
     let incremented = s.immediate(Opcode::Iadd, previous, 1)?;
     let next = s.select(saturated, previous, incremented)?;
-    s.store(counts, offset, next)
+    s.store(counts, offset, next)?;
+    Ok(validated)
 }
 
 fn numeric(s: &mut Scan<'_>, tag: IrValue, decline: Block) -> Result<(), JitError> {
@@ -479,19 +490,20 @@ fn operation(
     view: IrValue,
     op: Operation,
     decline: Block,
-) -> Result<(), JitError> {
+    validated: IrValue,
+) -> Result<IrValue, JitError> {
     match op {
         Operation::GetTable { dest, key, .. } => {
             let (tag, key) = s.operand(source, slots, key)?;
             s.guarded_imm(IntCC::Equal, tag, 2, decline)?;
             let dest = s.immediate(Opcode::Iadd, slots, i64::from(dest.0) * 16)?;
-            table_access(s, view, key, Some(dest), None, decline)
+            return table_access(s, view, key, Some(dest), None, decline, validated);
         }
         Operation::SetTable { key, value, .. } => {
             let (tag, key) = s.operand(source, slots, key)?;
             s.guarded_imm(IntCC::Equal, tag, 2, decline)?;
             let value = s.operand(source, slots, value)?;
-            table_access(s, view, key, None, Some(value), decline)
+            return table_access(s, view, key, None, Some(value), decline, validated);
         }
         Operation::Move { dest, source } => {
             let (tag, bits) = s.register(slots, source.0)?;
@@ -506,7 +518,8 @@ fn operation(
             arithmetic(s, source, slots, op, decline)
         }
         _ => Err(invalid()),
-    }
+    }?;
+    Ok(validated)
 }
 
 fn for_loop(
@@ -516,6 +529,7 @@ fn for_loop(
     decline: Block,
     header: Block,
     count: IrValue,
+    validated: IrValue,
 ) -> Result<(), JitError> {
     let (it, index) = s.register(slots, plan.base)?;
     let (lt, limit) = s.register(slots, plan.base + 1)?;
@@ -541,7 +555,7 @@ fn for_loop(
     s.edge(edges[1], done, &[])?;
     s.advance(update, &[])?;
     s.write_register(slots, plan.base + 3, it, next)?;
-    s.jump(header, &[count])?;
+    s.jump(header, &[count, validated])?;
     s.advance(done, &[])
 }
 
@@ -600,6 +614,7 @@ pub(in crate::jit) fn verify(
         .map_err(|_| invalid())?;
     let mut s = Scan::new(function, entry);
     let zero = s.constant(types::I32, 0)?;
+    let unvalidated = s.constant(types::I8, 0)?;
     let cap = s.constant(types::I32, 64)?;
     let budget = s.binary(Opcode::Umin, types::I32, budget, cap)?;
     let interpreter = s.constant(types::I32, 0)?;
@@ -610,8 +625,8 @@ pub(in crate::jit) fn verify(
         let matched = s.compare_imm(IntCC::Equal, pc, (plan.start + index) as i64)?;
         let edges = s.edges(matched)?;
         *header = edges[0].block(&function.dfg.value_lists);
-        params(function, *header, &[types::I32])?;
-        s.edge(edges[0], *header, &[zero])?;
+        params(function, *header, &[types::I32, types::I8])?;
+        s.edge(edges[0], *header, &[zero, unvalidated])?;
         let next = s.next_block()?;
         s.edge(edges[1], next, &[])?;
         s.advance(next, &[])?;
@@ -623,8 +638,9 @@ pub(in crate::jit) fn verify(
     let exit = destination.block(&function.dfg.value_lists);
     s.jump(exit, &[pc, zero, interpreter])?;
     for (index, &header) in headers[..count].iter().enumerate() {
-        s.advance(header, &[types::I32])?;
+        s.advance(header, &[types::I32, types::I8])?;
         let completed = function.dfg.block_params(header)[0];
+        let validated = function.dfg.block_params(header)[1];
         let current = s.constant(types::I64, (plan.start + index) as i64)?;
         let within = s.compare(IntCC::UnsignedLessThan, completed, budget)?;
         let edges = s.edges(within)?;
@@ -637,19 +653,22 @@ pub(in crate::jit) fn verify(
         s.advance(body, &[])?;
         let next_count = s.immediate(Opcode::Iadd, completed, 1)?;
         if index + 1 == count {
-            for_loop(&mut s, slots, plan, decline, headers[0], next_count)?;
+            for_loop(
+                &mut s, slots, plan, decline, headers[0], next_count, validated,
+            )?;
             let next_pc = s.constant(types::I64, (plan.end + 1) as i64)?;
             s.jump(exit, &[next_pc, next_count, interpreter])?;
         } else {
-            operation(
+            let validated = operation(
                 &mut s,
                 source,
                 slots,
                 view,
                 source.operations[plan.start + index],
                 decline,
+                validated,
             )?;
-            s.jump(headers[index + 1], &[next_count])?;
+            s.jump(headers[index + 1], &[next_count, validated])?;
         }
     }
     s.advance(exit, &[types::I64, types::I32, types::I32])?;

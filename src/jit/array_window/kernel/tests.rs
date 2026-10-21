@@ -261,4 +261,6 @@ fn frozen_array_script_resumes_generic_native_code_without_losing_slice_coverage
     });
 }
 
+mod budget_window;
+mod header_validation;
 mod reference_roots;

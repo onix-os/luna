@@ -96,6 +96,120 @@ fn invalid_and_oversized_loop_sources_decline() {
 }
 
 #[test]
+fn budget_windows_preserve_every_key_reachable_in_the_original_window() {
+    let budgets: Vec<_> = if cfg!(miri) {
+        vec![0, 1, 17, 64, u32::MAX]
+    } else {
+        (0..=65).chain([u32::MAX]).collect()
+    };
+    let mut combinations = 0;
+    for operations in 2..=MAX_OPERATIONS {
+        if cfg!(miri) && ![2, 3, 32].contains(&operations) {
+            continue;
+        }
+        let plan = Plan {
+            start: 0,
+            end: operations - 1,
+            base: 0,
+            table: 4,
+            access: Access::Write,
+        };
+        for pc in 0..operations {
+            if cfg!(miri) && pc != 0 && pc != plan.end {
+                continue;
+            }
+            for &budget in &budgets {
+                for step in [i64::MIN, -64, -63, -3, -1, 0, 1, 2, 3, 63, i64::MAX] {
+                    combinations += 1;
+                    let slots =
+                        [128, 256, step, 128].map(|value| Slot::from_value(Value::Integer(value)));
+                    let original = plan.window(pc, &slots, 256).unwrap();
+                    let bounded = plan.budget_window(pc, &slots, 256, budget).unwrap();
+                    assert!(bounded.1 > 0 && bounded.0 >= original.0);
+                    assert!(bounded.0 + bounded.1 as i64 <= original.0 + original.1 as i64);
+                    let (mut current, mut key) = (pc, 128i64);
+                    for _ in 0..budget.min(64) {
+                        if current == plan.end {
+                            let Some(next) = key.checked_add(step) else {
+                                break;
+                            };
+                            key = next;
+                            current = 0;
+                        } else {
+                            if key < original.0 || key >= original.0 + original.1 as i64 {
+                                break;
+                            }
+                            assert!(key >= bounded.0 && key < bounded.0 + bounded.1 as i64,
+                                "operations={operations} pc={pc} budget={budget} step={step} key={key} original={original:?} bounded={bounded:?}");
+                            current += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(combinations, if cfg!(miri) { 330 } else { 388_399 });
+    eprintln!("array_budget_window_combinations={combinations}");
+}
+
+#[test]
+fn budget_windows_shrink_common_slices_and_preserve_refusal_and_overflow() {
+    let plan = Plan {
+        start: 0,
+        end: 2,
+        base: 0,
+        table: 4,
+        access: Access::Read,
+    };
+    let mut slots = [128, 256, 1, 128].map(|value| Slot::from_value(Value::Integer(value)));
+    assert_eq!(plan.window(0, &slots, 256), Some((128, 64)));
+    assert_eq!(plan.budget_window(0, &slots, 256, 64), Some((128, 22)));
+    assert_eq!(plan.budget_window(0, &slots, 256, 1), Some((128, 1)));
+    slots[2] = Slot::from_value(Value::Integer(-1));
+    assert_eq!(plan.budget_window(0, &slots, 256, 64), Some((107, 22)));
+    slots[2] = Slot::from_value(Value::Integer(0));
+    assert_eq!(plan.budget_window(0, &slots, 256, 64), Some((128, 1)));
+    for key in [1, 63, 64, 65, 255, 256, i64::MAX] {
+        for step in [i64::MIN, -1, 0, 1, i64::MAX] {
+            for budget in [0, 1, 2, 3, 17, 64, 65, u32::MAX] {
+                slots = [key, 256, step, key].map(|value| Slot::from_value(Value::Integer(value)));
+                if let Some(original) = plan.window(0, &slots, usize::MAX) {
+                    let bounded = plan.budget_window(0, &slots, usize::MAX, budget).unwrap();
+                    assert!(bounded.1 > 0 && bounded.0 >= original.0);
+                    assert!(
+                        i128::from(bounded.0) + bounded.1 as i128
+                            <= i128::from(original.0) + original.1 as i128
+                    );
+                } else {
+                    assert_eq!(plan.budget_window(0, &slots, usize::MAX, budget), None);
+                }
+                slots[0].bits ^= 1;
+                assert_eq!(
+                    plan.budget_window(0, &slots, usize::MAX, budget),
+                    plan.window(0, &slots, usize::MAX)
+                );
+            }
+        }
+    }
+    for bad in 0..4 {
+        slots = [128, 256, 1, 128].map(|value| Slot::from_value(Value::Integer(value)));
+        slots[bad].tag = abi::NUMBER;
+        assert_eq!(plan.budget_window(0, &slots, 256, 64), None);
+    }
+    assert_eq!(plan.budget_window(3, &slots, 256, 64), None);
+    assert_eq!(plan.budget_window(0, &slots[..3], 256, 64), None);
+    slots = [128, 256, 1, 128].map(|value| Slot::from_value(Value::Integer(value)));
+    let forged = Plan {
+        end: usize::MAX,
+        ..plan
+    };
+    assert_eq!(
+        forged.budget_window(0, &slots, 256, 64),
+        forged.window(0, &slots, 256)
+    );
+}
+
+#[test]
 fn fixed_window_covers_reachable_keys_until_its_capacity_boundary() {
     let budgets: Vec<_> = if cfg!(miri) {
         vec![0, 1, 17, 64, u32::MAX]

@@ -9,6 +9,21 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Latest verified checkpoint — 2026-10-21
+
+- Retained runtime345143b9 passes **48/48 original array gates** across two
+  complete matrices, including the1.25x target on both CPU types/profiles.
+- Exact-source GNU and all three native CI platforms pass11,347 executions
+  each; all7 current-runtime CI jobs succeed. Platform artifacts are independently
+  verified, not inferred from green status alone. Test checkpointc697f082 adds
+  independent publication coverage without promoting another runtime change.
+- Overall acceptance is still false: callback/polymorphic native speed and
+  compiled-disabled cold/callback costs remain. Full resource-policy, size and
+  release acceptance are not implied by these checkpoints.
+- The next publication boundary experiment is isolated and unretained. Its
+  shipping work reduction does not excuse additional speed-build work; the
+  narrower slice-boundary refinement must earn its own evidence.
+
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
 The retained optimization targets inherited disabled-JIT closure/upvalue overhead:
@@ -39074,6 +39089,18 @@ neither rejected lookup-output candidate nor the new hint-inline experiment
 is covered. Current GNU remains in progress. Independent Make verification:
 ci-current-source/current-arm-evidence.{mk,pl,json,log,status}, status zero.
 
+Final inspection confirms all seven jobs in run39547641154 completed successfully.
+GNU job119049328567 also passes 11,307 executions /554 summaries, with134
+reported existing ignores and the same positive native example. Its downloaded
+archive matches GitHub's digest; all ten individual artifact hashes and both
+x86_64 shipping ELFs verify independently. Raw native kernel .bin artifacts
+are checked as raw code, not mislabeled ELF files. Verification:
+ci-current-source/a3-gnu-evidence.{mk,pl,json} and final status zero.
+These results belong to a3e41e61, not the newer93522a1a lookup attributes.
+The latter push has separate run39567375213, queued at this inspection;
+artifact construction and older successful jobs do not close current release,
+size, resource or original performance acceptance.
+
 ### Table-hint wrapper inlining: retired-work gain, timing loss
 
 A separate retained-runtime snapshot changes only the Table borrowed-hint
@@ -39100,6 +39127,200 @@ readonly-hint-inline/{RESULTS.md,PREPARATION.md}, frozen source/images/maps,
 Miri logs and complete hardware/consumer records. The next distinct hypothesis
 removes the newly exposed raw boundary inside the outlined transaction; it is
 not an accepted optimization. All original full-objective gates remain open.
+
+### Contained hint capture: repeated work reduction, acceptance still open
+
+Inline both existing Table and RawTable hint layers inside the still-outlined
+fresh transaction. The original wide result, guards, scoped immutable loan,
+native ABI, canonical commit and real counters remain unchanged. No field,
+allocation, owner, persistent cache or unsafe operation is added. Inlining only
+the wrapper remains rejected; this refinement removes both actual outlines.
+
+The exact snapshot passes 56 focused executions, and 18 tests under each Miri
+model. Six canonical images, exact map companions, both no-feature identities
+to the integrated control and 72 independent 27-field oracle records verify.
+Original0f no-feature differences remain exactly 18 panic-coordinate bytes in
+17 records; all other bytes match, not full-file identity. Fresh local stack
+is 0x58/0x68 at opt3/opts. VM size stays fixed but addresses move by -0x20;
+no alignment explanation or identical relocated-code claim is inferred.
+
+All 336 core PMU windows and two standalone cohorts complete: 288 consumer
+windows / 288,000 measured executions, twelve observations per CPU/profile/case,
+unchanged images, positive native work, exact counters and complete reclamation.
+Strong retired work falls 0.777% opt3 / 1.052% opts on both CPU types. Pooled
+strong elapsed candidate/control medians are 1.00281/0.99494 opt3 and
+0.92408/0.98960 opts (Core/Atom). Core speed does not improve; cold effects and
+outliers remain. This is bounded work reduction, not universal elapsed speedup.
+
+Two unchanged original matrices complete 288 commands, 28,512 Off/Auto benchmark
+executions and 570,240 cost iterations with zero independent counter/resource
+mismatches. Both readers reject 16 mutations; all failed gates remain. Native
+failures are first/repeat speed 3/7 and shipping 6/9; compiled-disabled cost
+failures are speed 10/18 and shipping 5/6. Speed Atom callbacks are 0.8459 then
+0.8214 against 0.8333, callback Off cost 1.0061 then 1.0630 against 1.05;
+shipping Atom arrays remain 1.2410/1.2273 against 1.25. Core cold cost remains
+above 1.05. Native raw timing vectors remain unavailable; cost medians are
+independently recomputed. Data-quality exit zero is not performance acceptance.
+
+Retain only the exact two-attribute work reduction. All 574 main-source hashes
+match the measured snapshot before and after formatting, all-target checking
+and 56 focused/native executions, with no failures or ignores. Full semantic/
+resource/performance/platform/size/release acceptance remains open. The full
+retained93522 runtime GNU gate now passes11,312 executions /554 summaries,
+with134 reported existing ignores and the positive native example (5000050000,
+six prepared entries,200007 native instructions). All574 source hashes remain
+unchanged and all eight finalized raw-kernel artifact hashes verify. This is
+local native GNU evidence, not coverage of the later three descriptor tests
+or the isolated SSA trial; earlier hosted ARM/musl evidence does not cover the
+new lookup attributes. Independent platform-gnu-evidence verification exits zero.
+Evidence: ignored production-scoped-read/readonly-hint-inline/raw-inline/
+{RESULTS.md,ASSEMBLY.md,joint.json}, both original matrices, standalone cohorts,
+source/images/maps, Miri logs and unchanged mutation readers.
+
+Array descriptor regression coverage is retained independently of the next
+optimization. Three actual native-kernel tests enforce lazy validation for
+zero budget/non-access entries, malformed-header refusal, reset on every call,
+read-then-write read-only protection, current scalar checks and saturated
+counters. They pass against the existing runtime; formatting, all-target
+checking and45 focused array/transport executions pass with zero ignores.
+The separate invocation-local SSA descriptor trial is not promoted by those
+tests. Its elapsed performance and original acceptance remain unverified.
+Evidence: production-scoped-read/array-header-once/main-regressions.*.
+
+The isolated invocation-local descriptor-proof trial subsequently passes46
+focused checks, both Miri models (19+2 Rust checks each),38 native Memcheck
+tests with zero reported errors, and3043 general plus110 proof-flow verifier
+corruptions. Six canonical images and exact map companions verify; no-feature
+images equal retained controls in full. All72 independent27-field records match.
+Its336 coupled Core/Atom windows show about4.5%/4.1% fewer Auto array instructions
+(speed/shipping), not a universal elapsed improvement. Startup-inclusive one-
+iteration Callgrind work increases about0.76%/1.00%; at100 iterations it falls
+4.30%/3.93%. Instrumented times are not elapsed acceptance.
+
+The complete unchanged original matrix finishes144 commands,14,256 benchmark
+executions and285,120 cost iterations with zero counter/resource mismatches;
+the reader passes2 valid/16 corrupt cases. Shipping Atom arrays pass all6 original
+1.25 gates, median1.284670; speed Atom passes6/6, median1.397029. Core arrays still
+fail4/6 speed and6/6 shipping rounds, medians1.233151/1.187514. Overall native
+failures are15 speed/17 shipping and cost failures26/5. These different-cohort
+counts are not a causal regression proof against the older retained source.
+At that checkpoint the SSA trial remained unpromoted; callback, cold, polymorphic and original release
+acceptance remain open. Evidence: production-scoped-read/array-header-once/
+{RESULTS.md,acceptance/production-audit.json,hardware/report.json,work-report.json}.
+
+The next host-window trial bounds mirror conversion by remaining native fuel
+while keeping the descriptor-proof kernels byte-identical. Its old-versus-new
+bridge differential is retained independently: seven source families, eight
+control states (including unequal index/key and overflow), every PC and budgets
+0..65 plusu32::MAX compare exact exits, counts, scratch and scalar table bits.
+The unchanged production lowering passes this test, formatting/all-target checks
+and46 focused array/transport executions. This test commit does not promote the
+budgeted-window implementation. Evidence: array-budget-window/main-tests.*.
+
+The descriptor-proof layer is now retained as a separate runtime checkpoint:
+all574 unchanged base-source entries match the frozen header trial, with only
+the additional bridge test/module outside that comparison. Main format/checkall
+and47 focused array/transport executions pass. The subsequently measured combined
+fuel-window candidate clears all24 original array gates in its first full matrix;
+those combined results are not attributed to this intermediate header-only
+checkpoint. Whole-project performance and final-source release gates remain open.
+
+The fuel-bounded host window is retained separately after final-source checks.
+It keeps old admission as fallback, intersects only a checked reachable-key span,
+and changes no native ABI, unsafe code, persistent fields,64-cell initialization,
+fuel or publication semantics. All576 main-source hashes match the corrected
+portable snapshot before/after formatting, all-target checks and49 focused tests.
+Both final-source Miri models pass21+2 Rust checks each; actual i686musl21+2
+checks cover the same corrected fixture. All six freshly rebuilt final-source
+canonical images equal the measured candidate images in full. Sample production
+array CLIF/native bytes remain identical to the descriptor-proof base.
+
+Its first unchanged144-command original matrix completes14,256 benchmark
+executions and285,120 cost iterations, zero counter/resource mismatches and
+2 valid/16 corrupt reader cases. All24 original array gates pass (6 per
+CPU/profile): median Core speed1.648140, Core shipping1.412736, Atom speed1.459650,
+Atom shipping1.361282. No candidate array compiled-disabled cost gate fails.
+This does not establish whole-project acceptance: native failures remain4 speed/
+2 shipping (callback/polymorphic), cost21/17 (including cold/callback/predicate).
+The concurrent descriptor-proof control independently confirms7.3-7.5% less
+array instruction work; larger cross-cohort speedup changes are not attributed
+causally to that single optimization. Broad final platform/resource/size/release
+verification and the remaining performance gates are still required. Evidence:
+array-budget-window/{RESULTS.md,acceptance/production-audit.json,final-main/}.
+
+The exact final-source immutable-image repeat also completes all144 commands,
+14,256 executions and285,120 cost iterations. An independent rerun reproduces
+the audit byte-for-byte: zero counter/resource mismatches,2 valid/16 corrupt
+reader cases. All24 array gates pass again, making48/48 across both matrices.
+Repeat medians are Core speed1.757223/shipping1.423912 and Atom speed1.421994/
+shipping1.361257. Original thresholds, all9 cases, controls and flags are unchanged.
+Overall acceptance remains false: native speed callback4/polymorphic1 failures,
+native shipping0, compiled-disabled cost speed21/shipping11. Informational
+oslo_predicate native rows have no speedup target and are not counted as failures.
+
+The exact corrected final-source GNU gate then completes11,347 test executions
+across554 summaries, with134 reported existing ignores. The native example
+returns5000050000, prepared6 and native_instructions200007. Independent Make
+verification checks all576 source entries and all8 raw kernel/metadata hashes
+for scalar/table/callback/callback_direction. This covers the descriptor and
+budget-window fixtures at345143b9, unlike older source checkpoints; raw native
+kernel blobs are not mislabeled ELF executables. This local GNU evidence is
+not full release acceptance. Evidence: array-budget-window/final-main/
+{evidence.mk,platform-gnu-evidence.json,repeat/rechecked-audit.json,
+repeat/rechecked-reader.log,platform-gnu.log}.
+
+Current-runtime CI run39598752194 at345143b9 completes all7 jobs successfully.
+Independent Make verification checks all6 downloaded archive digests against
+GitHub metadata and exact source/run/job provenance. GNU, musl and actual ARM
+native gates each pass11,347 executions/554 summaries/134 reported existing
+ignores, with the positive native example. Each platform's10 individual artifact
+hashes and both shipping executable ELF machines verify (30 hashes total).
+The20 additional feature-cost test summaries in each archive are not added to
+the native-gate totals. Actual i686musl fallback passes3,362 executions across
+366 summaries,8 reported existing ignores. Default Rust-only Miri seeds0 and1
+each pass324 checks/43 summaries,zero ignores; this is neither Tree Miri nor
+native machine-code execution. These source-current platform results do not
+waive outstanding performance, resource-policy, size or release requirements.
+Evidence: array-budget-window/final-main/{ci-evidence.json,ci-evidence.pl,
+ci-artifacts-current.json,ci-jobs-current.json,ci-artifacts/}.
+
+### Small-only publication boundary — measured, not promoted
+
+Independent test checkpointc697f082 adds fixed-width publication comparisons
+for scalar bits, references, zero/short widths and exact partial-panic state.
+Main formatting/checkall and4 publisher tests pass before selecting any new
+runtime path. An isolated ordinary-source trial then uses an inlined fixed-array
+publisher only for existing exact small capacities<=7; general publication is
+unchanged. No unsafe, ABI, owner, field, allocation or counter change is added.
+
+Candidate formatting/checkall and1,568 executions/18 summaries pass, with25
+reported existing diagnostic ignores. Default and Tree Miri each pass4 scoped
+publisher tests,zero ignores. Scoped Memcheck passes4 publisher tests plus1
+actual native callback integration,zero reported errors and no definite/indirect
+lost bytes; each report retains48 possibly lost bytes, not called leak-free.
+A pre-capture test-list grep-q/pipefail EPIPE is preserved separately and fixed
+by reading complete list files; it is not relabeled a runtime failure or pass.
+All576 source entries, six canonical images and exact map companions verify.
+Both no-feature images equal the current baseline in full. The unchanged
+independent72-record/27-field oracle has0mismatches and1valid/12corrupt checks.
+
+Eight exact-image Executor::step-inclusive callback profiles preserve results
+and239424 native instructions per Auto worker. Both Off work counts are exactly
+unchanged. Auto speed work increases113543723->113603571 (ratio1.000527092);
+shipping decreases136281925->135503901 (ratio0.994291070). Shipping removes
+the outlined publisher's5326496 self instructions, while transport adds4548472,
+net778024 fewer collected instructions. These are NOT elapsed performance gates.
+
+Exact-map speed Cap7 normalized instructions isolate one additional
+`movq $0,0x4c0(%rsp)`; padding differs too. This normalization is not full ELF,
+CFG, relocation or timing equivalence. Speed transport grows5394->5406 bytes,
+shipping3155->3262. No full elapsed/PMU campaign has run for this runtime trial,
+and it is not promoted. A contained fresh-source refinement keeps the old slice
+parameter types at the small-only inline boundary, removing the new array
+try_into/unwrap path. Its correctness, safety, generated work and original
+performance acceptance must be measured independently. Evidence:
+production-scoped-read/fixed-frame-publication/{RESULTS.md,profile-report.json,
+assembly-3.diff,source/,maps/,slice-boundary/}.
 
 ## 15. Primary references
 
