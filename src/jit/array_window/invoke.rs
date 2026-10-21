@@ -38,7 +38,7 @@ pub(in crate::jit) unsafe fn invoke<'gc>(
         .raw_table
         .array()
         .len();
-    let (first, length) = plan.window(pc, slots, array_length)?;
+    let (first, length) = plan.budget_window(pc, slots, array_length, budget)?;
     let mut counts = Counts::default();
     let exit = with_window::<_, 64>(
         ctx,

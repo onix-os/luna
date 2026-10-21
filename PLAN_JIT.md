@@ -39210,6 +39210,29 @@ fuel-window candidate clears all24 original array gates in its first full matrix
 those combined results are not attributed to this intermediate header-only
 checkpoint. Whole-project performance and final-source release gates remain open.
 
+The fuel-bounded host window is retained separately after final-source checks.
+It keeps old admission as fallback, intersects only a checked reachable-key span,
+and changes no native ABI, unsafe code, persistent fields,64-cell initialization,
+fuel or publication semantics. All576 main-source hashes match the corrected
+portable snapshot before/after formatting, all-target checks and49 focused tests.
+Both final-source Miri models pass21+2 Rust checks each; actual i686musl21+2
+checks cover the same corrected fixture. All six freshly rebuilt final-source
+canonical images equal the measured candidate images in full. Sample production
+array CLIF/native bytes remain identical to the descriptor-proof base.
+
+Its first unchanged144-command original matrix completes14,256 benchmark
+executions and285,120 cost iterations, zero counter/resource mismatches and
+2 valid/16 corrupt reader cases. All24 original array gates pass (6 per
+CPU/profile): median Core speed1.648140, Core shipping1.412736, Atom speed1.459650,
+Atom shipping1.361282. No candidate array compiled-disabled cost gate fails.
+This does not establish whole-project acceptance: native failures remain4 speed/
+2 shipping (callback/polymorphic), cost21/17 (including cold/callback/predicate).
+The concurrent descriptor-proof control independently confirms7.3-7.5% less
+array instruction work; larger cross-cohort speedup changes are not attributed
+causally to that single optimization. An immutable-image repeat and broad final
+GNU/platform/resource/size/release verification remain required. Evidence:
+array-budget-window/{RESULTS.md,acceptance/production-audit.json,final-main/}.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
