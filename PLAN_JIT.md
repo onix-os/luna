@@ -76,6 +76,35 @@ lines; each passes four valid and twenty corrupt inputs. Final-source safety,
 platform/resource, original performance and release gates remain open. Evidence:
 `target/jit-evidence/hook-resume-recovery/production-scoped-read/interpreted-tail/`.
 
+#### Success-only dispatcher refactor — repeated measurements
+
+Mapped instruction profiles identified a **56-byte tagged-result copy on every
+successful callback VM exit**. Split ordinary success/error before selecting a
+continuation; pass only the successful `u32` count to its helper. Original error
+positioning, per-slice fuel/statistics, native/VM ABI, mode eligibility and owners
+remain unchanged. Final emitted profiles prove the post-VM wide copy disappears
+in both release profiles. Thirty focused/native/error checks pass, including
+positive stack reallocation inside a borrowed continuation with full trace parity.
+
+Two complete unchanged **144-command** cohorts use identical source/images:
+28512 benchmark executions, 570240 cost iterations, zero independent 27-field
+counter/resource mismatches; each reader passes two valid/sixteen corrupt inputs.
+Across twelve paired observations, compiled-Off upvalue median speedups are
+**1.174x / 1.137x on CPU0**, **1.228x / 1.337x on CPU16** (speed/shipping).
+Callback control/candidate medians are **0.9974x / 0.9977x on CPU0** and
+**1.0173x / 1.0064x on CPU16**: the new large callback penalty is largely removed,
+not a universal speedup claim. Placebo ranges/outliers remain explicit.
+
+Original gates still fail: first/repeat cost speed **10/23**, cost shipping
+**11/2**, native speed **2/6**, native shipping **10/11**. Do not treat aggregate
+improvements, changed failure counts, or median placebo near one as acceptance.
+Current-source full GNU and both Miri borrow models are running; final platform,
+resource/performance and release gates remain open. Runtime is not promoted yet.
+The strict no-feature proof accounts only for seventeen identical-source panic
+coordinates shifted by31 (eighteen changed bytes); all other image bytes match
+original0f. Initial pre-format +28 proof failure is retained, not hidden.
+Evidence: the parent path above, `success-only/`.
+
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
 
 **Outcome: rejected by two complete original elapsed campaigns.** The refined
