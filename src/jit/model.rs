@@ -301,36 +301,38 @@ mod tests {
     #[test]
     fn effect_cached_getter_free_loops_keep_original_kernels() {
         use super::super::{backend, resources, work, JitConfig};
-        let directory =
-            std::env::temp_dir().join(format!("luna-read-effects-{}", std::process::id()));
-        std::fs::create_dir(&directory).unwrap();
         for program in [
             &b"local s=0 for i=1,20000 do s=s+i end return s"[..],
             &b"local s=0.0 for i=1,20000 do s=s+0.5 end return s"[..],
         ] {
             let source = snapshot(program);
             let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
-            let images =
+            let observed =
                 [backend::Failure::None, backend::Failure::PreferReadEffects].map(|failure| {
-                    let code = backend::compile_in(
-                        &source,
-                        memory.clone(),
-                        8 * 1024 * 1024,
-                        resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
-                        work::Limits::from(&JitConfig::default()),
-                        failure,
-                    )
-                    .unwrap();
-                    let path = directory.join("kernel.bin");
-                    code.dump_finalized(&path);
-                    let bytes = std::fs::read(&path).unwrap();
-                    std::fs::remove_file(path).unwrap();
-                    bytes
+                    backend::unlinked::capture(|| {
+                        backend::compile_in(
+                            &source,
+                            memory.clone(),
+                            8 * 1024 * 1024,
+                            resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                            work::Limits::from(&JitConfig::default()),
+                            failure,
+                        )
+                        .unwrap()
+                    })
                 });
-            assert_eq!(images[0], images[1]);
+            assert_ne!(
+                observed[0].0.linked_entry() as usize,
+                observed[1].0.linked_entry() as usize
+            );
+            assert_eq!(observed[0].1.len(), 1);
+            assert_eq!(observed[0].1, observed[1].1);
+            if program.contains(&b'.') {
+                assert!(!observed[0].1[0].relocations.is_empty());
+            }
+            drop(observed);
             assert_eq!(memory.load(Ordering::Relaxed), 0);
         }
-        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]

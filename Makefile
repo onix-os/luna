@@ -109,6 +109,12 @@ table-capacity-miri:
 	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' table::raw::capacity_tests -- --test-threads=1
 
 .PHONY: jit-array-window jit-array-window-miri
+.PHONY: jit-unlinked-identity
+jit-unlinked-identity:
+	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Unlinked identity gate requires supported hardware'; exit 2;; esac
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::unlinked:: -- --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::effect_cached_getter_free_loops_keep_original_kernels -- --exact --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-array-write-roots
 jit-array-write-roots:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native array roots gate requires supported hardware'; exit 2;; esac

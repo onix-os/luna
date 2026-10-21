@@ -56,6 +56,8 @@ pub(super) mod region;
 mod transport_tests;
 #[cfg(test)]
 mod universal_memory;
+#[cfg(all(test, not(miri)))]
+pub(super) mod unlinked;
 
 #[cfg(not(miri))]
 pub(super) mod array;
@@ -2342,6 +2344,13 @@ fn compile_image(
             .relocs()
             .iter()
             .map(|relocation| ModuleReloc::from_mach_reloc(relocation, &context.func, function)),
+    );
+    #[cfg(all(test, not(miri)))]
+    unlinked::record(
+        compiled.code_buffer(),
+        u64::from(compiled.buffer.alignment),
+        &module_relocations,
+        &module,
     );
     let relocation_copy_bytes = Layout::array::<ModuleReloc>(compiled.buffer.relocs().len())
         .map_err(|_| JitError::ResourceLimit("native relocation copy size"))?
