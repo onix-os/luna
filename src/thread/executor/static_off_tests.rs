@@ -51,7 +51,7 @@ fn callback_mode_changes_retire_code_before_execution_resumes() {
     use crate::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode, Lua};
     use std::{cell::RefCell, rc::Rc};
 
-    let run = || {
+    let run = |budget| {
         let mut lua = Lua::empty();
         lua.set_jit_config(JitConfig {
             mode: JitMode::Auto,
@@ -80,22 +80,31 @@ fn callback_mode_changes_retire_code_before_execution_resumes() {
                     manager.configure(config);
                     drop(manager);
                     assert_eq!(ctx.jit().usage(), 0);
+                    if !enabled {
+                        let increment = Closure::load(
+                            ctx,
+                            Some("off-increment"),
+                            b"local x=... return x+1",
+                        )?;
+                        ctx.set_global("off_increment", increment);
+                    }
                     Ok(CallbackReturn::Return)
                 }),
             );
-            let closure = Closure::load(ctx, Some("static-off-mode"), b"local n=0 for i=1,32 do n=n+i end flip(false) n=n+1 flip(true) n=n+1 flip(false) n=n+1 return n").unwrap();
+            let closure = Closure::load(ctx, Some("static-off-mode"), b"local n=0 for i=1,32 do n=n+i end flip(false) for i=1,32 do n=off_increment(n) end flip(true) n=n+1 flip(false) n=n+1 return n").unwrap();
             ctx.stash(Executor::start(ctx, closure.into(), ()))
         });
         while lua.prepare_jit().unwrap() != 0 {}
         let mut trace = Vec::new();
         for _ in 0..1000 {
-            let mut fuel = Fuel::with(17);
+            let mut fuel = Fuel::with(budget);
             let done = lua.enter(|ctx| ctx.fetch(&executor).step(ctx, &mut fuel).unwrap());
             trace.push((
                 done,
                 fuel.remaining(),
                 fuel.is_interrupted(),
                 lua.jit_stats(),
+                lua.enter(|ctx| ctx.fetch(&executor).test_frame_snapshot()),
             ));
             lua.gc_collect();
             if done {
@@ -105,7 +114,7 @@ fn callback_mode_changes_retire_code_before_execution_resumes() {
                         .unwrap()
                         .unwrap()
                 });
-                assert_eq!(result, 531);
+                assert_eq!(result, 562);
                 assert!(lua.jit_stats().native_entries > 0);
                 let observations = observed.borrow().clone();
                 assert_eq!(observations.len(), 3);
@@ -118,11 +127,22 @@ fn callback_mode_changes_retire_code_before_execution_resumes() {
         }
         panic!("mode transition did not finish");
     };
-    let (trace, _, _) = run();
-    let retired = trace
-        .iter()
-        .position(|step| step.3.code_bytes == 0)
-        .unwrap();
-    assert!(retired > 0);
-    assert!(trace[retired..].iter().all(|step| step.3.code_bytes == 0));
+    for budget in [17, 4096] {
+        let (reference, scopes, slices) = super::interpreted_tail::scoped(false, || run(budget));
+        assert_eq!((scopes, slices), (0, 0));
+        let (candidate, scopes, slices) = super::interpreted_tail::scoped(true, || run(budget));
+        assert_eq!(reference, candidate);
+        if budget == 4096 {
+            assert!(scopes > 0 && slices > 0);
+        }
+        let (trace, _, _) = candidate;
+        let retired = trace
+            .iter()
+            .position(|step| step.3.code_bytes == 0)
+            .unwrap();
+        if budget == 17 {
+            assert!(retired > 0);
+        }
+        assert!(trace[retired..].iter().all(|step| step.3.code_bytes == 0));
+    }
 }

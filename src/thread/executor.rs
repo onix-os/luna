@@ -782,14 +782,17 @@ impl<'gc> Executor<'gc> {
                         )))]
                         let result = ordinary(top_state, fuel);
                         #[cfg(all(test, feature = "jit"))]
-                        let result = interpreted_tail::after(
-                            ctx,
-                            top_state,
-                            stack,
-                            fuel,
-                            result,
-                            &mut step_charged,
-                        );
+                        let result = match result {
+                            Err(error) => Err(error),
+                            Ok(instructions) => interpreted_tail::after(
+                                ctx,
+                                top_state,
+                                stack,
+                                fuel,
+                                instructions,
+                                &mut step_charged,
+                            ),
+                        };
                         match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
