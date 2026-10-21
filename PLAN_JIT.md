@@ -11,19 +11,24 @@
 
 ### Latest verified checkpoint — 2026-10-21
 
-- Retained runtime345143b9 passes **48/48 original array gates** across two
-  complete matrices, including the1.25x target on both CPU types/profiles.
-- Exact-source GNU and all three native CI platforms pass11,347 executions
-  each; all7 current-runtime CI jobs succeed. Platform artifacts are independently
-  verified, not inferred from green status alone. Test checkpointc697f082 adds
-  independent publication coverage without promoting another runtime change.
+- Retained scalar-entry runtime7ebad27c passes **48/48 original array gates**
+  across two complete matrices, keeping the1.25x target on both CPU types/profiles.
+  Callback gates pass47/48; callback instruction work falls3.848%/3.206% in
+  speed/shipping profiles versus the retained345143b9 foundation.
+- Exact-source GNU passes11,412 executions/554 summaries, with134 reported
+  existing ignores and zero failures. New admission/public-runtime/native-model
+  fixtures execute in each of five JIT lanes; eight raw native artifacts verify.
+  Both focused Miri models and real i686 each pass26 checks. Current-source
+  musl/ARM/full-fallback CI remains pending: the older all7-job green CI and
+  11,347-execution native-platform evidence cover345143b9, not this new runtime.
 - Overall acceptance is still false: callback/polymorphic native speed and
   compiled-disabled cold/callback costs remain. Full resource-policy, size and
   release acceptance are not implied by these checkpoints.
 - Both publication-boundary variants remain unretained after measured work
   tradeoffs and a336-window hardware diagnostic. Independent scalar-entry proof
-  checkpoint7c86e7b0 and test-gated bridgef3bb71ae pass397,980 actual native
-  comparisons. The bridge exists but production routing remains unchanged.
+  checkpoint7c86e7b0 and bridgef3bb71ae pass397,980 actual native comparisons.
+  The width-specialized bridge is now selected for eligible scalar entries;
+  reference inputs and unsupported states retain the existing framed path.
 
 #### Scalar-entry runtime trial — not retained
 
@@ -44,12 +49,12 @@ counter oracle validate; both no-feature images match the retained controls.
 However, eight callback instruction profiles show **+0.633% opt3 work** and
 **-0.439% opts work**, with identical native instruction counts and unchanged Off
 work. These are not elapsed timings or performance acceptance. Disassembly
-identifies the per-slot scalar tag check as additional work. The runtime stays
-unselected while an equivalent tag-union predicate is tested independently;
+identifies the per-slot scalar tag check as additional work. This unspecialized
+version stays unselected; the width-specialized refinement is described below.
 no guard, benchmark threshold, or original acceptance requirement is relaxed.
 Evidence: `production-scoped-read/hostless-scalar-runtime/`.
 
-#### Width-specialized scalar bridge — candidate, not retained
+#### Width-specialized scalar bridge — retained at7ebad27c
 
 The standalone tag-union guard passes 228,608 independent lane/bit cases but
 adds 1.160% speed-build callback work: dynamic vector setup and its remainder
@@ -75,10 +80,15 @@ the 1.25x target; callbacks pass 47/48 gates. Native speed failures are 0 then 1
 cost failures remain speed 16/16 and shipping 8/2. Preserve all failures and
 placebo distributions; fewer failed gates are not causal confidence by themselves.
 
-Full GNU platform validation is running on the frozen candidate before runtime
-promotion. Other-platform, complete resource-policy, size and release acceptance
-remain open. The inherited matrix auditor explicitly does not reconstruct native
-raw medians independently; do not claim otherwise. Evidence:
+Full GNU platform validation passes on the exact retained source:11,412
+executions/554 summaries,134 reported existing ignores, zero failures. A separate
+validator requires the new layout, union, public-runtime and actual native-model
+fixtures in all five JIT lanes, the real native result5000050000/native200007,
+and eight individual kernel/metadata artifact hashes. All581 frozen source
+entries match main around commit; formatting and whitespace checks pass.
+Other-platform, complete resource-policy, size and release acceptance remain
+open. The inherited matrix auditor explicitly does not reconstruct native raw
+medians independently; do not claim otherwise. Evidence:
 `production-scoped-read/hostless-scalar-runtime/inline-entry/`.
 
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
