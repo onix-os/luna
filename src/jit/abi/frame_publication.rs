@@ -15,6 +15,21 @@ pub(in crate::jit) fn publish(slots: &[Slot], frame: &mut [Value<'_>]) {
 }
 
 #[cfg(test)]
+#[inline(always)]
+pub(in crate::jit) fn publish_exact<const N: usize>(slots: &[Slot; N], frame: &mut [Value<'_>; N]) {
+    for (slot, dest) in slots.iter().zip(frame) {
+        match slot.tag {
+            NIL => *dest = Value::Nil,
+            BOOLEAN => *dest = Value::Boolean(slot.bits != 0),
+            INTEGER => *dest = Value::Integer(slot.bits as i64),
+            NUMBER => *dest = Value::Number(f64::from_bits(slot.bits)),
+            REFERENCE => {}
+            _ => unreachable!("invalid native scalar tag"),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Callback, CallbackReturn, Closure, Context, Lua, Table, Thread, UserData};
@@ -125,6 +140,72 @@ mod tests {
                     compare(&slots, &initial);
                 }
             }
+        });
+    }
+
+    fn compare_exact<const N: usize>(slots: &[Slot; N], initial: &[Value<'_>; N]) {
+        let mut expected = *initial;
+        let mut actual = *initial;
+        let reference = catch_unwind(AssertUnwindSafe(|| publish(slots, &mut expected)));
+        let candidate = catch_unwind(AssertUnwindSafe(|| publish_exact(slots, &mut actual)));
+        assert_eq!(candidate.is_err(), reference.is_err());
+        if let (Err(actual), Err(expected)) = (&candidate, &reference) {
+            assert_eq!(actual.as_ref().type_id(), expected.as_ref().type_id());
+            assert_eq!(
+                actual.downcast_ref::<&str>(),
+                expected.downcast_ref::<&str>()
+            );
+            assert_eq!(
+                actual.downcast_ref::<String>(),
+                expected.downcast_ref::<String>()
+            );
+        }
+        for (actual, expected) in actual.into_iter().zip(expected) {
+            super::super::tests::assert_identical(actual, expected);
+        }
+    }
+
+    fn exact_values<const N: usize>(ctx: Context<'_>) {
+        for value in values(ctx) {
+            let initial = [value; N];
+            for bits in [
+                0,
+                1,
+                2,
+                u64::MAX,
+                1 << 63,
+                0x7ff0_0000_0000_0001,
+                0xfff8_0000_0000_5678,
+            ] {
+                for tag in [NIL, BOOLEAN, INTEGER, NUMBER, REFERENCE] {
+                    compare_exact(&[Slot { tag, bits }; N], &initial);
+                }
+            }
+            for position in 0..N {
+                for tag in [5, 6, 255, u64::MAX] {
+                    let mut slots = [Slot {
+                        tag: INTEGER,
+                        bits: 73,
+                    }; N];
+                    slots[position].tag = tag;
+                    compare_exact(&slots, &initial);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_width_publication_preserves_bits_references_and_partial_panics() {
+        Lua::empty().enter(|ctx| {
+            exact_values::<0>(ctx);
+            exact_values::<1>(ctx);
+            exact_values::<2>(ctx);
+            exact_values::<3>(ctx);
+            exact_values::<4>(ctx);
+            exact_values::<5>(ctx);
+            exact_values::<6>(ctx);
+            exact_values::<7>(ctx);
+            exact_values::<8>(ctx);
         });
     }
 }
