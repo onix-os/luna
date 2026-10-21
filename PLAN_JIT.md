@@ -39074,6 +39074,18 @@ neither rejected lookup-output candidate nor the new hint-inline experiment
 is covered. Current GNU remains in progress. Independent Make verification:
 ci-current-source/current-arm-evidence.{mk,pl,json,log,status}, status zero.
 
+Final inspection confirms all seven jobs in run39547641154 completed successfully.
+GNU job119049328567 also passes 11,307 executions /554 summaries, with134
+reported existing ignores and the same positive native example. Its downloaded
+archive matches GitHub's digest; all ten individual artifact hashes and both
+x86_64 shipping ELFs verify independently. Raw native kernel .bin artifacts
+are checked as raw code, not mislabeled ELF files. Verification:
+ci-current-source/a3-gnu-evidence.{mk,pl,json} and final status zero.
+These results belong to a3e41e61, not the newer93522a1a lookup attributes.
+The latter push has separate run39567375213, queued at this inspection;
+artifact construction and older successful jobs do not close current release,
+size, resource or original performance acceptance.
+
 ### Table-hint wrapper inlining: retired-work gain, timing loss
 
 A separate retained-runtime snapshot changes only the Table borrowed-hint
