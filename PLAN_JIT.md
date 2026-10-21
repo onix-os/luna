@@ -98,12 +98,73 @@ not a universal speedup claim. Placebo ranges/outliers remain explicit.
 Original gates still fail: first/repeat cost speed **10/23**, cost shipping
 **11/2**, native speed **2/6**, native shipping **10/11**. Do not treat aggregate
 improvements, changed failure counts, or median placebo near one as acceptance.
-Current-source full GNU and both Miri borrow models are running; final platform,
-resource/performance and release gates remain open. Runtime is not promoted yet.
+The selected source's full GNU lanes pass **4816 executions / 276 summaries**,
+with 56 reported existing ignores. Default-model Miri passes five focused tests;
+Tree remains running. The complete i686musl fallback gate passes **3356
+executions / 366 summaries**, with eight reported existing ignores. Final
+platform, resource/performance and release gates remain open. Runtime is not
+promoted yet.
 The strict no-feature proof accounts only for seventeen identical-source panic
 coordinates shifted by31 (eighteen changed bytes); all other image bytes match
 original0f. Initial pre-format +28 proof failure is retained, not hidden.
 Evidence: the parent path above, `success-only/`.
+
+The strengthened continuation foundation is separately committed as `ea471707`
+(30 focused passes, zero ignored). Native array tag/payload boundaries follow in
+`e407e216` (39 array/backend passes, zero ignored), before changing their guard.
+
+The first full native-musl platform run **fails**, not passes: a getter-free
+identity fixture compares finalized code containing a PC-relative helper
+relocation. Its two 2160-byte images differ only at offsets 1590/1591. `1555507a`
+fixes the test by comparing complete unlinked bytes, alignment and every
+relocation offset/kind/addend/target declaration, without masking bytes. Both
+compiled owners must remain alive at distinct addresses; the float fixture
+must contain a relocation. Related GNU tests pass 38 checks; dedicated positive
+GNU and native-musl gates pass two checks each. Capture is scoped/test-only and
+restores nested/panicking state. A new immutable continuation snapshot including
+these test fixes runs the **full** platform gate; the failed source/run remains
+untouched. Evidence: `unlinked-identity/` and
+`interpreted-tail/platform-identity/` under the parent evidence directory.
+
+#### Array scalar payload predicate — candidate, not promoted
+
+A descriptor-readonly experiment passes 42 focused checks and builds all six
+canonical images, but actual production-ISA diagnostics show its two original
+array workload kernels remain byte-identical. Reject it without attributing
+hypothetical timing changes to nonexistent generated-work savings.
+
+The separate scalar-guard candidate retains the original tag<=3 refusal and
+uses **tag>=2 OR unsigned(bits)<=tag** for payload validity. Compile-time
+assertions pin NIL/Boolean/integer/number tags to 0/1/2/3. Nil requires bits0,
+Boolean bits0/1; all integer/float payloads and all invalid-tag refusals remain
+unchanged. The independent verifier demands the exact unsigned predicate.
+No memory flags, admission rules, initialized mirror, ABI, PC/budget, dirty
+writeback, counter saturation, owner or runtime policy changes.
+
+Forty-two focused tests pass, including every-PC/budget native differentials,
+reference-root/GC/quota tests and the independent all-byte/wide-tag fixture.
+Exact production-builder output shrinks fill **614->570 bytes**, read/sum
+**934->902 bytes**; nine predicate instructions disappear per access. Fill also
+saves one callee-saved register and reduces stack reservation 48->32 bytes.
+Native Memcheck remains running, not counted as passed.
+
+All six canonical images and **64 whole-worker instruction profiles** finish;
+both no-feature images match the prior continuation images byte-for-byte.
+The independent reader reconciles image identities, commands, worker records
+and Ir summary/totals/profiler counts, passing two valid/fifteen bad-input cases.
+Auto array work falls **1.827% / 1.781%** (speed/shipping), including compilation,
+startup and warmups; this is not an isolated hot-loop or elapsed-speed result.
+Printed native work and results agree. Instrumented durations are invalid.
+
+Do not hide the Off aggregate variation: the initial full-nine opt3 observation
+adds **1.516%** work, although individually selectable Off cases stay near flat.
+Three rotated repeats observe **+0.0625%, -0.0243%, -0.0334%** in opt3 and
+**+0.0469%, -0.0083%, +0.7622%** in shipping. Same-image process/cold/Oslo
+variation remains; these finite repeats establish neither causality nor elapsed
+acceptance. No new hardware timing/PMU overlaps current owned safety jobs.
+All original performance, resource, platform and release gates remain open.
+Evidence: `array-view-readonly/` and `array-scalar-predicate/` under the parent
+evidence directory. Neither runtime trial is committed or release-accepted.
 
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
 
