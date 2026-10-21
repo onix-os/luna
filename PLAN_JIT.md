@@ -9,7 +9,7 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Compiled-Off post-ordinary continuation — test foundation
+### Compiled-Off post-ordinary continuation — not promoted
 
 The next hypothesis targets inherited disabled-JIT closure/upvalue overhead:
 after an ordinary slice, retain the canonical stack borrow for at most 63 more
@@ -25,28 +25,55 @@ host step; supported Auto schedules prove the selector does not enter Off.
 Positive route counts and nested/panic selector restoration are required.
 The focused two-test lane and 17 existing activation checks pass. The retained
 foundation's full GNU normal/Force/all-feature/doc sequence also passes **4810
-executions / 276 summaries**, with 56 reported existing ignores. Miri remains
-running. No production continuation is enabled in the tracked runtime.
+executions / 276 summaries**, with 56 reported existing ignores. Its default
+Miri model passes both focused tests. The superseded Tree and initial runtime
+Miri runs were explicitly cancelled before hardware timing, **not counted as
+passes**. Both borrow models at the final selected source remain required.
+No production continuation is enabled in the tracked runtime.
 
 An ordinary source snapshot implements the actual runtime candidate with one
 three-case activation-policy query and unchanged Auto/no-feature cadence.
-Thirteen focused boundary/hook/policy checks pass; six canonical release images
-build. In 48 whole-worker Callgrind profiles, closure/upvalue work falls
+Thirteen focused boundary/hook/policy checks and the initial runtime's complete
+GNU lanes pass: **4814 executions / 276 summaries**, zero failures and 56 reported
+existing ignores. Six canonical release images build. In 48 whole-worker
+Callgrind profiles, closure/upvalue work falls
 **14.276% / 12.147%** against the retained runtime (opt3/opts), but Rust-callback
 work rises **2.620% / 2.570%**. These counts include startup and warmups; all
 instrumented worker durations are invalid, not elapsed-speed acceptance. The
-callback regression prevents promotion. A separate plain-source refinement
-adds a cheap Lua-top-frame guard before continuation-host setup; its validation
-is in progress, not an accepted performance fix.
+callback regression prevents promotion. A Lua-top-frame prefix guard reduces
+the extra callback work to **0.706% / 1.142%**, retaining **14.257% / 12.604%**
+less upvalue work. Exact mapped release images attribute the residual to the
+executor dispatcher, about twelve / 23 additional instructions per callback.
+
+The guarded runtime completes the **unchanged original 144-command matrix**:
+14256 benchmark executions (Off and Auto, not all guest-native), 285120 cost
+iterations, zero independent 27-field resource/counter mismatches, and two valid
+plus sixteen corrupt-reader checks. No owned build/test/profiler overlaps timing;
+external contention and every failed gate remain recorded.
+
+Compiled-Off upvalue paired median speedups against original `0f7c6ba7` are
+**1.151x / 1.139x on CPU0**, **1.242x / 1.344x on CPU16** (speed/shipping).
+But callback compiled-Off time regresses about **7% / 9% on CPU0**, with smaller
+losses on CPU16. This is not a regression-free fix. Candidate failed gates total
+**34 / 17 compiled-disabled cost** and **14 / 11 native** (speed/shipping).
+Timing outliers and same-image placebo spread prevent treating failure-count
+changes as causal confidence; full performance acceptance remains false.
+
+A separate shared-tail trial removes the new policy representation and permits
+ordinary Auto tails, preserving installed-pair hosts and positive native trace
+coverage. Its 25 focused checks and 48 instruction profiles pass, but callbacks
+still add **1.540% / 1.035%** work. It does not consistently improve the guard-only
+trial and is not promoted. Next work targets the measured dispatcher callback
+cost, rather than broadening eligibility or claiming an aggregate win.
 
 No-feature images are **not byte-identical**: exactly seventeen executor panic
 line coordinates move by22 in both profiles. A strict ELF/relocation/source-line
 audit proves every other image byte, including complete executable text, is
 identical to original `0f7c6ba7`; four valid pairs and twenty corruption cases
 pass. Original images, performance limits and resource/counter oracles remain
-unchanged. The callback-guard refinement must repeat this proof for its two
-additional source lines. Original elapsed, final-source safety/platform/resource
-and release gates remain open. Evidence:
+unchanged. Guarded/shared variants repeat the strict proof for shifts of24/25
+lines; each passes four valid and twenty corrupt inputs. Final-source safety,
+platform/resource, original performance and release gates remain open. Evidence:
 `target/jit-evidence/hook-resume-recovery/production-scoped-read/interpreted-tail/`.
 
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
