@@ -20,9 +20,66 @@
 - Overall acceptance is still false: callback/polymorphic native speed and
   compiled-disabled cold/callback costs remain. Full resource-policy, size and
   release acceptance are not implied by these checkpoints.
-- The next publication boundary experiment is isolated and unretained. Its
-  shipping work reduction does not excuse additional speed-build work; the
-  narrower slice-boundary refinement must earn its own evidence.
+- Both publication-boundary variants remain unretained after measured work
+  tradeoffs and a336-window hardware diagnostic. Independent scalar-entry proof
+  checkpoint7c86e7b0 and test-gated bridgef3bb71ae pass397,980 actual native
+  comparisons. The bridge exists but production routing remains unchanged.
+
+#### Scalar-entry runtime trial — not retained
+
+An isolated integration uses the proved bridge only for eligible ordinary
+nonprojected entries. Source capability is computed during the existing opcode
+scan; measured Plan layout remains 16 bytes on 64/32-bit, with no ReadCode owner
+growth. Original scalar publication, PC updates, all helper counters, and
+reference/unsupported-state fallback remain intact.
+
+The trial passes 154 focused executions across 19 summaries, both Miri models
+and actual i686 each 25/4/0, and native Memcheck models plus the public runtime
+test with zero errors. Memcheck still reports 48 possibly lost harness bytes.
+The public differential observes 80 new scalar entries and zero reference-case
+entries, preserving complete step/fuel/counter traces, rebinding and per-step GC.
+Six canonical images, exact map companions and the unchanged 72x27 resource/
+counter oracle validate; both no-feature images match the retained controls.
+
+However, eight callback instruction profiles show **+0.633% opt3 work** and
+**-0.439% opts work**, with identical native instruction counts and unchanged Off
+work. These are not elapsed timings or performance acceptance. Disassembly
+identifies the per-slot scalar tag check as additional work. The runtime stays
+unselected while an equivalent tag-union predicate is tested independently;
+no guard, benchmark threshold, or original acceptance requirement is relaxed.
+Evidence: `production-scoped-read/hostless-scalar-runtime/`.
+
+#### Width-specialized scalar bridge — candidate, not retained
+
+The standalone tag-union guard passes 228,608 independent lane/bit cases but
+adds 1.160% speed-build callback work: dynamic vector setup and its remainder
+loop cost more at seven slots. Reject that version. Inlining the same bridge
+at its existing width-specialized caller instead produces seven straight tag
+loads/ORs and one comparison, without dropping validation or changing its ABI.
+
+This candidate passes 118 focused executions/14 summaries, both Miri models
+and actual ELF32/i686 each 26/4/0, native Memcheck models/public runtime, and the
+unchanged 72x27 oracle. Public traces retain 80 scalar entries and zero reference
+entries. Eight profiles show 3.848%/3.206% less speed/shipping callback work;
+Off work is identical. Full file size grows 28,640/18,000 bytes versus retained
+JIT-enabled images; no-feature images remain byte-identical to retained ones.
+
+The 336-window coupled hardware screen passes its two valid/17 corrupt-reader
+checks. Speed callback cycles improve about 1.8% on both CPU types; shipping
+Core/Atom cycle ratios are mixed at 1.0666/0.9495. This is not a universal win.
+Two unchanged original 144-command matrices then verify 28,512 benchmark
+executions and 570,240 cost iterations, zero counter/resource mismatches, and
+two valid/16 corrupt-reader checks per matrix. All 48 array gates pass, keeping
+the 1.25x target; callbacks pass 47/48 gates. Native speed failures are 0 then 1
+(callback); shipping fails one polymorphic gate in each matrix. Compiled-Off
+cost failures remain speed 16/16 and shipping 8/2. Preserve all failures and
+placebo distributions; fewer failed gates are not causal confidence by themselves.
+
+Full GNU platform validation is running on the frozen candidate before runtime
+promotion. Other-platform, complete resource-policy, size and release acceptance
+remain open. The inherited matrix auditor explicitly does not reconstruct native
+raw medians independently; do not claim otherwise. Evidence:
+`production-scoped-read/hostless-scalar-runtime/inline-entry/`.
 
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
@@ -39321,6 +39378,119 @@ try_into/unwrap path. Its correctness, safety, generated work and original
 performance acceptance must be measured independently. Evidence:
 production-scoped-read/fixed-frame-publication/{RESULTS.md,profile-report.json,
 assembly-3.diff,source/,maps/,slice-boundary/}.
+
+The contained slice-parameter refinement subsequently passes98 executions/
+17 summaries,zero ignores; both Miri models4 tests each; Memcheck4 publisher+
+1 actual native callback test; actual ELF32/i686musl4 publisher tests. Scoped
+Memcheck still reports48 possibly lost bytes per report,zero errors and no
+definite/indirect loss. All576 source entries, six canonical images/maps, full
+no-feature equality and the unchanged72x27 resource/counter oracle verify.
+This focused gate is not the parent's1,568-execution broad suite or full fallback.
+
+Its eight profiles disprove the proposed explanation: the speed store remains,
+even without array try_into/unwrap. Speed ratio1.000526634 and shipping0.994291279
+are essentially the same work tradeoff; neither Off total changes. The336-window
+coupled Core/Atom screen then completes, all active events100% scheduled, with
+2 valid/17 corrupt reader cases and unchanged raw captures. No owned build,
+test or profiler overlaps timing; external contention remains.
+
+Callback Auto instruction ratios are1.000511/1.000502 (speed Core/Atom) and
+0.994466/0.994289 (shipping). Corresponding cycle ratios are1.042907/1.003842
+and1.012417/1.012125. Shipping's smaller work count does not show a callback
+cycle gain in this cohort. Speed upvalue work falls1.4%/2.4%, but shipping
+upvalues add0.42%/0.83%; speed polymorphic work adds about0.20%. These contended
+cycle observations are diagnostic, not original elapsed acceptance or a proved
+hardware cause. Other favorable cases do not cancel the adverse tradeoffs.
+
+Reject both publication-boundary runtime selections for retention. Keep the
+working345143b9 runtime and independently committed c697f082 test coverage.
+Neither selection ran the full original144-command elapsed matrix; do not
+invent an original-gate pass or failure. The next investigation is a TEST-ONLY
+helper-free read-only entry proof, not another previously rejected counter-only
+publisher. Existing Plan recognition permits reference Moves/constant loads and
+does not itself prove a helper-free invocation. Crucially, existing helpers
+decline on a null Host pointer, NOT a non-null Host with null data; the latter
+would dereference invalid frame storage. Any model must preserve that contract,
+fresh binding/guard lifetimes, complete fallback and exact publication ordering.
+No new production selection or speedup claim exists. Evidence:
+production-scoped-read/{fixed-frame-publication/slice-boundary/RESULTS.md,
+fixed-frame-publication/slice-boundary/hardware/report.json,
+readonly-hostless-investigation.md}.
+
+### Fresh scalar bridge checkpoint — test-gated, not production routing
+
+Checkpointf3bb71ae implements Source::invoke_scalar_fresh without constructing
+or passing helpers::Frame. It validates actual scalar Slots/extents, captures
+the current closed binding and table guard, builds the existing View and invokes
+the unchanged six-argument child with the Host POINTER null. It returns Exit and
+logical reads, not a retained GC pointer. Scalar writeback, PC and statistics
+remain the caller's responsibility after successful validation.
+
+Three Rust ABI-probe tests cover null Host,0/1/63/64/65/u32MAX budgets, fresh
+values, reference/extent/hint/borrow refusals, and malformed marker/budget exits.
+Fault cases compare canonical values, raw scratch and PC with the original
+framed binder: marker1 publishes the destination BEFORE budget validation,
+while invalid markers do not. Ordinary scalar publication/PC/stats are not
+prematurely applied. Production selection, persistent fields and native ABI/
+generation remain unchanged.
+
+Formatting/all-target checks and35 executions/5 summaries pass,zero ignores.
+The397,980-case native model now compares all THREE paths: original framed,
+raw null-HOST and actual fresh scalar bridge, with98,883 logical reads. Complete
+exits, canonical values, raw slots and all8 helper fields agree. The separate
+reference-Move counterexample remains intact. Both Miri models and actual
+ELF32/i686musl each pass24 scoped tests/4 summaries/0ignored. Miri covers the
+Rust bridge/probes, not native execution. Native Memcheck passes both model
+tests including the397,980 three-way cases,zero errors and no definite/indirect
+loss;48 possibly lost test-harness bytes remain disclosed. All581 source entries
+match the frozen snapshot and main around capture. Initial test-only Constant
+conversion/lifetime compiler errors remain separate from passing evidence.
+
+This completes a bridge foundation, not its runtime integration or performance
+acceptance. Next work must bind capability to the compiled source, account/check
+actual metadata sizes, route the eligible ordinary path without changing other
+cases, and prove reduced emitted work plus the unchanged original performance/
+resource/platform/size/release gates before promotion. Evidence:
+production-scoped-read/{hostless-scalar-bridge/,hostless-bridge-native.log}.
+
+### Scalar-entry proof checkpoint — no runtime selection
+
+Test-only checkpoint7c86e7b0 recognizes an existing read-only source only if
+explicit LoadConstant materializations are scalar, including unreachable ones.
+Its invocation guard requires ALL input Slots scalar, including the lookup
+destination, plus actual extents. This conservative guard allows the frozen
+scalar-returning callback while reference-returning and split-budget states
+keep the existing framed path. Before lookup, scalar operations preserve scalar
+values or exit; after lookup, the existing strict chain leaves the sole new
+reference unobserved until the terminating call. This does not restrict valid
+Lua programs or change existing source admission.
+
+Formatting/all-target checking and32 executions across5 summaries pass,zero
+ignores. An independently walked opcode graph covers11,766 entry/budget states.
+The EXISTING six-argument native child then matches397,980 framed/null-HOST
+prefixes:4 source families,12 scalar states,9 binding kinds, every PC including
+unknown/MAX and budgets0..65/u32MAX. Complete exits, canonical values, raw Slot
+bits and all8 helper fields agree;98,883 logical reads execute. Mappings and
+custom code ledgers release to0. A separate actual reference-Move counterexample
+shows framed helpers executing while null Host declines, proving why admission
+must reject reference inputs instead of assuming every recognized Plan is safe.
+
+Both Miri models and actual ELF32/i686musl each pass21 scoped admission/current-
+binder tests across4 summaries,zero ignores. Miri does NOT execute native code
+or test a not-yet-written frame-free bridge. Memcheck runs both new native tests
+with397,980 pairs,zero errors and no definite/indirect lost bytes;48possibly lost
+bytes in the test harness remain disclosed. All579 exact snapshot/main source
+entries verify. Initial missing-import and wrong test-argument launcher errors
+remain separate from the passing logs; no production bug fix is claimed there.
+
+Only test code and focused Make wiring are enabled. Production ABI, source
+fields, native kernel generation and runtime selection remain unchanged. The
+next prerequisite is a TEST-ONLY frame-free Rust bridge with both-model probe
+tests for storage, guards, fresh bindings, faults and exact partial-publication
+ordering. Production routing, emitted-work reduction and every original
+performance/resource/platform/size/release requirement remain open. Evidence:
+production-scoped-read/{hostless-scalar-proof/,hostless-model-capture.log,
+readonly-hostless-investigation.md}.
 
 ## 15. Primary references
 

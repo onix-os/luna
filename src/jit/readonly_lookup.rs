@@ -88,6 +88,9 @@ impl Plan {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub(in crate::jit) mod scalar_entry;
+
 pub(super) mod binding;
 
 #[cfg(test)]
