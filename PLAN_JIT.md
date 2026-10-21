@@ -20,9 +20,9 @@
 - Overall acceptance is still false: callback/polymorphic native speed and
   compiled-disabled cold/callback costs remain. Full resource-policy, size and
   release acceptance are not implied by these checkpoints.
-- The next publication boundary experiment is isolated and unretained. Its
-  shipping work reduction does not excuse additional speed-build work; the
-  narrower slice-boundary refinement must earn its own evidence.
+- Both publication-boundary variants remain unretained after measured work
+  tradeoffs and a336-window hardware diagnostic. Next work investigates the
+  scalar-only callback-entry bridge; its proof model is not implemented yet.
 
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
@@ -39321,6 +39321,44 @@ try_into/unwrap path. Its correctness, safety, generated work and original
 performance acceptance must be measured independently. Evidence:
 production-scoped-read/fixed-frame-publication/{RESULTS.md,profile-report.json,
 assembly-3.diff,source/,maps/,slice-boundary/}.
+
+The contained slice-parameter refinement subsequently passes98 executions/
+17 summaries,zero ignores; both Miri models4 tests each; Memcheck4 publisher+
+1 actual native callback test; actual ELF32/i686musl4 publisher tests. Scoped
+Memcheck still reports48 possibly lost bytes per report,zero errors and no
+definite/indirect loss. All576 source entries, six canonical images/maps, full
+no-feature equality and the unchanged72x27 resource/counter oracle verify.
+This focused gate is not the parent's1,568-execution broad suite or full fallback.
+
+Its eight profiles disprove the proposed explanation: the speed store remains,
+even without array try_into/unwrap. Speed ratio1.000526634 and shipping0.994291279
+are essentially the same work tradeoff; neither Off total changes. The336-window
+coupled Core/Atom screen then completes, all active events100% scheduled, with
+2 valid/17 corrupt reader cases and unchanged raw captures. No owned build,
+test or profiler overlaps timing; external contention remains.
+
+Callback Auto instruction ratios are1.000511/1.000502 (speed Core/Atom) and
+0.994466/0.994289 (shipping). Corresponding cycle ratios are1.042907/1.003842
+and1.012417/1.012125. Shipping's smaller work count does not show a callback
+cycle gain in this cohort. Speed upvalue work falls1.4%/2.4%, but shipping
+upvalues add0.42%/0.83%; speed polymorphic work adds about0.20%. These contended
+cycle observations are diagnostic, not original elapsed acceptance or a proved
+hardware cause. Other favorable cases do not cancel the adverse tradeoffs.
+
+Reject both publication-boundary runtime selections for retention. Keep the
+working345143b9 runtime and independently committed c697f082 test coverage.
+Neither selection ran the full original144-command elapsed matrix; do not
+invent an original-gate pass or failure. The next investigation is a TEST-ONLY
+helper-free read-only entry proof, not another previously rejected counter-only
+publisher. Existing Plan recognition permits reference Moves/constant loads and
+does not itself prove a helper-free invocation. Crucially, existing helpers
+decline on a null Host pointer, NOT a non-null Host with null data; the latter
+would dereference invalid frame storage. Any model must preserve that contract,
+fresh binding/guard lifetimes, complete fallback and exact publication ordering.
+No new production selection or speedup claim exists. Evidence:
+production-scoped-read/{fixed-frame-publication/slice-boundary/RESULTS.md,
+fixed-frame-publication/slice-boundary/hardware/report.json,
+readonly-hostless-investigation.md}.
 
 ## 15. Primary references
 
