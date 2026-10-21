@@ -38910,6 +38910,90 @@ trials without a materially different, source-grounded hypothesis.
 Evidence: integrated `callback-counters/`, `callback-profile/`,
 `callback-annotate/` and `constructor-profile/`.
 
+### Ephemeral dispatch-policy coalescing: measured and rejected
+
+A snapshot trial replaces separate VM mode/pair reads with one immediate
+shared-manager query returning two booleans. It adds no persistent cache,
+owner, allocation, VM clone, VM argument or native ABI change. The fresh
+query/loan/unwind/full-statistics test and broad correctness pipeline pass
+3,685 executions across 98 summaries, with 51 existing diagnostic ignores.
+Six canonical images, exact map companions and the unchanged independent
+72-record/27-field counter oracle pass. No-feature differences are limited
+to 68 independently predicted VM panic-line records; all other bytes match.
+
+The 336-window coupled hardware screen rejects it. Both CPU types show
+speed Off integer +6.622%, float +6.154%, arrays +3.672%, upvalues +3.126%
+and callbacks +1.766% retired instructions. Auto callbacks also add about
+0.508% in speed and 0.379% in shipping. Shipping numeric reductions do not
+excuse these regressions. All active events are 100% scheduled; exact results,
+native-work parity and image hashes verify, with no overlapping owned builds,
+tests or profilers. Reader checks pass two valid/restored and 17 corrupt cases.
+Contended cycles remain descriptive, not full elapsed acceptance.
+
+Exact Off VM profiles localize the increase: integer VM self instructions
+43,478,316 -> 46,403,832 while all other collected callees remain at 2,580.
+The common dispatch path adds stack access/reload/jump work, and the VM grows
+1,089 bytes in speed. Reducing source-level queries is not less generated
+work. Canonicalized image paths and positive per-function self-cost checks
+fix an initially empty control annotation without modifying raw captures.
+
+Reject the runtime trial; production code remains unchanged. Keep its complete
+source, proofs, adverse measurements and diagnosis under ignored
+`production-scoped-read/slice-policy-read/RESULTS.md`. Original performance,
+resource-policy, platform, size and release requirements remain open.
+
+### Existing-source pair gate: measured and rejected
+
+An independent test retained in `0d66d160` covers 96 registration-boundary
+schedules: Rust-created registered/unregistered closures, registration within
+a host callback, hooks, fuel interruption, Off/Auto and three budgets, with GC
+after every step. Both call-site observation counts, source identities, result
+and queue/native/compile counters pass on the original runtime.
+
+The subsequent one-line VM trial gates pair-policy reads on existing native
+source eligibility, without introducing live flags or a tuple. It passes 70
+focused executions, six canonical builds, full-byte no-feature identity and
+the independent 72-record/27-field oracle. Its 336 coupled hardware windows
+still reject it: speed Off integer +5.297%, float +4.923%, arrays +2.825-2.827%
+and callbacks +0.542-0.568% instructions. Shipping Off also regresses; shipping
+Auto callbacks add 0.168%. Positive native work, results, hashes and fully
+scheduled coupled events verify; reader tests reject 17 corruptions. Keep
+mixed results and cycle outliers, not causal claims from contended cycles.
+
+Retain the source-registration test, not the gate. No runtime change from this
+trial is on the branch. Source, exact images, all results and the next measured
+ABI-copy investigation are under ignored `production-scoped-read/pair-source-policy/`.
+The original full acceptance scope remains open.
+
+### Completed ARM baseline and current Miri component evidence
+
+Run `39539001853` completes the full native aarch64 job at `dbbc3248` on
+recorded Linux aarch64 hardware: 11,307 passing executions/554 summaries,
+134 reported diagnostic ignores, real example result 5,000,050,000 with
+200,007 native instructions, finalized kernel dumps and matched shipping
+ELF64 AArch64 artifacts. Ten artifact hashes verify. This is a BASELINE pass,
+not current-source platform acceptance: the later Off continuation, scalar
+guard and registration test differ in six source files. Current runs remain
+necessary; no partial/superseded source is silently relabeled.
+
+At `a3e41e61`, run `39547641154` Miri seed 0 completes all 324 tests across
+43 summaries with zero failures/ignores. Downloaded environment records the
+pinned nightly and default model with seed 0, not Tree and not native JIT
+execution. This validates the completed component scope only, not both seeds
+or all outstanding release requirements. API job provenance, raw artifacts,
+hashes and independent checks are under ignored `ci-current-source/`.
+
+### Native musl watchdog after observed complete-matrix duration
+
+Run `39539001853` finishes ARM and GNU native jobs, but the musl job's check
+annotation explicitly reports the three-hour watchdog. Its partial artifact
+contains 10,757 passing executions across 459 summaries and stops during the
+last all-feature Force integration sequence. It is not a full pass or a test
+assertion failure. Extend only the native-job deadline from 180 to 240 minutes;
+every declared platform, mode, test, fuzz, documentation, finalized-image and
+shipping-artifact command remains unchanged. Completed-source provenance must
+still be checked; a deadline extension does not waive any performance target.
+
 ### Rust-only Miri watchdog correction
 
 Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is
@@ -38919,6 +39003,103 @@ not a complete Miri pass. Increase that job's timeout to 180 minutes;
 keep both seeds, every component invocation and artifact uploads unchanged.
 `make ci-check` passes. This only permits validation to finish; it does not
 turn the cancelled run into a pass or waive any acceptance requirement.
+
+### Initialized lookup output: both return-shape trials rejected
+
+Two frozen snapshots replace the private fresh-entry wide result with an
+initialized caller-owned Exit, preserving guards, borrowed current binding,
+marker-before-budget faults, canonical commit, native ABI and real counters.
+The first returns Result<bool, Fault>; the refinement returns one repr(u8)
+status with an inline typed-fault adapter. Neither changes the VM source or
+adds an unsafe memory operation. Neither is retained in production.
+
+Each passes 57 focused executions and 19 tests under each Miri borrow model.
+Six canonical images and exact map companions verify. Both no-feature images
+match the integrated control fully, not original 0f. Each independent oracle
+checks 72 records with 27 unchanged fields, zero mismatches, and rejects 12
+corruptions. Each completes 336 core PMU windows plus 144 standalone consumer
+windows / 144,000 measured executions, with positive native coverage and no
+owned build/test/profiler overlap. The readers reject 17/16 mutations.
+
+The first candidate increases strong-consumer instructions 1.243% in opt3 and
+0.701% in opts. The flat refinement really returns in AL and reduces the opt3
+entry local frame from 0x68 to 0x58 bytes, but still increases strong work
+0.518%/0.219% in opt3/opts on both CPU types. Its missing-binding work falls
+0.287%/0.048%; elapsed effects remain mixed, including Core opt3 missing loss.
+Smaller code/frames and cold work savings do not offset hot regression.
+The VM keeps its size but moves in the flat candidate; unchanged placement
+is not claimed. Both trials are rejected; original performance and full
+resource/platform/size/release acceptance remain open.
+
+The refinement's initial wrapper omitted a required capture-status handoff;
+audit correctly refused after all 336 observations completed. Original failure
+logs remain. A separate Make recovery validates the finished immutable capture,
+runs unchanged readers, and completes consumers without replacing observations.
+Evidence: ignored production-scoped-read/readonly-exit-output/RESULTS.md and
+flat-status/{RESULTS.md,CAPTURE_RECOVERY.md}, exact images/maps and raw records.
+
+### Completed retained-runtime musl and both Miri seeds
+
+Run 39547641154 at a3e41e61 completes native x86_64 musl successfully:
+11,307 passing executions across 554 summaries, with 134 reported existing
+ignores. The real native example returns 5000050000 with six prepared entries
+and 200007 native instructions. Its matched shipping images and finalized
+kernel artifacts verify all ten individual hashes; both shipping ELFs are
+x86_64. The downloaded archive matches GitHub's published digest. This is a
+complete pass, unlike the earlier dbbc musl watchdog cancellation.
+
+The only source difference under src, Cargo.toml, Cargo.lock and Makefile
+between a3e41e61 and retained-runtime checkpoint 7188a807 is the subsequently
+added src/jit/pairs/tests.rs fixture. Runtime code is identical; that newer
+fixture is not relabeled as covered by the older job. Default-model Miri seeds
+0 and 1 both complete at a3e41e61: each 324 passes / 43 summaries / no ignores.
+They validate Rust components, not native machine-code execution or Tree Miri.
+
+The earlier dbbc GNU job also completes 11,307 / 554 / 134 with the same real
+native example and ten verified individual artifact hashes. Its source is
+older, so this remains baseline evidence, not current-runtime acceptance.
+Current GNU/ARM jobs were still running at that API inspection.
+Shipping artifact construction is not a passing size/performance budget.
+Full original resource/performance/platform/size/release acceptance stays open.
+Evidence: ignored production-scoped-read/ci-current-source/
+additional-evidence.{mk,pl,json,log,status}, downloaded archives, source delta,
+job/run metadata and individual manifests. Verification status is zero.
+
+A subsequent direct inspection confirms current-runtime ARM job 119049328739
+also succeeds at a3e41e61 on actual Linux aarch64 hardware. Its complete
+11,307 / 554 / 134 native sequence, positive example, shipping AArch64 ELFs,
+ten individual artifact hashes and GitHub archive digest verify. The same
+test-only source difference above qualifies this retained-runtime evidence;
+neither rejected lookup-output candidate nor the new hint-inline experiment
+is covered. Current GNU remains in progress. Independent Make verification:
+ci-current-source/current-arm-evidence.{mk,pl,json,log,status}, status zero.
+
+### Table-hint wrapper inlining: retired-work gain, timing loss
+
+A separate retained-runtime snapshot changes only the Table borrowed-hint
+wrapper's inline attribute. Focused checks pass 56 / seven summaries; default
+and Tree Miri each pass 18 / three. Six canonical images, exact map companions,
+both no-feature full-file identities to the integrated control and all 72
+independent 27-field oracle records verify, with zero mismatches.
+
+The wrapper boundary disappears, but LLVM outlines the raw bucket check
+instead. Fresh-entry local stack grows from 0x68 to 0x78; VM addresses/sizes
+stay fixed, without claiming identical relocated bytes. All 336 core PMU and
+144 standalone consumer windows / 144,000 measured executions complete with
+unchanged result/counter/native/reclamation checks and 17/16 corruptions rejected.
+Strong consumer instructions fall 0.311% opt3 / 0.175% opts; missing work is
+unchanged. Nevertheless, shipping strong elapsed ratios regress to
+1.014950 / 1.018559 on Core/Atom versus same-image placebos
+1.000172 / 1.001751. Retired work alone does not justify this hot timing loss.
+
+Reject the attribute-only trial; it is not retained. The original full matrix
+scaffold is prepared but not executed. The initial copied-cache attempt was
+correctly refused by the source-path manifest; fresh directories pass without
+weakening the builder. Evidence: ignored production-scoped-read/
+readonly-hint-inline/{RESULTS.md,PREPARATION.md}, frozen source/images/maps,
+Miri logs and complete hardware/consumer records. The next distinct hypothesis
+removes the newly exposed raw boundary inside the outlined transaction; it is
+not an accepted optimization. All original full-objective gates remain open.
 
 ## 15. Primary references
 
