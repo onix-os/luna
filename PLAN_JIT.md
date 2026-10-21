@@ -38910,6 +38910,38 @@ trials without a materially different, source-grounded hypothesis.
 Evidence: integrated `callback-counters/`, `callback-profile/`,
 `callback-annotate/` and `constructor-profile/`.
 
+### Ephemeral dispatch-policy coalescing: measured and rejected
+
+A snapshot trial replaces separate VM mode/pair reads with one immediate
+shared-manager query returning two booleans. It adds no persistent cache,
+owner, allocation, VM clone, VM argument or native ABI change. The fresh
+query/loan/unwind/full-statistics test and broad correctness pipeline pass
+3,685 executions across 98 summaries, with 51 existing diagnostic ignores.
+Six canonical images, exact map companions and the unchanged independent
+72-record/27-field counter oracle pass. No-feature differences are limited
+to 68 independently predicted VM panic-line records; all other bytes match.
+
+The 336-window coupled hardware screen rejects it. Both CPU types show
+speed Off integer +6.622%, float +6.154%, arrays +3.672%, upvalues +3.126%
+and callbacks +1.766% retired instructions. Auto callbacks also add about
+0.508% in speed and 0.379% in shipping. Shipping numeric reductions do not
+excuse these regressions. All active events are 100% scheduled; exact results,
+native-work parity and image hashes verify, with no overlapping owned builds,
+tests or profilers. Reader checks pass two valid/restored and 17 corrupt cases.
+Contended cycles remain descriptive, not full elapsed acceptance.
+
+Exact Off VM profiles localize the increase: integer VM self instructions
+43,478,316 -> 46,403,832 while all other collected callees remain at 2,580.
+The common dispatch path adds stack access/reload/jump work, and the VM grows
+1,089 bytes in speed. Reducing source-level queries is not less generated
+work. Canonicalized image paths and positive per-function self-cost checks
+fix an initially empty control annotation without modifying raw captures.
+
+Reject the runtime trial; production code remains unchanged. Keep its complete
+source, proofs, adverse measurements and diagnosis under ignored
+`production-scoped-read/slice-policy-read/RESULTS.md`. Original performance,
+resource-policy, platform, size and release requirements remain open.
+
 ### Rust-only Miri watchdog correction
 
 Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is
