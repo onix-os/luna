@@ -111,6 +111,52 @@ fn pair<'gc>(
     (source, ordinary, read, maps, ledger)
 }
 
+fn bridged<'gc>(
+    ctx: crate::Context<'gc>,
+    closure: Closure<'gc>,
+    ordinary: &Code,
+    read: &ReadCode,
+    proof: Source,
+    pc: usize,
+    budget: u32,
+    initial: &[Value<'gc>],
+) -> (
+    abi::Exit,
+    std::vec::Vec<Value<'gc>>,
+    std::vec::Vec<(u64, u64)>,
+    [u64; 8],
+) {
+    let mut values = initial.to_vec();
+    let mut cursor = pc;
+    let (exit, slots, reads) =
+        LuaRegisters::with_test_frame(ctx, &mut cursor, &mut values, |mut registers| {
+            let mut slots: std::vec::Vec<_> =
+                initial.iter().copied().map(Slot::from_value).collect();
+            let outcome = unsafe {
+                proof.invoke_scalar_fresh(
+                    read.entry,
+                    closure,
+                    &ordinary.entries,
+                    &mut registers,
+                    &mut slots,
+                    pc,
+                    budget,
+                )
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(*registers.pc, pc);
+            abi::frame_publication::publish(&slots, registers.stack_frame);
+            *registers.pc = outcome.exit.pc as usize;
+            (
+                outcome.exit,
+                slots.iter().map(|s| (s.tag, s.bits)).collect(),
+                outcome.reads,
+            )
+        });
+    (exit, values, slots, [0, 0, 0, reads, 0, reads, 0, 0])
+}
+
 #[test]
 fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
     Lua::empty().enter(|ctx| {
@@ -175,6 +221,9 @@ fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
                             let actual = hostless(
                                 ctx, closure, &ordinary, &read, binding, pc, budget, &initial,
                             );
+                            let bridge = bridged(
+                                ctx, closure, &ordinary, &read, proof, pc, budget, &initial,
+                            );
                             assert_eq!(
                                 (actual.0.pc, actual.0.instructions, actual.0.reason),
                                 (expected.0.pc, expected.0.instructions, expected.0.reason),
@@ -182,7 +231,16 @@ fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
                             );
                             assert_eq!(actual.2, expected.2);
                             assert_eq!(actual.3, expected.3);
+                            assert_eq!(
+                                (bridge.0.pc, bridge.0.instructions, bridge.0.reason),
+                                (expected.0.pc, expected.0.instructions, expected.0.reason)
+                            );
+                            assert_eq!(bridge.2, expected.2);
+                            assert_eq!(bridge.3, expected.3);
                             for (&a, &b) in actual.1.iter().zip(&expected.1) {
+                                same(a, b);
+                            }
+                            for (&a, &b) in bridge.1.iter().zip(&expected.1) {
                                 same(a, b);
                             }
                             reads += actual.3[3];

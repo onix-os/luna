@@ -4,6 +4,8 @@ use crate::{closure::UpValue, thread::LuaRegisters, Callback, CallbackReturn, Lu
 
 const SOURCE: &[u8] = b"local sum=0 for i=1,5000 do sum=sum+host_increment(i) end return sum";
 
+mod scalar_entry;
+
 fn same<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     match (actual, expected) {
         (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
