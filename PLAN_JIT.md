@@ -9,6 +9,26 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Compiled-Off post-ordinary continuation — test foundation
+
+The next hypothesis targets inherited disabled-JIT closure/upvalue overhead:
+after an ordinary slice, retain the canonical stack borrow for at most 63 more
+Lua-only slices in Off mode. Keep the same VM and per-slice statistics/fuel;
+release before every callback, hook marker, sequence, error or host return.
+Unlike earlier generic/Auto batching, no-feature and Auto cadence must remain
+unchanged, with no inactive native-region or pair queries added.
+
+`make jit-interpreted-tail` exercises a **test-only** selector inside the real
+public executor. Nine boundary cases and four fuel budgets compare complete
+canonical frame/stack/fuel/dispatch traces and results, collecting after every
+host step; supported Auto schedules prove the selector does not enter Off.
+Positive route counts and nested/panic selector restoration are required.
+The focused two-test lane and 17 existing activation checks pass. Miri and
+broader lanes are still running. No production continuation is enabled and no
+performance improvement is established. Canonical release measurements and all
+original acceptance gates remain required. Evidence:
+`target/jit-evidence/hook-resume-recovery/production-scoped-read/interpreted-tail/`.
+
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
 
 **Outcome: rejected by two complete original elapsed campaigns.** The refined

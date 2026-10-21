@@ -781,6 +781,15 @@ impl<'gc> Executor<'gc> {
                             )
                         )))]
                         let result = ordinary(top_state, fuel);
+                        #[cfg(all(test, feature = "jit"))]
+                        let result = interpreted_tail::after(
+                            ctx,
+                            top_state,
+                            stack,
+                            fuel,
+                            result,
+                            &mut step_charged,
+                        );
                         match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
@@ -1226,7 +1235,7 @@ mod activation_tests {
         run_mode_scoped(source, budget, native, kernels, activations, integer, 0)
     }
 
-    fn run_mode_scoped(
+    pub(super) fn run_mode_scoped(
         source: &str,
         budget: i32,
         native: bool,
@@ -1744,6 +1753,9 @@ impl Executor<'_> {
         (frames, stacks)
     }
 }
+
+#[cfg(all(test, feature = "jit"))]
+mod interpreted_tail;
 
 #[cfg(all(test, feature = "jit"))]
 impl<'gc> Executor<'gc> {
