@@ -9,9 +9,9 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Compiled-Off post-ordinary continuation — not promoted
+### Compiled-Off post-ordinary continuation — retained; acceptance open
 
-The next hypothesis targets inherited disabled-JIT closure/upvalue overhead:
+The retained optimization targets inherited disabled-JIT closure/upvalue overhead:
 after an ordinary slice, retain the canonical stack borrow for at most 63 more
 Lua-only slices in Off mode. Keep the same VM and per-slice statistics/fuel;
 release before every callback, hook marker, sequence, error or host return.
@@ -29,7 +29,8 @@ executions / 276 summaries**, with 56 reported existing ignores. Its default
 Miri model passes both focused tests. The superseded Tree and initial runtime
 Miri runs were explicitly cancelled before hardware timing, **not counted as
 passes**. Both borrow models at the final selected source remain required.
-No production continuation is enabled in the tracked runtime.
+That foundation checkpoint enabled only the test model. The validated runtime
+is now enabled in the tracked source as described below.
 
 An ordinary source snapshot implements the actual runtime candidate with one
 three-case activation-policy query and unchanged Auto/no-feature cadence.
@@ -98,12 +99,12 @@ not a universal speedup claim. Placebo ranges/outliers remain explicit.
 Original gates still fail: first/repeat cost speed **10/23**, cost shipping
 **11/2**, native speed **2/6**, native shipping **10/11**. Do not treat aggregate
 improvements, changed failure counts, or median placebo near one as acceptance.
-The selected source's full GNU lanes pass **4816 executions / 276 summaries**,
-with 56 reported existing ignores. Default-model Miri passes five focused tests;
-Tree remains running. The complete i686musl fallback gate passes **3356
+The selected source's recorded GNU lanes pass **4816 executions / 276 summaries**,
+with 56 reported existing ignores. Default and Tree Miri each pass five focused
+tests, zero ignored, with full source hashes verified. The complete i686musl fallback gate passes **3356
 executions / 366 summaries**, with eight reported existing ignores. Final
-platform, resource/performance and release gates remain open. Runtime is not
-promoted yet.
+platform, resource/performance and release gates remain open. The successful
+runtime is retained, not declared release-accepted.
 The strict no-feature proof accounts only for seventeen identical-source panic
 coordinates shifted by31 (eighteen changed bytes); all other image bytes match
 original0f. Initial pre-format +28 proof failure is retained, not hidden.
@@ -122,8 +123,15 @@ compiled owners must remain alive at distinct addresses; the float fixture
 must contain a relocation. Related GNU tests pass 38 checks; dedicated positive
 GNU and native-musl gates pass two checks each. Capture is scoped/test-only and
 restores nested/panicking state. A new immutable continuation snapshot including
-these test fixes runs the **full** platform gate; the failed source/run remains
-untouched. Evidence: `unlinked-identity/` and
+these test fixes passes the **full** x64musl platform gate: **11307 test executions /
+554 summaries**, zero failures and 134 reported existing ignores, including the
+native example and finalized-kernel dump. All **574 source manifest entries**
+match the tracked runtime exactly; the failed source/run remains untouched.
+The retained main source also passes 32 focused checks, zero ignored, formatting
+and all-target checking. No new unsafe operation, owner, persistent field, native
+ABI, Auto/no-feature cadence or per-slice statistics batching is introduced.
+Final exact-source GNU/aarch64 CI, resource/performance and release gates stay
+open. Evidence: `unlinked-identity/` and
 `interpreted-tail/platform-identity/` under the parent evidence directory.
 
 #### Array scalar payload predicate — candidate, not promoted
@@ -166,7 +174,7 @@ variation remains; these finite repeats establish neither causality nor elapsed
 acceptance. No new hardware timing/PMU overlaps current owned safety jobs.
 All original performance, resource, platform and release gates remain open.
 Evidence: `array-view-readonly/` and `array-scalar-predicate/` under the parent
-evidence directory. Neither runtime trial is committed or release-accepted.
+evidence directory. These array runtime trials are not retained or release-accepted.
 
 The scalar candidate's original-matrix preflight now passes. Its complete
 seven-file patch applies to recorded `3077c23f` and reproduces all **573 frozen

@@ -8,6 +8,42 @@ use hashbrown::HashMap;
 use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActivationPolicy {
+    Ordinary,
+    Native,
+    InterpretedTail,
+    #[cfg(test)]
+    Forced(std::num::NonZeroUsize),
+}
+
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+impl ActivationPolicy {
+    pub(crate) fn native_limit(self) -> Option<std::num::NonZeroUsize> {
+        match self {
+            Self::Native => std::num::NonZeroUsize::new(64),
+            #[cfg(test)]
+            Self::Forced(limit) => Some(limit),
+            _ => None,
+        }
+    }
+}
+
 mod abi;
 mod access;
 #[cfg(all(
@@ -1524,15 +1560,18 @@ impl Runtime {
             any(target_arch = "x86_64", target_arch = "aarch64")
         )
     ))]
-    pub(crate) fn scoped_activation_limit(&self) -> usize {
+    pub(crate) fn activation_policy(&self) -> ActivationPolicy {
         let manager = self.0.borrow();
         #[cfg(test)]
-        if manager.activation_limit > 0 {
-            return manager.activation_limit;
+        if let Some(limit) = std::num::NonZeroUsize::new(manager.activation_limit) {
+            return ActivationPolicy::Forced(limit);
         }
         #[cfg(all(test, not(miri)))]
         if manager.scalar_kernels {
-            return 0;
+            return ActivationPolicy::Ordinary;
+        }
+        if manager.config.mode == JitMode::Off {
+            return ActivationPolicy::InterpretedTail;
         }
         #[cfg(all(
             not(miri),
@@ -1545,9 +1584,16 @@ impl Runtime {
                 .as_ref()
                 .is_some_and(pairs::State::has_installed)
         {
-            return 64;
+            return ActivationPolicy::Native;
         }
-        0
+        ActivationPolicy::Ordinary
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scoped_activation_limit(&self) -> usize {
+        self.activation_policy()
+            .native_limit()
+            .map_or(0, std::num::NonZeroUsize::get)
     }
 
     #[cfg(all(

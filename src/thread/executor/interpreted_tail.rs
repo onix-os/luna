@@ -163,7 +163,10 @@ fn explicit_host_limits_preserve_the_full_usize_range() {
     lua.enter(|ctx| {
         for limit in [1, 2, 64, 65, usize::MAX] {
             ctx.jit().test_activation_host(limit);
-            assert_eq!(ctx.jit().scoped_activation_limit(), limit);
+            assert_eq!(
+                ctx.jit().activation_policy().native_limit().unwrap().get(),
+                limit
+            );
         }
         ctx.jit().test_activation_host(0);
         let mut manager = ctx.jit().0.borrow_mut();
@@ -171,8 +174,7 @@ fn explicit_host_limits_preserve_the_full_usize_range() {
         config.mode = crate::JitMode::Off;
         manager.configure(config);
         drop(manager);
-        assert!(!ctx.jit().active());
-        assert_eq!(ctx.jit().scoped_activation_limit(), 0);
+        assert!(ctx.jit().activation_policy() == crate::jit::ActivationPolicy::InterpretedTail);
     });
 }
 
