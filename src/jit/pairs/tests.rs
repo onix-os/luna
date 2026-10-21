@@ -758,6 +758,105 @@ fn vm_observes_real_call_pairs_but_never_compiles_within_a_step() {
 }
 
 #[test]
+fn source_eligibility_refreshes_after_callback_registration() {
+    use crate::{Callback, CallbackReturn, Executor, Function, FunctionPrototype};
+    use std::{cell::Cell, rc::Rc};
+
+    let source = b"local n=7 local function f(v) n=n+v end f(2) register_now() for i=1,6 do f(2) end return n";
+    for mode in [JitMode::Off, JitMode::Auto] {
+        for registered in [false, true] {
+            for register_now in [false, true] {
+                for hooked in [false, true] {
+                    for interrupt in [false, true] {
+                        for budget in [1, 64, 65536] {
+                            let mut lua = Lua::empty();
+                            lua.set_jit_config(JitConfig {
+                                mode,
+                                hot_threshold: u32::MAX,
+                                ..Default::default()
+                            })
+                            .unwrap();
+                            let calls = Rc::new(Cell::new(0));
+                            let events = Rc::new(Cell::new(0));
+                            let (closure, executor, call_pcs) = lua.enter(|ctx| {
+                                ctx.jit().test_call_pairs(true);
+                                let prototype = FunctionPrototype::compile(ctx, "eligibility", source).unwrap();
+                                let closure = Closure::new(&ctx, prototype, Some(ctx.globals())).unwrap();
+                                assert!(ctx.jit_registry().borrow().identity(ctx, closure.prototype()).is_none());
+                                if registered {
+                                    ctx.jit_registry().borrow_mut(&ctx).register(ctx, closure.prototype());
+                                }
+                                let call_pcs: Vec<_> = closure.prototype().opcodes.iter().enumerate().filter_map(|(pc, op)| {
+                                    matches!(op.decode(), Operation::Call { args, returns, .. } if args.to_constant() == Some(1) && returns.to_constant() == Some(0)).then_some(pc)
+                                }).collect();
+                                assert_eq!(call_pcs.len(), 2);
+                                ctx.set_global("saved_caller", closure);
+                                let count = calls.clone();
+                                ctx.set_global("register_now", Callback::from_fn(&ctx, move |ctx, mut execution, mut stack| {
+                                    count.set(count.get() + 1);
+                                    let Function::Closure(caller) = ctx.get_global::<Function>("saved_caller")? else { panic!() };
+                                    if register_now {
+                                        ctx.jit_registry().borrow_mut(&ctx).register(ctx, caller.prototype());
+                                    }
+                                    if interrupt {
+                                        execution.fuel().interrupt();
+                                    }
+                                    stack.clear();
+                                    Ok(CallbackReturn::Return)
+                                }));
+                                if hooked {
+                                    let events = events.clone();
+                                    let hook = Callback::from_fn(&ctx, move |_, _, _| {
+                                        events.set(events.get() + 1);
+                                        Ok(CallbackReturn::Return)
+                                    });
+                                    ctx.set_debug_hook(hook.into(), false, 7);
+                                }
+                                (ctx.stash(closure), ctx.stash(Executor::start(ctx, closure.into(), ())), call_pcs)
+                            });
+                            let mut completed = false;
+                            for _ in 0..1000 {
+                                completed = lua.enter(|ctx| {
+                                    ctx.fetch(&executor)
+                                        .step(ctx, &mut Fuel::with(budget))
+                                        .unwrap()
+                                });
+                                lua.gc_collect();
+                                if completed {
+                                    break;
+                                }
+                            }
+                            assert!(completed);
+                            assert_eq!(calls.get(), 1);
+                            assert_eq!(events.get() > 0, hooked);
+                            lua.enter(|ctx| {
+                                assert_eq!(ctx.fetch(&executor).take_result::<i64>(ctx).unwrap().unwrap(), 21);
+                                let closure = ctx.fetch(&closure);
+                                let registry = ctx.jit_registry().borrow();
+                                let caller = registry.identity(ctx, closure.prototype());
+                                let callee = registry.identity(ctx, closure.prototype().prototypes[0]);
+                                assert_eq!(caller.is_some(), registered || register_now);
+                                assert_eq!(callee.is_some(), registered || register_now);
+                                let manager = ctx.jit().0.borrow();
+                                let entries = &manager.pairs.as_ref().unwrap().entries;
+                                let expected = [u32::from(registered), if registered || register_now { 6 } else { 0 }];
+                                for (index, pc) in call_pcs.iter().copied().enumerate() {
+                                    let observed = caller.zip(callee).and_then(|(caller, callee)| entries.get(&Key { caller, callee, pc })).map_or(0, |entry| entry.hotness);
+                                    assert_eq!(observed, if mode == JitMode::Auto && !hooked { expected[index] } else { 0 }, "{mode:?} registered={registered} register_now={register_now} hooked={hooked} interrupt={interrupt} budget={budget} pc={pc}");
+                                }
+                                assert_eq!(manager.stats.native_instructions, 0);
+                                assert_eq!(manager.stats.compilation_requests, 0);
+                                assert_eq!(manager.queued_count(), 0);
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn queue_shrinking_and_off_configuration_clear_flags_and_owned_programs() {
     let (mut lua, closure, key) = fixture();
     lua.enter(|ctx| ctx.jit().observe_pair(key));
