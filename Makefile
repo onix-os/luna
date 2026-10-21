@@ -2844,3 +2844,10 @@ jit-entry-hints:
 jit-entry-hints-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_bytes -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::code_read_hint_tests -- --test-threads=1
+
+.PHONY: jit-paired-progress jit-paired-progress-miri
+jit-paired-progress:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::paired_progress $(ARGS)
+
+jit-paired-progress-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::paired_progress -- --test-threads=1

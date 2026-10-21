@@ -3814,3 +3814,6 @@ mod readonly_lookup;
 
 #[cfg(test)]
 pub(crate) mod call_fusion;
+
+#[cfg(test)]
+mod paired_progress;

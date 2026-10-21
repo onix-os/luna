@@ -39502,6 +39502,29 @@ performance/resource/platform/size/release requirement remain open. Evidence:
 production-scoped-read/{hostless-scalar-proof/,hostless-model-capture.log,
 readonly-hostless-investigation.md}.
 
+### Paired VM accounting model — test foundation only
+
+The next compiled-Off hypothesis combines the two complete u32 dispatch/progress
+domains into one u64 update. The independent wide-integer reference and packed
+model agree on 32,928 three-event traces: native/mock prefixes, hooks, successful
+operations, terminal transitions, errors, panics, atomic transitions, rollback,
+and budgets through u32::MAX. Explicit expected observations cover zero-budget
+no-guard behavior and terminal instructions excluded from reported progress.
+Boundary arithmetic rejects overflowing updates without truncating either word.
+
+All four tests pass natively, under default and Tree Borrows Miri, and in an
+executed static ELF32/i686-musl binary. Miri uses 2,352 two-event traces rather
+than the native/32-bit three-event depth. Formatting and all-target checking
+pass; all 582 frozen source entries verify before and after each run.
+
+This checkpoint changes only test code and Make wiring. Production counters,
+publication points, native ABI and runtime selection remain unchanged. A private
+ordinary-source integration trial must preserve every VM exit and unwind path
+and demonstrate reduced emitted work before any runtime promotion. The existing
+performance, platform, resource, size and release gates are not waived. Evidence:
+production-scoped-read/paired-vm-progress/{source.sha256,native.log,
+miri-default.log,miri-tree.log,fallback.log,fallback-image.log}.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
