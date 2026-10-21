@@ -39193,6 +39193,15 @@ The SSA trial stays unpromoted; callback, cold, polymorphic and original release
 acceptance remain open. Evidence: production-scoped-read/array-header-once/
 {RESULTS.md,acceptance/production-audit.json,hardware/report.json,work-report.json}.
 
+The next host-window trial bounds mirror conversion by remaining native fuel
+while keeping the descriptor-proof kernels byte-identical. Its old-versus-new
+bridge differential is retained independently: seven source families, eight
+control states (including unequal index/key and overflow), every PC and budgets
+0..65 plusu32::MAX compare exact exits, counts, scratch and scalar table bits.
+The unchanged production lowering passes this test, formatting/all-target checks
+and46 focused array/transport executions. This test commit does not promote the
+budgeted-window implementation. Evidence: array-budget-window/main-tests.*.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
