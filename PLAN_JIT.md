@@ -22,8 +22,8 @@
   release acceptance are not implied by these checkpoints.
 - Both publication-boundary variants remain unretained after measured work
   tradeoffs and a336-window hardware diagnostic. Independent scalar-entry proof
-  checkpoint7c86e7b0 now passes397,980 actual native comparisons; no new runtime
-  bridge is selected yet.
+  checkpoint7c86e7b0 and test-gated bridgef3bb71ae pass397,980 actual native
+  comparisons. The bridge exists but production routing remains unchanged.
 
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
@@ -39360,6 +39360,42 @@ No new production selection or speedup claim exists. Evidence:
 production-scoped-read/{fixed-frame-publication/slice-boundary/RESULTS.md,
 fixed-frame-publication/slice-boundary/hardware/report.json,
 readonly-hostless-investigation.md}.
+
+### Fresh scalar bridge checkpoint — test-gated, not production routing
+
+Checkpointf3bb71ae implements Source::invoke_scalar_fresh without constructing
+or passing helpers::Frame. It validates actual scalar Slots/extents, captures
+the current closed binding and table guard, builds the existing View and invokes
+the unchanged six-argument child with the Host POINTER null. It returns Exit and
+logical reads, not a retained GC pointer. Scalar writeback, PC and statistics
+remain the caller's responsibility after successful validation.
+
+Three Rust ABI-probe tests cover null Host,0/1/63/64/65/u32MAX budgets, fresh
+values, reference/extent/hint/borrow refusals, and malformed marker/budget exits.
+Fault cases compare canonical values, raw scratch and PC with the original
+framed binder: marker1 publishes the destination BEFORE budget validation,
+while invalid markers do not. Ordinary scalar publication/PC/stats are not
+prematurely applied. Production selection, persistent fields and native ABI/
+generation remain unchanged.
+
+Formatting/all-target checks and35 executions/5 summaries pass,zero ignores.
+The397,980-case native model now compares all THREE paths: original framed,
+raw null-HOST and actual fresh scalar bridge, with98,883 logical reads. Complete
+exits, canonical values, raw slots and all8 helper fields agree. The separate
+reference-Move counterexample remains intact. Both Miri models and actual
+ELF32/i686musl each pass24 scoped tests/4 summaries/0ignored. Miri covers the
+Rust bridge/probes, not native execution. Native Memcheck passes both model
+tests including the397,980 three-way cases,zero errors and no definite/indirect
+loss;48 possibly lost test-harness bytes remain disclosed. All581 source entries
+match the frozen snapshot and main around capture. Initial test-only Constant
+conversion/lifetime compiler errors remain separate from passing evidence.
+
+This completes a bridge foundation, not its runtime integration or performance
+acceptance. Next work must bind capability to the compiled source, account/check
+actual metadata sizes, route the eligible ordinary path without changing other
+cases, and prove reduced emitted work plus the unchanged original performance/
+resource/platform/size/release gates before promotion. Evidence:
+production-scoped-read/{hostless-scalar-bridge/,hostless-bridge-native.log}.
 
 ### Scalar-entry proof checkpoint — no runtime selection
 
