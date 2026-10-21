@@ -25,6 +25,30 @@
   checkpoint7c86e7b0 and test-gated bridgef3bb71ae pass397,980 actual native
   comparisons. The bridge exists but production routing remains unchanged.
 
+#### Scalar-entry runtime trial — not retained
+
+An isolated integration uses the proved bridge only for eligible ordinary
+nonprojected entries. Source capability is computed during the existing opcode
+scan; measured Plan layout remains 16 bytes on 64/32-bit, with no ReadCode owner
+growth. Original scalar publication, PC updates, all helper counters, and
+reference/unsupported-state fallback remain intact.
+
+The trial passes 154 focused executions across 19 summaries, both Miri models
+and actual i686 each 25/4/0, and native Memcheck models plus the public runtime
+test with zero errors. Memcheck still reports 48 possibly lost harness bytes.
+The public differential observes 80 new scalar entries and zero reference-case
+entries, preserving complete step/fuel/counter traces, rebinding and per-step GC.
+Six canonical images, exact map companions and the unchanged 72x27 resource/
+counter oracle validate; both no-feature images match the retained controls.
+
+However, eight callback instruction profiles show **+0.633% opt3 work** and
+**-0.439% opts work**, with identical native instruction counts and unchanged Off
+work. These are not elapsed timings or performance acceptance. Disassembly
+identifies the per-slot scalar tag check as additional work. The runtime stays
+unselected while an equivalent tag-union predicate is tested independently;
+no guard, benchmark threshold, or original acceptance requirement is relaxed.
+Evidence: `production-scoped-read/hostless-scalar-runtime/`.
+
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
 The retained optimization targets inherited disabled-JIT closure/upvalue overhead:
