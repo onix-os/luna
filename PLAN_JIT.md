@@ -39150,9 +39150,14 @@ independently recomputed. Data-quality exit zero is not performance acceptance.
 Retain only the exact two-attribute work reduction. All 574 main-source hashes
 match the measured snapshot before and after formatting, all-target checking
 and 56 focused/native executions, with no failures or ignores. Full semantic/
-resource/performance/platform/size/release acceptance remains open. The broader
-GNU native gate is running at this checkpoint, not a
-pass; earlier hosted ARM/musl evidence does not cover this changed host code.
+resource/performance/platform/size/release acceptance remains open. The full
+retained93522 runtime GNU gate now passes11,312 executions /554 summaries,
+with134 reported existing ignores and the positive native example (5000050000,
+six prepared entries,200007 native instructions). All574 source hashes remain
+unchanged and all eight finalized raw-kernel artifact hashes verify. This is
+local native GNU evidence, not coverage of the later three descriptor tests
+or the isolated SSA trial; earlier hosted ARM/musl evidence does not cover the
+new lookup attributes. Independent platform-gnu-evidence verification exits zero.
 Evidence: ignored production-scoped-read/readonly-hint-inline/raw-inline/
 {RESULTS.md,ASSEMBLY.md,joint.json}, both original matrices, standalone cohorts,
 source/images/maps, Miri logs and unchanged mutation readers.
