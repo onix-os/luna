@@ -70,13 +70,18 @@ impl Drop for VmProgress<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jit::{InterpreterStats, JitStats};
+    use crate::jit::JitStats;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn phase_storage_preserves_original_guard_size() {
+        struct HistoricalStats<'a> {
+            _runtime: &'a Runtime,
+            dispatches: u32,
+            _reported_instructions: Option<u32>,
+        }
         struct HistoricalWrapper<'a> {
-            counts: InterpreterStats<'a>,
+            counts: HistoricalStats<'a>,
             native: u32,
         }
         assert_eq!(
@@ -85,14 +90,22 @@ mod tests {
         );
         assert_eq!(
             std::mem::size_of::<VmProgress<'_>>(),
-            std::mem::size_of::<InterpreterStats<'_>>()
+            std::mem::size_of::<HistoricalStats<'_>>()
         );
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(std::mem::size_of::<HistoricalStats<'_>>(), 24);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(std::mem::size_of::<HistoricalStats<'_>>(), 16);
         assert!(
             std::mem::size_of::<HistoricalWrapper<'_>>() > std::mem::size_of::<VmProgress<'_>>()
         );
         let runtime = Runtime::new();
         let old = HistoricalWrapper {
-            counts: runtime.interpreter_stats(),
+            counts: HistoricalStats {
+                _runtime: &runtime,
+                dispatches: 0,
+                _reported_instructions: None,
+            },
             native: 0,
         };
         assert_eq!((old.counts.dispatches, old.native), (0, 0));

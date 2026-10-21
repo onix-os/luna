@@ -39555,6 +39555,22 @@ Initial compiler, capture-tool-hash and mapping-wrapper failures remain separate
 from final passing diagnostics. Evidence and the next refinement hypothesis:
 production-scoped-read/paired-vm-progress/runtime/RESULTS.md.
 
+### Native-transition arithmetic and historical-layout foundation
+
+The independent packed model now checks a native-progress-plus-one-dispatch
+update against both u128 field arithmetic and the original two-update composition,
+including complete u32 boundaries. The legacy phase-layout fixture explicitly
+models the historical guard and asserts its16/24byte layouts rather than assuming
+the current production representation must remain that historical type. Existing
+publication, saturation, rollback and unwind assertions are retained.
+
+All8 focused tests pass natively, in each Miri model and actual static ELF32/i686;
+formatting/all-target checks and582 source-entry witnesses pass. Production
+counter representation and runtime selection remain unchanged. The private
+native-transition integration refinement still needs independent correctness,
+emitted-work and all original acceptance gates before promotion. Evidence:
+production-scoped-read/paired-vm-progress/native-transition-model/.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

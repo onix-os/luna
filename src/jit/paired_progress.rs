@@ -27,6 +27,12 @@ impl Counts {
         Some(Self(self.0 + (1 << 32)))
     }
 
+    fn add_native_dispatch(self, amount: u32) -> Option<Self> {
+        self.parts().0.checked_add(1)?;
+        self.parts().1.checked_add(amount)?;
+        Some(Self(self.0 + (1 << 32) + u64::from(amount)))
+    }
+
     fn rollback_dispatch(self) -> Option<Self> {
         self.parts().0.checked_sub(1)?;
         Some(Self(self.0 - (1 << 32)))
@@ -252,6 +258,14 @@ fn full_width_parts_and_checked_updates_match_wide_independent_arithmetic() {
                 assert_eq!(
                     counts.add_native(amount).map(Counts::parts),
                     fits(p).map(|p| (dispatches, p))
+                );
+                assert_eq!(
+                    counts.add_native_dispatch(amount).map(Counts::parts),
+                    fits(u128::from(dispatches) + 1).zip(fits(p))
+                );
+                assert_eq!(
+                    counts.add_native_dispatch(amount),
+                    counts.add_native(amount).and_then(Counts::add_dispatch)
                 );
             }
             assert_eq!(
