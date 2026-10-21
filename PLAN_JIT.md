@@ -38870,7 +38870,10 @@ bytes (read/sum), removing nine predicate instructions per access. Two complete
 unchanged original benchmark cohorts use the integrated source and six
 canonical images: 288 commands, 28,512 benchmark executions and 570,240 cost
 iterations, with zero independent 27-field native/resource oracle mismatches.
-Both no-feature images retain original full-file identity. Shipping array
+Both no-feature images exactly match the preceding scalar candidate. Against
+original 0f, each has 18 changed panic-location bytes: 17 source-verified
+records move by 31 lines; all other image bytes are identical. This is not
+full-file identity to original 0f. Shipping array
 Off/Auto medians are 1.2750/1.3138 on Core/Atom in the first cohort and
 1.2983/1.2621 in the repeat. Some windows still fail the original 1.25 gate.
 
@@ -38888,7 +38891,8 @@ On the same integrated public images, 36 coupled hardware-counter windows
 cover both CPU types, opt3/opts and three rotated repeats of no-feature,
 compiled-Off and Auto. All four user-only events share one runtime and report
 100% scheduling. Results and positive/zero native work are checked; images are
-hashed before/after. Whole-worker scope includes startup, compilation and two
+hashed before/after. Its reader accepts valid/restored captures and rejects
+17 corrupted inputs. Whole-worker scope includes startup, compilation and two
 warmups. Opt3 Off retires about 7.22-7.25% more instructions than no-feature;
 Auto adds about 24.34% over Off. Shipping adds about 5.07-5.10% and 22.38-22.43%
 respectively. Contended cycles are mixed, not causal elapsed acceptance.
