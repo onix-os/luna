@@ -370,6 +370,7 @@ impl<'gc> fmt::Debug for TableState<'gc> {
 
 #[cfg(feature = "jit")]
 impl<'gc> Table<'gc> {
+    #[inline(always)]
     pub(crate) fn try_strong_canonical_hint(
         self,
         key: crate::String<'gc>,

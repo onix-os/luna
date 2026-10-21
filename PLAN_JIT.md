@@ -39101,6 +39101,50 @@ Miri logs and complete hardware/consumer records. The next distinct hypothesis
 removes the newly exposed raw boundary inside the outlined transaction; it is
 not an accepted optimization. All original full-objective gates remain open.
 
+### Contained hint capture: repeated work reduction, acceptance still open
+
+Inline both existing Table and RawTable hint layers inside the still-outlined
+fresh transaction. The original wide result, guards, scoped immutable loan,
+native ABI, canonical commit and real counters remain unchanged. No field,
+allocation, owner, persistent cache or unsafe operation is added. Inlining only
+the wrapper remains rejected; this refinement removes both actual outlines.
+
+The exact snapshot passes 56 focused executions, and 18 tests under each Miri
+model. Six canonical images, exact map companions, both no-feature identities
+to the integrated control and 72 independent 27-field oracle records verify.
+Original0f no-feature differences remain exactly 18 panic-coordinate bytes in
+17 records; all other bytes match, not full-file identity. Fresh local stack
+is 0x58/0x68 at opt3/opts. VM size stays fixed but addresses move by -0x20;
+no alignment explanation or identical relocated-code claim is inferred.
+
+All 336 core PMU windows and two standalone cohorts complete: 288 consumer
+windows / 288,000 measured executions, twelve observations per CPU/profile/case,
+unchanged images, positive native work, exact counters and complete reclamation.
+Strong retired work falls 0.777% opt3 / 1.052% opts on both CPU types. Pooled
+strong elapsed candidate/control medians are 1.00281/0.99494 opt3 and
+0.92408/0.98960 opts (Core/Atom). Core speed does not improve; cold effects and
+outliers remain. This is bounded work reduction, not universal elapsed speedup.
+
+Two unchanged original matrices complete 288 commands, 28,512 Off/Auto benchmark
+executions and 570,240 cost iterations with zero independent counter/resource
+mismatches. Both readers reject 16 mutations; all failed gates remain. Native
+failures are first/repeat speed 3/7 and shipping 6/9; compiled-disabled cost
+failures are speed 10/18 and shipping 5/6. Speed Atom callbacks are 0.8459 then
+0.8214 against 0.8333, callback Off cost 1.0061 then 1.0630 against 1.05;
+shipping Atom arrays remain 1.2410/1.2273 against 1.25. Core cold cost remains
+above 1.05. Native raw timing vectors remain unavailable; cost medians are
+independently recomputed. Data-quality exit zero is not performance acceptance.
+
+Retain only the exact two-attribute work reduction. All 574 main-source hashes
+match the measured snapshot before and after formatting, all-target checking
+and 56 focused/native executions, with no failures or ignores. Full semantic/
+resource/performance/platform/size/release acceptance remains open. The broader
+GNU native gate is running at this checkpoint, not a
+pass; earlier hosted ARM/musl evidence does not cover this changed host code.
+Evidence: ignored production-scoped-read/readonly-hint-inline/raw-inline/
+{RESULTS.md,ASSEMBLY.md,joint.json}, both original matrices, standalone cohorts,
+source/images/maps, Miri logs and unchanged mutation readers.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
