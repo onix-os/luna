@@ -49,6 +49,38 @@ unselected while an equivalent tag-union predicate is tested independently;
 no guard, benchmark threshold, or original acceptance requirement is relaxed.
 Evidence: `production-scoped-read/hostless-scalar-runtime/`.
 
+#### Width-specialized scalar bridge — candidate, not retained
+
+The standalone tag-union guard passes 228,608 independent lane/bit cases but
+adds 1.160% speed-build callback work: dynamic vector setup and its remainder
+loop cost more at seven slots. Reject that version. Inlining the same bridge
+at its existing width-specialized caller instead produces seven straight tag
+loads/ORs and one comparison, without dropping validation or changing its ABI.
+
+This candidate passes 118 focused executions/14 summaries, both Miri models
+and actual ELF32/i686 each 26/4/0, native Memcheck models/public runtime, and the
+unchanged 72x27 oracle. Public traces retain 80 scalar entries and zero reference
+entries. Eight profiles show 3.848%/3.206% less speed/shipping callback work;
+Off work is identical. Full file size grows 28,640/18,000 bytes versus retained
+JIT-enabled images; no-feature images remain byte-identical to retained ones.
+
+The 336-window coupled hardware screen passes its two valid/17 corrupt-reader
+checks. Speed callback cycles improve about 1.8% on both CPU types; shipping
+Core/Atom cycle ratios are mixed at 1.0666/0.9495. This is not a universal win.
+Two unchanged original 144-command matrices then verify 28,512 benchmark
+executions and 570,240 cost iterations, zero counter/resource mismatches, and
+two valid/16 corrupt-reader checks per matrix. All 48 array gates pass, keeping
+the 1.25x target; callbacks pass 47/48 gates. Native speed failures are 0 then 1
+(callback); shipping fails one polymorphic gate in each matrix. Compiled-Off
+cost failures remain speed 16/16 and shipping 8/2. Preserve all failures and
+placebo distributions; fewer failed gates are not causal confidence by themselves.
+
+Full GNU platform validation is running on the frozen candidate before runtime
+promotion. Other-platform, complete resource-policy, size and release acceptance
+remain open. The inherited matrix auditor explicitly does not reconstruct native
+raw medians independently; do not claim otherwise. Evidence:
+`production-scoped-read/hostless-scalar-runtime/inline-entry/`.
+
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
 The retained optimization targets inherited disabled-JIT closure/upvalue overhead:
