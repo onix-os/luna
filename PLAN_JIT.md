@@ -21,8 +21,9 @@
   compiled-disabled cold/callback costs remain. Full resource-policy, size and
   release acceptance are not implied by these checkpoints.
 - Both publication-boundary variants remain unretained after measured work
-  tradeoffs and a336-window hardware diagnostic. Next work investigates the
-  scalar-only callback-entry bridge; its proof model is not implemented yet.
+  tradeoffs and a336-window hardware diagnostic. Independent scalar-entry proof
+  checkpoint7c86e7b0 now passes397,980 actual native comparisons; no new runtime
+  bridge is selected yet.
 
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
 
@@ -39358,6 +39359,45 @@ fresh binding/guard lifetimes, complete fallback and exact publication ordering.
 No new production selection or speedup claim exists. Evidence:
 production-scoped-read/{fixed-frame-publication/slice-boundary/RESULTS.md,
 fixed-frame-publication/slice-boundary/hardware/report.json,
+readonly-hostless-investigation.md}.
+
+### Scalar-entry proof checkpoint — no runtime selection
+
+Test-only checkpoint7c86e7b0 recognizes an existing read-only source only if
+explicit LoadConstant materializations are scalar, including unreachable ones.
+Its invocation guard requires ALL input Slots scalar, including the lookup
+destination, plus actual extents. This conservative guard allows the frozen
+scalar-returning callback while reference-returning and split-budget states
+keep the existing framed path. Before lookup, scalar operations preserve scalar
+values or exit; after lookup, the existing strict chain leaves the sole new
+reference unobserved until the terminating call. This does not restrict valid
+Lua programs or change existing source admission.
+
+Formatting/all-target checking and32 executions across5 summaries pass,zero
+ignores. An independently walked opcode graph covers11,766 entry/budget states.
+The EXISTING six-argument native child then matches397,980 framed/null-HOST
+prefixes:4 source families,12 scalar states,9 binding kinds, every PC including
+unknown/MAX and budgets0..65/u32MAX. Complete exits, canonical values, raw Slot
+bits and all8 helper fields agree;98,883 logical reads execute. Mappings and
+custom code ledgers release to0. A separate actual reference-Move counterexample
+shows framed helpers executing while null Host declines, proving why admission
+must reject reference inputs instead of assuming every recognized Plan is safe.
+
+Both Miri models and actual ELF32/i686musl each pass21 scoped admission/current-
+binder tests across4 summaries,zero ignores. Miri does NOT execute native code
+or test a not-yet-written frame-free bridge. Memcheck runs both new native tests
+with397,980 pairs,zero errors and no definite/indirect lost bytes;48possibly lost
+bytes in the test harness remain disclosed. All579 exact snapshot/main source
+entries verify. Initial missing-import and wrong test-argument launcher errors
+remain separate from the passing logs; no production bug fix is claimed there.
+
+Only test code and focused Make wiring are enabled. Production ABI, source
+fields, native kernel generation and runtime selection remain unchanged. The
+next prerequisite is a TEST-ONLY frame-free Rust bridge with both-model probe
+tests for storage, guards, fresh bindings, faults and exact partial-publication
+ordering. Production routing, emitted-work reduction and every original
+performance/resource/platform/size/release requirement remain open. Evidence:
+production-scoped-read/{hostless-scalar-proof/,hostless-model-capture.log,
 readonly-hostless-investigation.md}.
 
 ## 15. Primary references
