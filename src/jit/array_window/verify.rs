@@ -328,14 +328,8 @@ fn scalar_guard(
 ) -> Result<(), JitError> {
     s.guarded_imm(IntCC::UnsignedLessThanOrEqual, tag, 3, decline)?;
     let numeric = s.compare_imm(IntCC::UnsignedGreaterThanOrEqual, tag, 2)?;
-    let nil = s.compare_imm(IntCC::Equal, tag, 0)?;
-    let empty = s.compare_imm(IntCC::Equal, bits, 0)?;
-    let nil = s.binary(Opcode::Band, types::I8, nil, empty)?;
-    let boolean = s.compare_imm(IntCC::Equal, tag, 1)?;
-    let boolean_bits = s.compare_imm(IntCC::UnsignedLessThanOrEqual, bits, 1)?;
-    let boolean = s.binary(Opcode::Band, types::I8, boolean, boolean_bits)?;
-    let valid = s.binary(Opcode::Bor, types::I8, nil, boolean)?;
-    let valid = s.binary(Opcode::Bor, types::I8, valid, numeric)?;
+    let payload = s.compare(IntCC::UnsignedLessThanOrEqual, bits, tag)?;
+    let valid = s.binary(Opcode::Bor, types::I8, payload, numeric)?;
     s.guard(valid, decline)
 }
 

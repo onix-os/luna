@@ -9,9 +9,9 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Compiled-Off post-ordinary continuation — not promoted
+### Compiled-Off post-ordinary continuation — retained; acceptance open
 
-The next hypothesis targets inherited disabled-JIT closure/upvalue overhead:
+The retained optimization targets inherited disabled-JIT closure/upvalue overhead:
 after an ordinary slice, retain the canonical stack borrow for at most 63 more
 Lua-only slices in Off mode. Keep the same VM and per-slice statistics/fuel;
 release before every callback, hook marker, sequence, error or host return.
@@ -29,7 +29,8 @@ executions / 276 summaries**, with 56 reported existing ignores. Its default
 Miri model passes both focused tests. The superseded Tree and initial runtime
 Miri runs were explicitly cancelled before hardware timing, **not counted as
 passes**. Both borrow models at the final selected source remain required.
-No production continuation is enabled in the tracked runtime.
+That foundation checkpoint enabled only the test model. The validated runtime
+is now enabled in the tracked source as described below.
 
 An ordinary source snapshot implements the actual runtime candidate with one
 three-case activation-policy query and unchanged Auto/no-feature cadence.
@@ -98,12 +99,101 @@ not a universal speedup claim. Placebo ranges/outliers remain explicit.
 Original gates still fail: first/repeat cost speed **10/23**, cost shipping
 **11/2**, native speed **2/6**, native shipping **10/11**. Do not treat aggregate
 improvements, changed failure counts, or median placebo near one as acceptance.
-Current-source full GNU and both Miri borrow models are running; final platform,
-resource/performance and release gates remain open. Runtime is not promoted yet.
+The selected source's recorded GNU lanes pass **4816 executions / 276 summaries**,
+with 56 reported existing ignores. Default and Tree Miri each pass five focused
+tests, zero ignored, with full source hashes verified. The complete i686musl fallback gate passes **3356
+executions / 366 summaries**, with eight reported existing ignores. Final
+platform, resource/performance and release gates remain open. The successful
+runtime is retained, not declared release-accepted.
 The strict no-feature proof accounts only for seventeen identical-source panic
 coordinates shifted by31 (eighteen changed bytes); all other image bytes match
 original0f. Initial pre-format +28 proof failure is retained, not hidden.
 Evidence: the parent path above, `success-only/`.
+
+The strengthened continuation foundation is separately committed as `ea471707`
+(30 focused passes, zero ignored). Native array tag/payload boundaries follow in
+`e407e216` (39 array/backend passes, zero ignored), before changing their guard.
+
+The first full native-musl platform run **fails**, not passes: a getter-free
+identity fixture compares finalized code containing a PC-relative helper
+relocation. Its two 2160-byte images differ only at offsets 1590/1591. `1555507a`
+fixes the test by comparing complete unlinked bytes, alignment and every
+relocation offset/kind/addend/target declaration, without masking bytes. Both
+compiled owners must remain alive at distinct addresses; the float fixture
+must contain a relocation. Related GNU tests pass 38 checks; dedicated positive
+GNU and native-musl gates pass two checks each. Capture is scoped/test-only and
+restores nested/panicking state. A new immutable continuation snapshot including
+these test fixes passes the **full** x64musl platform gate: **11307 test executions /
+554 summaries**, zero failures and 134 reported existing ignores, including the
+native example and finalized-kernel dump. All **574 source manifest entries**
+match the tracked runtime exactly; the failed source/run remains untouched.
+The retained main source also passes 32 focused checks, zero ignored, formatting
+and all-target checking. No new unsafe operation, owner, persistent field, native
+ABI, Auto/no-feature cadence or per-slice statistics batching is introduced.
+Final exact-source GNU/aarch64 CI, resource/performance and release gates stay
+open. Evidence: `unlinked-identity/` and
+`interpreted-tail/platform-identity/` under the parent evidence directory.
+
+#### Array scalar payload predicate — candidate, not promoted
+
+A descriptor-readonly experiment passes 42 focused checks and builds all six
+canonical images, but actual production-ISA diagnostics show its two original
+array workload kernels remain byte-identical. Reject it without attributing
+hypothetical timing changes to nonexistent generated-work savings.
+
+The separate scalar-guard candidate retains the original tag<=3 refusal and
+uses **tag>=2 OR unsigned(bits)<=tag** for payload validity. Compile-time
+assertions pin NIL/Boolean/integer/number tags to 0/1/2/3. Nil requires bits0,
+Boolean bits0/1; all integer/float payloads and all invalid-tag refusals remain
+unchanged. The independent verifier demands the exact unsigned predicate.
+No memory flags, admission rules, initialized mirror, ABI, PC/budget, dirty
+writeback, counter saturation, owner or runtime policy changes.
+
+Forty-two focused tests pass, including every-PC/budget native differentials,
+reference-root/GC/quota tests and the independent all-byte/wide-tag fixture.
+Exact production-builder output shrinks fill **614->570 bytes**, read/sum
+**934->902 bytes**; nine predicate instructions disappear per access. Fill also
+saves one callee-saved register and reduces stack reservation 48->32 bytes.
+Native Memcheck passes all 34 array checks with zero errors and zero
+definitely/indirectly lost bytes; 48 possibly lost and 632 reachable bytes
+remain reported by the test process. This is not a blanket leak-free claim.
+
+All six canonical images and **64 whole-worker instruction profiles** finish;
+both no-feature images match the prior continuation images byte-for-byte.
+The independent reader reconciles image identities, commands, worker records
+and Ir summary/totals/profiler counts, passing two valid/fifteen bad-input cases.
+Auto array work falls **1.827% / 1.781%** (speed/shipping), including compilation,
+startup and warmups; this is not an isolated hot-loop or elapsed-speed result.
+Printed native work and results agree. Instrumented durations are invalid.
+
+Do not hide the Off aggregate variation: the initial full-nine opt3 observation
+adds **1.516%** work, although individually selectable Off cases stay near flat.
+Three rotated repeats observe **+0.0625%, -0.0243%, -0.0334%** in opt3 and
+**+0.0469%, -0.0083%, +0.7622%** in shipping. Same-image process/cold/Oslo
+variation remains; these finite repeats establish neither causality nor elapsed
+acceptance. No new hardware timing/PMU overlaps current owned safety jobs.
+All original performance, resource, platform and release gates remain open.
+Evidence: `array-view-readonly/` and `array-scalar-predicate/` under the parent
+evidence directory. These array runtime trials are not retained or release-accepted.
+
+The scalar candidate's original-matrix preflight now passes. Its complete
+seven-file patch applies to recorded `3077c23f` and reproduces all **573 frozen
+source manifest entries**; the earlier production patch was only a delta from
+the continuation source. Strict no-feature proof is repeated on this candidate,
+including four valid/twenty corrupt inputs. No image or source is changed.
+
+Both canonical profiles and original/candidate binaries pass **72 case/mode
+records x 27 independent fields**, with zero counter/resource mismatches against
+the unchanged frozen oracle. Reader checks pass one valid/twelve bad records.
+These probes retain eleven samples but explicitly discard every timing field:
+owned validation still runs, so this is **not elapsed acceptance**. The prepared
+144-command campaign retains its original owned-compute refusal, thresholds,
+workloads, two CPUs, profiles and rotation; actual capture remains unrun.
+
+Native fuzz smoke passes, including supervisor panic/signal/timeout detection.
+An expanded four-seed campaign also passes **1024 general and 96 heap cases**
+with positive native execution; source hashes verify before/after. This is
+bounded fuzz evidence, not exhaustive correctness or performance acceptance.
 
 ### Static Off dispatch — runtime withdrawn, 2026-10-19
 
@@ -38758,6 +38848,77 @@ The full semantic/resource/performance/platform/release objective stays open.
 Evidence: ignored `target/jit-evidence/hook-resume-recovery/production-scoped-read/
 reproducible-layout/read-hint-loaded-index/RESULTS.md`, including both complete
 consumer cohorts, descriptive joint ratios and the original acceptance matrix.
+
+### Compact scalar-array validation: retained work reduction
+
+Keep the existing unsigned tag-at-most-3 guard. Within that range, valid
+payloads are exactly `tag >= 2 || bits <= tag`, using unsigned comparisons.
+Compile-time assertions pin the four scalar tags; the independent IR verifier
+checks the exact operands, unsigned comparison and OR. Nil/Boolean malformed
+payload refusal, reference refusal, descriptor guards, borrowing, dirty
+writeback, budget and counter contracts are unchanged.
+
+The exhaustive committed native tag/payload fixture remains in the 42 passing
+array/transport executions. Final-main source matches all 574 entries of the
+frozen integrated candidate manifest. Formatting and all-target checking pass.
+A fresh final-main campaign also passes 1,024 general plus 96 heap cases
+across four seeds. Earlier native Memcheck remains component evidence, not
+silently relabeled current full-platform acceptance.
+
+Production-builder kernels shrink from 614 to 570 bytes (fill) and 934 to 902
+bytes (read/sum), removing nine predicate instructions per access. Two complete
+unchanged original benchmark cohorts use the integrated source and six
+canonical images: 288 commands, 28,512 benchmark executions and 570,240 cost
+iterations, with zero independent 27-field native/resource oracle mismatches.
+Both no-feature images exactly match the preceding scalar candidate. Against
+original 0f, each has 18 changed panic-location bytes: 17 source-verified
+records move by 31 lines; all other image bytes are identical. This is not
+full-file identity to original 0f. Shipping array
+Off/Auto medians are 1.2750/1.3138 on Core/Atom in the first cohort and
+1.2983/1.2621 in the repeat. Some windows still fail the original 1.25 gate.
+
+Retain the smaller equivalent predicate, not a full-performance acceptance
+claim. Persistent speed Atom native callbacks remain 0.8143/0.8113 against
+the 0.8333 minimum; compiled-Off callback cost remains 1.0622/1.0578 against
+1.05. Core cold-config and other isolated native/cost failures also remain.
+All original semantic/resource/performance/platform/release gates stay open.
+Evidence: ignored `production-scoped-read/array-scalar-integrated/`, including
+both complete cohorts, manifests, independent audits and negative windows.
+
+### Actual callback work attribution
+
+On the same integrated public images, 36 coupled hardware-counter windows
+cover both CPU types, opt3/opts and three rotated repeats of no-feature,
+compiled-Off and Auto. All four user-only events share one runtime and report
+100% scheduling. Results and positive/zero native work are checked; images are
+hashed before/after. Its reader accepts valid/restored captures and rejects
+17 corrupted inputs. Whole-worker scope includes startup, compilation and two
+warmups. Opt3 Off retires about 7.22-7.25% more instructions than no-feature;
+Auto adds about 24.34% over Off. Shipping adds about 5.07-5.10% and 22.38-22.43%
+respectively. Contended cycles are mixed, not causal elapsed acceptance.
+
+Exact allocated-code symbol companions permit six Executor::step-only
+Callgrind profiles. Opt3 self costs identify VM dispatch, outer execution,
+generic native transport and fresh lookup binding as remaining work, while
+the actual host callback has identical 5,460,000 self instructions across
+the three opt3 modes. All per-PC self costs reconcile to complete profile
+totals. Constructor-only profiles show about 0.71%/0.60% extra simulated
+instructions in speed/shipping; this does not explain the observed cold
+elapsed regressions by itself. Instrumented durations are invalid. Do not
+repeat previously rejected inline, sparse-counter, owner-cache or VM-ABI
+trials without a materially different, source-grounded hypothesis.
+Evidence: integrated `callback-counters/`, `callback-profile/`,
+`callback-annotate/` and `constructor-profile/`.
+
+### Rust-only Miri watchdog correction
+
+Run `39542042802` at `3939dc9d` completes seed 1, but seed 0 is
+cancelled by the documented 45-minute job watchdog. Its uploaded artifact
+contains 39 completed test summaries and an unfinished backend-exit gate,
+not a complete Miri pass. Increase that job's timeout to 180 minutes;
+keep both seeds, every component invocation and artifact uploads unchanged.
+`make ci-check` passes. This only permits validation to finish; it does not
+turn the cancelled run into a pass or waive any acceptance requirement.
 
 ## 15. Primary references
 

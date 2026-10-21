@@ -745,9 +745,19 @@ impl<'gc> Executor<'gc> {
                                 )
                             )
                         ))]
-                        let result = if let Some(limit) =
-                            std::num::NonZeroUsize::new(ctx.jit().scoped_activation_limit())
-                        {
+                        let policy = ctx.jit().activation_policy();
+                        #[cfg(all(
+                            feature = "jit",
+                            any(
+                                test,
+                                all(
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )
+                            )
+                        ))]
+                        let result = if let Some(limit) = policy.native_limit() {
                             let outcome = {
                                 let mut host = super::activation::ActivationHost::new(
                                     top_state,
@@ -767,7 +777,28 @@ impl<'gc> Executor<'gc> {
                             step_charged = true;
                             outcome.result.map(|()| 0)
                         } else {
-                            ordinary(top_state, fuel)
+                            match ordinary(top_state, fuel) {
+                                Err(error) => Err(error),
+                                Ok(instructions) => {
+                                    if policy == crate::jit::ActivationPolicy::InterpretedTail
+                                        && matches!(
+                                            top_state.frames.last(),
+                                            Some(Frame::Lua { .. })
+                                        )
+                                    {
+                                        interpreted_tail::after(
+                                            ctx,
+                                            top_state,
+                                            stack,
+                                            fuel,
+                                            instructions,
+                                            &mut step_charged,
+                                        )
+                                    } else {
+                                        Ok(instructions)
+                                    }
+                                }
+                            }
                         };
                         #[cfg(not(all(
                             feature = "jit",
@@ -781,15 +812,6 @@ impl<'gc> Executor<'gc> {
                             )
                         )))]
                         let result = ordinary(top_state, fuel);
-                        #[cfg(all(test, feature = "jit"))]
-                        let result = interpreted_tail::after(
-                            ctx,
-                            top_state,
-                            stack,
-                            fuel,
-                            result,
-                            &mut step_charged,
-                        );
                         match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
@@ -1754,7 +1776,17 @@ impl Executor<'_> {
     }
 }
 
-#[cfg(all(test, feature = "jit"))]
+#[cfg(all(
+    feature = "jit",
+    any(
+        test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    )
+))]
 mod interpreted_tail;
 
 #[cfg(all(test, feature = "jit"))]
