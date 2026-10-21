@@ -19,6 +19,7 @@ struct Emitter<'a, 'f> {
     slots: IrValue,
     view: IrValue,
     decline: Block,
+    validated: IrValue,
 }
 
 impl Emitter<'_, '_> {
@@ -146,24 +147,26 @@ impl Emitter<'_, '_> {
                 let (tag, key) = self.operand(key);
                 self.integer(tag);
                 let dest = self.b.ins().iadd_imm_u(self.slots, i64::from(dest.0) * 16);
-                lowering::emit(
+                self.validated = lowering::emit_cached(
                     self.b,
                     self.view,
                     key,
                     lowering::Input::ReadTo(dest),
                     self.decline,
+                    self.validated,
                 );
             }
             Operation::SetTable { key, value, .. } => {
                 let (tag, key) = self.operand(key);
                 self.integer(tag);
                 let (tag, bits) = self.operand(value);
-                lowering::emit(
+                self.validated = lowering::emit_cached(
                     self.b,
                     self.view,
                     key,
                     lowering::Input::WriteValue(tag, bits),
                     self.decline,
+                    self.validated,
                 );
             }
             Operation::Move { dest, source } => {
@@ -206,7 +209,9 @@ impl Emitter<'_, '_> {
         self.b.ins().brif(continuing, update, &[], done, &[]);
         self.b.switch_to_block(update);
         self.store(base + 3, it, next);
-        self.b.ins().jump(taken, &[count.into()]);
+        self.b
+            .ins()
+            .jump(taken, &[count.into(), self.validated.into()]);
     }
 }
 
@@ -236,11 +241,13 @@ pub(in crate::jit) fn program(
     for block in blocks.iter_mut() {
         *block = b.create_block();
         b.append_block_param(*block, types::I32);
+        b.append_block_param(*block, types::I8);
     }
     b.append_block_params_for_function_params(entry);
     b.switch_to_block(entry);
     let [slots, pc, budget, output, view]: [_; 5] = b.block_params(entry).try_into().unwrap();
     let zero = b.ins().iconst(types::I32, 0);
+    let unvalidated = b.ins().iconst(types::I8, 0);
     let cap = b.ins().iconst(types::I32, LIMIT as i64);
     let budget = b.ins().umin(budget, cap);
     let interpreter = b.ins().iconst(types::I32, Kind::Interpreter as i64);
@@ -251,7 +258,13 @@ pub(in crate::jit) fn program(
             .ins()
             .icmp_imm_u(IntCC::Equal, pc, (plan.start + index) as i64);
         let next = b.create_block();
-        b.ins().brif(matched, block, &[zero.into()], next, &[]);
+        b.ins().brif(
+            matched,
+            block,
+            &[zero.into(), unvalidated.into()],
+            next,
+            &[],
+        );
         b.switch_to_block(next);
     }
     b.ins()
@@ -260,6 +273,7 @@ pub(in crate::jit) fn program(
         let source_pc = plan.start + index;
         b.switch_to_block(block);
         let count = b.block_params(block)[0];
+        let validated = b.block_params(block)[1];
         let current = b.ins().iconst(types::I64, source_pc as i64);
         let within_budget = b.ins().icmp(IntCC::UnsignedLessThan, count, budget);
         let body = b.create_block();
@@ -282,6 +296,7 @@ pub(in crate::jit) fn program(
             slots,
             view,
             decline,
+            validated,
         };
         if source_pc == plan.end {
             let done = emitter.b.create_block();
@@ -294,7 +309,9 @@ pub(in crate::jit) fn program(
             );
         } else {
             emitter.operation(source.operations[source_pc]);
-            b.ins().jump(blocks[index + 1], &[next_count.into()]);
+            let validated = emitter.validated;
+            b.ins()
+                .jump(blocks[index + 1], &[next_count.into(), validated.into()]);
         }
     }
     b.switch_to_block(exit);

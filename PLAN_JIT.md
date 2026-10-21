@@ -39189,7 +39189,7 @@ the reader passes2 valid/16 corrupt cases. Shipping Atom arrays pass all6 origin
 fail4/6 speed and6/6 shipping rounds, medians1.233151/1.187514. Overall native
 failures are15 speed/17 shipping and cost failures26/5. These different-cohort
 counts are not a causal regression proof against the older retained source.
-The SSA trial stays unpromoted; callback, cold, polymorphic and original release
+At that checkpoint the SSA trial remained unpromoted; callback, cold, polymorphic and original release
 acceptance remain open. Evidence: production-scoped-read/array-header-once/
 {RESULTS.md,acceptance/production-audit.json,hardware/report.json,work-report.json}.
 
@@ -39201,6 +39201,14 @@ control states (including unequal index/key and overflow), every PC and budgets
 The unchanged production lowering passes this test, formatting/all-target checks
 and46 focused array/transport executions. This test commit does not promote the
 budgeted-window implementation. Evidence: array-budget-window/main-tests.*.
+
+The descriptor-proof layer is now retained as a separate runtime checkpoint:
+all574 unchanged base-source entries match the frozen header trial, with only
+the additional bridge test/module outside that comparison. Main format/checkall
+and47 focused array/transport executions pass. The subsequently measured combined
+fuel-window candidate clears all24 original array gates in its first full matrix;
+those combined results are not attributed to this intermediate header-only
+checkpoint. Whole-project performance and final-source release gates remain open.
 
 ## 15. Primary references
 
