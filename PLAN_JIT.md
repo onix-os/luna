@@ -39229,9 +39229,30 @@ This does not establish whole-project acceptance: native failures remain4 speed/
 2 shipping (callback/polymorphic), cost21/17 (including cold/callback/predicate).
 The concurrent descriptor-proof control independently confirms7.3-7.5% less
 array instruction work; larger cross-cohort speedup changes are not attributed
-causally to that single optimization. An immutable-image repeat and broad final
-GNU/platform/resource/size/release verification remain required. Evidence:
+causally to that single optimization. Broad final platform/resource/size/release
+verification and the remaining performance gates are still required. Evidence:
 array-budget-window/{RESULTS.md,acceptance/production-audit.json,final-main/}.
+
+The exact final-source immutable-image repeat also completes all144 commands,
+14,256 executions and285,120 cost iterations. An independent rerun reproduces
+the audit byte-for-byte: zero counter/resource mismatches,2 valid/16 corrupt
+reader cases. All24 array gates pass again, making48/48 across both matrices.
+Repeat medians are Core speed1.757223/shipping1.423912 and Atom speed1.421994/
+shipping1.361257. Original thresholds, all9 cases, controls and flags are unchanged.
+Overall acceptance remains false: native speed callback4/polymorphic1 failures,
+native shipping0, compiled-disabled cost speed21/shipping11. Informational
+oslo_predicate native rows have no speedup target and are not counted as failures.
+
+The exact corrected final-source GNU gate then completes11,347 test executions
+across554 summaries, with134 reported existing ignores. The native example
+returns5000050000, prepared6 and native_instructions200007. Independent Make
+verification checks all576 source entries and all8 raw kernel/metadata hashes
+for scalar/table/callback/callback_direction. This covers the descriptor and
+budget-window fixtures at345143b9, unlike older source checkpoints; raw native
+kernel blobs are not mislabeled ELF executables. This local GNU evidence is
+not full release acceptance. Evidence: array-budget-window/final-main/
+{evidence.mk,platform-gnu-evidence.json,repeat/rechecked-audit.json,
+repeat/rechecked-reader.log,platform-gnu.log}.
 
 ## 15. Primary references
 
