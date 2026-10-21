@@ -39058,12 +39058,48 @@ They validate Rust components, not native machine-code execution or Tree Miri.
 The earlier dbbc GNU job also completes 11,307 / 554 / 134 with the same real
 native example and ten verified individual artifact hashes. Its source is
 older, so this remains baseline evidence, not current-runtime acceptance.
-Current GNU/ARM jobs were still running at the last direct API inspection.
+Current GNU/ARM jobs were still running at that API inspection.
 Shipping artifact construction is not a passing size/performance budget.
 Full original resource/performance/platform/size/release acceptance stays open.
 Evidence: ignored production-scoped-read/ci-current-source/
 additional-evidence.{mk,pl,json,log,status}, downloaded archives, source delta,
 job/run metadata and individual manifests. Verification status is zero.
+
+A subsequent direct inspection confirms current-runtime ARM job 119049328739
+also succeeds at a3e41e61 on actual Linux aarch64 hardware. Its complete
+11,307 / 554 / 134 native sequence, positive example, shipping AArch64 ELFs,
+ten individual artifact hashes and GitHub archive digest verify. The same
+test-only source difference above qualifies this retained-runtime evidence;
+neither rejected lookup-output candidate nor the new hint-inline experiment
+is covered. Current GNU remains in progress. Independent Make verification:
+ci-current-source/current-arm-evidence.{mk,pl,json,log,status}, status zero.
+
+### Table-hint wrapper inlining: retired-work gain, timing loss
+
+A separate retained-runtime snapshot changes only the Table borrowed-hint
+wrapper's inline attribute. Focused checks pass 56 / seven summaries; default
+and Tree Miri each pass 18 / three. Six canonical images, exact map companions,
+both no-feature full-file identities to the integrated control and all 72
+independent 27-field oracle records verify, with zero mismatches.
+
+The wrapper boundary disappears, but LLVM outlines the raw bucket check
+instead. Fresh-entry local stack grows from 0x68 to 0x78; VM addresses/sizes
+stay fixed, without claiming identical relocated bytes. All 336 core PMU and
+144 standalone consumer windows / 144,000 measured executions complete with
+unchanged result/counter/native/reclamation checks and 17/16 corruptions rejected.
+Strong consumer instructions fall 0.311% opt3 / 0.175% opts; missing work is
+unchanged. Nevertheless, shipping strong elapsed ratios regress to
+1.014950 / 1.018559 on Core/Atom versus same-image placebos
+1.000172 / 1.001751. Retired work alone does not justify this hot timing loss.
+
+Reject the attribute-only trial; it is not retained. The original full matrix
+scaffold is prepared but not executed. The initial copied-cache attempt was
+correctly refused by the source-path manifest; fresh directories pass without
+weakening the builder. Evidence: ignored production-scoped-read/
+readonly-hint-inline/{RESULTS.md,PREPARATION.md}, frozen source/images/maps,
+Miri logs and complete hardware/consumer records. The next distinct hypothesis
+removes the newly exposed raw boundary inside the outlined transaction; it is
+not an accepted optimization. All original full-objective gates remain open.
 
 ## 15. Primary references
 
