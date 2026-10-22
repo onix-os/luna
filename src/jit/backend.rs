@@ -53,6 +53,8 @@ pub(super) mod readonly_lookup;
 #[cfg(not(miri))]
 pub(super) mod region;
 #[cfg(test)]
+mod specialized;
+#[cfg(test)]
 mod transport_tests;
 #[cfg(test)]
 mod universal_memory;
