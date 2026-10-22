@@ -40191,6 +40191,18 @@ publication and saturating/partitioned exit accounting. The fresh complete image
 shipping-profile and unchanged full elapsed-cohort gates are queued; no adoption
 or whole-project completion is asserted.
 
+The full revision6cohort is now complete and strict-audited:144commands,
+14256native measurements,285120cost iterations,72logs/648gates, zero27-field
+or proof mismatches, and18reader mutation rejections. Candidate native192/192
+passes, including24/24array1.25gates and24/24callbacks. This is NOT acceptance:
+compiled-Off still fails8speed/15shipping gates. Direct comparison also exposes
+CPU0speed native-worker Off integer/float slowdowns around17%, and shipping
+cost-worker float losses around12%/8%on CPUs0/16. A slower Off denominator must
+not be counted as an Auto improvement. The candidate is not adopted. Next profile
+the exact native-worker link context before narrowing any inline hint; cost-worker
+profiles alone do not certify it. All original gates and raw samples are retained.
+See target/jit-evidence/shared-entry-specialization/v6/RESULTS.md.
+
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
 charges only the one polymorphic decline owner. Both restored reader screens and
