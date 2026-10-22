@@ -40203,6 +40203,17 @@ the exact native-worker link context before narrowing any inline hint; cost-work
 profiles alone do not certify it. All original gates and raw samples are retained.
 See target/jit-evidence/shared-entry-specialization/v6/RESULTS.md.
 
+The follow-up128-window PMU ablation verifies all27fields, coupled100%scheduling
+and12reader mutation rejections. Shared-entry v3matches original Off numeric
+latency; adding only v6's two global helper hints reproduces18-19%CPU0slowdowns.
+Retired instructions/branches stay flat; front-end undelivered-uop counts rise.
+Both exact native VM streams retain10911normalized instructions/dataflow. This
+does not prove a particular cache mechanism. Global hints remain rejected; v7
+localizes checked exact-width publication and inline exit recording to lookup,
+with one token-identical counter macro body. Native/Miri and both actual executable
+contexts must pass before another original full cohort. Evidence:
+target/jit-evidence/shared-entry-specialization/attribution-o/RESULTS.md.
+
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
 charges only the one polymorphic decline owner. Both restored reader screens and
