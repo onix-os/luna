@@ -40356,6 +40356,16 @@ raw-opcode retention or a global helper hint. Not yet implemented. Full original
 matrix preflight verifies0; no elapsed capture or timing claim for this rejected
 candidate. Original complete scope stays open. Evidence:execution-view/RESULTS.md.
 
+The next isolated prototype now uses a private decoded Operation/advisory bit
+with ONEoriginal Add source body/call site and one Operation match. VM no longer
+retains raw opcode; public decode erases the bit. No new Add macro, nested VM
+enum, public Operation change or helper inline hint. Source proof verifies every
+original Add effect and fresh successor/kind/budget/counter check.148focused
+checks and15mutations pass, all parent prefix/contract cases preserved. Fresh
+shipping images/instruction qualification are running BEFORE repeating the long
+broad/Miri suites; that staging does not change any adoption gate. No speedup
+claim or adoption. Evidence:numeric-for-pair/single-add-view/DESIGN.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
