@@ -11,19 +11,24 @@
 
 ### Latest verified checkpoint — 2026-10-21
 
-- Retained runtime345143b9 passes **48/48 original array gates** across two
-  complete matrices, including the1.25x target on both CPU types/profiles.
-- Exact-source GNU and all three native CI platforms pass11,347 executions
-  each; all7 current-runtime CI jobs succeed. Platform artifacts are independently
-  verified, not inferred from green status alone. Test checkpointc697f082 adds
-  independent publication coverage without promoting another runtime change.
+- Retained scalar-entry runtime7ebad27c passes **48/48 original array gates**
+  across two complete matrices, keeping the1.25x target on both CPU types/profiles.
+  Callback gates pass47/48; callback instruction work falls3.848%/3.206% in
+  speed/shipping profiles versus the retained345143b9 foundation.
+- Exact-source GNU passes11,412 executions/554 summaries, with134 reported
+  existing ignores and zero failures. New admission/public-runtime/native-model
+  fixtures execute in each of five JIT lanes; eight raw native artifacts verify.
+  Both focused Miri models and real i686 each pass26 checks. Current-source
+  musl/ARM/full-fallback CI remains pending: the older all7-job green CI and
+  11,347-execution native-platform evidence cover345143b9, not this new runtime.
 - Overall acceptance is still false: callback/polymorphic native speed and
   compiled-disabled cold/callback costs remain. Full resource-policy, size and
   release acceptance are not implied by these checkpoints.
 - Both publication-boundary variants remain unretained after measured work
   tradeoffs and a336-window hardware diagnostic. Independent scalar-entry proof
-  checkpoint7c86e7b0 and test-gated bridgef3bb71ae pass397,980 actual native
-  comparisons. The bridge exists but production routing remains unchanged.
+  checkpoint7c86e7b0 and bridgef3bb71ae pass397,980 actual native comparisons.
+  The width-specialized bridge is now selected for eligible scalar entries;
+  reference inputs and unsupported states retain the existing framed path.
 
 #### Scalar-entry runtime trial — not retained
 
@@ -44,12 +49,12 @@ counter oracle validate; both no-feature images match the retained controls.
 However, eight callback instruction profiles show **+0.633% opt3 work** and
 **-0.439% opts work**, with identical native instruction counts and unchanged Off
 work. These are not elapsed timings or performance acceptance. Disassembly
-identifies the per-slot scalar tag check as additional work. The runtime stays
-unselected while an equivalent tag-union predicate is tested independently;
+identifies the per-slot scalar tag check as additional work. This unspecialized
+version stays unselected; the width-specialized refinement is described below.
 no guard, benchmark threshold, or original acceptance requirement is relaxed.
 Evidence: `production-scoped-read/hostless-scalar-runtime/`.
 
-#### Width-specialized scalar bridge — candidate, not retained
+#### Width-specialized scalar bridge — retained at7ebad27c
 
 The standalone tag-union guard passes 228,608 independent lane/bit cases but
 adds 1.160% speed-build callback work: dynamic vector setup and its remainder
@@ -75,10 +80,15 @@ the 1.25x target; callbacks pass 47/48 gates. Native speed failures are 0 then 1
 cost failures remain speed 16/16 and shipping 8/2. Preserve all failures and
 placebo distributions; fewer failed gates are not causal confidence by themselves.
 
-Full GNU platform validation is running on the frozen candidate before runtime
-promotion. Other-platform, complete resource-policy, size and release acceptance
-remain open. The inherited matrix auditor explicitly does not reconstruct native
-raw medians independently; do not claim otherwise. Evidence:
+Full GNU platform validation passes on the exact retained source:11,412
+executions/554 summaries,134 reported existing ignores, zero failures. A separate
+validator requires the new layout, union, public-runtime and actual native-model
+fixtures in all five JIT lanes, the real native result5000050000/native200007,
+and eight individual kernel/metadata artifact hashes. All581 frozen source
+entries match main around commit; formatting and whitespace checks pass.
+Other-platform, complete resource-policy, size and release acceptance remain
+open. The inherited matrix auditor explicitly does not reconstruct native raw
+medians independently; do not claim otherwise. Evidence:
 `production-scoped-read/hostless-scalar-runtime/inline-entry/`.
 
 ### Compiled-Off post-ordinary continuation — retained; acceptance open
@@ -39491,6 +39501,197 @@ ordering. Production routing, emitted-work reduction and every original
 performance/resource/platform/size/release requirement remain open. Evidence:
 production-scoped-read/{hostless-scalar-proof/,hostless-model-capture.log,
 readonly-hostless-investigation.md}.
+
+### Paired VM accounting model — test foundation only
+
+The next compiled-Off hypothesis combines the two complete u32 dispatch/progress
+domains into one u64 update. The independent wide-integer reference and packed
+model agree on 32,928 three-event traces: native/mock prefixes, hooks, successful
+operations, terminal transitions, errors, panics, atomic transitions, rollback,
+and budgets through u32::MAX. Explicit expected observations cover zero-budget
+no-guard behavior and terminal instructions excluded from reported progress.
+Boundary arithmetic rejects overflowing updates without truncating either word.
+
+All four tests pass natively, under default and Tree Borrows Miri, and in an
+executed static ELF32/i686-musl binary. Miri uses 2,352 two-event traces rather
+than the native/32-bit three-event depth. Formatting and all-target checking
+pass; all 582 frozen source entries verify before and after each run.
+
+This checkpoint changes only test code and Make wiring. Production counters,
+publication points, native ABI and runtime selection remain unchanged. A private
+ordinary-source integration trial must preserve every VM exit and unwind path
+and demonstrate reduced emitted work before any runtime promotion. The existing
+performance, platform, resource, size and release gates are not waived. Evidence:
+production-scoped-read/paired-vm-progress/{source.sha256,native.log,
+miri-default.log,miri-tree.log,fallback.log,fallback-image.log}.
+
+### Paired-counter integration screen — not promoted
+
+A frozen ordinary-source trial integrates full-width packed counters into the
+single existing VM loop. An independent source audit classifies31 terminal opcode
+exits,6 outside-opcode exits and1 rollback; the opcode effects are otherwise
+byte-identical after normalization. Final focused/accounting/hook/fuel/native
+checks pass256 executions/37 summaries,zero ignores. Five scoped arithmetic/guard
+tests pass under both Miri models and actual ELF32/i686-musl. This is not a full
+platform pass: the existing i686 phase-model layout assertion fails16 versus20
+bytes and needs an explicit historical-layout fixture before promotion.
+
+Six canonical images and exact map companions verify; the unchanged independent
+oracle matches72 records x27 fields. In each profile, the entire no-feature image
+is unchanged except68 decoded VM panic-line fields mapped to exactly unchanged
+source lines. Each strict reader accepts1 valid input and rejects7 corruptions,
+including one missing line remap. No executable-code difference is waived.
+
+Step-inclusive opt3 instruction counts improve Off integer3.247%, float3.016%,
+array2.083%, upvalue1.166%, callbacks0.767% and allocation1.838%. The callback
+reduction is entirely VM self work:31,148,316 ->30,428,088. However, opts callback
+Off is effectively unchanged; opts Auto upvalue/callbacks increase0.890%/0.544%.
+These are diagnostic instruction counts, not elapsed-time wins or passing gates.
+
+The runtime remains unchanged on the working branch. This integration is NOT
+promoted; shipping/native tradeoffs and the layout test must be addressed before
+the unchanged timing/PMU, performance, resource, size, platform and release gates.
+Initial compiler, capture-tool-hash and mapping-wrapper failures remain separate
+from final passing diagnostics. Evidence and the next refinement hypothesis:
+production-scoped-read/paired-vm-progress/runtime/RESULTS.md.
+
+### Native-transition arithmetic and historical-layout foundation
+
+The independent packed model now checks a native-progress-plus-one-dispatch
+update against both u128 field arithmetic and the original two-update composition,
+including complete u32 boundaries. The legacy phase-layout fixture explicitly
+models the historical guard and asserts its16/24byte layouts rather than assuming
+the current production representation must remain that historical type. Existing
+publication, saturation, rollback and unwind assertions are retained.
+
+All8 focused tests pass natively, in each Miri model and actual static ELF32/i686;
+formatting/all-target checks and582 source-entry witnesses pass. Production
+counter representation and runtime selection remain unchanged. The private
+native-transition integration refinement still needs independent correctness,
+emitted-work and all original acceptance gates before promotion. Evidence:
+production-scoped-read/paired-vm-progress/native-transition-model/.
+
+### Compound native update and derived-report screens
+
+An immutable compound-update trial combines VM-local native progress with the
+terminal dispatch increment; manager/native/helper publication is unchanged.
+It passes255focused executions/37summaries,14scoped tests per Miri model and
+34actual ELF32 scoped executions/10summaries (two unsupported native suites empty).
+Archive-plus-patch reproduces582source entries;31opcode exits,6outside exits and
+1rollback preserve normalized opcode effects. Six images/maps,72x27original
+oracle fields and strict whole no-feature comparisons verify. Only68source-mapped
+VM panic coordinates differ per profile; each reader rejects7corruptions.
+
+Its84three-way instruction profiles show a small callback Auto reduction versus
+the packed parent:0.0548%speed/0.1804%shipping. Shipping Auto nevertheless remains
+0.363%above retained production; callback Off is unchanged versus the parent.
+This is not a timing win or accepted runtime change. The unchanged original
+144-command matrix completes against the original0f controls, all9cases,
+11samples,20costiterations,6rounds and CPUs0/16. Individual failed gates remain
+failures even when collection completes. No owned build/test/profiler overlaps.
+It executes14256native benchmark runs and285120cost iterations,zero27field
+mismatches. All24array1.25x gates pass, but candidate failures remain11speed
+native (7poly/4callbacks),1shipping native (poly),18speed cost and10shipping cost.
+Callback cost passes6/12speed and11/12shipping. The separate composed reader
+accepts2valid/restored inputs/rejects16corruptions; only the expected verification
+marker count changes4->8 for the additional provenance chain. Captured tools/raw
+data remain unchanged. Cost raw medians recompute; native raw medians do NOT.
+This campaign does not establish an accepted fix; the candidate is not promoted.
+
+A separate derived-report trial removes only the redundant native LOCAL, not
+manager counters, using typed terminal adjustments. It passes257focused checks,
+16scoped tests per Miri model,36actual ELF32 scoped checks,582source witnesses,
+six images/maps and72x27oracle agreement. Its84three-way profiles REJECT it:
+callbacks add0.386%/0.261%Off and0.275%/0.182%Auto versus the better parent.
+Off increases are exactly6/5extra VM instructions per60012invocations; dynamic
+PCs expose enum-mask/extension and terminal-report epilogue work. Neither source
+arithmetic simplification nor passing correctness establishes a performance win.
+
+The working runtime remains unchanged. Initial source-witness and truncated-
+launcher failures are archived separately; invalid data is not relabeled as
+acceptance. An inherited generic32bit20byte test expectation also needs an
+alignment-aware assertion in a fresh validated source before promotion. Full
+original timing/PMU/performance/resource/size/platform/release scope remains open.
+Evidence: production-scoped-read/paired-vm-progress/runtime/
+{native-transition-fusion/clean/,dispatch-derived-report/}RESULTS.md.
+
+### Retained scalar-entry hosted platform proof complete
+
+Run39682108563 at exact source4fc6cdc9 completes all7jobs successfully. The
+predeclared verifier independently validates all6server-digested archives,
+30individual native artifact hashes, source/branch/run provenance, shipping ELF
+architectures and real native examples. GNU, musl and ARM64 each pass11412
+executions/554summaries/134reported existing ignores. Miri seeds0/1 each pass
+324/43/0; actual i686 fallback3389/366/8. These results cover the retained7eb
+runtime at4fc, not the unretained counter trials or newer test-only commits.
+
+An initial final verification correctly refused a stale run-list status after
+jobs/artifacts had completed. Refreshing run metadata FIRST resolves it without
+changing expected tests, provenance, artifacts or verifier logic. Full original
+performance/resource/size/release acceptance remains explicitly false.
+
+### Classified transport inputs: mixed results, not promoted
+
+A private scratch owner classifies scalar tags during mandatory Value-to-Slot
+marshaling instead of scanning them afterward. Mutable access and native admission
+consume its certificate. Fresh binding, complete publication, marker-before-budget
+ordering, checked PC and all counters remain unchanged. The frozen trial passes
+127 focused executions, 30 tests in each Miri model and 30 actual static ELF32
+tests. Archive plus patch reproduces 583 source entries; six images/maps and the
+independent 72-record/27-field oracle pass. No-feature images exactly match the
+retained runtime. No production runtime changes are selected.
+
+The 56 step-inclusive profiles show identical callback Off instructions, but Auto
+adds 0.0549% in speed while removing 0.9528% in shipping. Two complete 144-command
+timing campaigns preserve all original workloads, flags and thresholds: one versus
+original 0f controls, one diagnostic versus retained production. Each executes
+14256 native benchmark runs and 285120 cost iterations with zero counter/resource
+mismatches and no overlapping owned build/test/profiler. Both readers pass valid
+and restored input and reject 16 corruptions; native raw medians remain unchecked.
+
+Original-control arrays pass all 24 1.25x gates, but native speed still fails two
+polymorphic and one callback gates, shipping one polymorphic; cost fails 27 speed
+and 10 shipping windows. Direct retained callback Auto medians improve 1.9%/4.4%
+in shipping on CPUs 0/16 but worsen 0.76%/1.10% in speed. Two shipping array
+candidate windows also fail 1.25 in that direct cohort, while neither retained
+placebo does. Preserve these adverse results; shipping-only gains are insufficient.
+The trial is not promoted. A fresh delayed-Source-liveness experiment is next,
+not a proven fix. Full original acceptance remains open. Evidence:
+production-scoped-read/classified-input-transport/RESULTS.md and both completed
+campaigns' composed-audit.json files.
+
+### Classified lookup isolation and adverse caller codegen
+
+Delaying Source construction in a fresh classified-input snapshot is rejected:
+127 focused executions, both Miri models (30 each), actual ELF32 (30), six images,
+583 source witnesses and 72x27 oracle pass, but callback Auto adds 0.1097% speed
+and removes only 0.3176% shipping versus retained production. It is worse than its
+classified parent in both callback profiles. No timing campaign for that refinement.
+
+A separate dedicated lookup transport preserves ordinary generic marshaling and
+all binding/publication/counter semantics. The same correctness/portable/image
+gates and 56 step profiles pass. Callback Auto instructions decrease 0.5481% speed
+and 0.4536% shipping. However, its new inline selector changes common VM codegen:
+shipping Off integer/float VM self adds 240012 instructions each, callback 60012.
+Do not infer all elapsed differences from this one generated-work observation.
+
+Two full 144-command campaigns complete, each 14256 native executions and 285120
+cost iterations with zero counter/resource mismatches. Original-control arrays
+and callbacks each pass 24/24 native gates; one shipping polymorphic gate still
+fails, plus 44 speed/11 shipping cost windows. Direct retained arrays pass24/24,
+callbacks23/24, with one additional speed polymorphic failure and 41 speed/9
+shipping cost failures. Atom callback Auto medians versus retained are1.0242 speed
+and1.0387 shipping; Core shipping1.1341. The apparent Core speed1.3524 is not an
+established source gain: its A/B placebo1.4504 reveals severe contention. Preserve
+the complete results, not favorable aggregates. Both readers reject16 corruptions;
+native raw medians remain unchecked. No owned compute overlaps either capture.
+
+Neither runtime is promoted. The next immutable trial moves lookup selection
+behind the existing out-of-line transport boundary, preserving the dedicated
+helper while restoring the old inline caller. It must independently prove Off
+work and original timing/resource/platform/size/release gates. Evidence:
+production-scoped-read/{classified-input-late-source,classified-lookup-transport}/
+RESULTS.md. Full original acceptance remains open.
 
 ## 15. Primary references
 

@@ -214,5 +214,4 @@ const _: () = {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
 mod scalar_entry;

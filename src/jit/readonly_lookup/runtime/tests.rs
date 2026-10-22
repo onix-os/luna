@@ -10,6 +10,69 @@ use std::sync::atomic::Ordering;
 
 const SOURCE: &[u8] = b"local sum=0 for i=1,80 do sum=sum+host_increment(i) end return sum";
 
+#[test]
+fn scalar_hostless_route_matches_framed_public_steps_and_reference_fallback() {
+    for references in [false, true] {
+        let run = |scalar| {
+            super::super::scalar_entry::with_enabled(scalar, || {
+                let mut lua = configured(JitMode::Auto, true);
+                if references {
+                    lua.enter(|ctx| {
+                        ctx.set_global(
+                            "host_increment",
+                            Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                                let _: i64 = stack.consume(ctx)?;
+                                assert!(ctx.globals().into_inner().try_borrow_mut(&ctx).is_ok());
+                                stack.replace(ctx, crate::Table::new(&ctx));
+                                Ok(CallbackReturn::Return)
+                            }),
+                        );
+                    });
+                }
+                let executor = lua.enter(|ctx| {
+                let text = if references { b"local n=0 for i=1,80 do local v=host_increment(i) if v then n=n+1 end end return n".as_slice() } else { SOURCE };
+                let closure = Closure::load(ctx, Some("scalar-runtime-differential"), text).unwrap();
+                ctx.stash(Executor::start(ctx, closure.into(), ()))
+            });
+                let mut trace = Vec::new();
+                for turn in 0..4096 {
+                    with_enabled(true, || lua.prepare_jit()).unwrap();
+                    let report = lua.enter(|ctx| {
+                        let mut fuel = Fuel::with([0, 1, 63, 64, 65, 4096][turn % 6]);
+                        if turn % 11 == 3 {
+                            fuel.interrupt();
+                        }
+                        let done = ctx.fetch(&executor).step(ctx, &mut fuel).unwrap();
+                        (done, fuel.remaining())
+                    });
+                    trace.push((report, counters(lua.jit_stats())));
+                    lua.gc_collect();
+                    if report.0 {
+                        let result = lua.enter(|ctx| {
+                            ctx.fetch(&executor)
+                                .take_result::<i64>(ctx)
+                                .unwrap()
+                                .unwrap()
+                        });
+                        return (trace, result, counters(lua.jit_stats()));
+                    }
+                }
+                panic!("scalar route did not finish")
+            })
+        };
+        let (framed, zero) = run(false);
+        let (scalar, entries) = run(true);
+        assert_eq!(zero, 0);
+        assert_eq!(scalar, framed);
+        if references {
+            assert!(scalar.2[3] > entries);
+        } else {
+            assert!(entries > 0);
+        }
+        eprintln!("scalar_public_route references={references} entries={entries}");
+    }
+}
+
 fn configured(mode: JitMode, replace: bool) -> Lua {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {

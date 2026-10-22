@@ -6,6 +6,22 @@ const SOURCE: &[u8] = b"local sum=0 for i=1,5000 do sum=sum+host_increment(i) en
 
 mod scalar_entry;
 
+#[test]
+fn scalar_read_code_layout_witness() {
+    assert_eq!(std::mem::size_of::<Plan>(), 16);
+    assert_eq!(std::mem::size_of::<ReadCode>(), 120);
+    assert_eq!(
+        crate::jit::owner::Shared::<ReadCode>::allocation_bytes(),
+        136
+    );
+    eprintln!(
+        "scalar_code_layout plan={} read={} owner={}",
+        std::mem::size_of::<Plan>(),
+        std::mem::size_of::<ReadCode>(),
+        crate::jit::owner::Shared::<ReadCode>::allocation_bytes()
+    );
+}
+
 fn same<'gc>(a: Value<'gc>, b: Value<'gc>) {
     match (a, b) {
         (Value::Nil, Value::Nil) => {}

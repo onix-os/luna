@@ -13,6 +13,7 @@ impl Source {
     /// Entry matches this capability's source and six-argument ABI. Scratch and
     /// canonical registers are disjoint. Entry retains no pointers, invokes no
     /// users, cannot collect or mutate the environment, and accepts a null Host.
+    #[inline(always)]
     pub(in crate::jit) unsafe fn invoke_scalar_fresh<'gc>(
         self,
         entry: Entry,
