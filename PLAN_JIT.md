@@ -11,6 +11,23 @@
 
 ### Latest verified checkpoint — 2026-10-22
 
+- Guarded-loop transport remains an **unadopted prototype**. An actual exit
+  trace found 2,799 one-instruction loop-head exits, not zero-progress guards;
+  first-op-only refusal would miss them. Five final native/bridge tests pass,
+  including per-slice fuel, hook, GC and 32-counter parity. The original full
+  cohort captures 14,256 native executions and 285,120 cost iterations; both raw
+  readers verify all medians, 72 native logs and 648 native gates. An independent
+  calibrated resource model matches all 27 fields; the reader rejects all 16
+  corruptions. Its post-capture corrections (JSON types, trailing compiler
+  Return and canonical CallCode classification) and original failed audits remain.
+  Candidate native gates pass 189/192, including 24/24 arrays at 1.25x, but
+  callbacks pass only 23/24. Polymorphic speed-build direct medians improve
+  2.66%/8.73% on CPUs0/16; shipping results and callbacks regress. Compiled-Off
+  costs still fail 28 speed/12 shipping gates. The optional child also adds a
+  mapped page to float loops that never use it. This is **not** a retained fix:
+  runtime stays51dba1c2; resource/Miri/platform/size/release gates are not waived.
+  Evidence: `target/jit-evidence/guarded-loop-transport/`, particularly
+  `direct-comparison/joint-audited-v2.json` and `RESOURCE-ORACLE-REVISION.md`.
 - Current runtime **51dba1c2** adds a scalar snapshot-limit read instead of cloning
   the full service configuration. It passes 86 focused tests; the new limit-change
   fixture also passes on the prior runtime. Real consuming Oslo confirms 10,000
