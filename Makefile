@@ -424,6 +424,29 @@ jit-oslo-profile-tests:
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features $(TARGET_ARG)
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features --features jit $(TARGET_ARG)
 
+OSLO_CONSUMER_SOURCE ?= /home/bresilla/data/code/tools/oslo
+OSLO_CONSUMER_DIR ?= target/jit-evidence/oslo-consumer-$(shell git rev-parse --short HEAD)
+.PHONY: jit-oslo-consumer-tests jit-oslo-consumer-setup jit-oslo-consumer-build jit-oslo-consumer-check jit-oslo-consumer-capture
+jit-oslo-consumer-tests:
+	@bash -n examples/jit_support/oslo_consumer.sh
+	@perl -c examples/jit_support/oslo_consumer_run.pl
+	@perl tests/test-jit-oslo-consumer.pl
+
+jit-oslo-consumer-setup:
+	@mkdir -p '$(dir $(abspath $(OSLO_CONSUMER_DIR)))'
+	@bash examples/jit_support/oslo_consumer.sh setup '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
+jit-oslo-consumer-build:
+	@test -z "$${RUSTFLAGS:-}$${CARGO_ENCODED_RUSTFLAGS:-}$${RUSTC_WRAPPER:-}$${RUSTC_WORKSPACE_WRAPPER:-}"
+	@{ rustc -vV; $(CARGO) --version; uname -sm; printf 'profiles=3,s\nlto=true\ncodegen_units=1\nstrip=true\n'; } >'$(abspath $(OSLO_CONSUMER_DIR))/build-environment.log'
+	@bash examples/jit_support/oslo_consumer.sh build '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
+jit-oslo-consumer-check:
+	@bash examples/jit_support/oslo_consumer.sh check '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
+jit-oslo-consumer-capture:
+	@bash examples/jit_support/oslo_consumer.sh capture '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
 .PHONY: lua-memory-limit lua-memory-limit-miri
 lua-memory-limit:
 	@$(CARGO) test --locked --no-default-features --lib $(TARGET_ARG) lua::memory_tests
@@ -2371,7 +2394,7 @@ jit-rustdoc:
 jit-tree:
 	@$(CARGO) tree -p luna -e normal $(TARGET_ARG)
 
-jit-verify: verify jit-check jit-bench-paired-profile-tests jit-bench-raw-tests
+jit-verify: verify jit-check jit-bench-paired-profile-tests jit-bench-raw-tests jit-oslo-consumer-tests
 	@$(MAKE) jit-test JIT_MODE=off
 	@$(MAKE) jit-test JIT_MODE=auto
 	@$(MAKE) jit-test JIT_MODE=force
