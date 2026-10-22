@@ -39660,6 +39660,39 @@ not a proven fix. Full original acceptance remains open. Evidence:
 production-scoped-read/classified-input-transport/RESULTS.md and both completed
 campaigns' composed-audit.json files.
 
+### Classified lookup isolation and adverse caller codegen
+
+Delaying Source construction in a fresh classified-input snapshot is rejected:
+127 focused executions, both Miri models (30 each), actual ELF32 (30), six images,
+583 source witnesses and 72x27 oracle pass, but callback Auto adds 0.1097% speed
+and removes only 0.3176% shipping versus retained production. It is worse than its
+classified parent in both callback profiles. No timing campaign for that refinement.
+
+A separate dedicated lookup transport preserves ordinary generic marshaling and
+all binding/publication/counter semantics. The same correctness/portable/image
+gates and 56 step profiles pass. Callback Auto instructions decrease 0.5481% speed
+and 0.4536% shipping. However, its new inline selector changes common VM codegen:
+shipping Off integer/float VM self adds 240012 instructions each, callback 60012.
+Do not infer all elapsed differences from this one generated-work observation.
+
+Two full 144-command campaigns complete, each 14256 native executions and 285120
+cost iterations with zero counter/resource mismatches. Original-control arrays
+and callbacks each pass 24/24 native gates; one shipping polymorphic gate still
+fails, plus 44 speed/11 shipping cost windows. Direct retained arrays pass24/24,
+callbacks23/24, with one additional speed polymorphic failure and 41 speed/9
+shipping cost failures. Atom callback Auto medians versus retained are1.0242 speed
+and1.0387 shipping; Core shipping1.1341. The apparent Core speed1.3524 is not an
+established source gain: its A/B placebo1.4504 reveals severe contention. Preserve
+the complete results, not favorable aggregates. Both readers reject16 corruptions;
+native raw medians remain unchecked. No owned compute overlaps either capture.
+
+Neither runtime is promoted. The next immutable trial moves lookup selection
+behind the existing out-of-line transport boundary, preserving the dedicated
+helper while restoring the old inline caller. It must independently prove Off
+work and original timing/resource/platform/size/release gates. Evidence:
+production-scoped-read/{classified-input-late-source,classified-lookup-transport}/
+RESULTS.md. Full original acceptance remains open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
