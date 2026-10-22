@@ -39630,6 +39630,36 @@ jobs/artifacts had completed. Refreshing run metadata FIRST resolves it without
 changing expected tests, provenance, artifacts or verifier logic. Full original
 performance/resource/size/release acceptance remains explicitly false.
 
+### Classified transport inputs: mixed results, not promoted
+
+A private scratch owner classifies scalar tags during mandatory Value-to-Slot
+marshaling instead of scanning them afterward. Mutable access and native admission
+consume its certificate. Fresh binding, complete publication, marker-before-budget
+ordering, checked PC and all counters remain unchanged. The frozen trial passes
+127 focused executions, 30 tests in each Miri model and 30 actual static ELF32
+tests. Archive plus patch reproduces 583 source entries; six images/maps and the
+independent 72-record/27-field oracle pass. No-feature images exactly match the
+retained runtime. No production runtime changes are selected.
+
+The 56 step-inclusive profiles show identical callback Off instructions, but Auto
+adds 0.0549% in speed while removing 0.9528% in shipping. Two complete 144-command
+timing campaigns preserve all original workloads, flags and thresholds: one versus
+original 0f controls, one diagnostic versus retained production. Each executes
+14256 native benchmark runs and 285120 cost iterations with zero counter/resource
+mismatches and no overlapping owned build/test/profiler. Both readers pass valid
+and restored input and reject 16 corruptions; native raw medians remain unchecked.
+
+Original-control arrays pass all 24 1.25x gates, but native speed still fails two
+polymorphic and one callback gates, shipping one polymorphic; cost fails 27 speed
+and 10 shipping windows. Direct retained callback Auto medians improve 1.9%/4.4%
+in shipping on CPUs 0/16 but worsen 0.76%/1.10% in speed. Two shipping array
+candidate windows also fail 1.25 in that direct cohort, while neither retained
+placebo does. Preserve these adverse results; shipping-only gains are insufficient.
+The trial is not promoted. A fresh delayed-Source-liveness experiment is next,
+not a proven fix. Full original acceptance remains open. Evidence:
+production-scoped-read/classified-input-transport/RESULTS.md and both completed
+campaigns' composed-audit.json files.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
