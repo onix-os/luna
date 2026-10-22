@@ -9,7 +9,33 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Latest verified checkpoint — 2026-10-21
+### Latest verified checkpoint — 2026-10-22
+
+- Retained experimental runtime **f2d25591** fuses scalar classification with
+  input marshaling and keeps lookup selection behind the outlined transport.
+  Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
+  compiled-Off callback counts are identical. This is not release acceptance.
+- The full original-control matrix passes **192/192 scored native gates**,
+  including24/24 array1.25x and24/24 callback windows. Oslo's24native records
+  remain unscored. Compiled-disabled cost failures33speed/12shipping remain.
+- Direct retained comparison shows callback gains about1.2%speed and1.9-4.7%
+  shipping on the two CPU types,not acceleration over interpreter Off. Arrays
+  pass24/24,callbacks23/24; other mixed/failing windows are preserved below.
+- Exact frozen correctness:127 focused executions,both scoped Miri models30
+  each,actual ELF32/i68630,six images/maps,independent72x27oracle and583source
+  witnesses. Root and archived f2d match all583 entries; root20focused executions
+  and formatting/check-all pass. Full exact-runtime GNU gate is still running.
+- Previous-runtime4fc hosted CI completes all7jobs; it does **not** certify f2d.
+  Current-source hosted jobs are pending. The full Miri recipe is now extended
+  with all five transport/lookup groups; its wrapper verifies50portable logs and
+  nine injected failures. Full expanded seed0/1 runs are in progress separately.
+- Full performance,resource-policy,platform,size and release acceptance remains
+  **false**. The feature-cost images grow about0.43%; no size waiver is implied.
+
+#### Prior scalar-entry checkpoint — 2026-10-21 (historical)
+
+The pending hosted status in this historical record is superseded by the completed
+4fc proof below; the current f2d runtime has separate,unfinished platform evidence.
 
 - Retained scalar-entry runtime7ebad27c passes **48/48 original array gates**
   across two complete matrices, keeping the1.25x target on both CPU types/profiles.
