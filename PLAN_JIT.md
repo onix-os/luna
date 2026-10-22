@@ -40345,10 +40345,16 @@ the raw opcode through Add. Ordinary Add has no hint/lookahead; marked Add share
 one source-proven canonical Add body and retains every fresh successor/kind/
 budget check and individual effect. Parent tests/representation/constructors
 remain intact; new private-view/public-projection witnesses and14source mutations
-pass. Focused native gates pass; Miri and image builds are running. No performance
-claim or production adoption. Existing canonical hot decode boundary is retained,
-not a global helper-hint/layout sweep. Evidence:numeric-for-pair/execution-view/
-{DESIGN.md,source-proof.json,source-tests.json}. Full original scope stays open.
+pass.148focused+2728broader test executions/28existing ignores,48Miri and6images
+verify. The separate-entry view is REJECTED:24profiles show inclusive VM work
+1.22538integer/1.22574float/1.15097array/1.17180closure versus runtime51. Further
+exact-image/raw-call auditing finds two NEW Add helper-call sites,39–47simulated
+instructions/call, absent in shared-body; VM-internal work also increases.
+Canonical source sharing does not guarantee machine-code sharing/inlining.
+Next retain ONEAdd execution site via private decoded operation/pair bit, not
+raw-opcode retention or a global helper hint. Not yet implemented. Full original
+matrix preflight verifies0; no elapsed capture or timing claim for this rejected
+candidate. Original complete scope stays open. Evidence:execution-view/RESULTS.md.
 
 ## 15. Primary references
 
