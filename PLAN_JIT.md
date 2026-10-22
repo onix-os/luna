@@ -33,6 +33,10 @@
   with all five transport/lookup groups; its wrapper verifies50portable logs and
   nine injected failures. Expanded full seed0/1 runs each pass354tests/48summaries/
   0ignores,with all30new-group tests positive and583source witnesses before/after.
+- Current-runtime hosted run39717730374 at dd66 independently verifies both full
+  Miri seeds354/48/0 and full i686 fallback3413/366/8,with three server-digested
+  archives and new-fixture coverage. Native hosted GNU/musl/ARM remain uncertified;
+  fallback archives contain logs,not an ELF or hosted-binary hash.
 - Full performance,resource-policy,platform,size and release acceptance remains
   **false**. The feature-cost images grow about0.43%; no size waiver is implied.
 
@@ -39823,6 +39827,26 @@ setup schema failure is preserved separately and occurred before benchmarks.
 Evidence:production-scoped-read/full-width-vm-correction/RESULTS.md. Full original
 acceptance stays false; retain f2d and diagnose current Off work before another
 counter rewrite. No branches/worktrees created.
+
+### Current-runtime hosted Miri and full fallback evidence
+
+Run39717730374 at source dd66ece543582bfc95f2d73ac2b89fca09cf01b4 covers retained
+f2d plus expanded Miri routing. Independent verification checks three successful
+job records,run/source/branch provenance and all three server SHA256archive
+digests. Both full Miri seeds pass354tests/48summaries/0ignores,50logs each and
+all30new transport/lookup tests. Recorded pinned compiler/flags/target match.
+
+Full i686-musl fallback passes3413executions/366summaries/8reported existing
+ignores,with constructor fixtures in all three feature-enabled lanes. Actual
+Cargo target/execution paths identify i686-musl; the archive contains logs only,
+so no hosted ELF/hash claim is made. Local real-ELF32 scoped evidence is separate.
+
+An initial reader refused colored Cargo execution labels. Its failed output is
+preserved; a separate reader strips presentation escapes in a derived view,
+without altering raw logs,results or digested archives. Native GNU/musl/ARM jobs
+remain unverified in this snapshot. This is not full current-platform or release
+acceptance,not full Tree coverage and not Miri native-code execution. Evidence:
+production-scoped-read/classified-lookup-ci/hosted/verified-ansi.json and RESULTS.md.
 
 ## 15. Primary references
 
