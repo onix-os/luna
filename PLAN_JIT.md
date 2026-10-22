@@ -40147,6 +40147,39 @@ platform-performance, size and release acceptance remains false. Evidence:
 target/jit-evidence/service-snapshot-limit/{RESULTS.md,direct-comparison,
 profile-report.json,consumer/attribution.json}.
 
+### Shared optional-entry ownership checkpoint (2026-10-22)
+
+Production remains the retained snapshot-limit runtime. The new permanent
+foundation is test-only: a typed Shared owner for lookup or primitive decline
+descriptors, exact quota/refusal and cloned-lease reclamation tests, and native
+and Miri Make targets. Root passes eleven focused tests, formatting/all-target
+checks, and six admission plus two owner tests under both default Miri and Tree
+Borrows. The full Miri wrapper verifies52logs and11injected failure propagations.
+
+The isolated shared-entry experiment reuses the existing optional lookup owner
+and transport selection instead of adding a second common-path admission check.
+It restores the original array-kernel representation. A five-module public-client
+calibration independently measures unchanged331-byte ordinary payloads,120bytes
+for the rare decline owner, zero lookup-owner growth, and unchanged generated
+mapping/requested bytes. These are allocation results, not elapsed speedups.
+
+Revision2passes158focused checks and portable Miri, but its broader Off suite
+finds17physical-counter parity failures in test-only forced-transport comparisons:
+only the ordinary side enables admission. The failed run is retained, not accepted.
+Revision3uses a scoped, panic-restoring test selector and explicitly enables the
+real admission integration tests; old exact transport assertions are unchanged.
+It passes159focused checks and both portable Miri modes. Broad Off/Auto/Force
+validation and benchmark builds are in progress, not yet accepted here.
+
+The independent before-capture model preserves all27fields and original workload
+minima, models the native/interpreter transfer from baseline guard traces, and
+charges only the one polymorphic decline owner. Both restored reader screens and
+all18mutations pass. No candidate workload values fit the oracle. All six new
+canonical binaries must match revision2before elapsed capture. Production adoption,
+full performance, platform/resource policy, size and release acceptance remain
+incomplete. Evidence:target/jit-evidence/shared-entry-specialization/{ROOT-OWNER-PROOF.md,
+calibration,v2/BROAD-TEST-FINDING.md,v3/RESOURCE-MODEL.md}.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
