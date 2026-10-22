@@ -37,8 +37,9 @@
   Miri seeds354/48/0 and full i686 fallback3413/366/8,with three server-digested
   archives and new-fixture coverage. Current ARM also verifies11,452executions,
   five new fixtures/five lanes,eight finalized hashes and matched ELF64 images.
-  GNU hosted job is successful but artifact verification remains pending; musl
-  remains running in the latest snapshot. Fallback archives contain logs,not an ELF.
+  GNU and musl hosted archives now also verify11,452/554/134 each,all five new
+  fixtures in five lanes,eight payload hashes and matched ELF64 x86-64 shipping
+  images. All seven jobs succeeded. Fallback archives contain logs,not an ELF.
 - Native timing instrumentation now retains raw pairs with an independent reader;
   old median-only captures are not retroactively recomputable. A new real Oslo
   CLI consumer probe passes18pipeline checks and66consumer test executions.
@@ -39970,6 +39971,27 @@ Results are unscored and do not relax original controls. Actual consumer profili
 should localize the cost before another runtime edit. Evidence:
 `target/jit-evidence/oslo-consumer-reentry-safe/RESULTS.md` and `capture/verified.json`.
 Full original resource/performance/platform/size/release acceptance remains false.
+
+### Current retained-runtime GNU and musl artifact proof
+
+Run39717730374 at dd66ece543582bfc95f2d73ac2b89fca09cf01b4 now has all seven
+jobs completed-success. Newly downloaded GNU artifact12408135586 and musl
+artifact12408552646 match their server SHA-256 digests and exact run/source/job.
+Independent readers verify11,452executions/554summaries/134existing reported
+ignores per target,all five new fixtures in each of five JIT lanes,and actual
+native result5000050000 with200007native instructions. Each target's eight
+finalized payload hashes and two manifest-bound ELF64 x86-64 shipping images
+verify. Cached extra archive contents are explicitly not certified.
+
+This closes the pending selected-runtime hosted GNU/musl correctness evidence;
+it does not certify the newer consumer harness,platform performance,resource
+policy,size or release acceptance. Full original acceptance remains false.
+Evidence: `classified-lookup-ci/hosted/{native-x86.mk,verify-x86.pl,
+verified-gnu.json,verified-musl.json}` beneath the production-scoped-read evidence
+directory. Archive digests:
+
+- GNU: `bbd504825beee6eb205be03e7e9a478c0e87b6d5f7979846108a46b74eac6beb`.
+- musl: `138e2a4eddffe488535b95ceaacb94ef894bb8e36b54adebab5411a4885c0acd`.
 
 ## 15. Primary references
 
