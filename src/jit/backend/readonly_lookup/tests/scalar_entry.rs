@@ -111,7 +111,7 @@ fn pair<'gc>(
     (source, ordinary, read, maps, ledger)
 }
 
-fn bridged<'gc>(
+fn bridged<'gc, const CLASSIFIED: bool>(
     ctx: crate::Context<'gc>,
     closure: Closure<'gc>,
     ordinary: &Code,
@@ -132,19 +132,34 @@ fn bridged<'gc>(
         LuaRegisters::with_test_frame(ctx, &mut cursor, &mut values, |mut registers| {
             let mut slots: std::vec::Vec<_> =
                 initial.iter().copied().map(Slot::from_value).collect();
+            let mut storage = vec![std::mem::MaybeUninit::uninit(); initial.len()];
+            let mut inputs = abi::transport_inputs::Inputs::marshal::<true>(&mut storage, initial);
             let outcome = unsafe {
-                proof.invoke_scalar_fresh(
-                    read.entry,
-                    closure,
-                    &ordinary.entries,
-                    &mut registers,
-                    &mut slots,
-                    pc,
-                    budget,
-                )
+                if CLASSIFIED {
+                    proof.invoke_marshaled(
+                        read.entry,
+                        closure,
+                        &ordinary.entries,
+                        &mut registers,
+                        &mut inputs,
+                        pc,
+                        budget,
+                    )
+                } else {
+                    proof.invoke_scalar_fresh(
+                        read.entry,
+                        closure,
+                        &ordinary.entries,
+                        &mut registers,
+                        &mut slots,
+                        pc,
+                        budget,
+                    )
+                }
             }
             .unwrap()
             .unwrap();
+            let slots = if CLASSIFIED { inputs.slots() } else { &slots };
             assert_eq!(*registers.pc, pc);
             abi::frame_publication::publish(&slots, registers.stack_frame);
             *registers.pc = outcome.exit.pc as usize;
@@ -221,7 +236,10 @@ fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
                             let actual = hostless(
                                 ctx, closure, &ordinary, &read, binding, pc, budget, &initial,
                             );
-                            let bridge = bridged(
+                            let bridge = bridged::<false>(
+                                ctx, closure, &ordinary, &read, proof, pc, budget, &initial,
+                            );
+                            let classified = bridged::<true>(
                                 ctx, closure, &ordinary, &read, proof, pc, budget, &initial,
                             );
                             assert_eq!(
@@ -237,10 +255,23 @@ fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
                             );
                             assert_eq!(bridge.2, expected.2);
                             assert_eq!(bridge.3, expected.3);
+                            assert_eq!(
+                                (
+                                    classified.0.pc,
+                                    classified.0.instructions,
+                                    classified.0.reason
+                                ),
+                                (expected.0.pc, expected.0.instructions, expected.0.reason)
+                            );
+                            assert_eq!(classified.2, expected.2);
+                            assert_eq!(classified.3, expected.3);
                             for (&a, &b) in actual.1.iter().zip(&expected.1) {
                                 same(a, b);
                             }
                             for (&a, &b) in bridge.1.iter().zip(&expected.1) {
+                                same(a, b);
+                            }
+                            for (&a, &b) in classified.1.iter().zip(&expected.1) {
                                 same(a, b);
                             }
                             reads += actual.3[3];

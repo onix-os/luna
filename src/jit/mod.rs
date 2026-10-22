@@ -2061,6 +2061,71 @@ impl Runtime {
     }
 
     #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[inline(always)]
+    fn invoke_lookup_transport<'gc, const CAPACITY: usize, const EXACT: bool>(
+        &self,
+        code: &backend::Code,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        budget: u32,
+        binding: (
+            &backend::readonly_lookup::ReadCode,
+            readonly_lookup::scalar_entry::Source,
+        ),
+    ) -> u32 {
+        let register_count = if EXACT { CAPACITY } else { code.registers };
+        let mut scratch = [std::mem::MaybeUninit::<abi::Slot>::uninit(); CAPACITY];
+        let mut inputs = abi::transport_inputs::Inputs::marshal::<true>(
+            &mut scratch,
+            &registers.stack_frame[..register_count],
+        );
+        let (child, source) = binding;
+        if let Some(outcome) = unsafe {
+            source.invoke_marshaled(
+                child.entry,
+                closure,
+                &code.entries,
+                registers,
+                &mut inputs,
+                *registers.pc,
+                budget,
+            )
+        }
+        .expect("invalid read-only lookup exit")
+        {
+            #[cfg(test)]
+            readonly_lookup::scalar_entry::record_entry();
+            abi::frame_publication::publish(
+                inputs.slots(),
+                &mut registers.stack_frame[..register_count],
+            );
+            *registers.pc = usize::try_from(outcome.exit.pc).expect("native PC exceeds host range");
+            let counts = helpers::Counts {
+                table_reads: outcome.reads,
+                upvalue_reads: outcome.reads,
+                ..Default::default()
+            };
+            let mut manager = self.0.borrow_mut();
+            record_helper_counts!(manager.stats, counts);
+            manager.stats.record_native_exit(&outcome.exit);
+            return outcome.exit.instructions;
+        }
+        self.invoke_frame_transport::<CAPACITY, false, false, false>(
+            code,
+            ctx,
+            closure,
+            registers,
+            (inputs.slots_mut().as_mut_ptr(), None, register_count),
+            budget,
+        )
+    }
+
+    #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
@@ -2084,6 +2149,40 @@ impl Runtime {
                 (std::ptr::null_mut(), None, register_count),
                 budget,
             );
+        }
+        #[cfg(not(miri))]
+        if !CANONICAL && !code.projected_upvalues && {
+            #[cfg(test)]
+            {
+                readonly_lookup::scalar_entry::enabled()
+                    && !code
+                        .scalar_kernel
+                        .as_ref()
+                        .is_some_and(|kernel| !kernel.integer_activation)
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        } {
+            if let Some((child, source)) = code
+                .readonly_lookup
+                .as_ref()
+                .filter(|child| child.registers == register_count)
+                .and_then(|child| {
+                    readonly_lookup::scalar_entry::Source::from_plan(child.plan)
+                        .map(|source| (&**child, source))
+                })
+            {
+                return self.invoke_lookup_transport::<CAPACITY, EXACT>(
+                    code,
+                    ctx,
+                    closure,
+                    registers,
+                    budget,
+                    (child, source),
+                );
+            }
         }
         let mut scratch = [std::mem::MaybeUninit::<abi::Slot>::uninit(); CAPACITY];
         for (slot, value) in scratch[..register_count]
@@ -2133,7 +2232,7 @@ impl Runtime {
                 },
             )
         } else {
-            #[cfg(not(miri))]
+            #[cfg(all(test, not(miri)))]
             if !CANONICAL && {
                 #[cfg(test)]
                 {

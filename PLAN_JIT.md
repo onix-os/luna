@@ -9,7 +9,41 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Latest verified checkpoint — 2026-10-21
+### Latest verified checkpoint — 2026-10-22
+
+- Retained experimental runtime **f2d25591** fuses scalar classification with
+  input marshaling and keeps lookup selection behind the outlined transport.
+  Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
+  compiled-Off callback counts are identical. This is not release acceptance.
+- The first original-control matrix passes192/192scored native gates; the repeat
+  passes185/192. Across both: **48/48 array1.25x gates**,46/48callback gates;
+  polymorphic failures remain. Oslo's48native records are unscored. Compiled-
+  disabled cost failures remain33speed/12shipping,then33speed/11shipping.
+- Direct retained comparison shows callback gains about1.2%speed and1.9-4.7%
+  shipping on the two CPU types,not acceleration over interpreter Off. Arrays
+  pass24/24,callbacks23/24; other mixed/failing windows are preserved below.
+- Exact frozen correctness:127 focused executions,both scoped Miri models30
+  each,actual ELF32/i68630,six images/maps,independent72x27oracle and583source
+  witnesses. Root and archived f2d match all583 entries; root20focused executions
+  and formatting/check-all pass. Full exact-runtime GNU now passes11,452executions/
+  554summaries/134reported existing ignores. All five new fixtures pass in each
+  of five JIT lanes; native example/work and eight finalized artifact hashes verify.
+- Previous-runtime4fc hosted CI completes all7jobs; it does **not** certify f2d.
+  Current-source hosted jobs are pending. The full Miri recipe is now extended
+  with all five transport/lookup groups; its wrapper verifies50portable logs and
+  nine injected failures. Expanded full seed0/1 runs each pass354tests/48summaries/
+  0ignores,with all30new-group tests positive and583source witnesses before/after.
+- Current-runtime hosted run39717730374 at dd66 independently verifies both full
+  Miri seeds354/48/0 and full i686 fallback3413/366/8,with three server-digested
+  archives and new-fixture coverage. Native hosted GNU/musl/ARM remain uncertified;
+  fallback archives contain logs,not an ELF or hosted-binary hash.
+- Full performance,resource-policy,platform,size and release acceptance remains
+  **false**. The feature-cost images grow about0.43%; no size waiver is implied.
+
+#### Prior scalar-entry checkpoint — 2026-10-21 (historical)
+
+The pending hosted status in this historical record is superseded by the completed
+4fc proof below; the current f2d runtime has separate,unfinished platform evidence.
 
 - Retained scalar-entry runtime7ebad27c passes **48/48 original array gates**
   across two complete matrices, keeping the1.25x target on both CPU types/profiles.
@@ -39692,6 +39726,127 @@ helper while restoring the old inline caller. It must independently prove Off
 work and original timing/resource/platform/size/release gates. Evidence:
 production-scoped-read/{classified-input-late-source,classified-lookup-transport}/
 RESULTS.md. Full original acceptance remains open.
+
+### Out-of-line lookup selection restores Off work, loses Auto speed
+
+The next frozen snapshot moves only lookup selection into the existing outlined
+transport. It passes127 focused executions,30 tests per Miri model,30 actual
+ELF32 tests,583 archive-plus-patch source witnesses,six images/maps,full no-feature
+identity and72x27 independent oracle. Its56 step profiles restore exact retained
+Off integer/float/callback instruction totals in both profiles. But Auto callback
+work increases1.2609%speed/0.8166%shipping. The now-nested transport contributes
+3291640/3112096 self instructions: another boundary offsets the isolated helper.
+
+Both complete144-command timing campaigns finish with14256native executions and
+285120costiterations each,zero counter/resource mismatches. Original-control
+arrays23/24,callbacks23/24 pass; native shipping array/poly and speed callback
+each fail one gate. Cost fails16speed/8shipping windows. Direct retained arrays
+pass24/24,callbacks21/24; speed callback3/poly1 and shipping poly1 still fail,
+plus18speed/6shipping cost gates. Stable direct speed callback control/trial
+medians0.9872/0.9803 on CPUs0/16 (placebos1.0013/1.0019) show a real adverse
+signal; small shipping gains do not excuse it. Both readers reject16corruptions;
+native raw medians remain unchecked. No owned compute overlaps actual capture.
+
+Reject this runtime. Next measure inlining only the inner helper into the outlined
+transport, preserving the restored inline caller and every semantic contract.
+This is a generated-work hypothesis, not a promised fix or accepted implementation.
+Evidence:production-scoped-read/classified-lookup-dispatch/RESULTS.md. All original
+performance/resource/platform/size/release requirements remain open.
+
+### Retained experimental fused lookup transport
+
+Commit f2d25591 retains the classified input owner and lookup bridge with selection
+inside the outlined generic transport and only the inner helper inlined. Source
+admission, kernel priority, fresh bindings, marker-before-budget ordering, full
+publication and counters remain unchanged. The consumable scratch certificate
+removes the second scalar scan without a new ABI, allocation or policy cache.
+
+The frozen source passes127 focused executions,30 tests per Miri model,30 actual
+ELF32 tests,583 archive-plus-patch witnesses,six images/maps and72x27 independent
+oracle. Final root source matches all583 entries; root formatting/check-all and
+20 focused executions pass. A misplaced patch-context application was rejected
+by the source fence before execution/commit and corrected from the intact frozen
+file; failed evidence is preserved. Full GNU jit-platform is still running.
+
+Its56 step profiles show callback Off instruction totals identical to retained7eb
+in both profiles. Auto decreases1.2059%speed/0.9981%shipping; the extra helper-call
+boundary is eliminated. Two full144-command campaigns each complete14256native
+executions and285120costiterations with zero counter/resource mismatches and no
+overlapping owned compute. Original-control native gates pass192/192 SCORED
+windows,including all24array1.25x and24callback gates. Oslo24native records remain
+UNSCORED. Cost failures33speed/12shipping still prevent full acceptance.
+
+Direct retained comparison passes arrays24/24,callbacks23/24; speed callback/poly
+each fail one window and cost fails16speed/14shipping. Callback Auto control/trial
+medians on CPUs0/16 are1.0129/1.0118speed and1.0472/1.0188shipping,with near-one
+placebos. These gains are versus the previous JIT,not interpreter acceleration.
+Other cases remain mixed; Core speed upvalues0.9749 with placebo1.0199 is retained,
+not suppressed. Both readers reject16corruptions; native raw medians remain
+unchecked. Feature-cost files grow about0.43%; no full size acceptance claimed.
+
+Retain this incremental experimental optimization,not a declaration that all
+regressions or the full JIT plan are finished. New-source GNU/ARM/musl/Miri/fallback,
+resource-policy,release/size and remaining cost/performance gates stay open;
+old4fc hosted proof cannot certify f2d. Evidence:
+production-scoped-read/classified-lookup-inline/RESULTS.md and both campaign
+composed-audit.json files. Future snapshot scripts must not append a /dev/null
+patch for transport_inputs.rs now that it is tracked.
+
+### Full-width VM terminal corrections: measured and rejected
+
+A fresh current-runtime snapshot combines the previous paired/derived-report
+trial with explicit u64 terminal corrections instead of a byte enum. Full u32
+domains,debug checks,manager/helper publications and one VM loop remain. The
+inherited32bit guard-size test uses actual field sizes/alignment rather than a
+generic20byte assumption. No runtime change from this trial is selected.
+
+It passes266focused executions,17tests per scoped Miri model,37actual ELF32
+executions,583archive-plus-patch witnesses and31terminal/6outside/1rollback opcode
+effect audit. Six images/maps,72x27independent oracle and strict no-feature
+comparisons pass:68source-mapped VM panic coordinates per profile differ,and
+every other image byte is identical. These checks do not establish speed.
+
+The56step profiles reduce speed Off numeric work,but callback Auto grows0.110%/
+0.412%speed/shipping. An apparent4.34%shipping Off win is not a VM improvement:
+the SAME retained executable performs5280000extra lookup/string-equality
+instructions,with unchanged VM self. All extra work reconciles to four functions.
+Another24callback profiles reproduce lookup variance on both sides; VM self
+remains stable. Keep every capture; no normalization or favorable-run selection.
+
+Two complete144-command campaigns each execute14256native runs and285120cost
+iterations with zero counter/resource mismatches. Original arrays24/24,callbacks
+21/24 pass; native speed fails3callback/5poly,with26speed/9shipping cost failures.
+Direct CURRENT f2d arrays23/24,callbacks20/24; native fails speed4callback/6poly,
+shipping1array/4poly,and cost fails26speed/10shipping. Direct compiled-Off callback
+ratios0.9798/0.9693speed and1.0020/0.9405shipping on CPUs0/16 show the unacceptable
+tradeoff. Native shipping gains cannot excuse2-6%disabled callback regressions.
+
+Reject. Both readers accept valid/restored input and reject16corruptions; native
+raw medians remain unchecked. No owned compute overlaps timing. Initial original
+setup schema failure is preserved separately and occurred before benchmarks.
+Evidence:production-scoped-read/full-width-vm-correction/RESULTS.md. Full original
+acceptance stays false; retain f2d and diagnose current Off work before another
+counter rewrite. No branches/worktrees created.
+
+### Current-runtime hosted Miri and full fallback evidence
+
+Run39717730374 at source dd66ece543582bfc95f2d73ac2b89fca09cf01b4 covers retained
+f2d plus expanded Miri routing. Independent verification checks three successful
+job records,run/source/branch provenance and all three server SHA256archive
+digests. Both full Miri seeds pass354tests/48summaries/0ignores,50logs each and
+all30new transport/lookup tests. Recorded pinned compiler/flags/target match.
+
+Full i686-musl fallback passes3413executions/366summaries/8reported existing
+ignores,with constructor fixtures in all three feature-enabled lanes. Actual
+Cargo target/execution paths identify i686-musl; the archive contains logs only,
+so no hosted ELF/hash claim is made. Local real-ELF32 scoped evidence is separate.
+
+An initial reader refused colored Cargo execution labels. Its failed output is
+preserved; a separate reader strips presentation escapes in a derived view,
+without altering raw logs,results or digested archives. Native GNU/musl/ARM jobs
+remain unverified in this snapshot. This is not full current-platform or release
+acceptance,not full Tree coverage and not Miri native-code execution. Evidence:
+production-scoped-read/classified-lookup-ci/hosted/verified-ansi.json and RESULTS.md.
 
 ## 15. Primary references
 

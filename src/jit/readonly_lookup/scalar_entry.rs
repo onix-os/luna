@@ -20,11 +20,15 @@ impl Source {
         self.0
     }
 
+    #[cfg(test)]
     pub(in crate::jit) fn fits(self, slots: &[abi::Slot], frame: &[Value<'_>]) -> bool {
-        let width = usize::from(self.0.registers);
-        slots.len() == width
-            && frame.len() >= width
+        self.fits_extents(slots, frame)
             && slots.iter().fold(0, |tags, slot| tags | slot.tag) <= abi::NUMBER
+    }
+
+    pub(in crate::jit) fn fits_extents(self, slots: &[abi::Slot], frame: &[Value<'_>]) -> bool {
+        let width = usize::from(self.0.registers);
+        slots.len() == width && frame.len() >= width
     }
 }
 
