@@ -39894,6 +39894,30 @@ size or release gates. Old median-only captures remain unrecomputable, not
 retroactively certified. Evidence: `production-scoped-read/paired-raw-validation/`.
 The separate helper-operand inlining trial is unpromoted.
 
+### Native helper operand hint: measured and rejected
+
+A fresh snapshot inlines `helpers::Frame::operand`, not the previously tested
+VM operand decoder. It passes 69 focused executions, 585 source/patch witnesses,
+six canonical builds and exact symbol companions. Forty-eight step profiles
+prove net metamethod helper reductions of 309,948/309,928 instructions in
+speed/shipping; most outlined work moves into callers. Callback Off counts stay
+identical. No profiler duration is used as acceptance evidence.
+
+Fresh canonical current-runtime controls use the identical raw-timing harness.
+The full direct A/candidate/B campaign completes 144 commands, 14,256 native
+executions and 285,120 cost iterations with zero independent counter/resource
+mismatches. Every native and cost median now independently recalculates; 72
+native logs join all 648 native gate records. Reader refusal tests also pass.
+
+Arrays pass 24/24; scored native gates pass 188/192, while cost still fails
+23 speed/6 shipping windows. Speed metamethod control/trial ratios improve to
+1.0333/1.0432 on CPUs 0/16. But speed Off float falls to 0.8859 and CPU16 native
+arrays to 0.9173, with near-one median placebos. Preserve all outliers, including
+the heavily disturbed final CPU0 round. Reject this runtime tradeoff; the branch
+keeps f2d, not this hint. Raw timing instrumentation stays. Evidence:
+`production-scoped-read/helper-operand-inline/RESULTS.md` and
+`direct-comparison/joint-audited.json`. Full original acceptance remains false.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
