@@ -2499,6 +2499,15 @@ jit-vm-dispatch-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::dispatch::tests -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::dispatch::tests -- --test-threads=1
 
+.PHONY: vm-numeric-pair vm-numeric-pair-miri
+vm-numeric-pair:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::numeric_pair
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::numeric_pair
+
+vm-numeric-pair-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::numeric_pair -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::numeric_pair -- --test-threads=1
+
 .PHONY: value-representation vm-constant-add vm-constant-add-miri vm-constants vm-constants-miri
 .PHONY: vm-closures vm-closures-miri
 vm-closures:

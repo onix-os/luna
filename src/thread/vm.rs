@@ -1414,3 +1414,6 @@ pub(super) mod static_off;
 
 #[cfg(test)]
 mod unwind;
+
+#[cfg(test)]
+mod numeric_pair;
