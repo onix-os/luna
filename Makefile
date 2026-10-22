@@ -2851,3 +2851,9 @@ jit-paired-progress:
 
 jit-paired-progress-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::paired_progress -- --test-threads=1
+
+.PHONY: jit-transport-inputs jit-transport-inputs-miri
+jit-transport-inputs:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::transport_inputs $(ARGS)
+jit-transport-inputs-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::transport_inputs -- --test-threads=1

@@ -118,6 +118,96 @@ fn scalar_bridge_has_no_host_and_defers_scalar_pc_and_statistics_publication() {
 }
 
 #[test]
+fn marshaled_bridge_matches_fresh_fault_publication_and_consumes_certificates() {
+    Lua::empty().enter(|ctx| {
+        let (_, closure, _, hints) = prepared(ctx);
+        let source = proof(closure);
+        let width = usize::from(source.plan().registers);
+        let entries: [Entry; 6] = [
+            scalar_probe,
+            fault::<0, 0>,
+            fault::<1, 0>,
+            fault::<1, 1>,
+            fault::<1, 65>,
+            fault::<2, 1>,
+        ];
+        for entry in entries {
+            for budget in [0, 1, 63, 64, 65, u32::MAX] {
+                let run = |classified: bool| {
+                    let mut values = vec![Value::Integer(-7); width];
+                    let mut pc = 17;
+                    let (exit, slots) = LuaRegisters::with_test_frame(
+                        ctx,
+                        &mut pc,
+                        &mut values,
+                        |mut registers| {
+                            let initial = vec![Value::Integer(-7); width];
+                            let mut slots: Vec<_> =
+                                initial.iter().copied().map(abi::Slot::from_value).collect();
+                            let mut storage = vec![std::mem::MaybeUninit::uninit(); width];
+                            let mut inputs = abi::transport_inputs::Inputs::marshal::<true>(
+                                &mut storage,
+                                &initial,
+                            );
+                            let result = unsafe {
+                                if classified {
+                                    source.invoke_marshaled(
+                                        entry,
+                                        closure,
+                                        &hints,
+                                        &mut registers,
+                                        &mut inputs,
+                                        17,
+                                        budget,
+                                    )
+                                } else {
+                                    source.invoke_scalar_fresh(
+                                        entry,
+                                        closure,
+                                        &hints,
+                                        &mut registers,
+                                        &mut slots,
+                                        17,
+                                        budget,
+                                    )
+                                }
+                            };
+                            let exit = match result {
+                                Ok(Some(outcome)) => Ok((
+                                    outcome.exit.pc,
+                                    outcome.exit.instructions,
+                                    outcome.exit.reason,
+                                    outcome.reads,
+                                )),
+                                Ok(None) => panic!("scalar bridge refused valid inputs"),
+                                Err(error) => Err(format!("{error:?}")),
+                            };
+                            if classified {
+                                assert!(inputs.take_scalar().is_none());
+                            }
+                            let slots = if classified { inputs.slots() } else { &slots };
+                            (
+                                exit,
+                                slots.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>(),
+                            )
+                        },
+                    );
+                    (exit, slots, values, pc)
+                };
+                let a = run(false);
+                let b = run(true);
+                assert_eq!(a.0, b.0);
+                assert_eq!(a.1, b.1);
+                assert_eq!(a.3, b.3);
+                for (a, b) in a.2.into_iter().zip(b.2) {
+                    same(a, b);
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn scalar_bridge_refusals_are_effect_free_and_release_every_binding() {
     Lua::empty().enter(|ctx| {
         let (plan, closure, environment, hints) = prepared(ctx);

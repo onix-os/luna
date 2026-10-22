@@ -2,6 +2,8 @@ use crate::{Constant, Value};
 
 pub(super) mod roots;
 
+pub(in crate::jit) mod transport_inputs;
+
 #[cfg(any(
     test,
     all(
