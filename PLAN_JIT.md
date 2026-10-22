@@ -39571,6 +39571,65 @@ native-transition integration refinement still needs independent correctness,
 emitted-work and all original acceptance gates before promotion. Evidence:
 production-scoped-read/paired-vm-progress/native-transition-model/.
 
+### Compound native update and derived-report screens
+
+An immutable compound-update trial combines VM-local native progress with the
+terminal dispatch increment; manager/native/helper publication is unchanged.
+It passes255focused executions/37summaries,14scoped tests per Miri model and
+34actual ELF32 scoped executions/10summaries (two unsupported native suites empty).
+Archive-plus-patch reproduces582source entries;31opcode exits,6outside exits and
+1rollback preserve normalized opcode effects. Six images/maps,72x27original
+oracle fields and strict whole no-feature comparisons verify. Only68source-mapped
+VM panic coordinates differ per profile; each reader rejects7corruptions.
+
+Its84three-way instruction profiles show a small callback Auto reduction versus
+the packed parent:0.0548%speed/0.1804%shipping. Shipping Auto nevertheless remains
+0.363%above retained production; callback Off is unchanged versus the parent.
+This is not a timing win or accepted runtime change. The unchanged original
+144-command matrix completes against the original0f controls, all9cases,
+11samples,20costiterations,6rounds and CPUs0/16. Individual failed gates remain
+failures even when collection completes. No owned build/test/profiler overlaps.
+It executes14256native benchmark runs and285120cost iterations,zero27field
+mismatches. All24array1.25x gates pass, but candidate failures remain11speed
+native (7poly/4callbacks),1shipping native (poly),18speed cost and10shipping cost.
+Callback cost passes6/12speed and11/12shipping. The separate composed reader
+accepts2valid/restored inputs/rejects16corruptions; only the expected verification
+marker count changes4->8 for the additional provenance chain. Captured tools/raw
+data remain unchanged. Cost raw medians recompute; native raw medians do NOT.
+This campaign does not establish an accepted fix; the candidate is not promoted.
+
+A separate derived-report trial removes only the redundant native LOCAL, not
+manager counters, using typed terminal adjustments. It passes257focused checks,
+16scoped tests per Miri model,36actual ELF32 scoped checks,582source witnesses,
+six images/maps and72x27oracle agreement. Its84three-way profiles REJECT it:
+callbacks add0.386%/0.261%Off and0.275%/0.182%Auto versus the better parent.
+Off increases are exactly6/5extra VM instructions per60012invocations; dynamic
+PCs expose enum-mask/extension and terminal-report epilogue work. Neither source
+arithmetic simplification nor passing correctness establishes a performance win.
+
+The working runtime remains unchanged. Initial source-witness and truncated-
+launcher failures are archived separately; invalid data is not relabeled as
+acceptance. An inherited generic32bit20byte test expectation also needs an
+alignment-aware assertion in a fresh validated source before promotion. Full
+original timing/PMU/performance/resource/size/platform/release scope remains open.
+Evidence: production-scoped-read/paired-vm-progress/runtime/
+{native-transition-fusion/clean/,dispatch-derived-report/}RESULTS.md.
+
+### Retained scalar-entry hosted platform proof complete
+
+Run39682108563 at exact source4fc6cdc9 completes all7jobs successfully. The
+predeclared verifier independently validates all6server-digested archives,
+30individual native artifact hashes, source/branch/run provenance, shipping ELF
+architectures and real native examples. GNU, musl and ARM64 each pass11412
+executions/554summaries/134reported existing ignores. Miri seeds0/1 each pass
+324/43/0; actual i686 fallback3389/366/8. These results cover the retained7eb
+runtime at4fc, not the unretained counter trials or newer test-only commits.
+
+An initial final verification correctly refused a stale run-list status after
+jobs/artifacts had completed. Refreshing run metadata FIRST resolves it without
+changing expected tests, provenance, artifacts or verifier logic. Full original
+performance/resource/size/release acceptance remains explicitly false.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
