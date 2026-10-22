@@ -40191,6 +40191,40 @@ publication and saturating/partitioned exit accounting. The fresh complete image
 shipping-profile and unchanged full elapsed-cohort gates are queued; no adoption
 or whole-project completion is asserted.
 
+The full revision6cohort is now complete and strict-audited:144commands,
+14256native measurements,285120cost iterations,72logs/648gates, zero27-field
+or proof mismatches, and18reader mutation rejections. Candidate native192/192
+passes, including24/24array1.25gates and24/24callbacks. This is NOT acceptance:
+compiled-Off still fails8speed/15shipping gates. Direct comparison also exposes
+CPU0speed native-worker Off integer/float slowdowns around17%, and shipping
+cost-worker float losses around12%/8%on CPUs0/16. A slower Off denominator must
+not be counted as an Auto improvement. The candidate is not adopted. Next profile
+the exact native-worker link context before narrowing any inline hint; cost-worker
+profiles alone do not certify it. All original gates and raw samples are retained.
+See target/jit-evidence/shared-entry-specialization/v6/RESULTS.md.
+
+The follow-up128-window PMU ablation verifies all27fields, coupled100%scheduling
+and12reader mutation rejections. Shared-entry v3matches original Off numeric
+latency; adding only v6's two global helper hints reproduces18-19%CPU0slowdowns.
+Retired instructions/branches stay flat; front-end undelivered-uop counts rise.
+Both exact native VM streams retain10911normalized instructions/dataflow. This
+does not prove a particular cache mechanism. Global hints remain rejected; v7
+localizes checked exact-width publication and inline exit recording to lookup,
+with one token-identical counter macro body. Native/Miri and both actual executable
+contexts must pass before another original full cohort. Evidence:
+target/jit-evidence/shared-entry-specialization/attribution-o/RESULTS.md.
+
+v7lookup-local specialization passes217focused checks,48Miri checks and all
+Auto/Force integrations; its source-token proof preserves one exact recording
+body and checked fixed-width publication. Callback added work stays44519versus
+v3's623201, but another128-window PMU gate still finds14%CPU0Off float loss.
+It is not adopted. The simpler frozen v3has now run the full original cohort:
+189/192native gates,15speed/7shipping compiled-Off failures, zero27-field/proof
+mismatches across14256native/285120cost measurements. It avoids v6's CPU0numeric
+loss but retains shipping CPU16Off regressions and slower speed callbacks.
+No prototype is adopted; original global acceptance remains false. Preserve all
+trials and attribute the remaining actual executable contexts before further edits.
+
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
 charges only the one polymorphic decline owner. Both restored reader screens and
@@ -40201,6 +40235,51 @@ binary modifications. Both no-JIT images remain identical. Production adoption,
 full performance, platform/resource policy, size and release acceptance remain
 incomplete. Evidence:target/jit-evidence/shared-entry-specialization/{ROOT-OWNER-PROOF.md,
 calibration,v2/BROAD-TEST-FINDING.md,v3/RESOURCE-MODEL.md}.
+
+The shipping CPU16follow-up reproduces v3Off losses with72basic plus72frontend
+PMU windows across native/cost executables. Integer time rises~8%native/~4%cost;
+float rises~4-5%. Retired instructions/branches remain essentially unchanged.
+Atom frontend-latency events move in opposite directions across contexts, so no
+single cache mechanism is established. Both actual shipping VM instruction
+streams normalize identically within each context(8536native/8615cost), excluding
+RIP data identity. Four valid reader screens and48mutation rejections pass.
+No adoption; next isolate lookup-only checked fixed-width publication from the
+separate v7exit-recording change, preserving ordinary counter policy. Evidence:
+target/jit-evidence/shared-entry-specialization/attribution-p/RESULTS.md.
+
+The new v8publication-only ablation is complete, not adopted. Its checked lookup
+publisher preserves ordinary exit recording and all other source;216focused and
+24Miri checks pass, six canonical images verify and no-JIT images stay identical.
+The unchanged full144-command cohort strict-audits14256native/285120cost samples,
+zero27-field/proof mismatches and18reader mutations. Native192/192passes,
+including24/24arrays at1.25(minimum measured1.280757). This is NOTfull acceptance:
+compiled-Off fails22speed/7shipping gates, and direct shipping float cost ratios
+control/trial0.86590/0.92436show15.5%/8.2%losses. Preserve all outliers and controls;
+no prototype is merged. Next compare actual referenced data/numeric-path callees,
+not another blind helper hint. Evidence:
+target/jit-evidence/shared-entry-specialization/v8/RESULTS.md.
+
+The exact shipping v8numeric-path follow-up completes24whole-process profiles.
+All186observed owned-function instruction/count comparisons,126static-data
+references and1614relative-table entries agree with runtime51. ELF relocations
+resolve source locations; actual PCs resolve jump tables and callees. Both reader
+screens,16evidence mutations and4never-executed binary-fixture mutations pass.
+External memcpy bodies, untaken branches and runtime heap identity are explicitly
+outside this diagnostic; no speedup or full equivalence claim follows. A specific
+remaining measurement gap is atom frontend bandwidth: prior latency counters
+exclude it. Separate total/bandwidth capture is prepared, not yet a result.
+Evidence:target/jit-evidence/shared-entry-specialization/attribution-q/RESULTS.md.
+
+The targeted atom bandwidth capture now completes72balanced windows:every
+four-event group is simultaneous/user-only/100%scheduled; all27fields, execution
+proofs and24reader mutations verify. v8shipping native/cost integer time ratios
+candidate/control1.04074/1.02362andfloat1.05975/1.07217coincide with higher total
+frontend issue-slot loss(1.25/1.14/1.35/1.44), dominated by bandwidth, while
+retired instructions stay within~1.1ppm. Float placebo variance is retained;
+whole-process counts do not establish a particular cache geometry. No adoption.
+Next characterize Add/NumericForLoop observable prefixes before a work-reducing
+dispatch-fusion experiment; no helper-hint or padding sweep. This is not yet a
+runtime change. Evidence:attribution-q/RESULTS.md and bandwidth/audited.json.
 
 ## 15. Primary references
 
