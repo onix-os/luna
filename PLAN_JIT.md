@@ -39693,6 +39693,32 @@ work and original timing/resource/platform/size/release gates. Evidence:
 production-scoped-read/{classified-input-late-source,classified-lookup-transport}/
 RESULTS.md. Full original acceptance remains open.
 
+### Out-of-line lookup selection restores Off work, loses Auto speed
+
+The next frozen snapshot moves only lookup selection into the existing outlined
+transport. It passes127 focused executions,30 tests per Miri model,30 actual
+ELF32 tests,583 archive-plus-patch source witnesses,six images/maps,full no-feature
+identity and72x27 independent oracle. Its56 step profiles restore exact retained
+Off integer/float/callback instruction totals in both profiles. But Auto callback
+work increases1.2609%speed/0.8166%shipping. The now-nested transport contributes
+3291640/3112096 self instructions: another boundary offsets the isolated helper.
+
+Both complete144-command timing campaigns finish with14256native executions and
+285120costiterations each,zero counter/resource mismatches. Original-control
+arrays23/24,callbacks23/24 pass; native shipping array/poly and speed callback
+each fail one gate. Cost fails16speed/8shipping windows. Direct retained arrays
+pass24/24,callbacks21/24; speed callback3/poly1 and shipping poly1 still fail,
+plus18speed/6shipping cost gates. Stable direct speed callback control/trial
+medians0.9872/0.9803 on CPUs0/16 (placebos1.0013/1.0019) show a real adverse
+signal; small shipping gains do not excuse it. Both readers reject16corruptions;
+native raw medians remain unchecked. No owned compute overlaps actual capture.
+
+Reject this runtime. Next measure inlining only the inner helper into the outlined
+transport, preserving the restored inline caller and every semantic contract.
+This is a generated-work hypothesis, not a promised fix or accepted implementation.
+Evidence:production-scoped-read/classified-lookup-dispatch/RESULTS.md. All original
+performance/resource/platform/size/release requirements remain open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
