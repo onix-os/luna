@@ -28,6 +28,10 @@
   runtime stays51dba1c2; resource/Miri/platform/size/release gates are not waived.
   Evidence: `target/jit-evidence/guarded-loop-transport/`, particularly
   `direct-comparison/joint-audited-v2.json` and `RESOURCE-ORACLE-REVISION.md`.
+  A placement-only revision passes 101 focused tests and image/source checks,
+  but 24 matched callback profiles show combined VM/transport self work still
+  1.04%/2.11% above baseline in speed/shipping builds. Moving checks out of the
+  dispatcher mostly moves their cost; it is not a fix. Neither trial is adopted.
 - Current runtime **51dba1c2** adds a scalar snapshot-limit read instead of cloning
   the full service configuration. It passes 86 focused tests; the new limit-change
   fixture also passes on the prior runtime. Real consuming Oslo confirms 10,000
