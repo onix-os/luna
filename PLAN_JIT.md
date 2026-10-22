@@ -19,6 +19,16 @@
   numeric-initializer/body proof avoids an unused strategy without removing any
   native guards. Mutation, unknown writes and arithmetic-order checks pass.
   Production does not call this model yet; runtime remains51dba1c2.
+- Refined admission passes 107 isolated checks and both full raw cohort readers:
+  zero 27-field/native-proof mismatches across 14,256 native executions and
+  285,120 cost iterations. Native gates pass 190/192, including all 96 shipping
+  gates and 24 array gates; callbacks pass 23/24. Two speed gates and 25 speed/
+  2 shipping compiled-Off gates remain. Seventy-two matched profiles confirm
+  the array-map adapter and unused numeric strategy are removed. Float ratios
+  recover substantially, but one shipping control/trial median remains 0.975.
+  **Not adopted:** ordinary transport still pays for an extra negative decision.
+  Next unify typed optional specialization with the existing read-only selection,
+  rather than moving or adding another None-path check. Root remains test-only.
 - The isolated interpreter-admission candidate passes 104 focused checks and the
   original full 14,256-native/285,120-cost cohort audit. Its before-capture model
   exactly predicts all 27 fields and per-variant native proofs: 12,789 futile
