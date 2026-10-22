@@ -40270,6 +40270,17 @@ remaining measurement gap is atom frontend bandwidth: prior latency counters
 exclude it. Separate total/bandwidth capture is prepared, not yet a result.
 Evidence:target/jit-evidence/shared-entry-specialization/attribution-q/RESULTS.md.
 
+The targeted atom bandwidth capture now completes72balanced windows:every
+four-event group is simultaneous/user-only/100%scheduled; all27fields, execution
+proofs and24reader mutations verify. v8shipping native/cost integer time ratios
+candidate/control1.04074/1.02362andfloat1.05975/1.07217coincide with higher total
+frontend issue-slot loss(1.25/1.14/1.35/1.44), dominated by bandwidth, while
+retired instructions stay within~1.1ppm. Float placebo variance is retained;
+whole-process counts do not establish a particular cache geometry. No adoption.
+Next characterize Add/NumericForLoop observable prefixes before a work-reducing
+dispatch-fusion experiment; no helper-hint or padding sweep. This is not yet a
+runtime change. Evidence:attribution-q/RESULTS.md and bandwidth/audited.json.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
