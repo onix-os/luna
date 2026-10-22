@@ -40214,6 +40214,17 @@ with one token-identical counter macro body. Native/Miri and both actual executa
 contexts must pass before another original full cohort. Evidence:
 target/jit-evidence/shared-entry-specialization/attribution-o/RESULTS.md.
 
+v7lookup-local specialization passes217focused checks,48Miri checks and all
+Auto/Force integrations; its source-token proof preserves one exact recording
+body and checked fixed-width publication. Callback added work stays44519versus
+v3's623201, but another128-window PMU gate still finds14%CPU0Off float loss.
+It is not adopted. The simpler frozen v3has now run the full original cohort:
+189/192native gates,15speed/7shipping compiled-Off failures, zero27-field/proof
+mismatches across14256native/285120cost measurements. It avoids v6's CPU0numeric
+loss but retains shipping CPU16Off regressions and slower speed callbacks.
+No prototype is adopted; original global acceptance remains false. Preserve all
+trials and attribute the remaining actual executable contexts before further edits.
+
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
 charges only the one polymorphic decline owner. Both restored reader screens and
