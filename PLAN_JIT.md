@@ -40179,6 +40179,18 @@ higher. That hint is rejected and the test foundation restored. The next diagnos
 separates lookup transport itself, before another full elapsed campaign. Broader
 mode validation continues; no performance gain or production adoption is claimed.
 
+Revision5's speed diagnostic removes the outlined helper symbols but moves the
+cost into a lookup call: combined caller/callee work still adds638075instructions.
+It is rejected. Revision6keeps the original inline lookup and explicitly inlines
+the existing publication/accounting helpers without changing either body. All
+three speed repetitions reduce added callback work from623201to44520exclusive
+instructions, a92.86%reduction of that specific regression, not an elapsed speedup.
+Callback VM self and execution proofs match baseline; float transport falls1817.
+Revision6passes216focused executions and46Miri checks across both modes, including
+publication and saturating/partitioned exit accounting. The fresh complete image,
+shipping-profile and unchanged full elapsed-cohort gates are queued; no adoption
+or whole-project completion is asserted.
+
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
 charges only the one polymorphic decline owner. Both restored reader screens and
