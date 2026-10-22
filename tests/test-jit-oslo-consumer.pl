@@ -8,6 +8,28 @@ use Digest::SHA qw(sha256_hex);
 my $root=tempdir(CLEANUP=>1);
 my $audit=File::Spec->rel2abs('examples/jit_support/oslo_consumer_audit.pl');
 my $json=JSON::PP->new->canonical;
+open my $patch,'<','examples/jit_support/oslo_consumer.patch' or die $!;
+my @patch=<$patch>;
+close $patch or die $!;
+my ($files,$hunks)=(0,0);
+for (my $i=0;$i<@patch;$i++) {
+    if ($patch[$i]=~/^--- a\/(.+)\n$/) {
+        my $name=$1;
+        $name=~m{^crates/(oslo-luavm/(Cargo\.toml|src/lib\.rs)|oslo-shell/src/data/tools/where_\.rs)$} or die 'patch file';
+        $patch[++$i] eq "+++ b/$name\n" or die 'patch destination';
+        $files++;
+    } elsif ($patch[$i]=~/^\@\@ -[0-9]+,([0-9]+) \+[0-9]+,([0-9]+) \@\@\n$/) {
+        my ($old,$new)=($1,$2);
+        while ($old || $new) {
+            defined $patch[++$i] && $patch[$i]=~/^([ +\-])/ or die 'patch hunk body';
+            $old-- if $1 ne '+';
+            $new-- if $1 ne '-';
+            $old>=0 && $new>=0 or die 'patch hunk length';
+        }
+        $hunks++;
+    } else {die 'unexpected patch line'}
+}
+$files==3 && $hunks==5 or die 'patch coverage';
 sub write_file {open my $f,'>:raw',"$root/$_[0]" or die $!;print {$f} $_[1];close $f or die $!}
 sub bytes {open my $f,'<:raw',"$root/$_[0]" or die $!;local $/;return <$f>}
 make_path("$root/images/3","$root/images/s","$root/work","$root/check");
@@ -66,6 +88,7 @@ my @mutations=(
     ['check/00000.stdout',sub {s/123456789/123456788/}],
     ['check/00000.stdout',sub {s/"id":0/"id":2/}],
     ['check/00002.stderr',sub {s/native_instructions=30/native_instructions=0/}],
+    ['check/00002.stderr',sub {$_="luna_oslo_consumer_protocol=1 evidence_available=0\n";1}],
     ['check/00001.stderr',sub {s/native_entries=0/native_entries=1/}],
     ['check/00000.stderr',sub {s/jit_compiled=0/jit_compiled=1/}],
     ['check/00000.stderr',sub {s/kept=5000/kept=4999/}],

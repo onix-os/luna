@@ -20,8 +20,18 @@
  oslo-base = { path = "../oslo-base" }
 --- a/crates/oslo-luavm/src/lib.rs
 +++ b/crates/oslo-luavm/src/lib.rs
-@@ -133,13 +133,50 @@
+@@ -133,13 +133,61 @@
  
++#[cfg(all(test, feature = "luna-jit-bench"))]
++mod luna_bench_probe_tests {
++    #[test]
++    fn active_vm_loan_makes_counter_probe_unavailable() {
++        let engine = super::Engine::new();
++        let _running = engine.lua.borrow_mut();
++        assert!(engine.luna_bench_stats().is_none());
++    }
++}
++
  impl Engine {
      pub fn new() -> Self {
 +        let lua = Lua::full();
@@ -48,11 +58,12 @@
          }
      }
  
-+    pub fn luna_bench_stats(&self) -> (bool, [u64; 5]) {
++    pub fn luna_bench_stats(&self) -> Option<(bool, [u64; 5])> {
 +        #[cfg(feature = "luna-jit-bench")]
 +        {
-+            let stats = self.lua.borrow().jit_stats();
-+            (
++            let lua = self.lua.try_borrow().ok()?;
++            let stats = lua.jit_stats();
++            Some((
 +                true,
 +                [
 +                    stats.native_entries,
@@ -61,11 +72,11 @@
 +                    stats.code_bytes as u64,
 +                    stats.metadata_bytes as u64,
 +                ],
-+            )
++            ))
 +        }
 +        #[cfg(not(feature = "luna-jit-bench"))]
 +        {
-+            (false, [0; 5])
++            Some((false, [0; 5]))
 +        }
 +    }
 +
@@ -78,23 +89,27 @@
      // config defined. In a script or a `-c` command there is none, and a filter must still work —
      // so one is made for the occasion. Made once for the whole filter, not once per row.
      let engine = session_engine();
-+    let (jit_compiled, before) = engine.luna_bench_stats();
++    let before = engine.luna_bench_stats();
      // `1GB` is not Lua and cannot be made into Lua, so a unit literal becomes the number the rows
      // carry before any of this is compiled. See `super::units`.
      let expanded = super::units::expand(expression);
-@@ -70,6 +71,16 @@
+@@ -70,6 +71,20 @@
              }
          }
      }
 +    if std::env::var_os("LUNA_OSLO_EVIDENCE").is_some() {
-+        let (_, after) = engine.luna_bench_stats();
-+        assert!(after[..3].iter().zip(&before[..3]).all(|(a, b)| a >= b));
-+        eprintln!(
-+            "luna_oslo_consumer_protocol=1 jit_compiled={} rows={} kept={} native_entries={} native_instructions={} compilation_requests={} code_bytes={} metadata_bytes={}",
-+            usize::from(jit_compiled), rows.len(), kept.len(),
-+            after[0] - before[0], after[1] - before[1], after[2] - before[2],
-+            after[3], after[4],
-+        );
++        match (before, engine.luna_bench_stats()) {
++            (Some((jit_compiled, before)), Some((_, after))) => {
++                assert!(after[..3].iter().zip(&before[..3]).all(|(a, b)| a >= b));
++                eprintln!(
++                    "luna_oslo_consumer_protocol=1 jit_compiled={} rows={} kept={} native_entries={} native_instructions={} compilation_requests={} code_bytes={} metadata_bytes={}",
++                    usize::from(jit_compiled), rows.len(), kept.len(),
++                    after[0] - before[0], after[1] - before[1], after[2] - before[2],
++                    after[3], after[4],
++                );
++            }
++            _ => eprintln!("luna_oslo_consumer_protocol=1 evidence_available=0"),
++        }
 +    }
      (kept, failure)
  }
