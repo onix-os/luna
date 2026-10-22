@@ -46,6 +46,11 @@
   Its1,248process observations verify12.48million input rows and positive Auto
   native work,but Auto remains3.8–9.5%slower end-to-end than no-JIT. This is not
   the separately successful bulk-array1.25x workload or an adopted Oslo migration.
+- Exact-image consumer profiling now verifies18real CLI runs in the speed profile,
+  with full row/native proofs and36standard-reader cross-checks. Auto uses3.75%
+  more simulated whole-process instructions than no-JIT. VM self-work falls,
+  but service/compilation and generic transport add work; this is attribution,
+  not a retained fix,wall-time proof,or a waiver of any original gate.
 - Full performance,resource-policy,platform,size and release acceptance remains
   **false**. The feature-cost images grow about0.43%; no size waiver is implied.
 
@@ -39992,6 +39997,37 @@ directory. Archive digests:
 
 - GNU: `bbd504825beee6eb205be03e7e9a478c0e87b6d5f7979846108a46b74eac6beb`.
 - musl: `138e2a4eddffe488535b95ceaacb94ef894bb8e36b54adebab5411a4885c0acd`.
+
+### Exact-image consumer instruction attribution
+
+The real consumer's speed-profile images now have symbol companions whose
+allocated sections and program headers are unchanged. Both map-producing
+binaries reproduce the original captured files byte-for-byte. A fresh cache at
+a different absolute path did not reproduce JIT bytes because Cranelift embeds
+generated-source paths; that attempt is preserved and excluded. The successful
+build used fresh storage at the original path,temporarily moving the old cache
+intact and restoring it. No cache/source/evidence copy or frozen source edit.
+
+Eighteen balanced actual CLI profiles cover three repetitions on CPUs0/16 for
+no-JIT,Off,Auto. All rows and native protocols verify. Independent exclusive
+sums match all raw totals; the reader passes twelve refusal cases. Standard
+annotations independently confirm all eighteen exclusive/eighteen inclusive
+totals. Raw names remain intact; cold-symbol normalization is a derived view.
+
+Whole-process upper medians are607077139/612258952/629818321 simulated
+instructions for no-JIT/Off/Auto. Auto is3.75%above no-JIT,2.87%above Off;
+these are not elapsed measurements. Auto service has14.862million inclusive
+instructions,including7.696million compiler work. Generic native transport has
+9.361million,including4.403million lookup-helper work. These paths are nested,
+NOT additive. VM self-work falls5.275millionOff to2.338millionAuto while its
+inclusive work grows15.345million to18.371million. This localizes added work;
+it does not establish a causal wall-time decomposition or an accepted fix.
+
+No runtime optimization was selected. JIT service and transport are candidates
+for semantics-preserving experiments; source retirement,compaction,policy,
+budgets,publication and counters remain mandatory. Consumer Oslo is still
+UNSCORED; original numerical/callback/disabled-cost/resource/size/release gates
+remain unchanged. Evidence:target/jit-evidence/oslo-consumer-profile/RESULTS.md.
 
 ## 15. Primary references
 
