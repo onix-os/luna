@@ -40295,6 +40295,19 @@ Root retains tests only. Next remove the helper boundary with one shared body,
 not a semantic rewrite, hint or padding sweep; no refinement implemented yet.
 Evidence:target/jit-evidence/numeric-for-pair/trial/RESULTS.md.
 
+The shared-body refinement now implements one canonical macro at both sites,
+with unchanged guards/per-op updates and source proof,129focused/24Miri checks
+and6canonical images.24instruction profiles show full VM inclusive work ratios
+candidate/control0.95708integer/0.95988float/0.99384array, but1.01287closure.
+The full original144-command cohort strict-audits14256native/285120cost iterations,
+zero27field/proof mismatches and18mutations. Direct native Off numeric speedups
+are1.02-1.18x; this is real progress, NOTacceptance:190/192native and46speed/
+14shipping Off failures remain, with closure losses. Faster ACTUAL NoFeature
+images are retained as denominators; no old slower control is substituted.
+No adoption. Next inspect unmatched Add lookahead/pure predicate ordering; do
+not repeat unified-counter, register-view or padding/hint experiments. Evidence:
+target/jit-evidence/numeric-for-pair/shared-body/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
