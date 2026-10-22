@@ -40338,6 +40338,18 @@ execution-decode/fetched-opcode lifetime from this evidence, not another raw-tag
 permutation. Performance/resource/platform/size/release acceptance remains open.
 Evidence:target/jit-evidence/numeric-for-pair/static-classification/RESULTS.md.
 
+A distinct private execution view is now implemented in a new ordinary snapshot:
+canonical decoding yields Ordinary(Operation) or private PairedAdd operands;
+public decoding projects back to unchanged Operation. The VM no longer retains
+the raw opcode through Add. Ordinary Add has no hint/lookahead; marked Add shares
+one source-proven canonical Add body and retains every fresh successor/kind/
+budget check and individual effect. Parent tests/representation/constructors
+remain intact; new private-view/public-projection witnesses and14source mutations
+pass. Focused native gates pass; Miri and image builds are running. No performance
+claim or production adoption. Existing canonical hot decode boundary is retained,
+not a global helper-hint/layout sweep. Evidence:numeric-for-pair/execution-view/
+{DESIGN.md,source-proof.json,source-tests.json}. Full original scope stays open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
