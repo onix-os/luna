@@ -15,20 +15,24 @@
   input marshaling and keeps lookup selection behind the outlined transport.
   Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
   compiled-Off callback counts are identical. This is not release acceptance.
-- The full original-control matrix passes **192/192 scored native gates**,
-  including24/24 array1.25x and24/24 callback windows. Oslo's24native records
-  remain unscored. Compiled-disabled cost failures33speed/12shipping remain.
+- The first original-control matrix passes192/192scored native gates; the repeat
+  passes185/192. Across both: **48/48 array1.25x gates**,46/48callback gates;
+  polymorphic failures remain. Oslo's48native records are unscored. Compiled-
+  disabled cost failures remain33speed/12shipping,then33speed/11shipping.
 - Direct retained comparison shows callback gains about1.2%speed and1.9-4.7%
   shipping on the two CPU types,not acceleration over interpreter Off. Arrays
   pass24/24,callbacks23/24; other mixed/failing windows are preserved below.
 - Exact frozen correctness:127 focused executions,both scoped Miri models30
   each,actual ELF32/i68630,six images/maps,independent72x27oracle and583source
   witnesses. Root and archived f2d match all583 entries; root20focused executions
-  and formatting/check-all pass. Full exact-runtime GNU gate is still running.
+  and formatting/check-all pass. Full exact-runtime GNU now passes11,452executions/
+  554summaries/134reported existing ignores. All five new fixtures pass in each
+  of five JIT lanes; native example/work and eight finalized artifact hashes verify.
 - Previous-runtime4fc hosted CI completes all7jobs; it does **not** certify f2d.
   Current-source hosted jobs are pending. The full Miri recipe is now extended
   with all five transport/lookup groups; its wrapper verifies50portable logs and
-  nine injected failures. Full expanded seed0/1 runs are in progress separately.
+  nine injected failures. Expanded full seed0/1 runs each pass354tests/48summaries/
+  0ignores,with all30new-group tests positive and583source witnesses before/after.
 - Full performance,resource-policy,platform,size and release acceptance remains
   **false**. The feature-cost images grow about0.43%; no size waiver is implied.
 
