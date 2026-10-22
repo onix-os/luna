@@ -152,6 +152,10 @@ fn compare(actual: Snapshot<'_>, expected: Snapshot<'_>) {
     assert_eq!(actual.stack.len(), expected.stack.len());
     for (actual, expected) in actual.stack.into_iter().zip(expected.stack) {
         match (actual, expected) {
+            (Value::Nil, Value::Nil) => {}
+            (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),
+            (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
+            (Value::String(a), Value::String(b)) => assert_eq!(a, b),
             (Value::Number(a), Value::Number(b)) => {
                 assert!(a.to_bits() == b.to_bits() || a.is_nan() && b.is_nan());
             }
