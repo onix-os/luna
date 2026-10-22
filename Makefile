@@ -2767,6 +2767,8 @@ help:
 	@echo "  jit-sequences Test Rust continuations across native execution"
 	@echo "  jit-mock     Test Rust-only slice exits and interpreter fallback"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
+	@echo "  jit-bench-raw-audit Recompute paired statistics (JIT_BENCH_LOG=path)"
+	@echo "  jit-bench-raw-tests Test raw paired statistics and thresholds"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"
 	@echo "  jit-shipping Publish checked paired timings at shipping opt-level s"

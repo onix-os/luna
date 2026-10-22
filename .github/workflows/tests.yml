@@ -49,6 +49,8 @@ jobs:
         run: make check
       - name: Miri evidence recipe
         run: make jit-miri-wrapper-tests
+      - name: Paired benchmark evidence recipe
+        run: make jit-bench-raw-tests
       - name: test
         run: |
           set -o pipefail
