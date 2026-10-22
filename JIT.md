@@ -1407,3 +1407,41 @@ its embedded optimization label remains authoritative. `--check` rejects
 shipping or unspecified labels rather than applying the opt-level-3 acceptance
 gate to the wrong build. Run-only does not guarantee an idle machine: do not run
 acceptance timings alongside builds, tests, fuzzing or profiling.
+
+### Actual Oslo consumer pipeline
+
+The opt-in consumer probe builds an isolated minimal Oslo CLI, not a Lua-only
+reproduction of its predicate. It exercises `cat … | from json | where … | to json`,
+including row bindings, owned-value conversion, the function bridge and output
+serialization. The real Oslo checkout is never modified. It must contain commit
+`f61ccc5d97ded403cea0edc63ace82b8834f7bd6`.
+
+Use one explicit fresh directory for all stages, inside the development shell:
+
+```sh
+make jit-oslo-consumer-tests
+E="$PWD/target/jit-evidence/oslo-consumer-run"
+make jit-oslo-consumer-setup OSLO_CONSUMER_DIR="$E" OSLO_CONSUMER_SOURCE=/path/to/oslo
+make jit-oslo-consumer-build OSLO_CONSUMER_DIR="$E"
+make jit-oslo-consumer-check OSLO_CONSUMER_DIR="$E"
+make jit-oslo-consumer-capture OSLO_CONSUMER_DIR="$E"
+```
+
+Pass `SHELL="$(command -v bash)"` where the Makefile's default Bash path is absent.
+Setup archives committed Luna and Oslo sources, applies only the fixture adapter,
+and records both dependency resolutions. The Cranelift family is matched to the
+archived Luna lockfile before freezing; the consumer otherwise has its own locked
+dependency graph. Builds use fresh caches, opt-levels 3/s, LTO, one codegen unit
+and stripping. Default dependency trees must exclude compiler crates.
+
+Checks require complete ordered row equality for direct, row-table and numeric
+boundary predicates. Auto must demonstrate actual native work; no-JIT and Off
+must report zero native work. The counter probe does not borrow an already active
+VM: unavailable reentrant evidence is explicit and cannot satisfy native proof.
+
+Capture records individual process durations, two excluded warmups, eleven
+samples, six rounds and CPUs 0/16, with duplicate no-JIT controls. CLI startup,
+compilation and serialization are timed. Raw outputs, native counters, source/
+image/tool hashes and recalculated medians remain in the evidence directory.
+These consumer results are observational and unscored, not an adopted Oslo
+migration, release-packaging proof or replacement for the frozen numerical gates.
