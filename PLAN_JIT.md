@@ -39872,6 +39872,28 @@ not another unchecked hint or reduced accounting. Evidence:
 production-scoped-read/current-off-attribution/{RESULTS.md,report.json,pc-*.log}.
 Full original acceptance remains open.
 
+### Raw native timings and independently recalculated gates
+
+Commits `973dffc1` and `3d946aa1` retain individual paired timings after
+measurement and add an independent reader plus lightweight/native CI gates.
+The reader recomputes upper medians, extrema and paired dispersion, applying
+the original unrounded thresholds. Nine-workload odd/even/maximum fixtures,
+three exact 1.25 boundaries and 23 refusal cases pass; existing profile/elapsed
+readers, formatting, check-all and CI syntax also pass. Runtime source is unchanged.
+
+A fresh frozen-source cohort runs six rounds on CPUs 0/16 in both profiles:
+24 full suites, 4,752 measured executions, 864 excluded warmups. All raw medians
+and dispersion recalculate. Arrays pass 24/24 at 1.25, with observed ratios
+1.38508–1.78019. Scored native gates pass 186/192; all six failures are speed
+polymorphic metamethods on CPU 0. Callback tolerance passes are not acceleration:
+speed median ratios remain 0.88483/0.85324. Oslo stays unscored.
+
+This is not the original controlled cost/native acceptance matrix and does not
+close disabled-feature overhead, independent runtime-counter, platform/resource,
+size or release gates. Old median-only captures remain unrecomputable, not
+retroactively certified. Evidence: `production-scoped-read/paired-raw-validation/`.
+The separate helper-operand inlining trial is unpromoted.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
