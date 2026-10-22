@@ -40361,10 +40361,18 @@ with ONEoriginal Add source body/call site and one Operation match. VM no longer
 retains raw opcode; public decode erases the bit. No new Add macro, nested VM
 enum, public Operation change or helper inline hint. Source proof verifies every
 original Add effect and fresh successor/kind/budget/counter check.148focused
-checks and15mutations pass, all parent prefix/contract cases preserved. Fresh
-shipping images/instruction qualification are running BEFORE repeating the long
-broad/Miri suites; that staging does not change any adoption gate. No speedup
-claim or adoption. Evidence:numeric-for-pair/single-add-view/DESIGN.md.
+checks and15mutations pass, all parent prefix/contract cases preserved. Three
+fresh shipping images/24profiles and exact-image attribution verify. Direct Add
+helper calls disappear, but the candidate is REJECTED: VM inclusive work grows
+13.6–25.9%versusruntime51. Raw/exact-disassembly audits and a frozen U control
+prove one EXTRA computed jump per primary opcode dispatch in all12case/round
+comparisons: the new interface retains two dispatch stages, parent/U do not.
+Second table has THREEactual sites, including a float-specific site; initial
+under-covered reader fails, final audit includes all sites without recapture.
+Long broad/Miri/opt3/full elapsed gates were NOTlaunched or reused; staged work
+qualification failed, original adoption scope unchanged. Next investigate direct
+crate-private opcode execution dispatch, not another extra global decode output
+or inline/layout hint. Not yet implemented. Evidence:single-add-view/RESULTS.md.
 
 ## 15. Primary references
 
