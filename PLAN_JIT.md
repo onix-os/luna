@@ -11,6 +11,34 @@
 
 ### Latest verified checkpoint — 2026-10-22
 
+- A **test-only** short-prefix admission model now has nine passing root checks:
+  six portable classifications and three actual native-exit differential tests.
+  The expanded Miri recipe checks 51 logs and propagates all 10 injected failures;
+  its six portable checks pass default and Tree Borrows in the actual root.
+  Direct operand reads replace the measured generic array-map adapter; a pure
+  numeric-initializer/body proof avoids an unused strategy without removing any
+  native guards. Mutation, unknown writes and arithmetic-order checks pass.
+  Production does not call this model yet; runtime remains51dba1c2.
+- Refined admission passes 107 isolated checks and both full raw cohort readers:
+  zero 27-field/native-proof mismatches across 14,256 native executions and
+  285,120 cost iterations. Native gates pass 190/192, including all 96 shipping
+  gates and 24 array gates; callbacks pass 23/24. Two speed gates and 25 speed/
+  2 shipping compiled-Off gates remain. Seventy-two matched profiles confirm
+  the array-map adapter and unused numeric strategy are removed. Float ratios
+  recover substantially, but one shipping control/trial median remains 0.975.
+  **Not adopted:** ordinary transport still pays for an extra negative decision.
+  Next unify typed optional specialization with the existing read-only selection,
+  rather than moving or adding another None-path check. Root remains test-only.
+- The isolated interpreter-admission candidate passes 104 focused checks and the
+  original full 14,256-native/285,120-cost cohort audit. Its before-capture model
+  exactly predicts all 27 fields and per-variant native proofs: 12,789 futile
+  native entries become real interpreted work, with no counter relabeling.
+  Native gates pass 188/192; arrays and callbacks each pass 24/24. Four polymorphic
+  gates and 27 speed/2 shipping compiled-Off cost gates still fail. It is **not
+  adopted**: float-loop control/trial speed ratios fall to 0.962/0.904 on CPU0
+  and 0.961/0.932 on CPU16. Seventy-two matched diagnostic profiles identify
+  costly generic array-map adapters and an unused admission/array path on numeric
+  loops. Next remove that measured work before considering runtime adoption.
 - Guarded-loop transport remains an **unadopted prototype**. An actual exit
   trace found 2,799 one-instruction loop-head exits, not zero-progress guards;
   first-op-only refusal would miss them. Five final native/bridge tests pass,
@@ -28,6 +56,10 @@
   runtime stays51dba1c2; resource/Miri/platform/size/release gates are not waived.
   Evidence: `target/jit-evidence/guarded-loop-transport/`, particularly
   `direct-comparison/joint-audited-v2.json` and `RESOURCE-ORACLE-REVISION.md`.
+  A placement-only revision passes 101 focused tests and image/source checks,
+  but 24 matched callback profiles show combined VM/transport self work still
+  1.04%/2.11% above baseline in speed/shipping builds. Moving checks out of the
+  dispatcher mostly moves their cost; it is not a fix. Neither trial is adopted.
 - Current runtime **51dba1c2** adds a scalar snapshot-limit read instead of cloning
   the full service configuration. It passes 86 focused tests; the new limit-change
   fixture also passes on the prior runtime. Real consuming Oslo confirms 10,000
@@ -37,8 +69,15 @@
   24 array 1.25x and 24 callback tolerance gates. Eight polymorphic native failures
   and 14 speed/6 shipping compiled-Off cost failures remain. The default no-JIT
   images are byte-identical; all 27 counter/resource fields match the old oracle.
-  Current-source CI run39780142811 is still incomplete; old hosted proofs below
-  certify the f2d foundation, not this newer source.
+  Current-source run39780142811 now independently verifies both Miri seeds
+  (354 tests/48 summaries each), i686 fallback (3,413/366/8 reported ignores),
+  and native musl (11,457/554/134 reported ignores). Server archive digests,
+  exact source/job identities, six fixtures in all five native JIT lanes, eight
+  finalized payload hashes and two manifest-bound ELF64 shipping images verify.
+  The new configuration fixture is native-only and is not in i686/Miri scope.
+  Current ARM also independently verifies 11,457/554/134, six fixtures in five
+  native lanes, eight finalized payload hashes and two manifest-bound ELF64
+  AArch64 shipping images. Only GNU remains pending; old proofs below certify f2d.
 - Retained lookup foundation **f2d25591** fuses scalar classification with
   input marshaling and keeps lookup selection behind the outlined transport.
   Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
@@ -40107,6 +40146,61 @@ this snapshot; their new artifacts are not yet audited. Original resource-policy
 platform-performance, size and release acceptance remains false. Evidence:
 target/jit-evidence/service-snapshot-limit/{RESULTS.md,direct-comparison,
 profile-report.json,consumer/attribution.json}.
+
+### Shared optional-entry ownership checkpoint (2026-10-22)
+
+Production remains the retained snapshot-limit runtime. The new permanent
+foundation is test-only: a typed Shared owner for lookup or primitive decline
+descriptors, exact quota/refusal and cloned-lease reclamation tests, and native
+and Miri Make targets. Root passes eleven focused tests, formatting/all-target
+checks, and six admission plus two owner tests under both default Miri and Tree
+Borrows. The full Miri wrapper verifies52logs and11injected failure propagations.
+
+The isolated shared-entry experiment reuses the existing optional lookup owner
+and transport selection instead of adding a second common-path admission check.
+It restores the original array-kernel representation. A five-module public-client
+calibration independently measures unchanged331-byte ordinary payloads,120bytes
+for the rare decline owner, zero lookup-owner growth, and unchanged generated
+mapping/requested bytes. These are allocation results, not elapsed speedups.
+
+Revision2passes158focused checks and portable Miri, but its broader Off suite
+finds17physical-counter parity failures in test-only forced-transport comparisons:
+only the ordinary side enables admission. The failed run is retained, not accepted.
+Revision3uses a scoped, panic-restoring test selector and explicitly enables the
+real admission integration tests; old exact transport assertions are unchanged.
+It passes159focused checks, both portable Miri modes, and the complete Off suite:
+2199checks, zero failures,26preexisting ignores. Its72audited diagnostic profiles
+expose extra callback work: publication and exit accounting become out-of-line,
+adding623201net exclusive instructions in the speed callback worker. This is
+not adopted. Revision4predicate outlining also passes159checks and both Miri
+modes, but72new profiles still show those helper calls and727073net exclusive
+speed callback instructions added. Shipping float transport remains5451instructions
+higher. That hint is rejected and the test foundation restored. The next diagnostic
+separates lookup transport itself, before another full elapsed campaign. Broader
+mode validation continues; no performance gain or production adoption is claimed.
+
+Revision5's speed diagnostic removes the outlined helper symbols but moves the
+cost into a lookup call: combined caller/callee work still adds638075instructions.
+It is rejected. Revision6keeps the original inline lookup and explicitly inlines
+the existing publication/accounting helpers without changing either body. All
+three speed repetitions reduce added callback work from623201to44520exclusive
+instructions, a92.86%reduction of that specific regression, not an elapsed speedup.
+Callback VM self and execution proofs match baseline; float transport falls1817.
+Revision6passes216focused executions and46Miri checks across both modes, including
+publication and saturating/partitioned exit accounting. The fresh complete image,
+shipping-profile and unchanged full elapsed-cohort gates are queued; no adoption
+or whole-project completion is asserted.
+
+The independent before-capture model preserves all27fields and original workload
+minima, models the native/interpreter transfer from baseline guard traces, and
+charges only the one polymorphic decline owner. Both restored reader screens and
+all18mutations pass. No candidate workload values fit the oracle. Revision3's
+complete files match revision2except two exact source-derived panic-line fields
+per JIT image; a relocation-aware reader verifies every other byte, with no
+binary modifications. Both no-JIT images remain identical. Production adoption,
+full performance, platform/resource policy, size and release acceptance remain
+incomplete. Evidence:target/jit-evidence/shared-entry-specialization/{ROOT-OWNER-PROOF.md,
+calibration,v2/BROAD-TEST-FINDING.md,v3/RESOURCE-MODEL.md}.
 
 ## 15. Primary references
 
