@@ -39848,6 +39848,30 @@ remain unverified in this snapshot. This is not full current-platform or release
 acceptance,not full Tree coverage and not Miri native-code execution. Evidence:
 production-scoped-read/classified-lookup-ci/hosted/verified-ansi.json and RESULTS.md.
 
+### Current retained compiled-Off attribution, before another rewrite
+
+Eighteen fresh exact-image profiles compare no-feature/compiled-Off/Auto across
+three repeats and both original profiles. Old no-feature companions are reused
+only after whole-image equality to current f2d binaries. Raw commands,results,
+native-zero/positive work,event totals and every exclusive self cost reconcile;
+four dynamic VM PC traces also match exact assembly. No runtime edits or elapsed
+acceptance claims. All three paired Off repetitions have identical counts.
+
+Speed compiled-Off adds6487944instructions over no-feature:VM+4200816,ordinary
+executor closure+1860372,Executor+966816,call_function-540000,return_upper-60.
+Shipping adds5646840; some VM growth is moved get_rc work,not additional work.
+The outlined adapter's entire cost is not removable overhead. Lookup and callback
+body work are unchanged in these captures,unlike the preceding lookup-variance
+screen. These are instruction counts,not the original5%elapsed-cost verdict.
+
+Current Function/Value variants have no JIT-only callable variant. Previously
+rejected statistics/adapter/register/closure/operand inlining and policy-query
+trials remain rejected; this attribution does not justify replaying them. The
+next runtime change needs a materially different source/emitted-work hypothesis,
+not another unchecked hint or reduced accounting. Evidence:
+production-scoped-read/current-off-attribution/{RESULTS.md,report.json,pc-*.log}.
+Full original acceptance remains open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
