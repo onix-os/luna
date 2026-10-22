@@ -39719,6 +39719,45 @@ This is a generated-work hypothesis, not a promised fix or accepted implementati
 Evidence:production-scoped-read/classified-lookup-dispatch/RESULTS.md. All original
 performance/resource/platform/size/release requirements remain open.
 
+### Retained experimental fused lookup transport
+
+Commit f2d25591 retains the classified input owner and lookup bridge with selection
+inside the outlined generic transport and only the inner helper inlined. Source
+admission, kernel priority, fresh bindings, marker-before-budget ordering, full
+publication and counters remain unchanged. The consumable scratch certificate
+removes the second scalar scan without a new ABI, allocation or policy cache.
+
+The frozen source passes127 focused executions,30 tests per Miri model,30 actual
+ELF32 tests,583 archive-plus-patch witnesses,six images/maps and72x27 independent
+oracle. Final root source matches all583 entries; root formatting/check-all and
+20 focused executions pass. A misplaced patch-context application was rejected
+by the source fence before execution/commit and corrected from the intact frozen
+file; failed evidence is preserved. Full GNU jit-platform is still running.
+
+Its56 step profiles show callback Off instruction totals identical to retained7eb
+in both profiles. Auto decreases1.2059%speed/0.9981%shipping; the extra helper-call
+boundary is eliminated. Two full144-command campaigns each complete14256native
+executions and285120costiterations with zero counter/resource mismatches and no
+overlapping owned compute. Original-control native gates pass192/192 SCORED
+windows,including all24array1.25x and24callback gates. Oslo24native records remain
+UNSCORED. Cost failures33speed/12shipping still prevent full acceptance.
+
+Direct retained comparison passes arrays24/24,callbacks23/24; speed callback/poly
+each fail one window and cost fails16speed/14shipping. Callback Auto control/trial
+medians on CPUs0/16 are1.0129/1.0118speed and1.0472/1.0188shipping,with near-one
+placebos. These gains are versus the previous JIT,not interpreter acceleration.
+Other cases remain mixed; Core speed upvalues0.9749 with placebo1.0199 is retained,
+not suppressed. Both readers reject16corruptions; native raw medians remain
+unchecked. Feature-cost files grow about0.43%; no full size acceptance claimed.
+
+Retain this incremental experimental optimization,not a declaration that all
+regressions or the full JIT plan are finished. New-source GNU/ARM/musl/Miri/fallback,
+resource-policy,release/size and remaining cost/performance gates stay open;
+old4fc hosted proof cannot certify f2d. Evidence:
+production-scoped-read/classified-lookup-inline/RESULTS.md and both campaign
+composed-audit.json files. Future snapshot scripts must not append a /dev/null
+patch for transport_inputs.rs now that it is tracked.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
