@@ -40281,6 +40281,81 @@ Next characterize Add/NumericForLoop observable prefixes before a work-reducing
 dispatch-fusion experiment; no helper-hint or padding sweep. This is not yet a
 runtime change. Evidence:attribution-q/RESULTS.md and bandwidth/audited.json.
 
+The baseline-valid Add/For prefix foundation is committed separately:10test
+executions cover1557scenarios perfeature/6228VM invocations, including aliases,
+high registers, budgets, partial writes, hooks and deferred metamethods. The new
+isolated implementation uses one canonical loop helper, passes129focused and
+24Miri checks, and builds all6images. Its full original144-command campaign
+strict-audits14256native/285120cost iterations, zero27-field/proof mismatches and
+18reader mutations. It is REJECTED:190/192native but35speed/11shipping Off failures,
+plus direct numeric and no-feature regressions.24instruction profiles show net
+work+7-10%when the outlined helper is included. Both feature images and actual
+no-feature denominators were measured; no original performance gate changed.
+Root retains tests only. Next remove the helper boundary with one shared body,
+not a semantic rewrite, hint or padding sweep; no refinement implemented yet.
+Evidence:target/jit-evidence/numeric-for-pair/trial/RESULTS.md.
+
+The shared-body refinement now implements one canonical macro at both sites,
+with unchanged guards/per-op updates and source proof,129focused/24Miri checks
+and6canonical images.24instruction profiles show full VM inclusive work ratios
+candidate/control0.95708integer/0.95988float/0.99384array, but1.01287closure.
+The full original144-command cohort strict-audits14256native/285120cost iterations,
+zero27field/proof mismatches and18mutations. Direct native Off numeric speedups
+are1.02-1.18x; this is real progress, NOTacceptance:190/192native and46speed/
+14shipping Off failures remain, with closure losses. Faster ACTUAL NoFeature
+images are retained as denominators; no old slower control is substituted.
+No adoption. Next inspect unmatched Add lookahead/pure predicate ordering; do
+not repeat unified-counter, register-view or padding/hint experiments. Evidence:
+target/jit-evidence/numeric-for-pair/shared-body/RESULTS.md.
+
+The pure shape-first ordering experiment is now complete and REJECTED. Only
+predicate order changes; source proof/6mutations,129focused/24Miri and6images
+verify.24profiles still show closure full-inclusive work1.01360versusruntime51,
+slightly worse than prior. The unchanged full144-command cohort audits14256native/
+285120cost iterations, zero27field/proof mismatches and18mutations. Candidate
+178/192native, arrays22/24(min1.21612),58speed/14shipping Off failures; no adoption.
+All controls/variance and faster actualNoFeature denominators stay visible.
+Next investigate source-defined classification instead of runtime lookahead,
+preserving PUBLICOperation API/privateOpCodeRepr, dump/manual-bytecode safety,
+PCs/costs and footprint. No classification is implemented or authorized as a
+public-operation shortcut. Evidence:numeric-for-pair/shape-first/RESULTS.md.
+
+The next isolated prototype now implements PRIVATE Add/For representation tags,
+classified once in both source and binary prototype constructors. Public
+Operation/encode/decode, Debug, dump bytes and four-byte opcode storage remain
+unchanged. Tags are advisory: execution still validates the CURRENT successor,
+dispatch kind and budget before the original individually charged effects.
+50focused native checks pass, including stale/truncated/moved successors and
+all original prefix cases; source proof and12mutations pass. Broader2323passed/
+26ignored and default499passed/2ignored,44Miri checks and6canonical images verify.
+The refinement is REJECTED on work evidence, not adopted:24profiles show extra
+VM instructions vs shared-body420009integer/240024float/118614array, closure18
+(effectively unchanged). Independent24-profile exact-image attribution finds
+extra explicit RSP-addressed work120021/120039/90270/150021respectively; precise
+source-level spill causality is not established. No elapsed matrix was run for
+this candidate, and no timing/acceptance gate changed. Next inspect private
+execution-decode/fetched-opcode lifetime from this evidence, not another raw-tag
+permutation. Performance/resource/platform/size/release acceptance remains open.
+Evidence:target/jit-evidence/numeric-for-pair/static-classification/RESULTS.md.
+
+A distinct private execution view is now implemented in a new ordinary snapshot:
+canonical decoding yields Ordinary(Operation) or private PairedAdd operands;
+public decoding projects back to unchanged Operation. The VM no longer retains
+the raw opcode through Add. Ordinary Add has no hint/lookahead; marked Add shares
+one source-proven canonical Add body and retains every fresh successor/kind/
+budget check and individual effect. Parent tests/representation/constructors
+remain intact; new private-view/public-projection witnesses and14source mutations
+pass.148focused+2728broader test executions/28existing ignores,48Miri and6images
+verify. The separate-entry view is REJECTED:24profiles show inclusive VM work
+1.22538integer/1.22574float/1.15097array/1.17180closure versus runtime51. Further
+exact-image/raw-call auditing finds two NEW Add helper-call sites,39–47simulated
+instructions/call, absent in shared-body; VM-internal work also increases.
+Canonical source sharing does not guarantee machine-code sharing/inlining.
+Next retain ONEAdd execution site via private decoded operation/pair bit, not
+raw-opcode retention or a global helper hint. Not yet implemented. Full original
+matrix preflight verifies0; no elapsed capture or timing claim for this rejected
+candidate. Original complete scope stays open. Evidence:execution-view/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
