@@ -40236,6 +40236,17 @@ full performance, platform/resource policy, size and release acceptance remain
 incomplete. Evidence:target/jit-evidence/shared-entry-specialization/{ROOT-OWNER-PROOF.md,
 calibration,v2/BROAD-TEST-FINDING.md,v3/RESOURCE-MODEL.md}.
 
+The shipping CPU16follow-up reproduces v3Off losses with72basic plus72frontend
+PMU windows across native/cost executables. Integer time rises~8%native/~4%cost;
+float rises~4-5%. Retired instructions/branches remain essentially unchanged.
+Atom frontend-latency events move in opposite directions across contexts, so no
+single cache mechanism is established. Both actual shipping VM instruction
+streams normalize identically within each context(8536native/8615cost), excluding
+RIP data identity. Four valid reader screens and48mutation rejections pass.
+No adoption; next isolate lookup-only checked fixed-width publication from the
+separate v7exit-recording change, preserving ordinary counter policy. Evidence:
+target/jit-evidence/shared-entry-specialization/attribution-p/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
