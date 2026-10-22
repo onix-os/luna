@@ -40259,6 +40259,17 @@ no prototype is merged. Next compare actual referenced data/numeric-path callees
 not another blind helper hint. Evidence:
 target/jit-evidence/shared-entry-specialization/v8/RESULTS.md.
 
+The exact shipping v8numeric-path follow-up completes24whole-process profiles.
+All186observed owned-function instruction/count comparisons,126static-data
+references and1614relative-table entries agree with runtime51. ELF relocations
+resolve source locations; actual PCs resolve jump tables and callees. Both reader
+screens,16evidence mutations and4never-executed binary-fixture mutations pass.
+External memcpy bodies, untaken branches and runtime heap identity are explicitly
+outside this diagnostic; no speedup or full equivalence claim follows. A specific
+remaining measurement gap is atom frontend bandwidth: prior latency counters
+exclude it. Separate total/bandwidth capture is prepared, not yet a result.
+Evidence:target/jit-evidence/shared-entry-specialization/attribution-q/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
