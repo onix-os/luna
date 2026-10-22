@@ -40374,6 +40374,17 @@ qualification failed, original adoption scope unchanged. Next investigate direct
 crate-private opcode execution dispatch, not another extra global decode output
 or inline/layout hint. Not yet implemented. Evidence:single-add-view/RESULTS.md.
 
+Direct crate-private opcode execution dispatch is now implemented in an isolated
+snapshot. Public encode/decode/Operation/Debug/dump and storage remain unchanged;
+only crate-internal representation visibility changes.26identity families bind
+fields directly;20operand families extract canonical typed fields locally with
+hygienic macros, no new global decoded output, helper ABI or arithmetic hint.
+One original semantic body per46operations and one Add source site are retained.
+150focused checks pass; field parity covers all104tags/3328combinations perfeature.
+Independent source-derived proof verifies all families/bodies and18mutations pass.
+Fresh shipping image/work qualification is running, NOTacceptance or a speedup
+claim. Full original adoption scope unchanged. Evidence:direct-dispatch/DESIGN.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
