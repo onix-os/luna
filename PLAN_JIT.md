@@ -40281,6 +40281,20 @@ Next characterize Add/NumericForLoop observable prefixes before a work-reducing
 dispatch-fusion experiment; no helper-hint or padding sweep. This is not yet a
 runtime change. Evidence:attribution-q/RESULTS.md and bandwidth/audited.json.
 
+The baseline-valid Add/For prefix foundation is committed separately:10test
+executions cover1557scenarios perfeature/6228VM invocations, including aliases,
+high registers, budgets, partial writes, hooks and deferred metamethods. The new
+isolated implementation uses one canonical loop helper, passes129focused and
+24Miri checks, and builds all6images. Its full original144-command campaign
+strict-audits14256native/285120cost iterations, zero27-field/proof mismatches and
+18reader mutations. It is REJECTED:190/192native but35speed/11shipping Off failures,
+plus direct numeric and no-feature regressions.24instruction profiles show net
+work+7-10%when the outlined helper is included. Both feature images and actual
+no-feature denominators were measured; no original performance gate changed.
+Root retains tests only. Next remove the helper boundary with one shared body,
+not a semantic rewrite, hint or padding sweep; no refinement implemented yet.
+Evidence:target/jit-evidence/numeric-for-pair/trial/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
