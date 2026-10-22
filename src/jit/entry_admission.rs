@@ -83,7 +83,6 @@ impl Plan {
         result
     }
 
-    #[inline(never)]
     pub(super) fn refuses(self, frame: &[Value<'_>], pc: usize, budget: u32) -> bool {
         if budget == 0 || (pc != self.pc && pc != self.pc - 1) {
             return false;

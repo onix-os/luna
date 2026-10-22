@@ -40172,9 +40172,12 @@ It passes159focused checks, both portable Miri modes, and the complete Off suite
 2199checks, zero failures,26preexisting ignores. Its72audited diagnostic profiles
 expose extra callback work: publication and exit accounting become out-of-line,
 adding623201net exclusive instructions in the speed callback worker. This is
-not adopted. Revision4outlines the primitive admission predicate to isolate it
-from the hot transport body;159focused checks and both Miri modes pass. Broader
-validation, fresh profiles and elapsed comparisons remain pending.
+not adopted. Revision4predicate outlining also passes159checks and both Miri
+modes, but72new profiles still show those helper calls and727073net exclusive
+speed callback instructions added. Shipping float transport remains5451instructions
+higher. That hint is rejected and the test foundation restored. The next diagnostic
+separates lookup transport itself, before another full elapsed campaign. Broader
+mode validation continues; no performance gain or production adoption is claimed.
 
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
