@@ -40247,6 +40247,18 @@ No adoption; next isolate lookup-only checked fixed-width publication from the
 separate v7exit-recording change, preserving ordinary counter policy. Evidence:
 target/jit-evidence/shared-entry-specialization/attribution-p/RESULTS.md.
 
+The new v8publication-only ablation is complete, not adopted. Its checked lookup
+publisher preserves ordinary exit recording and all other source;216focused and
+24Miri checks pass, six canonical images verify and no-JIT images stay identical.
+The unchanged full144-command cohort strict-audits14256native/285120cost samples,
+zero27-field/proof mismatches and18reader mutations. Native192/192passes,
+including24/24arrays at1.25(minimum measured1.280757). This is NOTfull acceptance:
+compiled-Off fails22speed/7shipping gates, and direct shipping float cost ratios
+control/trial0.86590/0.92436show15.5%/8.2%losses. Preserve all outliers and controls;
+no prototype is merged. Next compare actual referenced data/numeric-path callees,
+not another blind helper hint. Evidence:
+target/jit-evidence/shared-entry-specialization/v8/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
