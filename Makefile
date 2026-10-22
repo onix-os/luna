@@ -445,7 +445,15 @@ jit-oslo-consumer-check:
 	@bash examples/jit_support/oslo_consumer.sh check '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
 
 jit-oslo-consumer-capture:
+	@set -eu; for pid in $$(ps -eo pid=,comm= | awk '$$2 ~ /^(cargo|rustc|valgrind|callgrind|miri)/ {print $$1}'); do \
+		directory=$$(readlink /proc/$$pid/cwd 2>/dev/null) || continue; \
+		case "$$directory" in '$(TOP_DIR)'|'$(TOP_DIR)'/*|'$(abspath $(OSLO_CONSUMER_DIR))'|'$(abspath $(OSLO_CONSUMER_DIR))'/*) echo "Owned compute remains: $$pid $$directory" >&2; exit 2;; esac; \
+	done
+	@ps -eo pid,comm,args >'$(abspath $(OSLO_CONSUMER_DIR))/capture-processes-before.log'
+	@{ date -u --iso-8601=seconds; cat /proc/stat /proc/pressure/cpu; } >'$(abspath $(OSLO_CONSUMER_DIR))/capture-telemetry-before.log'
 	@bash examples/jit_support/oslo_consumer.sh capture '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+	@{ date -u --iso-8601=seconds; cat /proc/stat /proc/pressure/cpu; } >'$(abspath $(OSLO_CONSUMER_DIR))/capture-telemetry-after.log'
+	@ps -eo pid,comm,args >'$(abspath $(OSLO_CONSUMER_DIR))/capture-processes-after.log'
 
 .PHONY: lua-memory-limit lua-memory-limit-miri
 lua-memory-limit:
