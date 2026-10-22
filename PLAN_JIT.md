@@ -39788,6 +39788,42 @@ production-scoped-read/classified-lookup-inline/RESULTS.md and both campaign
 composed-audit.json files. Future snapshot scripts must not append a /dev/null
 patch for transport_inputs.rs now that it is tracked.
 
+### Full-width VM terminal corrections: measured and rejected
+
+A fresh current-runtime snapshot combines the previous paired/derived-report
+trial with explicit u64 terminal corrections instead of a byte enum. Full u32
+domains,debug checks,manager/helper publications and one VM loop remain. The
+inherited32bit guard-size test uses actual field sizes/alignment rather than a
+generic20byte assumption. No runtime change from this trial is selected.
+
+It passes266focused executions,17tests per scoped Miri model,37actual ELF32
+executions,583archive-plus-patch witnesses and31terminal/6outside/1rollback opcode
+effect audit. Six images/maps,72x27independent oracle and strict no-feature
+comparisons pass:68source-mapped VM panic coordinates per profile differ,and
+every other image byte is identical. These checks do not establish speed.
+
+The56step profiles reduce speed Off numeric work,but callback Auto grows0.110%/
+0.412%speed/shipping. An apparent4.34%shipping Off win is not a VM improvement:
+the SAME retained executable performs5280000extra lookup/string-equality
+instructions,with unchanged VM self. All extra work reconciles to four functions.
+Another24callback profiles reproduce lookup variance on both sides; VM self
+remains stable. Keep every capture; no normalization or favorable-run selection.
+
+Two complete144-command campaigns each execute14256native runs and285120cost
+iterations with zero counter/resource mismatches. Original arrays24/24,callbacks
+21/24 pass; native speed fails3callback/5poly,with26speed/9shipping cost failures.
+Direct CURRENT f2d arrays23/24,callbacks20/24; native fails speed4callback/6poly,
+shipping1array/4poly,and cost fails26speed/10shipping. Direct compiled-Off callback
+ratios0.9798/0.9693speed and1.0020/0.9405shipping on CPUs0/16 show the unacceptable
+tradeoff. Native shipping gains cannot excuse2-6%disabled callback regressions.
+
+Reject. Both readers accept valid/restored input and reject16corruptions; native
+raw medians remain unchecked. No owned compute overlaps timing. Initial original
+setup schema failure is preserved separately and occurred before benchmarks.
+Evidence:production-scoped-read/full-width-vm-correction/RESULTS.md. Full original
+acceptance stays false; retain f2d and diagnose current Off work before another
+counter rewrite. No branches/worktrees created.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
