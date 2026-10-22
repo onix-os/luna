@@ -29,14 +29,22 @@
   554summaries/134reported existing ignores. All five new fixtures pass in each
   of five JIT lanes; native example/work and eight finalized artifact hashes verify.
 - Previous-runtime4fc hosted CI completes all7jobs; it does **not** certify f2d.
-  Current-source hosted jobs are pending. The full Miri recipe is now extended
+  Current-source hosted evidence is recorded below. The full Miri recipe is extended
   with all five transport/lookup groups; its wrapper verifies50portable logs and
   nine injected failures. Expanded full seed0/1 runs each pass354tests/48summaries/
   0ignores,with all30new-group tests positive and583source witnesses before/after.
 - Current-runtime hosted run39717730374 at dd66 independently verifies both full
   Miri seeds354/48/0 and full i686 fallback3413/366/8,with three server-digested
-  archives and new-fixture coverage. Native hosted GNU/musl/ARM remain uncertified;
-  fallback archives contain logs,not an ELF or hosted-binary hash.
+  archives and new-fixture coverage. Current ARM also verifies11,452executions,
+  five new fixtures/five lanes,eight finalized hashes and matched ELF64 images.
+  GNU hosted job is successful but artifact verification remains pending; musl
+  remains running in the latest snapshot. Fallback archives contain logs,not an ELF.
+- Native timing instrumentation now retains raw pairs with an independent reader;
+  old median-only captures are not retroactively recomputable. A new real Oslo
+  CLI consumer probe passes18pipeline checks and66consumer test executions.
+  Its1,248process observations verify12.48million input rows and positive Auto
+  native work,but Auto remains3.8–9.5%slower end-to-end than no-JIT. This is not
+  the separately successful bulk-array1.25x workload or an adopted Oslo migration.
 - Full performance,resource-policy,platform,size and release acceptance remains
   **false**. The feature-cost images grow about0.43%; no size waiver is implied.
 
@@ -39932,6 +39940,36 @@ certifies the selected retained-f2d ARM component, not ARM performance/size or
 the newer benchmark harness. GNU/musl hosted jobs remain pending in this snapshot;
 full original acceptance is still false. Evidence:
 `classified-lookup-ci/hosted/{RESULTS-ARM.md,verified-arm.json}`.
+
+### Real consuming Oslo pipeline, not a predicate-only reproduction
+
+The opt-in Make workflow snapshots actual Oslo f61ccc5d and committed Luna,
+modifying neither real checkout. It builds the minimal real CLI in both profiles
+and exercises parsing, row binding/restoration, owned conversions, the callable
+bridge and serialization. Source/tool/image hashes and full dependency metadata
+are retained. The Cranelift family matches Luna's archived lock; other consumer
+dependencies retain their own graph. This is not root canonical performance data.
+
+Eighteen real CLI cases preserve complete ordered results for direct, row-table
+and exact numeric-boundary predicates. Sixty-six consumer test executions pass,
+including the corrected active-VM counter-probe loan. The earlier inspector
+version is superseded, not patched in its frozen tree. The offline adapter/data
+gate checks five hunks and nineteen refusal cases; lightweight/native CI routes it.
+
+The controlled consumer cohort runs1,248processes:1,056measured plus192excluded
+warmups,eleven samples,six rounds,CPUs0/16,both profiles and duplicate no-JIT
+controls. All12.48million input rows and selected row contents verify. Auto
+executes3,115,320native entries/10,903,464instructions including warmups. Every
+raw duration and recalculated median is retained; startup and serialization are
+timed,unlike the original in-process JIT benchmark.
+
+Observed compiled-Off overhead is about0.5–2.8%; Auto remains3.8–9.5%slower than
+no-JIT. Real native execution does not accelerate this tiny per-row workload.
+Do not generalize it to bulk numeric/array loops or invent a post-hoc threshold.
+Results are unscored and do not relax original controls. Actual consumer profiling
+should localize the cost before another runtime edit. Evidence:
+`target/jit-evidence/oslo-consumer-reentry-safe/RESULTS.md` and `capture/verified.json`.
+Full original resource/performance/platform/size/release acceptance remains false.
 
 ## 15. Primary references
 
