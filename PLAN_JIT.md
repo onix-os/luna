@@ -16,6 +16,16 @@
   The expanded Miri recipe checks 51 logs and propagates all 10 injected failures;
   its four new portable checks also pass default and Tree Borrows in the isolated
   candidate. Production does not call this model yet; runtime remains51dba1c2.
+- The isolated interpreter-admission candidate passes 104 focused checks and the
+  original full 14,256-native/285,120-cost cohort audit. Its before-capture model
+  exactly predicts all 27 fields and per-variant native proofs: 12,789 futile
+  native entries become real interpreted work, with no counter relabeling.
+  Native gates pass 188/192; arrays and callbacks each pass 24/24. Four polymorphic
+  gates and 27 speed/2 shipping compiled-Off cost gates still fail. It is **not
+  adopted**: float-loop control/trial speed ratios fall to 0.962/0.904 on CPU0
+  and 0.961/0.932 on CPU16. Seventy-two matched diagnostic profiles identify
+  costly generic array-map adapters and an unused admission/array path on numeric
+  loops. Next remove that measured work before considering runtime adoption.
 - Guarded-loop transport remains an **unadopted prototype**. An actual exit
   trace found 2,799 one-instruction loop-head exits, not zero-progress guards;
   first-op-only refusal would miss them. Five final native/bridge tests pass,
@@ -52,7 +62,9 @@
   exact source/job identities, six fixtures in all five native JIT lanes, eight
   finalized payload hashes and two manifest-bound ELF64 shipping images verify.
   The new configuration fixture is native-only and is not in i686/Miri scope.
-  GNU/ARM evidence remains pending; old hosted proofs below certify f2d.
+  Current ARM also independently verifies 11,457/554/134, six fixtures in five
+  native lanes, eight finalized payload hashes and two manifest-bound ELF64
+  AArch64 shipping images. Only GNU remains pending; old proofs below certify f2d.
 - Retained lookup foundation **f2d25591** fuses scalar classification with
   input marshaling and keeps lookup selection behind the outlined transport.
   Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
