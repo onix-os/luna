@@ -40320,6 +40320,17 @@ preserving PUBLICOperation API/privateOpCodeRepr, dump/manual-bytecode safety,
 PCs/costs and footprint. No classification is implemented or authorized as a
 public-operation shortcut. Evidence:numeric-for-pair/shape-first/RESULTS.md.
 
+The next isolated prototype now implements PRIVATE Add/For representation tags,
+classified once in both source and binary prototype constructors. Public
+Operation/encode/decode, Debug, dump bytes and four-byte opcode storage remain
+unchanged. Tags are advisory: execution still validates the CURRENT successor,
+dispatch kind and budget before the original individually charged effects.
+50focused native checks pass, including stale/truncated/moved successors and
+all original prefix cases; source proof and12mutations pass. This is a prototype,
+NOTproduction adoption or a speedup claim. Broader/Miri/build gates are running;
+performance/resource/platform/size/release acceptance remains open. Evidence:
+target/jit-evidence/numeric-for-pair/static-classification/{DESIGN.md,source-proof.json}.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
