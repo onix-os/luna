@@ -289,6 +289,13 @@ fn paired(case: PairedCase<'_>, samples: usize) -> Result<bool, Box<dyn Error>> 
             ratios.push(pair[0] as f64 / pair[1] as f64);
         }
     }
+    for (sample, (&off, &auto)) in timings[0].iter().zip(&timings[1]).enumerate() {
+        println!(
+            "paired_sample_case={} sample={sample} first={} off_ns={off} auto_ns={auto}",
+            case.name(),
+            modes[sample % 2],
+        );
+    }
     if matches!(case, PairedCase::Cold) {
         assert_eq!(states[1].0.jit_stats().compilation_requests, 0);
         assert_eq!(states[1].0.jit_stats().native_entries, 0);

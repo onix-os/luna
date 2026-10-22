@@ -459,6 +459,15 @@ jit-elapsed-audit:
 jit-elapsed-audit-tests:
 	@perl tests/test-jit-elapsed-audit.pl
 
+JIT_BENCH_LOG ?=
+.PHONY: jit-bench-raw-audit jit-bench-raw-tests
+jit-bench-raw-audit:
+	@test -n '$(JIT_BENCH_LOG)'
+	@perl examples/jit_support/paired_audit.pl '$(JIT_BENCH_LOG)'
+
+jit-bench-raw-tests:
+	@perl tests/test-jit-paired-raw.pl
+
 jit-size-build:
 	@case '$(SIZE_PROFILE)' in shipping|speed) ;; *) echo 'SIZE_PROFILE must be shipping|speed' >&2; exit 2;; esac
 	@mkdir -p $(COST_DIR)
@@ -2362,7 +2371,7 @@ jit-rustdoc:
 jit-tree:
 	@$(CARGO) tree -p luna -e normal $(TARGET_ARG)
 
-jit-verify: verify jit-check jit-bench-paired-profile-tests
+jit-verify: verify jit-check jit-bench-paired-profile-tests jit-bench-raw-tests
 	@$(MAKE) jit-test JIT_MODE=off
 	@$(MAKE) jit-test JIT_MODE=auto
 	@$(MAKE) jit-test JIT_MODE=force
