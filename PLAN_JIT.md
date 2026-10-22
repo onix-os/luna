@@ -11,7 +11,35 @@
 
 ### Latest verified checkpoint — 2026-10-22
 
-- Retained experimental runtime **f2d25591** fuses scalar classification with
+- Guarded-loop transport remains an **unadopted prototype**. An actual exit
+  trace found 2,799 one-instruction loop-head exits, not zero-progress guards;
+  first-op-only refusal would miss them. Five final native/bridge tests pass,
+  including per-slice fuel, hook, GC and 32-counter parity. The original full
+  cohort captures 14,256 native executions and 285,120 cost iterations; both raw
+  readers verify all medians, 72 native logs and 648 native gates. An independent
+  calibrated resource model matches all 27 fields; the reader rejects all 16
+  corruptions. Its post-capture corrections (JSON types, trailing compiler
+  Return and canonical CallCode classification) and original failed audits remain.
+  Candidate native gates pass 189/192, including 24/24 arrays at 1.25x, but
+  callbacks pass only 23/24. Polymorphic speed-build direct medians improve
+  2.66%/8.73% on CPUs0/16; shipping results and callbacks regress. Compiled-Off
+  costs still fail 28 speed/12 shipping gates. The optional child also adds a
+  mapped page to float loops that never use it. This is **not** a retained fix:
+  runtime stays51dba1c2; resource/Miri/platform/size/release gates are not waived.
+  Evidence: `target/jit-evidence/guarded-loop-transport/`, particularly
+  `direct-comparison/joint-audited-v2.json` and `RESOURCE-ORACLE-REVISION.md`.
+- Current runtime **51dba1c2** adds a scalar snapshot-limit read instead of cloning
+  the full service configuration. It passes 86 focused tests; the new limit-change
+  fixture also passes on the prior runtime. Real consuming Oslo confirms 10,000
+  fewer clones and 170,000 fewer nonoverlapping self instructions per 10,000-row
+  Auto run in six matched pairs. This is a small cost reduction, not a wall-time fix.
+  Its original paired cohort passes 184/192 scored native gates, including all
+  24 array 1.25x and 24 callback tolerance gates. Eight polymorphic native failures
+  and 14 speed/6 shipping compiled-Off cost failures remain. The default no-JIT
+  images are byte-identical; all 27 counter/resource fields match the old oracle.
+  Current-source CI run39780142811 is still incomplete; old hosted proofs below
+  certify the f2d foundation, not this newer source.
+- Retained lookup foundation **f2d25591** fuses scalar classification with
   input marshaling and keeps lookup selection behind the outlined transport.
   Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
   compiled-Off callback counts are identical. This is not release acceptance.
@@ -33,18 +61,24 @@
   with all five transport/lookup groups; its wrapper verifies50portable logs and
   nine injected failures. Expanded full seed0/1 runs each pass354tests/48summaries/
   0ignores,with all30new-group tests positive and583source witnesses before/after.
-- Current-runtime hosted run39717730374 at dd66 independently verifies both full
+- Retained-f2d hosted run39717730374 at dd66 independently verifies both full
   Miri seeds354/48/0 and full i686 fallback3413/366/8,with three server-digested
   archives and new-fixture coverage. Current ARM also verifies11,452executions,
   five new fixtures/five lanes,eight finalized hashes and matched ELF64 images.
-  GNU hosted job is successful but artifact verification remains pending; musl
-  remains running in the latest snapshot. Fallback archives contain logs,not an ELF.
+  GNU and musl hosted archives now also verify11,452/554/134 each,all five new
+  fixtures in five lanes,eight payload hashes and matched ELF64 x86-64 shipping
+  images. All seven jobs succeeded. Fallback archives contain logs,not an ELF.
 - Native timing instrumentation now retains raw pairs with an independent reader;
   old median-only captures are not retroactively recomputable. A new real Oslo
   CLI consumer probe passes18pipeline checks and66consumer test executions.
   Its1,248process observations verify12.48million input rows and positive Auto
   native work,but Auto remains3.8–9.5%slower end-to-end than no-JIT. This is not
   the separately successful bulk-array1.25x workload or an adopted Oslo migration.
+- Exact-image consumer profiling now verifies18real CLI runs in the speed profile,
+  with full row/native proofs and36standard-reader cross-checks. Auto uses3.75%
+  more simulated whole-process instructions than no-JIT. VM self-work falls,
+  but service/compilation and generic transport add work; this is attribution,
+  not a retained fix,wall-time proof,or a waiver of any original gate.
 - Full performance,resource-policy,platform,size and release acceptance remains
   **false**. The feature-cost images grow about0.43%; no size waiver is implied.
 
@@ -39970,6 +40004,109 @@ Results are unscored and do not relax original controls. Actual consumer profili
 should localize the cost before another runtime edit. Evidence:
 `target/jit-evidence/oslo-consumer-reentry-safe/RESULTS.md` and `capture/verified.json`.
 Full original resource/performance/platform/size/release acceptance remains false.
+
+### Current retained-runtime GNU and musl artifact proof
+
+Run39717730374 at dd66ece543582bfc95f2d73ac2b89fca09cf01b4 now has all seven
+jobs completed-success. Newly downloaded GNU artifact12408135586 and musl
+artifact12408552646 match their server SHA-256 digests and exact run/source/job.
+Independent readers verify11,452executions/554summaries/134existing reported
+ignores per target,all five new fixtures in each of five JIT lanes,and actual
+native result5000050000 with200007native instructions. Each target's eight
+finalized payload hashes and two manifest-bound ELF64 x86-64 shipping images
+verify. Cached extra archive contents are explicitly not certified.
+
+This closes the pending selected-runtime hosted GNU/musl correctness evidence;
+it does not certify the newer consumer harness,platform performance,resource
+policy,size or release acceptance. Full original acceptance remains false.
+Evidence: `classified-lookup-ci/hosted/{native-x86.mk,verify-x86.pl,
+verified-gnu.json,verified-musl.json}` beneath the production-scoped-read evidence
+directory. Archive digests:
+
+- GNU: `bbd504825beee6eb205be03e7e9a478c0e87b6d5f7979846108a46b74eac6beb`.
+- musl: `138e2a4eddffe488535b95ceaacb94ef894bb8e36b54adebab5411a4885c0acd`.
+
+### Exact-image consumer instruction attribution
+
+The real consumer's speed-profile images now have symbol companions whose
+allocated sections and program headers are unchanged. Both map-producing
+binaries reproduce the original captured files byte-for-byte. A fresh cache at
+a different absolute path did not reproduce JIT bytes because Cranelift embeds
+generated-source paths; that attempt is preserved and excluded. The successful
+build used fresh storage at the original path,temporarily moving the old cache
+intact and restoring it. No cache/source/evidence copy or frozen source edit.
+
+Eighteen balanced actual CLI profiles cover three repetitions on CPUs0/16 for
+no-JIT,Off,Auto. All rows and native protocols verify. Independent exclusive
+sums match all raw totals; the reader passes twelve refusal cases. Standard
+annotations independently confirm all eighteen exclusive/eighteen inclusive
+totals. Raw names remain intact; cold-symbol normalization is a derived view.
+
+Whole-process upper medians are607077139/612258952/629818321 simulated
+instructions for no-JIT/Off/Auto. Auto is3.75%above no-JIT,2.87%above Off;
+these are not elapsed measurements. Auto service has14.862million inclusive
+instructions,including7.696million compiler work. Generic native transport has
+9.361million,including4.403million lookup-helper work. These paths are nested,
+NOT additive. VM self-work falls5.275millionOff to2.338millionAuto while its
+inclusive work grows15.345million to18.371million. This localizes added work;
+it does not establish a causal wall-time decomposition or an accepted fix.
+
+No runtime optimization was selected. JIT service and transport are candidates
+for semantics-preserving experiments; source retirement,compaction,policy,
+budgets,publication and counters remain mandatory. Consumer Oslo is still
+UNSCORED; original numerical/callback/disabled-cost/resource/size/release gates
+remain unchanged. Evidence:target/jit-evidence/oslo-consumer-profile/RESULTS.md.
+
+### Measured service configuration-read cleanup
+
+Commit51dba1c2 reads only max_prototype_instructions at the same manager borrow
+where the old code cloned JitConfig. Both sweeps, compaction probes, queue
+operations, resource admission, pair/region service and all counters remain.
+The configuration has primitive fields; no ownership, allocator or native ABI
+changes. No persistent policy cache is introduced.
+
+The new integration fixture alternates snapshot limits 1/4096 twice, checks
+empty and queued service, typed refusals, successful native execution and dead
+source reclamation. It passes on both old and new runtime. New source passes
+86 focused configuration/policy/scheduling/resource executions, with no ignores.
+
+Fresh canonical speed/shipping images preserve both complete no-JIT binaries.
+The original A/candidate/B campaign retains all nine workloads, eleven samples,
+twenty cost iterations, six rounds and CPUs0/16. Independent readers recompute
+14,256 native measurements and 285,120 cost iterations, join 72 native logs and
+find zero mismatches against the original 27-field counter/resource oracle.
+The reader's valid/restored screens and sixteen mutations pass.
+
+Candidate native gates pass184/192: all24arrays retain1.25x, all24callback
+tolerance gates pass, and eight speed polymorphic gates fail. Cost failures
+remain14speed/6shipping. No direct aggregate median control/trial ratio falls
+outside0.971741–1.026278 in this cohort; this is observational, not a universal
+nonregression or acceleration guarantee. All rounds/placebos remain available.
+
+Twenty-four whole canonical-worker profiles verify216case output rows. That
+link context already elides the configuration clone: its whole-process instruction
+drift is NOT evidence of this optimization. Compiled-Off VM self counts remain
+identical in all repetitions. Actual consuming Oslo therefore gets a separate
+fresh controlled speed-profile build pair with canonical source/build paths, identical complete
+dependency graphs, Luna-matched Cranelift pins and matching actual sources except
+the four changed Lua service lines. Original frozen consumer trees remain intact.
+
+Eight uninstrumented CLI checks and24profiles verify320,000input fixture uses
+and160,000complete ordered selected rows. Native/code/metadata protocols match.
+In all six Auto pairs, actual clone calls fall10000to0; clone self instructions
+fall130000to0 and service-wrapper self961010to921010. These two exclusive
+costs do not overlap:170000instructions removed per10000rows. Off executes
+neither path. All24standard profile totals match independent raw exclusive sums.
+Symbols preserve allocated sections/program headers. Whole-process totals still
+vary; no end-to-end elapsed gain or generated guest-ISA identity is claimed.
+
+This cleanup is retained, but does not fix the larger polymorphic/disabled-cost
+or earlier real-consumer elapsed regressions. Current-source hosted run39780142811
+reports verify and i686 fallback success with the other five jobs unfinished in
+this snapshot; their new artifacts are not yet audited. Original resource-policy,
+platform-performance, size and release acceptance remains false. Evidence:
+target/jit-evidence/service-snapshot-limit/{RESULTS.md,direct-comparison,
+profile-report.json,consumer/attribution.json}.
 
 ## 15. Primary references
 

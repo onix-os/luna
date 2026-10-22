@@ -181,6 +181,61 @@ fn invalid_configuration_preserves_native_peer_and_queued_work() {
     );
 }
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn queued_service_observes_each_current_snapshot_limit() {
+    let mut lua = Lua::empty();
+    for limit in [1, 4096, 1, 4096] {
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            max_prototype_instructions: limit,
+            ..JitConfig::default()
+        })
+        .unwrap();
+        assert_eq!(lua.service_jit().unwrap(), 0);
+        let executor = lua.enter(|ctx| {
+            let closure =
+                Closure::load(ctx, None, b"local s=0 for i=1,100 do s=s+i end return s").unwrap();
+            let executor = Executor::start(ctx, closure.into(), ());
+            assert!(!executor.step(ctx, &mut luna::Fuel::empty()).unwrap());
+            ctx.stash(executor)
+        });
+        let before = lua.jit_stats();
+        assert_eq!(before.queued_requests, 1);
+        if limit == 1 {
+            assert!(matches!(
+                lua.service_jit(),
+                Err(JitError::ResourceLimit("prototype snapshot"))
+            ));
+            assert_eq!(
+                lua.jit_stats().compilation_failures,
+                before.compilation_failures + 1
+            );
+        } else {
+            assert_eq!(lua.service_jit().unwrap(), 1);
+            assert_eq!(
+                lua.jit_stats().compilation_failures,
+                before.compilation_failures
+            );
+        }
+        assert_eq!(lua.jit_stats().queued_requests, 0);
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 5050);
+        assert_eq!(
+            lua.jit_stats().native_instructions > before.native_instructions,
+            limit != 1
+        );
+        drop(executor);
+        lua.gc_collect();
+        lua.gc_collect();
+        assert_eq!(lua.jit_stats().queued_requests, 0);
+        assert_eq!(lua.jit_stats().registered_prototypes, 0);
+    }
+}
+
 #[test]
 fn lua_remains_non_send_and_non_sync() {
     trait AmbiguousSend<A> {
