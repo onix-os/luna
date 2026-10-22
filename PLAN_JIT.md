@@ -40168,14 +40168,21 @@ finds17physical-counter parity failures in test-only forced-transport comparison
 only the ordinary side enables admission. The failed run is retained, not accepted.
 Revision3uses a scoped, panic-restoring test selector and explicitly enables the
 real admission integration tests; old exact transport assertions are unchanged.
-It passes159focused checks and both portable Miri modes. Broad Off/Auto/Force
-validation and benchmark builds are in progress, not yet accepted here.
+It passes159focused checks, both portable Miri modes, and the complete Off suite:
+2199checks, zero failures,26preexisting ignores. Its72audited diagnostic profiles
+expose extra callback work: publication and exit accounting become out-of-line,
+adding623201net exclusive instructions in the speed callback worker. This is
+not adopted. Revision4outlines the primitive admission predicate to isolate it
+from the hot transport body;159focused checks and both Miri modes pass. Broader
+validation, fresh profiles and elapsed comparisons remain pending.
 
 The independent before-capture model preserves all27fields and original workload
 minima, models the native/interpreter transfer from baseline guard traces, and
 charges only the one polymorphic decline owner. Both restored reader screens and
-all18mutations pass. No candidate workload values fit the oracle. All six new
-canonical binaries must match revision2before elapsed capture. Production adoption,
+all18mutations pass. No candidate workload values fit the oracle. Revision3's
+complete files match revision2except two exact source-derived panic-line fields
+per JIT image; a relocation-aware reader verifies every other byte, with no
+binary modifications. Both no-JIT images remain identical. Production adoption,
 full performance, platform/resource policy, size and release acceptance remain
 incomplete. Evidence:target/jit-evidence/shared-entry-specialization/{ROOT-OWNER-PROOF.md,
 calibration,v2/BROAD-TEST-FINDING.md,v3/RESOURCE-MODEL.md}.
