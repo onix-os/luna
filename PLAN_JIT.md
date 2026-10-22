@@ -40326,10 +40326,17 @@ Operation/encode/decode, Debug, dump bytes and four-byte opcode storage remain
 unchanged. Tags are advisory: execution still validates the CURRENT successor,
 dispatch kind and budget before the original individually charged effects.
 50focused native checks pass, including stale/truncated/moved successors and
-all original prefix cases; source proof and12mutations pass. This is a prototype,
-NOTproduction adoption or a speedup claim. Broader/Miri/build gates are running;
-performance/resource/platform/size/release acceptance remains open. Evidence:
-target/jit-evidence/numeric-for-pair/static-classification/{DESIGN.md,source-proof.json}.
+all original prefix cases; source proof and12mutations pass. Broader2323passed/
+26ignored and default499passed/2ignored,44Miri checks and6canonical images verify.
+The refinement is REJECTED on work evidence, not adopted:24profiles show extra
+VM instructions vs shared-body420009integer/240024float/118614array, closure18
+(effectively unchanged). Independent24-profile exact-image attribution finds
+extra explicit RSP-addressed work120021/120039/90270/150021respectively; precise
+source-level spill causality is not established. No elapsed matrix was run for
+this candidate, and no timing/acceptance gate changed. Next inspect private
+execution-decode/fetched-opcode lifetime from this evidence, not another raw-tag
+permutation. Performance/resource/platform/size/release acceptance remains open.
+Evidence:target/jit-evidence/numeric-for-pair/static-classification/RESULTS.md.
 
 ## 15. Primary references
 
