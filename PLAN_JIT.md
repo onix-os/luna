@@ -37,8 +37,13 @@
   24 array 1.25x and 24 callback tolerance gates. Eight polymorphic native failures
   and 14 speed/6 shipping compiled-Off cost failures remain. The default no-JIT
   images are byte-identical; all 27 counter/resource fields match the old oracle.
-  Current-source CI run39780142811 is still incomplete; old hosted proofs below
-  certify the f2d foundation, not this newer source.
+  Current-source run39780142811 now independently verifies both Miri seeds
+  (354 tests/48 summaries each), i686 fallback (3,413/366/8 reported ignores),
+  and native musl (11,457/554/134 reported ignores). Server archive digests,
+  exact source/job identities, six fixtures in all five native JIT lanes, eight
+  finalized payload hashes and two manifest-bound ELF64 shipping images verify.
+  The new configuration fixture is native-only and is not in i686/Miri scope.
+  GNU/ARM evidence remains pending; old hosted proofs below certify f2d.
 - Retained lookup foundation **f2d25591** fuses scalar classification with
   input marshaling and keeps lookup selection behind the outlined transport.
   Callback instruction work falls1.2059%/0.9981% speed/shipping versus7ebad27c;
