@@ -49,13 +49,16 @@ impl Plan {
             let Operation::NumericForLoop { base, jump: -2 } = op else {
                 continue;
             };
-            let [left, right] = match source.operations.get(pc.checked_sub(1)?)? {
-                Operation::Add { left, right, .. }
-                | Operation::Sub { left, right, .. }
-                | Operation::Mul { left, right, .. }
-                | Operation::Div { left, right, .. } => [*left, *right],
+            let (dest, [left, right]) = match source.operations.get(pc.checked_sub(1)?)? {
+                Operation::Add { dest, left, right }
+                | Operation::Sub { dest, left, right }
+                | Operation::Mul { dest, left, right }
+                | Operation::Div { dest, left, right } => (dest.0, [*left, *right]),
                 _ => continue,
             };
+            if numeric_accumulator(source, pc - 1, base.0, dest, left, right) {
+                continue;
+            }
             let Some(left) = Operand::recognize(left, source, base.0) else {
                 continue;
             };
@@ -84,7 +87,10 @@ impl Plan {
         if budget == 0 || (pc != self.pc && pc != self.pc - 1) {
             return false;
         }
-        let [Some(left), Some(right)] = self.operands.map(|operand| operand.numeric(frame)) else {
+        let Some(left) = self.operands[0].numeric(frame) else {
+            return false;
+        };
+        let Some(right) = self.operands[1].numeric(frame) else {
             return false;
         };
         if left && right {
@@ -114,6 +120,56 @@ impl Plan {
             next >= limit
         }
     }
+}
+
+fn numeric_accumulator(
+    source: &Snapshot,
+    body: usize,
+    base: u8,
+    dest: u8,
+    left: RCIndex,
+    right: RCIndex,
+) -> bool {
+    let constant = match (left, right) {
+        (RCIndex::Register(register), RCIndex::Constant(constant))
+        | (RCIndex::Constant(constant), RCIndex::Register(register))
+            if register.0 == dest =>
+        {
+            constant
+        }
+        _ => return false,
+    };
+    if !source
+        .constants
+        .get(usize::from(constant.0))
+        .is_some_and(|slot| matches!(slot.tag, abi::INTEGER | abi::NUMBER))
+    {
+        return false;
+    }
+    let Some(prep) = body.checked_sub(1) else {
+        return false;
+    };
+    if !matches!(source.operations[prep], Operation::NumericForPrep { base: register, jump: 1 } if register.0 == base)
+    {
+        return false;
+    }
+    let mut numeric = false;
+    for operation in &source.operations[..prep] {
+        let Operation::LoadConstant {
+            dest: register,
+            constant,
+        } = operation
+        else {
+            return false;
+        };
+        if register.0 == dest {
+            numeric = source
+                .constants
+                .get(usize::from(constant.0))
+                .is_some_and(|slot| matches!(slot.tag, abi::INTEGER | abi::NUMBER));
+        }
+    }
+    numeric
 }
 
 #[cfg(test)]

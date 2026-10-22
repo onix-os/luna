@@ -94,6 +94,16 @@ fn admission_reads_current_values_without_changing_references_or_scalar_bits() {
                 });
                 let nonnumeric = !matches!(left, Value::Integer(_) | Value::Number(_))
                     || !matches!(right, Value::Integer(_) | Value::Number(_));
+                for width in 0..frame.len() {
+                    let old = match plan
+                        .operands
+                        .map(|operand| operand.numeric(&frame[..width]))
+                    {
+                        [Some(left), Some(right)] => !(left && right),
+                        _ => false,
+                    };
+                    assert_eq!(plan.refuses(&frame[..width], 0, 64), old);
+                }
                 for budget in [0, 1, 2, 64, u32::MAX] {
                     for pc in [0, 1, 2, usize::MAX] {
                         assert_eq!(
@@ -118,6 +128,183 @@ fn admission_reads_current_values_without_changing_references_or_scalar_bits() {
             }
         }
     });
+}
+
+pub(super) fn accumulator(initial: abi::Slot) -> Snapshot {
+    use crate::types::{ConstantIndex16 as C16, ConstantIndex8 as C};
+    Snapshot {
+        prepared_keys: None,
+        operations: resources::owned(&[
+            Operation::LoadConstant {
+                dest: R(0),
+                constant: C16(0),
+            },
+            Operation::LoadConstant {
+                dest: R(1),
+                constant: C16(1),
+            },
+            Operation::LoadConstant {
+                dest: R(2),
+                constant: C16(2),
+            },
+            Operation::LoadConstant {
+                dest: R(3),
+                constant: C16(1),
+            },
+            Operation::NumericForPrep {
+                base: R(1),
+                jump: 1,
+            },
+            Operation::Add {
+                dest: R(0),
+                left: R(0).into(),
+                right: C(3).into(),
+            },
+            Operation::NumericForLoop {
+                base: R(1),
+                jump: -2,
+            },
+            Operation::Return {
+                start: R(0),
+                count: VarCount::constant(1),
+            },
+        ]),
+        constants: resources::owned(&[
+            initial,
+            abi::Slot {
+                tag: abi::INTEGER,
+                bits: 1,
+            },
+            abi::Slot {
+                tag: abi::INTEGER,
+                bits: 4,
+            },
+            abi::Slot {
+                tag: abi::NUMBER,
+                bits: 0.5f64.to_bits(),
+            },
+        ]),
+        registers: 5,
+        upvalues: 0,
+        prototypes: 0,
+    }
+}
+
+#[test]
+fn numeric_carry_profitability_keeps_all_arithmetic_orders_and_initial_tags() {
+    use crate::types::ConstantIndex8 as C;
+    for initial in [
+        Value::Integer(i64::MIN),
+        Value::Integer(i64::MAX),
+        Value::Number(-0.0),
+        Value::Number(f64::NAN),
+        Value::Number(f64::INFINITY),
+        Value::Nil,
+        Value::Boolean(true),
+    ] {
+        let mut source = accumulator(abi::Slot::from_value(initial));
+        for reverse in [false, true] {
+            for kind in 0..4 {
+                let (left, right) = if reverse {
+                    (C(3).into(), R(0).into())
+                } else {
+                    (R(0).into(), C(3).into())
+                };
+                source.operations[5] = match kind {
+                    0 => Operation::Add {
+                        dest: R(0),
+                        left,
+                        right,
+                    },
+                    1 => Operation::Sub {
+                        dest: R(0),
+                        left,
+                        right,
+                    },
+                    2 => Operation::Mul {
+                        dest: R(0),
+                        left,
+                        right,
+                    },
+                    _ => Operation::Div {
+                        dest: R(0),
+                        left,
+                        right,
+                    },
+                };
+                source.verify().unwrap();
+                assert_eq!(
+                    Plan::recognize(&source).is_none(),
+                    matches!(initial, Value::Integer(_) | Value::Number(_))
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn numeric_carry_profitability_rejects_unknown_writes_calls_and_control_flow() {
+    use crate::types::ConstantIndex16 as C16;
+    let initial = abi::Slot::from_value(Value::Number(0.0));
+    for operation in [
+        Operation::Move {
+            dest: R(0),
+            source: R(4),
+        },
+        Operation::LoadConstant {
+            dest: R(0),
+            constant: C16(4),
+        },
+        Operation::LoadBool {
+            dest: R(0),
+            value: true,
+            skip_next: false,
+        },
+        Operation::LoadBool {
+            dest: R(4),
+            value: true,
+            skip_next: true,
+        },
+        Operation::Jump {
+            offset: 0,
+            close_upvalues: crate::types::Opt254::none(),
+        },
+        Operation::NumericForPrep {
+            base: R(1),
+            jump: 4,
+        },
+    ] {
+        let mut source = accumulator(initial);
+        source.constants.push(abi::Slot::from_value(Value::Nil));
+        source.operations[1] = operation;
+        source.verify().unwrap();
+        assert!(Plan::recognize(&source).is_some());
+    }
+    let mut source = accumulator(initial);
+    source.operations[0] = Operation::Call {
+        func: R(0),
+        args: VarCount::constant(0),
+        returns: VarCount::constant(1),
+    };
+    source.verify().unwrap();
+    assert!(Plan::recognize(&source).is_some());
+    let mut source = accumulator(initial);
+    source.operations[4] = Operation::Move {
+        dest: R(4),
+        source: R(1),
+    };
+    source.verify().unwrap();
+    assert!(Plan::recognize(&source).is_some());
+    let mut source = accumulator(abi::Slot::from_value(Value::Nil));
+    source.operations.insert(
+        4,
+        Operation::LoadConstant {
+            dest: R(0),
+            constant: C16(1),
+        },
+    );
+    source.verify().unwrap();
+    assert!(Plan::recognize(&source).is_none());
 }
 
 #[test]

@@ -5,6 +5,52 @@ use crate::{
 };
 
 #[test]
+fn omitted_numeric_strategy_preserves_native_guards_after_value_mutation() {
+    Lua::empty().enter(|ctx| {
+        let source = super::tests::accumulator(abi::Slot::from_value(Value::Number(0.0)));
+        assert!(Plan::recognize(&source).is_none());
+        let ledger = resources::Ledger::new(4 * 1024 * 1024);
+        let code = backend::array::compile_pair(
+            &source,
+            resources::MappingCounter::new(ledger.clone()),
+            4 * 1024 * 1024,
+            resources::BudgetAllocator(ledger),
+            crate::jit::work::Limits::from(&crate::JitConfig::default()),
+            backend::Failure::None,
+        )
+        .unwrap();
+        assert!(code.array_kernels.is_none());
+        let table = Table::new(&ctx);
+        for value in [Value::Nil, Value::Boolean(true), Value::Table(table)] {
+            let frame = [
+                value,
+                Value::Integer(0),
+                Value::Integer(4),
+                Value::Integer(1),
+                Value::Nil,
+            ];
+            for pc in [5, 6] {
+                for budget in [1, 2, 64] {
+                    let mut slots = frame.map(abi::Slot::from_value);
+                    let exit = code.invoke(&mut slots, pc, budget);
+                    assert_eq!((exit.pc, exit.instructions), (5, (pc - 5) as u32));
+                    assert_eq!(
+                        exit.reason,
+                        if pc == 6 && budget == 1 {
+                            Kind::Budget
+                        } else {
+                            Kind::Guard
+                        } as u32
+                    );
+                    let original = abi::Slot::from_value(value);
+                    assert_eq!((slots[0].tag, slots[0].bits), (original.tag, original.bits));
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn every_refusal_matches_actual_native_zero_or_one_instruction_exit() {
     Lua::empty().enter(|ctx| {
         let source = super::tests::source();

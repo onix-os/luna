@@ -11,11 +11,14 @@
 
 ### Latest verified checkpoint — 2026-10-22
 
-- A **test-only** short-prefix admission model now has six passing root checks:
-  four portable classifications and two actual native-exit differential tests.
+- A **test-only** short-prefix admission model now has nine passing root checks:
+  six portable classifications and three actual native-exit differential tests.
   The expanded Miri recipe checks 51 logs and propagates all 10 injected failures;
-  its four new portable checks also pass default and Tree Borrows in the isolated
-  candidate. Production does not call this model yet; runtime remains51dba1c2.
+  its six portable checks pass default and Tree Borrows in the actual root.
+  Direct operand reads replace the measured generic array-map adapter; a pure
+  numeric-initializer/body proof avoids an unused strategy without removing any
+  native guards. Mutation, unknown writes and arithmetic-order checks pass.
+  Production does not call this model yet; runtime remains51dba1c2.
 - The isolated interpreter-admission candidate passes 104 focused checks and the
   original full 14,256-native/285,120-cost cohort audit. Its before-capture model
   exactly predicts all 27 fields and per-variant native proofs: 12,789 futile
