@@ -423,9 +423,9 @@ impl Lua {
                 "native backend unavailable on this target",
             ));
         }
-        let (config, maintain) = {
-            let mut manager = self.jit.0.borrow_mut();
-            (manager.config.clone(), manager.needs_compaction())
+        let (snapshot_limit, maintain) = {
+            let mut m = self.jit.0.borrow_mut();
+            (m.config.max_prototype_instructions, m.needs_compaction())
         };
         self.arena.mutate(|mc, state| {
             state
@@ -456,7 +456,7 @@ impl Lua {
             registry.resolve(ctx, id).map(|proto| {
                 crate::jit::ir::Snapshot::new_in(
                     &proto,
-                    config.max_prototype_instructions,
+                    snapshot_limit,
                     self.jit.0.borrow().snapshots.clone(),
                 )
             })
