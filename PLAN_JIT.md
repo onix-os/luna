@@ -11,6 +11,11 @@
 
 ### Latest verified checkpoint — 2026-10-22
 
+- A **test-only** short-prefix admission model now has six passing root checks:
+  four portable classifications and two actual native-exit differential tests.
+  The expanded Miri recipe checks 51 logs and propagates all 10 injected failures;
+  its four new portable checks also pass default and Tree Borrows in the isolated
+  candidate. Production does not call this model yet; runtime remains51dba1c2.
 - Guarded-loop transport remains an **unadopted prototype**. An actual exit
   trace found 2,799 one-instruction loop-head exits, not zero-progress guards;
   first-op-only refusal would miss them. Five final native/bridge tests pass,

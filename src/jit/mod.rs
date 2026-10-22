@@ -3916,3 +3916,6 @@ pub(crate) mod call_fusion;
 
 #[cfg(test)]
 mod paired_progress;
+
+#[cfg(test)]
+mod entry_admission;
