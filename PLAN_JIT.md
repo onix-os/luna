@@ -40308,6 +40308,18 @@ No adoption. Next inspect unmatched Add lookahead/pure predicate ordering; do
 not repeat unified-counter, register-view or padding/hint experiments. Evidence:
 target/jit-evidence/numeric-for-pair/shared-body/RESULTS.md.
 
+The pure shape-first ordering experiment is now complete and REJECTED. Only
+predicate order changes; source proof/6mutations,129focused/24Miri and6images
+verify.24profiles still show closure full-inclusive work1.01360versusruntime51,
+slightly worse than prior. The unchanged full144-command cohort audits14256native/
+285120cost iterations, zero27field/proof mismatches and18mutations. Candidate
+178/192native, arrays22/24(min1.21612),58speed/14shipping Off failures; no adoption.
+All controls/variance and faster actualNoFeature denominators stay visible.
+Next investigate source-defined classification instead of runtime lookahead,
+preserving PUBLICOperation API/privateOpCodeRepr, dump/manual-bytecode safety,
+PCs/costs and footprint. No classification is implemented or authorized as a
+public-operation shortcut. Evidence:numeric-for-pair/shape-first/RESULTS.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
