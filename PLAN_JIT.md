@@ -29,14 +29,22 @@
   554summaries/134reported existing ignores. All five new fixtures pass in each
   of five JIT lanes; native example/work and eight finalized artifact hashes verify.
 - Previous-runtime4fc hosted CI completes all7jobs; it does **not** certify f2d.
-  Current-source hosted jobs are pending. The full Miri recipe is now extended
+  Current-source hosted evidence is recorded below. The full Miri recipe is extended
   with all five transport/lookup groups; its wrapper verifies50portable logs and
   nine injected failures. Expanded full seed0/1 runs each pass354tests/48summaries/
   0ignores,with all30new-group tests positive and583source witnesses before/after.
 - Current-runtime hosted run39717730374 at dd66 independently verifies both full
   Miri seeds354/48/0 and full i686 fallback3413/366/8,with three server-digested
-  archives and new-fixture coverage. Native hosted GNU/musl/ARM remain uncertified;
-  fallback archives contain logs,not an ELF or hosted-binary hash.
+  archives and new-fixture coverage. Current ARM also verifies11,452executions,
+  five new fixtures/five lanes,eight finalized hashes and matched ELF64 images.
+  GNU hosted job is successful but artifact verification remains pending; musl
+  remains running in the latest snapshot. Fallback archives contain logs,not an ELF.
+- Native timing instrumentation now retains raw pairs with an independent reader;
+  old median-only captures are not retroactively recomputable. A new real Oslo
+  CLI consumer probe passes18pipeline checks and66consumer test executions.
+  Its1,248process observations verify12.48million input rows and positive Auto
+  native work,but Auto remains3.8–9.5%slower end-to-end than no-JIT. This is not
+  the separately successful bulk-array1.25x workload or an adopted Oslo migration.
 - Full performance,resource-policy,platform,size and release acceptance remains
   **false**. The feature-cost images grow about0.43%; no size waiver is implied.
 
@@ -39847,6 +39855,121 @@ without altering raw logs,results or digested archives. Native GNU/musl/ARM jobs
 remain unverified in this snapshot. This is not full current-platform or release
 acceptance,not full Tree coverage and not Miri native-code execution. Evidence:
 production-scoped-read/classified-lookup-ci/hosted/verified-ansi.json and RESULTS.md.
+
+### Current retained compiled-Off attribution, before another rewrite
+
+Eighteen fresh exact-image profiles compare no-feature/compiled-Off/Auto across
+three repeats and both original profiles. Old no-feature companions are reused
+only after whole-image equality to current f2d binaries. Raw commands,results,
+native-zero/positive work,event totals and every exclusive self cost reconcile;
+four dynamic VM PC traces also match exact assembly. No runtime edits or elapsed
+acceptance claims. All three paired Off repetitions have identical counts.
+
+Speed compiled-Off adds6487944instructions over no-feature:VM+4200816,ordinary
+executor closure+1860372,Executor+966816,call_function-540000,return_upper-60.
+Shipping adds5646840; some VM growth is moved get_rc work,not additional work.
+The outlined adapter's entire cost is not removable overhead. Lookup and callback
+body work are unchanged in these captures,unlike the preceding lookup-variance
+screen. These are instruction counts,not the original5%elapsed-cost verdict.
+
+Current Function/Value variants have no JIT-only callable variant. Previously
+rejected statistics/adapter/register/closure/operand inlining and policy-query
+trials remain rejected; this attribution does not justify replaying them. The
+next runtime change needs a materially different source/emitted-work hypothesis,
+not another unchecked hint or reduced accounting. Evidence:
+production-scoped-read/current-off-attribution/{RESULTS.md,report.json,pc-*.log}.
+Full original acceptance remains open.
+
+### Raw native timings and independently recalculated gates
+
+Commits `973dffc1` and `3d946aa1` retain individual paired timings after
+measurement and add an independent reader plus lightweight/native CI gates.
+The reader recomputes upper medians, extrema and paired dispersion, applying
+the original unrounded thresholds. Nine-workload odd/even/maximum fixtures,
+three exact 1.25 boundaries and 23 refusal cases pass; existing profile/elapsed
+readers, formatting, check-all and CI syntax also pass. Runtime source is unchanged.
+
+A fresh frozen-source cohort runs six rounds on CPUs 0/16 in both profiles:
+24 full suites, 4,752 measured executions, 864 excluded warmups. All raw medians
+and dispersion recalculate. Arrays pass 24/24 at 1.25, with observed ratios
+1.38508–1.78019. Scored native gates pass 186/192; all six failures are speed
+polymorphic metamethods on CPU 0. Callback tolerance passes are not acceleration:
+speed median ratios remain 0.88483/0.85324. Oslo stays unscored.
+
+This is not the original controlled cost/native acceptance matrix and does not
+close disabled-feature overhead, independent runtime-counter, platform/resource,
+size or release gates. Old median-only captures remain unrecomputable, not
+retroactively certified. Evidence: `production-scoped-read/paired-raw-validation/`.
+The separate helper-operand inlining trial is unpromoted.
+
+### Native helper operand hint: measured and rejected
+
+A fresh snapshot inlines `helpers::Frame::operand`, not the previously tested
+VM operand decoder. It passes 69 focused executions, 585 source/patch witnesses,
+six canonical builds and exact symbol companions. Forty-eight step profiles
+prove net metamethod helper reductions of 309,948/309,928 instructions in
+speed/shipping; most outlined work moves into callers. Callback Off counts stay
+identical. No profiler duration is used as acceptance evidence.
+
+Fresh canonical current-runtime controls use the identical raw-timing harness.
+The full direct A/candidate/B campaign completes 144 commands, 14,256 native
+executions and 285,120 cost iterations with zero independent counter/resource
+mismatches. Every native and cost median now independently recalculates; 72
+native logs join all 648 native gate records. Reader refusal tests also pass.
+
+Arrays pass 24/24; scored native gates pass 188/192, while cost still fails
+23 speed/6 shipping windows. Speed metamethod control/trial ratios improve to
+1.0333/1.0432 on CPUs 0/16. But speed Off float falls to 0.8859 and CPU16 native
+arrays to 0.9173, with near-one median placebos. Preserve all outliers, including
+the heavily disturbed final CPU0 round. Reject this runtime tradeoff; the branch
+keeps f2d, not this hint. Raw timing instrumentation stays. Evidence:
+`production-scoped-read/helper-operand-inline/RESULTS.md` and
+`direct-comparison/joint-audited.json`. Full original acceptance remains false.
+
+### Current retained ARM native component verified
+
+Run39717730374/source dd66 now completes the aarch64 native job. The new archive
+matches its server digest and exact job/source provenance. Independent checking
+confirms 11,452 executions, 554 summaries, 134 existing reported ignores, all five
+new fixtures in five JIT lanes, actual ARM execution paths and the native example
+with 200007 native instructions. Eight finalized payload hashes verify. Both
+matched shipping images are digest-checked ELF64 AArch64 binaries.
+
+Cached extra files in the archive are not relabeled as current evidence. This
+certifies the selected retained-f2d ARM component, not ARM performance/size or
+the newer benchmark harness. GNU/musl hosted jobs remain pending in this snapshot;
+full original acceptance is still false. Evidence:
+`classified-lookup-ci/hosted/{RESULTS-ARM.md,verified-arm.json}`.
+
+### Real consuming Oslo pipeline, not a predicate-only reproduction
+
+The opt-in Make workflow snapshots actual Oslo f61ccc5d and committed Luna,
+modifying neither real checkout. It builds the minimal real CLI in both profiles
+and exercises parsing, row binding/restoration, owned conversions, the callable
+bridge and serialization. Source/tool/image hashes and full dependency metadata
+are retained. The Cranelift family matches Luna's archived lock; other consumer
+dependencies retain their own graph. This is not root canonical performance data.
+
+Eighteen real CLI cases preserve complete ordered results for direct, row-table
+and exact numeric-boundary predicates. Sixty-six consumer test executions pass,
+including the corrected active-VM counter-probe loan. The earlier inspector
+version is superseded, not patched in its frozen tree. The offline adapter/data
+gate checks five hunks and nineteen refusal cases; lightweight/native CI routes it.
+
+The controlled consumer cohort runs1,248processes:1,056measured plus192excluded
+warmups,eleven samples,six rounds,CPUs0/16,both profiles and duplicate no-JIT
+controls. All12.48million input rows and selected row contents verify. Auto
+executes3,115,320native entries/10,903,464instructions including warmups. Every
+raw duration and recalculated median is retained; startup and serialization are
+timed,unlike the original in-process JIT benchmark.
+
+Observed compiled-Off overhead is about0.5–2.8%; Auto remains3.8–9.5%slower than
+no-JIT. Real native execution does not accelerate this tiny per-row workload.
+Do not generalize it to bulk numeric/array loops or invent a post-hoc threshold.
+Results are unscored and do not relax original controls. Actual consumer profiling
+should localize the cost before another runtime edit. Evidence:
+`target/jit-evidence/oslo-consumer-reentry-safe/RESULTS.md` and `capture/verified.json`.
+Full original resource/performance/platform/size/release acceptance remains false.
 
 ## 15. Primary references
 

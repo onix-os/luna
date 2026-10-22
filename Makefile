@@ -424,6 +424,37 @@ jit-oslo-profile-tests:
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features $(TARGET_ARG)
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features --features jit $(TARGET_ARG)
 
+OSLO_CONSUMER_SOURCE ?= /home/bresilla/data/code/tools/oslo
+OSLO_CONSUMER_DIR ?= target/jit-evidence/oslo-consumer-$(shell git rev-parse --short HEAD)
+.PHONY: jit-oslo-consumer-tests jit-oslo-consumer-setup jit-oslo-consumer-build jit-oslo-consumer-check jit-oslo-consumer-capture
+jit-oslo-consumer-tests:
+	@bash -n examples/jit_support/oslo_consumer.sh
+	@perl -c examples/jit_support/oslo_consumer_run.pl
+	@perl tests/test-jit-oslo-consumer.pl
+
+jit-oslo-consumer-setup:
+	@mkdir -p '$(dir $(abspath $(OSLO_CONSUMER_DIR)))'
+	@bash examples/jit_support/oslo_consumer.sh setup '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
+jit-oslo-consumer-build:
+	@test -z "$${RUSTFLAGS:-}$${CARGO_ENCODED_RUSTFLAGS:-}$${RUSTC_WRAPPER:-}$${RUSTC_WORKSPACE_WRAPPER:-}"
+	@{ rustc -vV; $(CARGO) --version; uname -sm; printf 'profiles=3,s\nlto=true\ncodegen_units=1\nstrip=true\n'; } >'$(abspath $(OSLO_CONSUMER_DIR))/build-environment.log'
+	@bash examples/jit_support/oslo_consumer.sh build '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
+jit-oslo-consumer-check:
+	@bash examples/jit_support/oslo_consumer.sh check '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+
+jit-oslo-consumer-capture:
+	@set -eu; for pid in $$(ps -eo pid=,comm= | awk '$$2 ~ /^(cargo|rustc|valgrind|callgrind|miri)/ {print $$1}'); do \
+		directory=$$(readlink /proc/$$pid/cwd 2>/dev/null) || continue; \
+		case "$$directory" in '$(TOP_DIR)'|'$(TOP_DIR)'/*|'$(abspath $(OSLO_CONSUMER_DIR))'|'$(abspath $(OSLO_CONSUMER_DIR))'/*) echo "Owned compute remains: $$pid $$directory" >&2; exit 2;; esac; \
+	done
+	@ps -eo pid,comm,args >'$(abspath $(OSLO_CONSUMER_DIR))/capture-processes-before.log'
+	@{ date -u --iso-8601=seconds; cat /proc/stat /proc/pressure/cpu; } >'$(abspath $(OSLO_CONSUMER_DIR))/capture-telemetry-before.log'
+	@bash examples/jit_support/oslo_consumer.sh capture '$(abspath $(OSLO_CONSUMER_DIR))' '$(abspath $(OSLO_CONSUMER_SOURCE))'
+	@{ date -u --iso-8601=seconds; cat /proc/stat /proc/pressure/cpu; } >'$(abspath $(OSLO_CONSUMER_DIR))/capture-telemetry-after.log'
+	@ps -eo pid,comm,args >'$(abspath $(OSLO_CONSUMER_DIR))/capture-processes-after.log'
+
 .PHONY: lua-memory-limit lua-memory-limit-miri
 lua-memory-limit:
 	@$(CARGO) test --locked --no-default-features --lib $(TARGET_ARG) lua::memory_tests
@@ -458,6 +489,15 @@ jit-elapsed-audit:
 
 jit-elapsed-audit-tests:
 	@perl tests/test-jit-elapsed-audit.pl
+
+JIT_BENCH_LOG ?=
+.PHONY: jit-bench-raw-audit jit-bench-raw-tests
+jit-bench-raw-audit:
+	@test -n '$(JIT_BENCH_LOG)'
+	@perl examples/jit_support/paired_audit.pl '$(JIT_BENCH_LOG)'
+
+jit-bench-raw-tests:
+	@perl tests/test-jit-paired-raw.pl
 
 jit-size-build:
 	@case '$(SIZE_PROFILE)' in shipping|speed) ;; *) echo 'SIZE_PROFILE must be shipping|speed' >&2; exit 2;; esac
@@ -2362,7 +2402,7 @@ jit-rustdoc:
 jit-tree:
 	@$(CARGO) tree -p luna -e normal $(TARGET_ARG)
 
-jit-verify: verify jit-check jit-bench-paired-profile-tests
+jit-verify: verify jit-check jit-bench-paired-profile-tests jit-bench-raw-tests jit-oslo-consumer-tests
 	@$(MAKE) jit-test JIT_MODE=off
 	@$(MAKE) jit-test JIT_MODE=auto
 	@$(MAKE) jit-test JIT_MODE=force
@@ -2758,6 +2798,8 @@ help:
 	@echo "  jit-sequences Test Rust continuations across native execution"
 	@echo "  jit-mock     Test Rust-only slice exits and interpreter fallback"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
+	@echo "  jit-bench-raw-audit Recompute paired statistics (JIT_BENCH_LOG=path)"
+	@echo "  jit-bench-raw-tests Test raw paired statistics and thresholds"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"
 	@echo "  jit-shipping Publish checked paired timings at shipping opt-level s"
