@@ -39918,6 +39918,21 @@ keeps f2d, not this hint. Raw timing instrumentation stays. Evidence:
 `production-scoped-read/helper-operand-inline/RESULTS.md` and
 `direct-comparison/joint-audited.json`. Full original acceptance remains false.
 
+### Current retained ARM native component verified
+
+Run39717730374/source dd66 now completes the aarch64 native job. The new archive
+matches its server digest and exact job/source provenance. Independent checking
+confirms 11,452 executions, 554 summaries, 134 existing reported ignores, all five
+new fixtures in five JIT lanes, actual ARM execution paths and the native example
+with 200007 native instructions. Eight finalized payload hashes verify. Both
+matched shipping images are digest-checked ELF64 AArch64 binaries.
+
+Cached extra files in the archive are not relabeled as current evidence. This
+certifies the selected retained-f2d ARM component, not ARM performance/size or
+the newer benchmark harness. GNU/musl hosted jobs remain pending in this snapshot;
+full original acceptance is still false. Evidence:
+`classified-lookup-ci/hosted/{RESULTS-ARM.md,verified-arm.json}`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
