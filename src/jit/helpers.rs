@@ -28,6 +28,9 @@ mod hashless_tests;
 #[cfg(test)]
 mod strong_global_tests;
 
+#[cfg(test)]
+mod existing_entry_tests;
+
 pub(super) trait Transport<'gc> {
     fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
     fn read_alias(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
@@ -187,6 +190,38 @@ pub(super) fn write_table_value<'gc>(
 }
 
 impl<'gc> Frame<'gc, '_, '_, '_> {
+    fn canonical_table(
+        &mut self,
+        slots: &mut (impl Transport<'gc> + ?Sized),
+        dest: u32,
+        table: u32,
+        operand: u32,
+        pc: u32,
+    ) -> bool {
+        let table = self.register(slots, table);
+        if operand & abi::CONSTANT_OPERAND == 0 {
+            let key = self.register(slots, operand);
+            return self.table_read(slots, dest, table, key);
+        }
+        let key = self.operand(slots, operand);
+        if let (Value::Table(table), Value::String(key)) = (table, key) {
+            let hint = self.read_hints.and_then(|hints| hints.hint(pc as usize));
+            let value = table.get_canonical_string(self.ctx, key, hint);
+            if value.is_nil()
+                && table
+                    .metatable()
+                    .is_some_and(|mt| !mt.get_value(self.ctx, MetaMethod::Index).is_nil())
+            {
+                return false;
+            }
+            self.store(slots, dest, value);
+            self.count.table_reads += 1;
+            true
+        } else {
+            self.table_read(slots, dest, table, key)
+        }
+    }
+
     fn canonical_up_table(
         &mut self,
         slots: &mut (impl Transport<'gc> + ?Sized),
@@ -518,6 +553,8 @@ macro_rules! helper_entry {
                         frame.canonical_up_table(slots, $a, $pc)
                     } else if $prepared {
                         frame.prehashed_up_table(slots, $a, u64::from($b) | (u64::from($c) << 32))
+                    } else if $kind == abi::HELPER_GET_TABLE {
+                        frame.canonical_table(slots, $a, $b, $c, $pc)
                     } else {
                         frame.operation::<{ $kind }>(slots, $a, $b, $c)
                     }

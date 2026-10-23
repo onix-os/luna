@@ -20,7 +20,7 @@ run_recipe() {
 
 run_recipe success
 logs=("$root/success/"*.log)
-test "${#logs[@]}" -eq 53
+test "${#logs[@]}" -eq 54
 for log in "${logs[@]}"; do
     [[ ${log##*/} =~ ^[a-z0-9_-]+\.log$ ]]
 done
@@ -31,6 +31,7 @@ grep -Fq 'lua::memory_tests -- --test-threads=1' "$root/success/lua-memory_tests
 grep -Fq 'jit::scoped_helpers::tests -- --test-threads=1' "$root/success/jit-scoped_helpers-tests.log"
 
 transport_filters=(
+    jit::helpers::existing_entry_tests
     jit::array_window::
     jit::backend::specialized::tests
     jit::entry_admission::tests
@@ -55,4 +56,4 @@ for filter in setup jit::resources::tests jit::handoff::tests jit::scoped_helper
     grep -Fq 'mock Miri failure' "$root/$dir.log"
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
-echo 'Miri recipe checks passed: 53 portable logs; 12 failures propagated'
+echo 'Miri recipe checks passed: 54 portable logs; 13 failures propagated'

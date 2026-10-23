@@ -9,7 +9,32 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Latest verified checkpoint — 2026-10-22
+### Selected implementation checkpoint — 2026-10-23
+
+The existing feature branch now selects the measured constant-string helper and
+live-prefix array-window implementation; the experimental private-opcode VM is
+not included. This is an incremental implementation checkpoint, not full JIT
+performance or release acceptance.
+
+- Root Rust/example/derive/util source (465 files) and dependencies are byte-
+  identical to the measured safety variant. All six freshly built root binaries
+  are byte-identical to its measured speed/shipping images; no new benchmark
+  result is inferred from a different executable.
+- Root focused verification passes189 executions/one existing ignore/14 groups,
+  formatting/check-all and the Miri wrapper. Selected-root portable array/helper
+  checks pass27 tests per seed0/default and seed1/TreeBorrows. Full CI Miri now
+  selects both groups; the wrapper verifies54 logs and propagates13 failures.
+- Prior exact-candidate cohorts pass48/48array1.25 gates and47/48callback gates.
+  Their remaining polymorphic/callback/compiled-Off failures are still failures;
+  neither cohort passes full acceptance. No counter/quota/threshold is waived.
+- The selected-root broad suite and exact-current-source platform/CI evidence
+  remain pending. Older runtime51 CI does not certify this implementation.
+  Full resource-policy, size and release scope stays open.
+
+Evidence: `target/jit-evidence/prefix-integration/` and
+`target/jit-evidence/numeric-for-pair/array-window-prefix/RESULTS.md`.
+
+### Previous verified checkpoint — 2026-10-22
 
 - A **test-only** short-prefix admission model now has nine passing root checks:
   six portable classifications and three actual native-exit differential tests.

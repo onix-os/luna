@@ -23,7 +23,7 @@ fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
 }
 
 #[test]
-fn initialization_preserves_every_prefix_and_zero_tail() {
+fn initialization_preserves_every_prefix_and_rejects_tail() {
     Lua::empty().enter(|ctx| {
         let kinds = [
             Value::Nil,
@@ -49,17 +49,20 @@ fn initialization_preserves_every_prefix_and_zero_tail() {
                     with_window::<_, 64>(ctx, table, 2, length, access, &mut counts, |window| {
                         assert_eq!((window.first, window.length, window.dirty), (2, length, 0));
                         assert_eq!((window.counts.reads, window.counts.writes), (17, 19));
-                        for (index, slot) in window.slots.iter().enumerate() {
-                            let expected = if index < length {
-                                Slot::from_value(values[index + 1])
-                            } else {
-                                Slot {
-                                    tag: abi::NIL,
-                                    bits: 0,
-                                }
-                            };
+                        for (index, slot) in window.slots[..length].iter().enumerate() {
+                            let slot = unsafe { slot.assume_init_read() };
+                            let expected = Slot::from_value(values[index + 1]);
                             assert_eq!((slot.tag, slot.bits), (expected.tag, expected.bits));
                         }
+                        assert!(window.read(2 + length as i64).is_none());
+                        assert!(!window.write(
+                            2 + length as i64,
+                            Slot {
+                                tag: abi::NIL,
+                                bits: 0,
+                            }
+                        ));
+                        assert_eq!((window.counts.reads, window.counts.writes), (17, 19));
                         (window.first, window.length)
                     })
                     .unwrap();
@@ -393,5 +396,43 @@ fn canonical_reference_roots_survive_collection_after_window_release() {
         };
         identical(child.get_value(ctx, "marker"), Value::Integer(99));
         identical(table.get_value(ctx, 2), Value::Number(-0.0));
+    });
+}
+
+#[test]
+fn invalid_dirty_tail_panics_before_read_and_releases_the_lease() {
+    Lua::empty().enter(|ctx| {
+        let values = [Value::Integer(7); 64];
+        for length in 1..64 {
+            let table = array(ctx, &values);
+            let mut counts = Counts::default();
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                with_window::<_, 64>(
+                    ctx,
+                    table,
+                    1,
+                    length,
+                    Access::Write,
+                    &mut counts,
+                    |window| {
+                        assert!(window.write(1, Slot::from_value(Value::Number(-0.0))));
+                        window.dirty |= 1u64 << length;
+                    },
+                )
+            }));
+            assert!(result.is_err());
+            assert_eq!(
+                counts,
+                Counts {
+                    reads: 0,
+                    writes: 1
+                }
+            );
+            identical(table.get_value(ctx, 1), Value::Number(-0.0));
+            for key in 2..=64 {
+                identical(table.get_value(ctx, key), Value::Integer(7));
+            }
+            assert!(table.into_inner().try_borrow_mut(&ctx).is_ok());
+        }
     });
 }

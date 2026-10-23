@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use crate::{Context, Table, Value};
 
 use super::abi::{self, Slot};
@@ -34,7 +36,7 @@ enum Backing<'a, 'gc> {
 
 pub(super) struct Window<'a, 'gc, const CAPACITY: usize> {
     backing: Backing<'a, 'gc>,
-    slots: [Slot; CAPACITY],
+    slots: [MaybeUninit<Slot>; CAPACITY],
     first: i64,
     length: usize,
     dirty: u64,
@@ -56,12 +58,9 @@ impl<'a, 'gc, const CAPACITY: usize> Window<'a, 'gc, CAPACITY> {
             Backing::Read(values) => *values,
             Backing::Write(values) => &**values,
         };
-        let mut slots = [Slot {
-            tag: abi::NIL,
-            bits: 0,
-        }; CAPACITY];
+        let mut slots = [MaybeUninit::uninit(); CAPACITY];
         for (slot, value) in slots.iter_mut().zip(values.iter().copied()) {
-            *slot = Slot::from_value(value);
+            slot.write(Slot::from_value(value));
         }
         let length = values.len();
         Self {
@@ -82,7 +81,9 @@ impl<'a, 'gc, const CAPACITY: usize> Window<'a, 'gc, CAPACITY> {
 
     #[cfg(test)]
     pub fn read(&mut self, key: i64) -> Option<Slot> {
-        let slot = self.slots[self.index(key)?];
+        let index = self.index(key)?;
+        // The checked index belongs to the initialized prefix.
+        let slot = unsafe { self.slots[index].assume_init_read() };
         if !scalar(slot) {
             return None;
         }
@@ -98,7 +99,7 @@ impl<'a, 'gc, const CAPACITY: usize> Window<'a, 'gc, CAPACITY> {
         let Some(index) = self.index(key) else {
             return false;
         };
-        self.slots[index] = slot;
+        self.slots[index].write(slot);
         self.dirty |= 1u64 << index;
         self.counts.writes = self.counts.writes.saturating_add(1);
         true
@@ -111,7 +112,10 @@ impl<const CAPACITY: usize> Drop for Window<'_, '_, CAPACITY> {
             let mut dirty = self.dirty;
             while dirty != 0 {
                 let index = dirty.trailing_zeros() as usize;
-                self.slots[index].write_back(&mut values[index]);
+                let dest = &mut values[index];
+                // Backing bounds restrict publication to initialized entries.
+                let slot = unsafe { self.slots[index].assume_init_read() };
+                slot.write_back(dest);
                 dirty &= dirty - 1;
             }
         }
