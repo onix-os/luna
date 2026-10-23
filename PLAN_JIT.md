@@ -40464,6 +40464,20 @@ startup/two-warmup scope, rather than mixing all nine cases or claiming an exact
 timed window. Full original native/resource/performance/platform/release scope
 remains open. Evidence:predicate-hardware/DESIGN.md and selector test/proof logs.
 
+Predicate hardware attribution now audits6selected-process and12original-image
+full-prefix captures. All4active PMU events are100percent scheduled. Selected
+images include the selector repair and omit seven workloads, so they are not the
+old measured images/context. Original-image captures retain the full worker and
+use acknowledged print-boundary counter gating, at20and200iterations. All108rows/
+native-zero proofs and image/tool hashes verify. Disabled/NoFeature cycle ratios
+1.01459..1.03626(20) and1.02149..1.02692(200), instruction ratios1.01435..1.02353
+and1.02189..1.02293. ACKlatency fractions and every observation are retained;
+these are approximate phase scopes, NOT exact timed windows or1.05acceptance.
+They do not erase earlier full comparator failures. Next reproduce that actual
+uninstrumented comparator/caller context and raw medians before another VM
+transformation; no path/argument tuning or runtime fix claimed. Full original
+scope remains open. Evidence:predicate-hardware/RESULTS.md, phase-audited.json.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
