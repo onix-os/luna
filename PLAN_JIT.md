@@ -40495,8 +40495,20 @@ old generic operation body and internal signature. Same six-argument helper ABI,
 ten symbols, equal-length name/reservation, existing advisory hints and fresh
 type/metatable checks. No added policy cache/flag, PC-argument propagation, VM
 clone, inline/layout hint or changed threshold. Implementation/focused validation
-is in progress, not accepted. It targets polymorphic cost, not the still-open
-predicate failure. Evidence:constant-table-symbol/DESIGN.md.
+now passes142focused checks/1existing ignore,16Miri checks (seed0/TreeBorrows seed1)
+and2738broad passes/28existing ignores/182groups. Source-boundary audit verifies
+613parent files and6mutations: generic helper/internal signature unchanged;
+other native IR/ABI unchanged outside the declared symbol selection. The first
+Miri address-identity fixture was replaced by stronger selected-entry effect/
+hint-publication checks in a preserved test-only safety variant. Original source,
+failures and all images remain frozen; canonical source differs only in approved
+test fixtures/typed diagnostic dictionary. All6canonical images verify, actual
+profiled native byte-identical and both NoFeature images equal X.24profiles/
+336parts verify0 with all27counter/resource fields equal; polymorphic Auto work
+drops1.63..2.00percent and array work is effectively unchanged. Original full144
+matrix is now running after all owned compute stopped. NOTaccepted/adopted; it
+targets polymorphic cost, not the still-open predicate failure. Evidence:
+constant-table-symbol/DESIGN.md and qualification-audited.json.
 
 ## 15. Primary references
 
