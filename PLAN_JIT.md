@@ -40670,8 +40670,24 @@ shipping work qualification12profiles/168parts verifies27fieldparity0: Auto
 instruction ratios .983887/.986137/.986147, Off~1. Window construction saves
 38,610 and memset334,620self instructions each round; publication unchanged,
 large memcpy remains. This is a measured work reduction, NOT a wall-time/gate
-pass or adoption. Broader/source-parity and canonical-image gates are next.
-Evidence: array-window-prefix/.
+pass or adoption. Broader2722executions/28existing ignores/182groups and source-
+parity verify;6canonical images pass, actual shipping image byte-identical to
+qualified image, both NoFeature unchanged. 288actual-image PMU captures verify
+27fieldparity/four events100%scheduled; array1000Auto instructions~1.45–1.59%
+less and shipping cycles~2.06%/2.24%less onCPU0/16, whole-process scope retained.
+Generalized PMU reader passes two datasets/11mutations. TWOoriginal144cohorts
+finish/audit0:28512native/570240cost,0field/resource/proof mismatches,raw medians/
+dispersion and18reader mutations EACH. Native91/96speed,96/96shipping in BOTH.
+Arrays48/48PASS1.25,min1.274934first/1.335080repeat;callbacks47/48(one first
+speed failure retained). Candidate51then38of408scored gates fail,including46
+then33Off. Combined374/384native; full acceptanceFALSE, not averaged away.
+Shipping array direct control/candidate medians CPU0/16first1.024928/1.031191,
+repeat1.016136/1.031424. No universal callback/other-case speedup claim. NOroot
+runtime adoption yet; integration still needs current-source CI/Miri group
+coverage and platform/resource-policy/size/release proof. Rootfulljit-miri lacks
+explicit array_window/newhelper fixture selections; oldruntime CI cannot certify
+the candidate. No third retry or layout/inline/path variation. Evidence:
+array-window-prefix/RESULTS.md and both original joint-audited.json files.
 
 ## 15. Primary references
 
