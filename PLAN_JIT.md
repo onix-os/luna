@@ -40565,9 +40565,41 @@ advisory hints. 139 focused checks pass with one existing ignore, plus formattin
 all-target all-feature checks. A 613-parent-file source-boundary proof and eight
 negative mutations verify. The five helper tests cover aliases, scalar/reference
 results, explicit PC extremes, stale hints/mutations, nonstring fallback, null
-hosts and panic publication. No runtime adoption or speedup claim; actual-image
-instruction qualification is next, followed by broader/Miri/unchanged full
-elapsed gates if work qualifies. Evidence: constant-table-existing-entry/.
+hosts and panic publication. 36 actual-image profiles/504 partitions verify all
+27 counter/resource fields: polymorphic Auto uses 1.81–2.01% fewer instructions;
+array work is effectively unchanged, with +660 integer-key helper self
+instructions explicitly retained. Callback total work is exactly equal in both
+Off and Auto in all three rounds; no non-address Auto self-cost delta. Both Miri
+seeds pass all five new fixtures (ten checks). Broad workspace/all-target/default/
+doc tests pass 2,735 executions with 28 existing ignores across 182 groups. All
+six canonical images verify; profiled native and both NoFeature images are
+byte-identical to their intended counterparts. Initial unmarked-cache refusal
+is preserved; fresh dedicated caches pass without bypassing provenance checks.
+The first full original 144-command cohort completes/audits0:14,256 native/
+285,120 cost iterations, zero counter/resource/proof mismatches, raw medians/
+dispersion and 18 reader mutations verified. Native passes93/96 speed,95/96
+shipping; arrays and callbacks each23/24, with failures retained. Speed poly2
+and callback1, shipping array1 fail. Compiled-Off failures32speed/10shipping;
+candidate46/408scored gates fail. X controls pass85/85speed and94/94shipping,
+Off failures35/33speed and16/13shipping. Direct poly control/candidate medians
+1.042056/1.041375speed and1.057039/1.005243shipping on CPU0/16. Callbacks
+1.031740/1.008010speed,.990818/1.019685shipping; CPU0speed placebo .974302
+retained. Earlier static-helper median slowdown is not reproduced, but one
+callback gate still fails; no accepted universal fix or cross-cohort verdict
+comparison. The predeclared unchanged full repeat also completes/audits0 with
+the same counts, zero mismatches and 18 reader mutations. Native passes91/96
+speed,90/96shipping; arrays22/24(min1.209988), callbacks20/24; candidate40/408
+scored failures, including29Off. Across both cohorts:369/384native,45/48arrays,
+43/48callbacks; 28,512native/570,240cost iterations. CPU0 direct callback medians
+now .730437speed/.770371shipping, versus1.031740/.990818 earlier; poly CPU0speed
+.592788 versus1.042056. Thus favorable first-cohort medians are NOT a stable fix.
+All controls, outliers and telemetry remain; no cache/frequency/ASLR/path/layout
+cause is asserted or tuned. Full acceptance remains false; no runtime adoption.
+Live source comparison confirms root/X helpers.rs byte-identical. Next isolate
+the helper-only change against runtime51 without importing X's unadopted private
+opcode VM; its own timing/verification is mandatory, not inferred from this
+cohort. Evidence: constant-table-existing-entry/RESULTS.md and both
+direct-comparison*/joint-audited.json files.
 
 ## 15. Primary references
 
