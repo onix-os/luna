@@ -40382,8 +40382,18 @@ hygienic macros, no new global decoded output, helper ABI or arithmetic hint.
 One original semantic body per46operations and one Add source site are retained.
 150focused checks pass; field parity covers all104tags/3328combinations perfeature.
 Independent source-derived proof verifies all families/bodies and18mutations pass.
-Fresh shipping image/work qualification is running, NOTacceptance or a speedup
-claim. Full original adoption scope unchanged. Evidence:direct-dispatch/DESIGN.md.
+2730broad test passes/28existing ignores,52Miri and6images verify.24profiles show
+array/closure VM work below runtime51, float slightly higher; no Add helper calls,
+family-local selection remains. The unchanged original144-command matrix audits
+14256native/285120cost iterations with0counter/resource/proof mismatches and18
+reader mutations. ARRAY1.25TARGETPASSES24/24(min1.259922); shipping native96/96.
+Full acceptance STILLFALSE: speed native86/96(all10failures polymorphic), Off
+failures26speed/12shipping(all shipping failures oslo_predicate). Controls and
+actualNoFeature/CPU/profile medians retained, no timing gate changed. No adoption.
+Next profile actual disabled predicate/short-entry cost and speed polymorphic
+fallback; do not repeat blanket decoder/hint/layout experiments. Frozen report's
+scope LABEL is inherited/stale; actual source/image/model proofs describe this
+candidate. Full original scope remains open. Evidence:direct-dispatch/RESULTS.md.
 
 ## 15. Primary references
 
