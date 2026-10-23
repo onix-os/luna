@@ -40607,9 +40607,27 @@ verifies610parent/611candidate files and eight mutations. Only the reviewed
 helper4 const-kind selection, five portable fixtures and a Make test target
 differ; original VM/compiler/native IR/ABI/registry and generic operation body
 remain byte-identical to current production. 139 focused checks/one existing
-ignore and format/check-all pass. Fresh baseline/candidate images, broad/Miri
-verification and actual-image hardware diagnostics are pending; do not transfer
-X-relative timings or claim adoption. Evidence: runtime51-table-entry/.
+ignore and format/check-all pass. Broad verification passes2721executions/
+28existing ignores/182summaries; both Miri seeds pass five fixtures each. All12
+fresh images verify, both NoFeature pairs byte-identical. Baseline executable
+text matches runtime51 in both profiles; source proof verifies411old files after
+three test-only declarations are removed. Whole-ELF identity is NOT claimed;
+the initial overly strong guard/refusal and reader-capture bug are retained.
+288actual-image PMU captures verify four events100%scheduled and27field parity.
+At1000samples poly Auto instruction ratios~.9798/.9791speed,.9584shipping;
+array/callback work~unchanged. Whole-process scope includes startup/compile/
+warmups, not exact execute counters. Original144cohort completes/audits0:
+14256native/285120cost,zero field/resource/proof mismatches,raw medians/dispersion
+and18reader mutations. Candidate native91/96speed,94/96shipping;callbacks24/24,
+arrays22/24(min1.237546),versus baseline shipping96/96. Speed poly5 and shipping
+array2 fail; Off26speed/13shipping;46/408scored failures. Poly direct medians
+improve2.28%/8.03%speed,4.97%/6.24%shipping onCPU0/16, but NOTadopted while
+array regression remains. Next isolated runtime51-decoded-table resolves the
+register-key fallback at the existing operand flag test, avoiding reclassification
+after decoding. It passes139focused/oneexisting ignore and610file/eightmutation
+source proof; same explicitPC/ABI and old generic operation. Broader/Miri/images
+and unchanged full gates pending. No path/layout/inline sweep or speedup claim.
+Evidence: runtime51-table-entry/RESULTS.md and runtime51-decoded-table/.
 
 ## 15. Primary references
 
