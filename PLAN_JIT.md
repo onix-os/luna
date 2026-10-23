@@ -40533,6 +40533,27 @@ runtime51 acceptance; production unchanged, candidate NOTadopted. Next inspect
 actual generated pages and hardware counters. Evidence:
 static-helper-parent-reference/RESULTS.md, direct-comparison/joint-audited.json.
 
+Actual-image callback diagnostics now complete: eight own-child debugger runs,
+16 relocated mapping pages, CPU0/16 and opt3/s. Each image has exactly equal
+pages across CPUs; X/candidate bytes match outside five RIP-loaded pointer
+literals. Exact byte-matched opt3 symbol companions resolve all imports to the
+same call::<1>/call_hashless helpers. Shipping names remain unresolved. No ASLR
+or permission changes; debugger timings discarded. This excludes different
+generated callback ISA in these captures, not AOT helper/layout differences.
+96 additional actual-image PMU runs verify four explicit active-domain user
+events 100% scheduled and all 27 counter/resource fields equal each pair.
+CPU0 opt3 Auto at 1000 samples: candidate/reference worker-median ratio 1.071912
+(three rounds 1.065571..1.077860), cycles 1.130820, instructions 0.999953,
+branches 0.999932, branch misses 1.017638. Whole-process counters include startup,
+compilation and two warmups; every outlier retained, not an exact timed window
+or original acceptance. No consistent extra instruction load establishes the
+cause; do not claim cache/frequency/branch causality. Two diagnostic readers and
+12 negative mutations verify, input/image hashes unchanged. Next inspect existing
+host-boundary/AOT work, not another speculative getter or layout rewrite.
+Production unchanged; full scope remains incomplete. Evidence:
+static-helper-parent-reference/RESULTS.md, jit-code-audited.json and
+callback-pmu-audited.json.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
