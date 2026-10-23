@@ -40356,6 +40356,94 @@ raw-opcode retention or a global helper hint. Not yet implemented. Full original
 matrix preflight verifies0; no elapsed capture or timing claim for this rejected
 candidate. Original complete scope stays open. Evidence:execution-view/RESULTS.md.
 
+The next isolated prototype now uses a private decoded Operation/advisory bit
+with ONEoriginal Add source body/call site and one Operation match. VM no longer
+retains raw opcode; public decode erases the bit. No new Add macro, nested VM
+enum, public Operation change or helper inline hint. Source proof verifies every
+original Add effect and fresh successor/kind/budget/counter check.148focused
+checks and15mutations pass, all parent prefix/contract cases preserved. Three
+fresh shipping images/24profiles and exact-image attribution verify. Direct Add
+helper calls disappear, but the candidate is REJECTED: VM inclusive work grows
+13.6–25.9%versusruntime51. Raw/exact-disassembly audits and a frozen U control
+prove one EXTRA computed jump per primary opcode dispatch in all12case/round
+comparisons: the new interface retains two dispatch stages, parent/U do not.
+Second table has THREEactual sites, including a float-specific site; initial
+under-covered reader fails, final audit includes all sites without recapture.
+Long broad/Miri/opt3/full elapsed gates were NOTlaunched or reused; staged work
+qualification failed, original adoption scope unchanged. Next investigate direct
+crate-private opcode execution dispatch, not another extra global decode output
+or inline/layout hint. Not yet implemented. Evidence:single-add-view/RESULTS.md.
+
+Direct crate-private opcode execution dispatch is now implemented in an isolated
+snapshot. Public encode/decode/Operation/Debug/dump and storage remain unchanged;
+only crate-internal representation visibility changes.26identity families bind
+fields directly;20operand families extract canonical typed fields locally with
+hygienic macros, no new global decoded output, helper ABI or arithmetic hint.
+One original semantic body per46operations and one Add source site are retained.
+150focused checks pass; field parity covers all104tags/3328combinations perfeature.
+Independent source-derived proof verifies all families/bodies and18mutations pass.
+2730broad test passes/28existing ignores,52Miri and6images verify.24profiles show
+array/closure VM work below runtime51, float slightly higher; no Add helper calls,
+family-local selection remains. The unchanged original144-command matrix audits
+14256native/285120cost iterations with0counter/resource/proof mismatches and18
+reader mutations. ARRAY1.25TARGETPASSES24/24(min1.259922); shipping native96/96.
+Full acceptance STILLFALSE: speed native86/96(all10failures polymorphic), Off
+failures26speed/12shipping(all shipping failures oslo_predicate). Controls and
+actualNoFeature/CPU/profile medians retained, no timing gate changed. No adoption.
+Next profile actual disabled predicate/short-entry cost and speed polymorphic
+fallback; do not repeat blanket decoder/hint/layout experiments. Frozen report's
+scope LABEL is inherited/stale; actual source/image/model proofs describe this
+candidate. Full original scope remains open. Evidence:direct-dispatch/RESULTS.md.
+
+Remaining-cost attribution now verifies30additional exact-image Callgrind runs:
+24whole-worker predicate captures (three side-order-rotated rounds, iterations1/4,
+whole segment and finish-only scopes), plus6polymorphic captures (two warmups,
+eleven execute calls each). All348raw parts partition collected totals and match
+fresh readers; worker rows/native proofs and source/image hashes verify. Predicate
+whole-segment disabled/no-feature instruction ratios1.02072..1.02397; finish-only
+1.00236..1.04802, including the retained low outlier. Polymorphic Auto/Off work
+ratios1.13059..1.14520. These are NOTelapsed gates, exact predicate timed windows,
+or grounds to weaken1.05/1.25thresholds. Original timing failures remain open.
+
+Source audit corrects an accounting inference: metamethod Add breaks before the
+common interpreted instruction increment. Reported native/(native+interpreted)
+is not complete bytecode coverage; roughly99percent does not prove rare fallback.
+Arithmetic numeric guards and successful heap helpers are distinct paths. Next
+qualify ordinary constant-string table reads against the existing validated
+canonical-key path, preserving generic reads, metatable behavior, publication,
+panic containment and individual counts; no new cache or guard backoff. Existing
+per-PC bucket hints remain advisory with fresh table/key validation. No runtime
+change/adoption yet. Evidence:remaining-costs/repeat-audited.json and DESIGN.md.
+
+The isolated constant-string GetTable prototype now reuses the existing helper
+ABI and validated canonical-key lookup; source PC is explicitly forwarded through
+all internal operation callers. Generic register/non-string reads and all other
+runtime source remain unchanged. No new symbol/cache/allocation or native ABI.
+137focused checks pass/1existing ignore,6new Miri checks (seed0/TreeBorrows seed1),
+613file source audit and9negative mutations verify. An exact-symbol actual opt3
+image preserves allocated bytes/program headers and matches the parent toolchain.
+
+24real opt3 captures/336raw parts audit0 with all27counter/resource fields equal
+to parent. Polymorphic Auto work drops2.00..2.20percent across three rotated
+rounds; array Auto candidate/parent work0.999805..0.999991(no observed regression).
+This is INSTRUCTIONwork, not elapsed speedup. Polymorphic Auto remains1.11996..
+1.12224times its own Off work; neither that elapsed gate nor disabled predicate
+acceptance is established. Broad correctness passes2733executions/28existing
+ignores/182groups;6canonical images verify, qualification native is byte-identical
+and both NoFeature images equal the frozen parent. Full original144-command elapsed
+matrix now completes/audits0:14256native executions/285120cost iterations,0counter/
+resource/proof mismatches, all raw medians/dispersion and18reader mutations verify.
+Speed native95/96, shipping92/96. Speed polymorphicPASSES12/12(min0.840645vs1/1.2),
+shipping11/12. Array1.25PASSES22/24(min1.217210,both failures shipping), NOT24/24.
+Off fails38speed/27shipping:65/216; Oslo fails all24. Controls A/B native speed
+88/85and shipping96/94; Off failures30/33speed and17/21shipping, all retained.
+Candidate has70failed gates/408scored; fresh composer computes that verdict
+rather than inheriting an oldfixedfalse/stale caption. The partial improvement
+is NOTADOPTED. Resolve actual array/Off tradeoffs and predicate overhead next;
+no gate weakening or causal claim from cross-cohort comparisons. Original full
+elapsed/platform/size/release acceptance remains open. Evidence:
+constant-table-read/DESIGN.md, qualification-audited.json and source-audit.json.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
