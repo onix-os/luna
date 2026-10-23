@@ -40519,6 +40519,20 @@ generated-ISA behavior; current full controls are runtime51. It still does not
 fix predicate overhead or complete original scope. Evidence:
 constant-table-symbol/RESULTS.md, qualification-audited.json,callback-audited.json.
 
+The immediate-X-parent full144cohort now completes/audits0:14256native/
+285120cost,0counter/resource/proof mismatches, raw medians/dispersion and18reader
+mutations verified. Candidate33/408scored failures: native10speed/3shipping,
+disabled20speed/0shipping. Callback geometric-control/candidate median CPU0speed
+0.907495(placebo1.008578), CPU16speed1.000613, shipping0.999102/1.014278. Thus
+CPU0speed callback regression is directly X-relative, despite equal Valgrind
+instruction work; do not infer an added getter cost or apply speculative inline/
+hash/layout fixes. Polymorphic Auto relative medians1.002775/1.031979speed and
+1.045917/1.068275shipping. All observations retained, including disturbed CPU0
+round2 and three shipping array failures. Relative gains do NOTreplace absolute
+runtime51 acceptance; production unchanged, candidate NOTadopted. Next inspect
+actual generated pages and hardware counters. Evidence:
+static-helper-parent-reference/RESULTS.md, direct-comparison/joint-audited.json.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
