@@ -40444,6 +40444,26 @@ no gate weakening or causal claim from cross-cohort comparisons. Original full
 elapsed/platform/size/release acceptance remains open. Evidence:
 constant-table-read/DESIGN.md, qualification-audited.json and source-audit.json.
 
+The feature-cost worker now accepts all nine named cases, including isolated
+oslo_predicate/cold_config. Unknown names and invalid comparison selections still
+fail. Ten protocol unit executions,30real full/selected CLI configurations and
+15CLI refusals pass across NoFeature-Off, feature-Off and feature-Auto; format/
+all-target all-feature checks pass. A source-derived check and7negative mutations
+verify unchanged predicate/cold measurement bodies, warmups, assertions, outer
+state/root lifetime and byte-identical full comparison protocol/1.05gate. No VM
+or native implementation change. Historical clarification: the old CLI REJECTED
+special names; only direct private worker invocation would skip them. Earlier
+notes implying a silently accepted CLI are incorrect; full nine-case cohorts
+used no selector and remain valid.
+
+CPU16is on the hybrid cpu_atom PMU. Hardware stat succeeds with all4events fully
+scheduled; cycle sampling is denied even with the correct domain. Failed attempts
+are retained; no host permissions changed and no sampling result is claimed.
+New focused counter diagnostics use the repaired selector and explicitly retain
+startup/two-warmup scope, rather than mixing all nine cases or claiming an exact
+timed window. Full original native/resource/performance/platform/release scope
+remains open. Evidence:predicate-hardware/DESIGN.md and selector test/proof logs.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

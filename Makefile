@@ -420,6 +420,17 @@ jit-cost-tests:
 	@$(CARGO) test --example jit_feature_cost --no-default-features --features jit $(TARGET_ARG)
 	@$(MAKE) --no-print-directory jit-artifact-tests
 
+JIT_COST_SELECTOR_DIR ?= target/jit-evidence/cost-selector
+JIT_COST_SELECTOR_BUILD = $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),target)/$(if $(TARGET),$(TARGET)/,)debug/examples
+.PHONY: jit-cost-selector-tests
+jit-cost-selector-tests:
+	@mkdir -p '$(JIT_COST_SELECTOR_DIR)'
+	@$(CARGO) build --locked --example jit_feature_cost --no-default-features $(TARGET_ARG)
+	@cp '$(JIT_COST_SELECTOR_BUILD)/jit_feature_cost' '$(JIT_COST_SELECTOR_DIR)/no-jit'
+	@$(CARGO) build --locked --example jit_feature_cost --no-default-features --features jit $(TARGET_ARG)
+	@cp '$(JIT_COST_SELECTOR_BUILD)/jit_feature_cost' '$(JIT_COST_SELECTOR_DIR)/jit'
+	@bash tests/test-jit-cost-selector.sh '$(JIT_COST_SELECTOR_DIR)/no-jit' '$(JIT_COST_SELECTOR_DIR)/jit'
+
 .PHONY: jit-oslo-profile-tests
 jit-oslo-profile-tests:
 	@$(CARGO) test --locked --example jit_oslo_profile --no-default-features $(TARGET_ARG)
@@ -2817,6 +2828,7 @@ help:
 	@echo "  jit-size-build Build/copy matched probes (SIZE_PROFILE=shipping|speed)"
 	@echo "  jit-size-run Check existing matched probes without rebuilding"
 	@echo "  jit-cost-tests Test feature-cost protocol and frozen overhead control"
+	@echo "  jit-cost-selector-tests Verify all full/selected worker CLI protocols"
 	@echo "  jit-cost-native Verify usable native code in the matched JIT artifact"
 	@echo "  jit-cost-native-run Verify existing native probes without rebuilding"
 	@echo "  jit-cost-profile Compare VM instruction/cache/branch counts (PROFILE_CASE=...)"
