@@ -40601,6 +40601,16 @@ opcode VM; its own timing/verification is mandatory, not inferred from this
 cohort. Evidence: constant-table-existing-entry/RESULTS.md and both
 direct-comparison*/joint-audited.json files.
 
+The helper-only runtime51 trial is now isolated from all private-opcode VM
+experiments. Fresh baseline is a clean Git archive of1af83d71; source audit
+verifies610parent/611candidate files and eight mutations. Only the reviewed
+helper4 const-kind selection, five portable fixtures and a Make test target
+differ; original VM/compiler/native IR/ABI/registry and generic operation body
+remain byte-identical to current production. 139 focused checks/one existing
+ignore and format/check-all pass. Fresh baseline/candidate images, broad/Miri
+verification and actual-image hardware diagnostics are pending; do not transfer
+X-relative timings or claim adoption. Evidence: runtime51-table-entry/.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
