@@ -40431,8 +40431,17 @@ This is INSTRUCTIONwork, not elapsed speedup. Polymorphic Auto remains1.11996..
 acceptance is established. Broad correctness passes2733executions/28existing
 ignores/182groups;6canonical images verify, qualification native is byte-identical
 and both NoFeature images equal the frozen parent. Full original144-command elapsed
-matrix is running after owned compute stopped. No production adoption or new
-elapsed/platform/size/release acceptance claimed. Evidence:
+matrix now completes/audits0:14256native executions/285120cost iterations,0counter/
+resource/proof mismatches, all raw medians/dispersion and18reader mutations verify.
+Speed native95/96, shipping92/96. Speed polymorphicPASSES12/12(min0.840645vs1/1.2),
+shipping11/12. Array1.25PASSES22/24(min1.217210,both failures shipping), NOT24/24.
+Off fails38speed/27shipping:65/216; Oslo fails all24. Controls A/B native speed
+88/85and shipping96/94; Off failures30/33speed and17/21shipping, all retained.
+Candidate has70failed gates/408scored; fresh composer computes that verdict
+rather than inheriting an oldfixedfalse/stale caption. The partial improvement
+is NOTADOPTED. Resolve actual array/Off tradeoffs and predicate overhead next;
+no gate weakening or causal claim from cross-cohort comparisons. Original full
+elapsed/platform/size/release acceptance remains open. Evidence:
 constant-table-read/DESIGN.md, qualification-audited.json and source-audit.json.
 
 ## 15. Primary references
