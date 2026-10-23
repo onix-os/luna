@@ -40554,6 +40554,21 @@ Production unchanged; full scope remains incomplete. Evidence:
 static-helper-parent-reference/RESULTS.md, jit-code-audited.json and
 callback-pmu-audited.json.
 
+A new isolated candidate uses the existing const-generic helper4 entry for
+constant-string GetTable specialization, forwarding its existing explicit PC.
+This avoids both the earlier all-operation PC-argument propagation and the
+separate static helper/compiler selector. No new import, symbol, policy cache,
+inferred PC, quota or threshold change. The old generic operation body/internal
+signature, compiler/native IR and ABI/registry are byte-identical to X; the
+reviewed canonical lookup still checks fresh kinds/nil/__index and revalidates
+advisory hints. 139 focused checks pass with one existing ignore, plus formatting/
+all-target all-feature checks. A 613-parent-file source-boundary proof and eight
+negative mutations verify. The five helper tests cover aliases, scalar/reference
+results, explicit PC extremes, stale hints/mutations, nonstring fallback, null
+hosts and panic publication. No runtime adoption or speedup claim; actual-image
+instruction qualification is next, followed by broader/Miri/unchanged full
+elapsed gates if work qualifies. Evidence: constant-table-existing-entry/.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
