@@ -40415,6 +40415,26 @@ panic containment and individual counts; no new cache or guard backoff. Existing
 per-PC bucket hints remain advisory with fresh table/key validation. No runtime
 change/adoption yet. Evidence:remaining-costs/repeat-audited.json and DESIGN.md.
 
+The isolated constant-string GetTable prototype now reuses the existing helper
+ABI and validated canonical-key lookup; source PC is explicitly forwarded through
+all internal operation callers. Generic register/non-string reads and all other
+runtime source remain unchanged. No new symbol/cache/allocation or native ABI.
+137focused checks pass/1existing ignore,6new Miri checks (seed0/TreeBorrows seed1),
+613file source audit and9negative mutations verify. An exact-symbol actual opt3
+image preserves allocated bytes/program headers and matches the parent toolchain.
+
+24real opt3 captures/336raw parts audit0 with all27counter/resource fields equal
+to parent. Polymorphic Auto work drops2.00..2.20percent across three rotated
+rounds; array Auto candidate/parent work0.999805..0.999991(no observed regression).
+This is INSTRUCTIONwork, not elapsed speedup. Polymorphic Auto remains1.11996..
+1.12224times its own Off work; neither that elapsed gate nor disabled predicate
+acceptance is established. Broad correctness passes2733executions/28existing
+ignores/182groups;6canonical images verify, qualification native is byte-identical
+and both NoFeature images equal the frozen parent. Full original144-command elapsed
+matrix is running after owned compute stopped. No production adoption or new
+elapsed/platform/size/release acceptance claimed. Evidence:
+constant-table-read/DESIGN.md, qualification-audited.json and source-audit.json.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
