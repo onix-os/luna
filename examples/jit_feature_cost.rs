@@ -64,6 +64,9 @@ fn native_work(lua: &Lua, mode: &str, cold: bool) -> u64 {
 }
 
 fn worker(mode: &str, iterations: usize, selected: Option<&str>) -> Result<()> {
+    if selected.is_some_and(|name| !CASES.contains(&name)) {
+        return Err("unknown workload".into());
+    }
     println!(
         "feature_cost_protocol=1 jit_compiled={} mode={mode}",
         usize::from(cfg!(feature = "jit"))
@@ -96,39 +99,46 @@ fn worker(mode: &str, iterations: usize, selected: Option<&str>) -> Result<()> {
         );
     }
 
-    if selected.is_some() {
+    if selected.is_some_and(|name| WORKLOADS.iter().any(|workload| workload.name == name)) {
         return Ok(());
     }
-    let mut lua = state(mode)?;
-    let closure = lua.try_enter(|ctx| {
-        let closure = Closure::load(ctx, Some("oslo-row-predicate"), PREDICATE_SOURCE)?;
-        Ok(ctx.stash(closure))
-    })?;
-    let mut elapsed = 0;
-    for iteration in 0..iterations + 2 {
-        let start = Instant::now();
-        let mut selected = 0;
-        for row in 0..10000 {
-            let executor = lua.enter(|ctx| {
-                ctx.set_global(
-                    "free",
-                    if row % 2 == 0 {
-                        500000000i64
-                    } else {
-                        1500000000i64
-                    },
-                );
-                ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ()))
-            });
-            selected += i64::from(lua.execute::<bool>(&executor)?);
+    let mut lua;
+    let closure;
+    if selected != Some("cold_config") {
+        lua = state(mode)?;
+        closure = lua.try_enter(|ctx| {
+            let closure = Closure::load(ctx, Some("oslo-row-predicate"), PREDICATE_SOURCE)?;
+            Ok(ctx.stash(closure))
+        })?;
+        let mut elapsed = 0;
+        for iteration in 0..iterations + 2 {
+            let start = Instant::now();
+            let mut selected = 0;
+            for row in 0..10000 {
+                let executor = lua.enter(|ctx| {
+                    ctx.set_global(
+                        "free",
+                        if row % 2 == 0 {
+                            500000000i64
+                        } else {
+                            1500000000i64
+                        },
+                    );
+                    ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ()))
+                });
+                selected += i64::from(lua.execute::<bool>(&executor)?);
+            }
+            let duration = start.elapsed().as_nanos();
+            assert_eq!(black_box(selected), 5000);
+            if iteration >= 2 {
+                elapsed += duration;
+            }
         }
-        let duration = start.elapsed().as_nanos();
-        assert_eq!(black_box(selected), 5000);
-        if iteration >= 2 {
-            elapsed += duration;
-        }
+        println!("case=oslo_predicate ns={elapsed} iterations={iterations} verified=1 native_instructions={}", native_work(&lua, mode, false));
     }
-    println!("case=oslo_predicate ns={elapsed} iterations={iterations} verified=1 native_instructions={}", native_work(&lua, mode, false));
+    if selected == Some("oslo_predicate") {
+        return Ok(());
+    }
 
     let mut elapsed = 0;
     for _ in 0..iterations {
@@ -289,7 +299,7 @@ fn main() -> Result<()> {
         || (paths.is_some() && (worker_requested || mode != "off" || selected.is_some()))
         || selected
             .as_deref()
-            .is_some_and(|name| !WORKLOADS.iter().any(|case| case.name == name))
+            .is_some_and(|name| !CASES.contains(&name))
     {
         return Err("invalid mode/counts; --check requires --compare and >=11 pairs".into());
     }
@@ -350,6 +360,13 @@ mod tests {
         assert!(within_limit(1000, 1050));
         assert!(!within_limit(1000, 1051));
         assert!(within_limit(1000, 999));
+    }
+
+    #[test]
+    fn unknown_worker_selection_is_refused() {
+        for name in ["", "unknown", "Oslo_predicate"] {
+            assert!(worker("off", 1, Some(name)).is_err());
+        }
     }
 
     #[test]

@@ -40444,6 +40444,163 @@ no gate weakening or causal claim from cross-cohort comparisons. Original full
 elapsed/platform/size/release acceptance remains open. Evidence:
 constant-table-read/DESIGN.md, qualification-audited.json and source-audit.json.
 
+The feature-cost worker now accepts all nine named cases, including isolated
+oslo_predicate/cold_config. Unknown names and invalid comparison selections still
+fail. Ten protocol unit executions,30real full/selected CLI configurations and
+15CLI refusals pass across NoFeature-Off, feature-Off and feature-Auto; format/
+all-target all-feature checks pass. A source-derived check and7negative mutations
+verify unchanged predicate/cold measurement bodies, warmups, assertions, outer
+state/root lifetime and byte-identical full comparison protocol/1.05gate. No VM
+or native implementation change. Historical clarification: the old CLI REJECTED
+special names; only direct private worker invocation would skip them. Earlier
+notes implying a silently accepted CLI are incorrect; full nine-case cohorts
+used no selector and remain valid.
+
+CPU16is on the hybrid cpu_atom PMU. Hardware stat succeeds with all4events fully
+scheduled; cycle sampling is denied even with the correct domain. Failed attempts
+are retained; no host permissions changed and no sampling result is claimed.
+New focused counter diagnostics use the repaired selector and explicitly retain
+startup/two-warmup scope, rather than mixing all nine cases or claiming an exact
+timed window. Full original native/resource/performance/platform/release scope
+remains open. Evidence:predicate-hardware/DESIGN.md and selector test/proof logs.
+
+Predicate hardware attribution now audits6selected-process and12original-image
+full-prefix captures. All4active PMU events are100percent scheduled. Selected
+images include the selector repair and omit seven workloads, so they are not the
+old measured images/context. Original-image captures retain the full worker and
+use acknowledged print-boundary counter gating, at20and200iterations. All108rows/
+native-zero proofs and image/tool hashes verify. Disabled/NoFeature cycle ratios
+1.01459..1.03626(20) and1.02149..1.02692(200), instruction ratios1.01435..1.02353
+and1.02189..1.02293. ACKlatency fractions and every observation are retained;
+these are approximate phase scopes, NOT exact timed windows or1.05acceptance.
+They do not erase earlier full comparator failures. Next reproduce that actual
+uninstrumented comparator/caller context and raw medians before another VM
+transformation; no path/argument tuning or runtime fix claimed. Full original
+scope remains open. Evidence:predicate-hardware/RESULTS.md, phase-audited.json.
+
+An independent full ORIGINAL144-command repeat now verifies the old X images,
+not the selector-fixed diagnostic image:14256native/285120cost,0counter/resource/
+proof mismatches, all raw medians/dispersion and18reader mutations verify. Arrays
+1.25pass24/24(min1.268477), but predicate1.05FAILS24/24again: speed1.08604..1.11823,
+shipping1.05968..1.08000. X native86/96speed and93/96shipping; Off fails27/13.
+Candidate53/408scored gates fail; controls/outliers and older cohorts retained.
+Actual original Make/no-feature-parent comparator path reproduced; the low PMU
+observations do not establish acceptance or a cause. No adoption. Evidence:
+original-comparator-recheck/RESULTS.md and direct-comparison/joint-audited.json.
+
+The next isolated prototype moves ordinary constant-string table specialization
+to compile-time helper-symbol selection. Only prototypes whose EVERY GetTable
+key is a verified string constant select the new entry; others retain the exact
+old generic operation body and internal signature. Same six-argument helper ABI,
+ten symbols, equal-length name/reservation, existing advisory hints and fresh
+type/metatable checks. No added policy cache/flag, PC-argument propagation, VM
+clone, inline/layout hint or changed threshold. Implementation/focused validation
+now passes142focused checks/1existing ignore,16Miri checks (seed0/TreeBorrows seed1)
+and2738broad passes/28existing ignores/182groups. Source-boundary audit verifies
+613parent files and6mutations: generic helper/internal signature unchanged;
+other native IR/ABI unchanged outside the declared symbol selection. The first
+Miri address-identity fixture was replaced by stronger selected-entry effect/
+hint-publication checks in a preserved test-only safety variant. Original source,
+failures and all images remain frozen; canonical source differs only in approved
+test fixtures/typed diagnostic dictionary. All6canonical images verify, actual
+profiled native byte-identical and both NoFeature images equal X.24profiles/
+336parts verify0 with all27counter/resource fields equal; polymorphic Auto work
+drops1.63..2.00percent and array work is effectively unchanged. Original full144
+matrix now completes/audits0:14256native/285120cost,0field/proof mismatches, raw
+medians/dispersion and18reader mutations verify. Arrays1.25PASS24/24(min1.252143),
+shipping native96/96; speed89/96(poly11/12,callbacks6fail). Off failures24speed/
+13shipping, including ALL24predicate controls. Candidate44/408scoredfailures;
+controls A/B native87/87speed and96/96shipping, Off27/33speed and13/13shipping.
+All retained; NOTaccepted/adopted.12extra callback profiles/168parts verify0:
+Auto EXACTLY98987075instructions in BOTHimages for ALL3rounds; no non-address
+self-cost deltas. The hypothesized new getter call boundary is NOTestablished;
+do not add inline/hash rewrites from it. Next isolate X-relative elapsed/hardware/
+generated-ISA behavior; current full controls are runtime51. It still does not
+fix predicate overhead or complete original scope. Evidence:
+constant-table-symbol/RESULTS.md, qualification-audited.json,callback-audited.json.
+
+The immediate-X-parent full144cohort now completes/audits0:14256native/
+285120cost,0counter/resource/proof mismatches, raw medians/dispersion and18reader
+mutations verified. Candidate33/408scored failures: native10speed/3shipping,
+disabled20speed/0shipping. Callback geometric-control/candidate median CPU0speed
+0.907495(placebo1.008578), CPU16speed1.000613, shipping0.999102/1.014278. Thus
+CPU0speed callback regression is directly X-relative, despite equal Valgrind
+instruction work; do not infer an added getter cost or apply speculative inline/
+hash/layout fixes. Polymorphic Auto relative medians1.002775/1.031979speed and
+1.045917/1.068275shipping. All observations retained, including disturbed CPU0
+round2 and three shipping array failures. Relative gains do NOTreplace absolute
+runtime51 acceptance; production unchanged, candidate NOTadopted. Next inspect
+actual generated pages and hardware counters. Evidence:
+static-helper-parent-reference/RESULTS.md, direct-comparison/joint-audited.json.
+
+Actual-image callback diagnostics now complete: eight own-child debugger runs,
+16 relocated mapping pages, CPU0/16 and opt3/s. Each image has exactly equal
+pages across CPUs; X/candidate bytes match outside five RIP-loaded pointer
+literals. Exact byte-matched opt3 symbol companions resolve all imports to the
+same call::<1>/call_hashless helpers. Shipping names remain unresolved. No ASLR
+or permission changes; debugger timings discarded. This excludes different
+generated callback ISA in these captures, not AOT helper/layout differences.
+96 additional actual-image PMU runs verify four explicit active-domain user
+events 100% scheduled and all 27 counter/resource fields equal each pair.
+CPU0 opt3 Auto at 1000 samples: candidate/reference worker-median ratio 1.071912
+(three rounds 1.065571..1.077860), cycles 1.130820, instructions 0.999953,
+branches 0.999932, branch misses 1.017638. Whole-process counters include startup,
+compilation and two warmups; every outlier retained, not an exact timed window
+or original acceptance. No consistent extra instruction load establishes the
+cause; do not claim cache/frequency/branch causality. Two diagnostic readers and
+12 negative mutations verify, input/image hashes unchanged. Next inspect existing
+host-boundary/AOT work, not another speculative getter or layout rewrite.
+Production unchanged; full scope remains incomplete. Evidence:
+static-helper-parent-reference/RESULTS.md, jit-code-audited.json and
+callback-pmu-audited.json.
+
+A new isolated candidate uses the existing const-generic helper4 entry for
+constant-string GetTable specialization, forwarding its existing explicit PC.
+This avoids both the earlier all-operation PC-argument propagation and the
+separate static helper/compiler selector. No new import, symbol, policy cache,
+inferred PC, quota or threshold change. The old generic operation body/internal
+signature, compiler/native IR and ABI/registry are byte-identical to X; the
+reviewed canonical lookup still checks fresh kinds/nil/__index and revalidates
+advisory hints. 139 focused checks pass with one existing ignore, plus formatting/
+all-target all-feature checks. A 613-parent-file source-boundary proof and eight
+negative mutations verify. The five helper tests cover aliases, scalar/reference
+results, explicit PC extremes, stale hints/mutations, nonstring fallback, null
+hosts and panic publication. 36 actual-image profiles/504 partitions verify all
+27 counter/resource fields: polymorphic Auto uses 1.81–2.01% fewer instructions;
+array work is effectively unchanged, with +660 integer-key helper self
+instructions explicitly retained. Callback total work is exactly equal in both
+Off and Auto in all three rounds; no non-address Auto self-cost delta. Both Miri
+seeds pass all five new fixtures (ten checks). Broad workspace/all-target/default/
+doc tests pass 2,735 executions with 28 existing ignores across 182 groups. All
+six canonical images verify; profiled native and both NoFeature images are
+byte-identical to their intended counterparts. Initial unmarked-cache refusal
+is preserved; fresh dedicated caches pass without bypassing provenance checks.
+The first full original 144-command cohort completes/audits0:14,256 native/
+285,120 cost iterations, zero counter/resource/proof mismatches, raw medians/
+dispersion and 18 reader mutations verified. Native passes93/96 speed,95/96
+shipping; arrays and callbacks each23/24, with failures retained. Speed poly2
+and callback1, shipping array1 fail. Compiled-Off failures32speed/10shipping;
+candidate46/408scored gates fail. X controls pass85/85speed and94/94shipping,
+Off failures35/33speed and16/13shipping. Direct poly control/candidate medians
+1.042056/1.041375speed and1.057039/1.005243shipping on CPU0/16. Callbacks
+1.031740/1.008010speed,.990818/1.019685shipping; CPU0speed placebo .974302
+retained. Earlier static-helper median slowdown is not reproduced, but one
+callback gate still fails; no accepted universal fix or cross-cohort verdict
+comparison. The predeclared unchanged full repeat also completes/audits0 with
+the same counts, zero mismatches and 18 reader mutations. Native passes91/96
+speed,90/96shipping; arrays22/24(min1.209988), callbacks20/24; candidate40/408
+scored failures, including29Off. Across both cohorts:369/384native,45/48arrays,
+43/48callbacks; 28,512native/570,240cost iterations. CPU0 direct callback medians
+now .730437speed/.770371shipping, versus1.031740/.990818 earlier; poly CPU0speed
+.592788 versus1.042056. Thus favorable first-cohort medians are NOT a stable fix.
+All controls, outliers and telemetry remain; no cache/frequency/ASLR/path/layout
+cause is asserted or tuned. Full acceptance remains false; no runtime adoption.
+Live source comparison confirms root/X helpers.rs byte-identical. Next isolate
+the helper-only change against runtime51 without importing X's unadopted private
+opcode VM; its own timing/verification is mandatory, not inferred from this
+cohort. Evidence: constant-table-existing-entry/RESULTS.md and both
+direct-comparison*/joint-audited.json files.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
