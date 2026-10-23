@@ -40644,6 +40644,35 @@ path with exact-image attribution, not another key-order variation or retry-
 until-pass. Production remains runtime51. Evidence:
 runtime51-table-entry/RESULTS.md and runtime51-decoded-table/RESULTS.md.
 
+Exact shipping-array attribution now verifies12profiles/168partitions against
+byte-identical actual baseline/candidate images and allocated-byte-identical
+symbol companions. All27VM/resource fields equal. The helper rewrite adds264
+helper4 self instructions but removes924operand instructions in every round:
+net660saved, not an elapsed fix. Window<64>::new costs2,109,734self instructions,
+memcpy1,899,724 and dirty publication816,464 in the first baseline profile.
+Production selects array::compile_pair at the later cfg(not(any(test,miri)))
+branch; the earlier test-only selector is not the complete decision. Simulated
+timing is not acceptance. Reader's inherited opt3 header corrected to opt-s;
+original refusal/captures retained, no rerun. Evidence: shipping-array-attribution/.
+
+An isolated array-window-prefix trial now initializes only the live prefix of
+fixed64-slot MaybeUninit storage. Existing native View version/layout/length,
+all admission/scalar/dirty/borrow guards, counters, allocations and quotas remain.
+No typed suffix reads; dirty publication bounds-checks backing before assuming
+initialization. The private zero-tail test becomes live-prefix/tail-refusal
+coverage; a separate test-only safety variant adds63invalid-dirty-prefix cases.
+Original145focused and safety146checks pass; source611files/sevennegative
+mutations, same admission/lifetime suffix and View ABI verified. Both Miri seeds
+pass24executions each(22unique plus2transport duplicates), including malformed
+dirty-tail rejection. Portable/native-pointer Memcheck and the actual shipping
+array native benchmark report zero errors; leak checking not claimed. Actual
+shipping work qualification12profiles/168parts verifies27fieldparity0: Auto
+instruction ratios .983887/.986137/.986147, Off~1. Window construction saves
+38,610 and memset334,620self instructions each round; publication unchanged,
+large memcpy remains. This is a measured work reduction, NOT a wall-time/gate
+pass or adoption. Broader/source-parity and canonical-image gates are next.
+Evidence: array-window-prefix/.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
