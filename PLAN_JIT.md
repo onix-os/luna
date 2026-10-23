@@ -40625,9 +40625,24 @@ improve2.28%/8.03%speed,4.97%/6.24%shipping onCPU0/16, but NOTadopted while
 array regression remains. Next isolated runtime51-decoded-table resolves the
 register-key fallback at the existing operand flag test, avoiding reclassification
 after decoding. It passes139focused/oneexisting ignore and610file/eightmutation
-source proof; same explicitPC/ABI and old generic operation. Broader/Miri/images
-and unchanged full gates pending. No path/layout/inline sweep or speedup claim.
-Evidence: runtime51-table-entry/RESULTS.md and runtime51-decoded-table/.
+source proof; same explicitPC/ABI and old generic operation. It now passes2721
+broad executions/28existing ignores/182groups,10Miri checks and6candidate images
+with NoFeature pairs unchanged. 288fresh actual-image PMU captures verify27field
+parity and four events100%scheduled; poly Auto whole-process instructions~1.90%
+less speed/~4.16%less shipping. Both E/Fdatasets pass the generalized reader;
+11negative mutations and original hashes verify. No exact execute-window claim.
+Two original144cohorts finish/audit0:28512native/570240cost,total0field/resource/
+proof mismatches;raw medians/dispersion and18reader mutations EACH. First native
+92/96speed,96/96shipping;arrays24/24(min1.309820),callbacks24/24;47/408failed
+gates,including43Off. Repeat native94/96speed,95/96shipping;arrays23/24
+(min1.238916),callbacks24/24;17/408failed gates,including14Off. Across both:
+377/384native,47/48arrays,48/48callbacks. First-pass array gains are NOTstable:
+CPU0shipping control/candidate1.124061then .946616, allcontrols/outliers retained.
+Poly direct median gains persist, but full acceptance remains false. NOadoption,
+NOwaiver or path/layout/inline sweep. Next inspect the actual shipping array hot
+path with exact-image attribution, not another key-order variation or retry-
+until-pass. Production remains runtime51. Evidence:
+runtime51-table-entry/RESULTS.md and runtime51-decoded-table/RESULTS.md.
 
 ## 15. Primary references
 
