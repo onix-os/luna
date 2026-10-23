@@ -40506,9 +40506,18 @@ test fixtures/typed diagnostic dictionary. All6canonical images verify, actual
 profiled native byte-identical and both NoFeature images equal X.24profiles/
 336parts verify0 with all27counter/resource fields equal; polymorphic Auto work
 drops1.63..2.00percent and array work is effectively unchanged. Original full144
-matrix is now running after all owned compute stopped. NOTaccepted/adopted; it
-targets polymorphic cost, not the still-open predicate failure. Evidence:
-constant-table-symbol/DESIGN.md and qualification-audited.json.
+matrix now completes/audits0:14256native/285120cost,0field/proof mismatches, raw
+medians/dispersion and18reader mutations verify. Arrays1.25PASS24/24(min1.252143),
+shipping native96/96; speed89/96(poly11/12,callbacks6fail). Off failures24speed/
+13shipping, including ALL24predicate controls. Candidate44/408scoredfailures;
+controls A/B native87/87speed and96/96shipping, Off27/33speed and13/13shipping.
+All retained; NOTaccepted/adopted.12extra callback profiles/168parts verify0:
+Auto EXACTLY98987075instructions in BOTHimages for ALL3rounds; no non-address
+self-cost deltas. The hypothesized new getter call boundary is NOTestablished;
+do not add inline/hash rewrites from it. Next isolate X-relative elapsed/hardware/
+generated-ISA behavior; current full controls are runtime51. It still does not
+fix predicate overhead or complete original scope. Evidence:
+constant-table-symbol/RESULTS.md, qualification-audited.json,callback-audited.json.
 
 ## 15. Primary references
 
