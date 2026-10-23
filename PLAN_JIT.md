@@ -40395,6 +40395,26 @@ fallback; do not repeat blanket decoder/hint/layout experiments. Frozen report's
 scope LABEL is inherited/stale; actual source/image/model proofs describe this
 candidate. Full original scope remains open. Evidence:direct-dispatch/RESULTS.md.
 
+Remaining-cost attribution now verifies30additional exact-image Callgrind runs:
+24whole-worker predicate captures (three side-order-rotated rounds, iterations1/4,
+whole segment and finish-only scopes), plus6polymorphic captures (two warmups,
+eleven execute calls each). All348raw parts partition collected totals and match
+fresh readers; worker rows/native proofs and source/image hashes verify. Predicate
+whole-segment disabled/no-feature instruction ratios1.02072..1.02397; finish-only
+1.00236..1.04802, including the retained low outlier. Polymorphic Auto/Off work
+ratios1.13059..1.14520. These are NOTelapsed gates, exact predicate timed windows,
+or grounds to weaken1.05/1.25thresholds. Original timing failures remain open.
+
+Source audit corrects an accounting inference: metamethod Add breaks before the
+common interpreted instruction increment. Reported native/(native+interpreted)
+is not complete bytecode coverage; roughly99percent does not prove rare fallback.
+Arithmetic numeric guards and successful heap helpers are distinct paths. Next
+qualify ordinary constant-string table reads against the existing validated
+canonical-key path, preserving generic reads, metatable behavior, publication,
+panic containment and individual counts; no new cache or guard backoff. Existing
+per-PC bucket hints remain advisory with fresh table/key validation. No runtime
+change/adoption yet. Evidence:remaining-costs/repeat-audited.json and DESIGN.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
