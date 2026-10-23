@@ -40478,6 +40478,26 @@ uninstrumented comparator/caller context and raw medians before another VM
 transformation; no path/argument tuning or runtime fix claimed. Full original
 scope remains open. Evidence:predicate-hardware/RESULTS.md, phase-audited.json.
 
+An independent full ORIGINAL144-command repeat now verifies the old X images,
+not the selector-fixed diagnostic image:14256native/285120cost,0counter/resource/
+proof mismatches, all raw medians/dispersion and18reader mutations verify. Arrays
+1.25pass24/24(min1.268477), but predicate1.05FAILS24/24again: speed1.08604..1.11823,
+shipping1.05968..1.08000. X native86/96speed and93/96shipping; Off fails27/13.
+Candidate53/408scored gates fail; controls/outliers and older cohorts retained.
+Actual original Make/no-feature-parent comparator path reproduced; the low PMU
+observations do not establish acceptance or a cause. No adoption. Evidence:
+original-comparator-recheck/RESULTS.md and direct-comparison/joint-audited.json.
+
+The next isolated prototype moves ordinary constant-string table specialization
+to compile-time helper-symbol selection. Only prototypes whose EVERY GetTable
+key is a verified string constant select the new entry; others retain the exact
+old generic operation body and internal signature. Same six-argument helper ABI,
+ten symbols, equal-length name/reservation, existing advisory hints and fresh
+type/metatable checks. No added policy cache/flag, PC-argument propagation, VM
+clone, inline/layout hint or changed threshold. Implementation/focused validation
+is in progress, not accepted. It targets polymorphic cost, not the still-open
+predicate failure. Evidence:constant-table-symbol/DESIGN.md.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
