@@ -58,6 +58,20 @@ performance or release acceptance.
   instruction work, not another elapsed acceptance run or a promoted runtime fix.
   Next target that transport boundary while preserving canonical state and
   accounting; do not repeat rejected global-inline or extra-admission checks.
+- A test-only suffix-publication model now derives the lowest possible write
+  from the verified lookup-to-Call suffix. Portable mutation/bit-preservation
+  tests and actual native every-PC/budget comparisons pass (45 focused tests,
+  six groups), along with formatting/check-all. Production still publishes the
+  full frame; the model alone is not a performance fix or release acceptance.
+- The isolated suffix-only production trial passes 150 focused checks and keeps
+  both no-JIT images identical, but 24 exact-image profiles/336 partitions show
+  callback Auto instruction regressions of 3.67% speed/1.01% shipping in all three
+  rounds, with all 27 counter/resource fields unchanged. **Rejected:** shipping
+  publication work does not fall. Callback returns resume at `call_pc + 1`, where
+  the accumulator update requires full publication; that is outside the suffix.
+  The new resume regression and native comparisons pass 19 checks; all three
+  model tests pass default and Tree Borrows Miri. The preceding broader selected
+  Miri groups pass 29 tests per model. Root production remains `d95d074b`.
 
 Evidence: `target/jit-evidence/prefix-integration/` and
 `target/jit-evidence/numeric-for-pair/array-window-prefix/RESULTS.md`.

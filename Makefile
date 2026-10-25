@@ -1954,6 +1954,13 @@ jit-call-fusion-native:
 
 .PHONY: jit-strong-global-helper jit-strong-global-helper-miri
 .PHONY: jit-frame-publication jit-frame-publication-miri
+.PHONY: jit-lookup-publication jit-lookup-publication-miri
+jit-lookup-publication:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::scalar_entry::publication::tests $(ARGS)
+
+jit-lookup-publication-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::readonly_lookup::scalar_entry::publication::tests -- --test-threads=1
+
 jit-frame-publication:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::frame_publication $(ARGS)
 

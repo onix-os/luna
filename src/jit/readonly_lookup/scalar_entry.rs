@@ -36,6 +36,9 @@ impl Source {
 mod tests;
 
 #[cfg(test)]
+pub(in crate::jit) mod publication;
+
+#[cfg(test)]
 thread_local! {
     static ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
     static ENTRIES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };

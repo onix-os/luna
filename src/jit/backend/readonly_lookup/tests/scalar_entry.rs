@@ -117,6 +117,7 @@ fn bridged<'gc, const CLASSIFIED: bool>(
     ordinary: &Code,
     read: &ReadCode,
     proof: Source,
+    publication: crate::jit::readonly_lookup::scalar_entry::publication::Publication,
     pc: usize,
     budget: u32,
     initial: &[Value<'gc>],
@@ -161,7 +162,11 @@ fn bridged<'gc, const CLASSIFIED: bool>(
             .unwrap();
             let slots = if CLASSIFIED { inputs.slots() } else { &slots };
             assert_eq!(*registers.pc, pc);
-            abi::frame_publication::publish(&slots, registers.stack_frame);
+            if CLASSIFIED {
+                publication.publish(pc, slots, registers.stack_frame);
+            } else {
+                abi::frame_publication::publish(slots, registers.stack_frame);
+            }
             *registers.pc = outcome.exit.pc as usize;
             (
                 outcome.exit,
@@ -216,6 +221,11 @@ fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
             let closure = Closure::load_with_env(ctx, None, script, env).unwrap();
             let (source, ordinary, read, maps, ledger) = pair(ctx, closure);
             let proof = Source::admit(&source).unwrap();
+            let publication =
+                crate::jit::readonly_lookup::scalar_entry::publication::Publication::recognize(
+                    &source,
+                )
+                .unwrap();
             assert_eq!(proof.plan(), read.plan);
             for binding in bindings {
                 env.set_field(ctx, "host_increment", binding);
@@ -237,10 +247,26 @@ fn framed_and_null_host_entries_match_every_scalar_prefix_without_helpers() {
                                 ctx, closure, &ordinary, &read, binding, pc, budget, &initial,
                             );
                             let bridge = bridged::<false>(
-                                ctx, closure, &ordinary, &read, proof, pc, budget, &initial,
+                                ctx,
+                                closure,
+                                &ordinary,
+                                &read,
+                                proof,
+                                publication,
+                                pc,
+                                budget,
+                                &initial,
                             );
                             let classified = bridged::<true>(
-                                ctx, closure, &ordinary, &read, proof, pc, budget, &initial,
+                                ctx,
+                                closure,
+                                &ordinary,
+                                &read,
+                                proof,
+                                publication,
+                                pc,
+                                budget,
+                                &initial,
                             );
                             assert_eq!(
                                 (actual.0.pc, actual.0.instructions, actual.0.reason),
