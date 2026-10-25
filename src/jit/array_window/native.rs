@@ -31,7 +31,7 @@ impl<const CAPACITY: usize> Window<'_, '_, CAPACITY> {
     pub(super) fn with_native<R>(&mut self, call: impl FnOnce(&mut Session<'_>) -> R) -> R {
         let view = View {
             version: VERSION,
-            slots: self.slots.as_mut_ptr(),
+            slots: self.slots.as_mut_ptr().cast(),
             length: self.length as u64,
             first: self.first,
             dirty: ptr::from_mut(&mut self.dirty),

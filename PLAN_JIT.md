@@ -9,7 +9,60 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Latest verified checkpoint — 2026-10-22
+### Selected implementation checkpoint — 2026-10-25
+
+The existing feature branch now selects the measured constant-string helper and
+live-prefix array-window implementation; the experimental private-opcode VM is
+not included. This is an incremental implementation checkpoint, not full JIT
+performance or release acceptance.
+
+- Root Rust/example/derive/util source (465 files) and dependencies are byte-
+  identical to the measured safety variant. All six freshly built root binaries
+  are byte-identical to its measured speed/shipping images; no new benchmark
+  result is inferred from a different executable.
+- Root focused verification passes 189 executions/one existing ignore/14 groups,
+  formatting/check-all and the Miri wrapper. Selected-root portable array/helper
+  checks pass 27 tests per seed0/default and seed1/TreeBorrows. Full CI Miri now
+  selects both groups; the wrapper verifies 54 logs and propagates 13 failures.
+- Selected-root `make test-all test` passes 2,722 executions/182 summaries with
+  28 existing ignores. Post-test source verification checks all 611 frozen
+  witnesses; the six executable comparisons still pass.
+- Prior exact-candidate cohorts pass 48/48 array 1.25x gates and 47/48 callback gates.
+  Their remaining polymorphic/callback/compiled-Off failures are still failures;
+  neither cohort passes full acceptance. No counter/quota/threshold is waived.
+- Exact implementation commit `d95d074b`, hosted run `40006008618`: all seven
+  jobs pass. All six downloaded evidence archives match their server SHA256
+  digests and exact source/run/job identities. Full Miri seeds0/1 each verify
+  389 passing executions/52 summaries/zero ignores, including the array22 and
+  helper5 groups; both hosted seeds use the default borrow model.
+- Each GNU/musl/AArch64 native archive verifies 11,578 passing executions/554
+  summaries/134 reported existing ignores, all seven selected fixtures in five
+  feature lanes, eight finalized native-payload hashes, and two manifest-bound
+  shipping ELF images of the correct architecture. The i686 fallback archive
+  verifies 3,473 passing executions/366 summaries/eight existing ignores and the
+  seven fixtures in three lanes. Its archive contains logs, not a binary.
+- The native example executes 200,007 native instructions on each native target.
+  Its mapped/requested bytes are 57,344/44,848 on x86-64 and 53,248/39,972 on ARM64;
+  these are observations, not resource-policy or size acceptance. The initial
+  artifact-reader refusal used a copied fixed byte count; the corrected reader
+  checks the example's actual source invariants and reports architecture-specific
+  values. Original failure logs and downloaded evidence are preserved.
+- Full resource-policy, size and release scope stays open, as do the original
+  performance failures. Passing this current-source component/platform matrix
+  does not turn the complete JIT acceptance verdict into a pass.
+- Current-image attribution now verifies 24 profiles/336 partitions in both
+  optimization profiles, with all 27 VM/resource fields matching the frozen
+  candidate rows. Auto uses 12.2–12.8% more execute instructions for polymorphic
+  work and 13.7–14.5% more for callbacks. Callback cost is dominated by ordinary
+  short-segment transport/publication, not table helpers. This is diagnostic
+  instruction work, not another elapsed acceptance run or a promoted runtime fix.
+  Next target that transport boundary while preserving canonical state and
+  accounting; do not repeat rejected global-inline or extra-admission checks.
+
+Evidence: `target/jit-evidence/prefix-integration/` and
+`target/jit-evidence/numeric-for-pair/array-window-prefix/RESULTS.md`.
+
+### Previous verified checkpoint — 2026-10-22
 
 - A **test-only** short-prefix admission model now has nine passing root checks:
   six portable classifications and three actual native-exit differential tests.
@@ -40600,6 +40653,94 @@ the helper-only change against runtime51 without importing X's unadopted private
 opcode VM; its own timing/verification is mandatory, not inferred from this
 cohort. Evidence: constant-table-existing-entry/RESULTS.md and both
 direct-comparison*/joint-audited.json files.
+
+The helper-only runtime51 trial is now isolated from all private-opcode VM
+experiments. Fresh baseline is a clean Git archive of1af83d71; source audit
+verifies610parent/611candidate files and eight mutations. Only the reviewed
+helper4 const-kind selection, five portable fixtures and a Make test target
+differ; original VM/compiler/native IR/ABI/registry and generic operation body
+remain byte-identical to current production. 139 focused checks/one existing
+ignore and format/check-all pass. Broad verification passes2721executions/
+28existing ignores/182summaries; both Miri seeds pass five fixtures each. All12
+fresh images verify, both NoFeature pairs byte-identical. Baseline executable
+text matches runtime51 in both profiles; source proof verifies411old files after
+three test-only declarations are removed. Whole-ELF identity is NOT claimed;
+the initial overly strong guard/refusal and reader-capture bug are retained.
+288actual-image PMU captures verify four events100%scheduled and27field parity.
+At1000samples poly Auto instruction ratios~.9798/.9791speed,.9584shipping;
+array/callback work~unchanged. Whole-process scope includes startup/compile/
+warmups, not exact execute counters. Original144cohort completes/audits0:
+14256native/285120cost,zero field/resource/proof mismatches,raw medians/dispersion
+and18reader mutations. Candidate native91/96speed,94/96shipping;callbacks24/24,
+arrays22/24(min1.237546),versus baseline shipping96/96. Speed poly5 and shipping
+array2 fail; Off26speed/13shipping;46/408scored failures. Poly direct medians
+improve2.28%/8.03%speed,4.97%/6.24%shipping onCPU0/16, but NOTadopted while
+array regression remains. Next isolated runtime51-decoded-table resolves the
+register-key fallback at the existing operand flag test, avoiding reclassification
+after decoding. It passes139focused/oneexisting ignore and610file/eightmutation
+source proof; same explicitPC/ABI and old generic operation. It now passes2721
+broad executions/28existing ignores/182groups,10Miri checks and6candidate images
+with NoFeature pairs unchanged. 288fresh actual-image PMU captures verify27field
+parity and four events100%scheduled; poly Auto whole-process instructions~1.90%
+less speed/~4.16%less shipping. Both E/Fdatasets pass the generalized reader;
+11negative mutations and original hashes verify. No exact execute-window claim.
+Two original144cohorts finish/audit0:28512native/570240cost,total0field/resource/
+proof mismatches;raw medians/dispersion and18reader mutations EACH. First native
+92/96speed,96/96shipping;arrays24/24(min1.309820),callbacks24/24;47/408failed
+gates,including43Off. Repeat native94/96speed,95/96shipping;arrays23/24
+(min1.238916),callbacks24/24;17/408failed gates,including14Off. Across both:
+377/384native,47/48arrays,48/48callbacks. First-pass array gains are NOTstable:
+CPU0shipping control/candidate1.124061then .946616, allcontrols/outliers retained.
+Poly direct median gains persist, but full acceptance remains false. NOadoption,
+NOwaiver or path/layout/inline sweep. Next inspect the actual shipping array hot
+path with exact-image attribution, not another key-order variation or retry-
+until-pass. Production remains runtime51. Evidence:
+runtime51-table-entry/RESULTS.md and runtime51-decoded-table/RESULTS.md.
+
+Exact shipping-array attribution now verifies12profiles/168partitions against
+byte-identical actual baseline/candidate images and allocated-byte-identical
+symbol companions. All27VM/resource fields equal. The helper rewrite adds264
+helper4 self instructions but removes924operand instructions in every round:
+net660saved, not an elapsed fix. Window<64>::new costs2,109,734self instructions,
+memcpy1,899,724 and dirty publication816,464 in the first baseline profile.
+Production selects array::compile_pair at the later cfg(not(any(test,miri)))
+branch; the earlier test-only selector is not the complete decision. Simulated
+timing is not acceptance. Reader's inherited opt3 header corrected to opt-s;
+original refusal/captures retained, no rerun. Evidence: shipping-array-attribution/.
+
+An isolated array-window-prefix trial now initializes only the live prefix of
+fixed64-slot MaybeUninit storage. Existing native View version/layout/length,
+all admission/scalar/dirty/borrow guards, counters, allocations and quotas remain.
+No typed suffix reads; dirty publication bounds-checks backing before assuming
+initialization. The private zero-tail test becomes live-prefix/tail-refusal
+coverage; a separate test-only safety variant adds63invalid-dirty-prefix cases.
+Original145focused and safety146checks pass; source611files/sevennegative
+mutations, same admission/lifetime suffix and View ABI verified. Both Miri seeds
+pass24executions each(22unique plus2transport duplicates), including malformed
+dirty-tail rejection. Portable/native-pointer Memcheck and the actual shipping
+array native benchmark report zero errors; leak checking not claimed. Actual
+shipping work qualification12profiles/168parts verifies27fieldparity0: Auto
+instruction ratios .983887/.986137/.986147, Off~1. Window construction saves
+38,610 and memset334,620self instructions each round; publication unchanged,
+large memcpy remains. This is a measured work reduction, NOT a wall-time/gate
+pass or adoption. Broader2722executions/28existing ignores/182groups and source-
+parity verify;6canonical images pass, actual shipping image byte-identical to
+qualified image, both NoFeature unchanged. 288actual-image PMU captures verify
+27fieldparity/four events100%scheduled; array1000Auto instructions~1.45–1.59%
+less and shipping cycles~2.06%/2.24%less onCPU0/16, whole-process scope retained.
+Generalized PMU reader passes two datasets/11mutations. TWOoriginal144cohorts
+finish/audit0:28512native/570240cost,0field/resource/proof mismatches,raw medians/
+dispersion and18reader mutations EACH. Native91/96speed,96/96shipping in BOTH.
+Arrays48/48PASS1.25,min1.274934first/1.335080repeat;callbacks47/48(one first
+speed failure retained). Candidate51then38of408scored gates fail,including46
+then33Off. Combined374/384native; full acceptanceFALSE, not averaged away.
+Shipping array direct control/candidate medians CPU0/16first1.024928/1.031191,
+repeat1.016136/1.031424. No universal callback/other-case speedup claim. NOroot
+runtime adoption yet; integration still needs current-source CI/Miri group
+coverage and platform/resource-policy/size/release proof. Rootfulljit-miri lacks
+explicit array_window/newhelper fixture selections; oldruntime CI cannot certify
+the candidate. No third retry or layout/inline/path variation. Evidence:
+array-window-prefix/RESULTS.md and both original joint-audited.json files.
 
 ## 15. Primary references
 
