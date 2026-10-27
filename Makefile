@@ -275,7 +275,7 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::provider_box_refusal_precedes_host_setup_and_releases_entry_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/provider-box-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::segment_record_underlying_refusal_precedes_mapping -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/segment-record-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::specialized::tests -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)/jit-backend-specialized-tests.log'
-	@set -e -o pipefail; for filter in jit::handoff::tests jit::arrays::tests jit::array_window:: jit::runtime_owner_tests jit::global_owner::tests jit::resources::bootstrap_tests jit::resources::mapping_tests jit::abi::tests jit::abi::transport_inputs::tests jit::entry_admission::tests jit::readonly_lookup::tests jit::readonly_lookup::scalar_entry jit::readonly_lookup::binding::tests table::raw::code_read_hint_tests::strong_peek jit::helpers::tests jit::helpers::existing_entry_tests jit::scoped_helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::global_box::tests jit::segments::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
+	@set -e -o pipefail; for filter in jit::handoff::tests jit::arrays::tests jit::array_window:: jit::runtime_owner_tests jit::global_owner::tests jit::resources::bootstrap_tests jit::resources::mapping_tests jit::abi::tests jit::abi::transport_inputs::tests jit::entry_admission::tests jit::readonly_lookup::tests jit::readonly_lookup::scalar_entry jit::readonly_lookup::binding::tests jit::readonly_lookup::binding::integer_resume::tests table::raw::code_read_hint_tests::strong_peek jit::helpers::tests jit::helpers::existing_entry_tests jit::scoped_helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::global_box::tests jit::segments::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$${filter//::/-}".log; \
 	done
 
@@ -1955,6 +1955,13 @@ jit-call-fusion-native:
 .PHONY: jit-strong-global-helper jit-strong-global-helper-miri
 .PHONY: jit-frame-publication jit-frame-publication-miri
 .PHONY: jit-lookup-publication jit-lookup-publication-miri
+.PHONY: jit-canonical-resume jit-canonical-resume-miri
+jit-canonical-resume:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) integer_resume $(ARGS)
+
+jit-canonical-resume-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' integer_resume -- --test-threads=1
+
 jit-lookup-publication:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::readonly_lookup::scalar_entry::publication::tests $(ARGS)
 

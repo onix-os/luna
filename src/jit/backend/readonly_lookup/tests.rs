@@ -9,10 +9,10 @@ mod scalar_entry;
 #[test]
 fn scalar_read_code_layout_witness() {
     assert_eq!(std::mem::size_of::<Plan>(), 16);
-    assert_eq!(std::mem::size_of::<ReadCode>(), 120);
+    assert_eq!(std::mem::size_of::<ReadCode>(), 280);
     assert_eq!(
         crate::jit::owner::Shared::<ReadCode>::allocation_bytes(),
-        136
+        296
     );
     eprintln!(
         "scalar_code_layout plan={} read={} owner={}",

@@ -11,6 +11,46 @@ use std::sync::atomic::Ordering;
 const SOURCE: &[u8] = b"local sum=0 for i=1,80 do sum=sum+host_increment(i) end return sum";
 
 #[test]
+fn canonical_resume_preserves_retirement_modes_weakness_and_count_one_hooks() {
+    let (_, entries) = super::super::binding::integer_resume::with_enabled(true, || {
+        callbacks_can_retire_code_change_modes_weaken_tables_and_toggle_count_one_hooks();
+    });
+    assert!(entries > 0);
+}
+
+#[test]
+fn canonical_resume_preserves_typed_errors_and_noncallable_fault_frames() {
+    let (_, entries) = super::super::binding::integer_resume::with_enabled(true, || {
+        typed_callback_errors_and_missing_or_noncallable_values_preserve_fault_frames();
+    });
+    assert!(entries > 0);
+}
+
+#[test]
+fn canonical_resume_refuses_open_environments_without_changing_slices() {
+    let (_, entries) = super::super::binding::integer_resume::with_enabled(true, || {
+        an_open_environment_uses_ordinary_helpers_for_installed_children();
+    });
+    assert_eq!(entries, 0);
+}
+
+#[test]
+fn canonical_resume_releases_refused_runtime_owners() {
+    let (_, entries) = super::super::binding::integer_resume::with_enabled(true, || {
+        late_runtime_cache_allocation_refusal_discards_child_and_installs_ordinary_owner();
+    });
+    assert_eq!(entries, 0);
+}
+
+#[test]
+fn canonical_resume_lease_pins_extra_mapping_until_last_release() {
+    let (_, entries) = super::super::binding::integer_resume::with_enabled(true, || {
+        retired_parent_lease_pins_both_images_until_its_last_release();
+    });
+    assert!(entries > 0);
+}
+
+#[test]
 fn scalar_hostless_route_matches_framed_public_steps_and_reference_fallback() {
     for references in [false, true] {
         let run = |scalar| {

@@ -215,3 +215,5 @@ const _: () = {
 mod tests;
 
 mod scalar_entry;
+
+pub(in crate::jit) mod integer_resume;

@@ -2078,6 +2078,34 @@ impl Runtime {
             readonly_lookup::scalar_entry::Source,
         ),
     ) -> u32 {
+        if let Some((plan, kernel)) = &binding.0.integer_resume {
+            if let Some(outcome) = unsafe {
+                plan.invoke(
+                    kernel.entry,
+                    closure,
+                    &code.entries,
+                    registers,
+                    *registers.pc,
+                    budget,
+                )
+            }
+            .expect("invalid canonical resume exit")
+            {
+                #[cfg(test)]
+                readonly_lookup::binding::integer_resume::record_entry();
+                *registers.pc =
+                    usize::try_from(outcome.exit.pc).expect("native PC exceeds host range");
+                let counts = helpers::Counts {
+                    table_reads: outcome.reads,
+                    upvalue_reads: outcome.reads,
+                    ..Default::default()
+                };
+                let mut manager = self.0.borrow_mut();
+                record_helper_counts!(manager.stats, counts);
+                manager.stats.record_native_exit(&outcome.exit);
+                return outcome.exit.instructions;
+            }
+        }
         let register_count = if EXACT { CAPACITY } else { code.registers };
         let mut scratch = [std::mem::MaybeUninit::<abi::Slot>::uninit(); CAPACITY];
         let mut inputs = abi::transport_inputs::Inputs::marshal::<true>(

@@ -9,7 +9,57 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Selected implementation checkpoint — 2026-10-25
+### Selected implementation checkpoint — 2026-10-27
+
+The existing branch now adds a typed canonical integer-resume entry for the
+verified post-callback accumulator/for-loop sequence. It borrows distinct
+`Value::Integer` payloads rather than converting and publishing the full frame.
+Arbitrary Rust callbacks still execute through the existing executor boundary;
+noninteger values, open environments and unavailable optional code retain the
+ordinary paths. Exact prefix writes, fuel, fresh bindings and physical counters
+are preserved. This is a measured runtime improvement, not full JIT acceptance.
+
+- The initial version passes correctness but fails the fixed shipping instruction
+  screen: only 0.87% less execute work. It is not promoted. The retained revision
+  borrows its descriptor and derives the unchanged binding cookie at compilation;
+  both native and Rust cookie validation remain.
+- Original production callback binaries show 8.950% / 6.740% fewer whole execute
+  instructions in speed/shipping, identically in three balanced rounds. Native-
+  worker Off instruction work is unchanged. Twenty-four profiles/336 partitions
+  independently reconcile; raw call edges prove 5,000 canonical native calls in
+  each steady execution and 64,836 across all thirteen executions. The reader
+  accepts one valid dataset and rejects all nine corruptions. No elapsed values
+  are used or inferred from this instruction diagnostic.
+- All nine original cases, both modes and profiles pass 36 records x27 physical
+  operational/resource fields against the predeclared source-derived oracle.
+  Only callback Auto changes: mapped code +4,096 bytes, retained/peak metadata
+  +216 bytes and snapshot workspace peak 196,890. Both no-feature binaries remain
+  byte-identical to retained controls. The additional readonly descriptor costs
+  144 production bytes even when its optional kernel is absent; this is not
+  hidden by the same-executable prototype's smaller mode-to-mode difference.
+- Isolated exact-source qualification passes 166 focused executions/17 summaries,
+  formatting/check-all, and 2,737 broad executions/182 summaries/29 reported
+  ignores. One new ignore is the explicitly optional diagnostic profile, not an
+  ignored semantic test. Native tests compare 14,784 prefixes; callback tests
+  compare full frames/stacks/fuel through GC, yields/resumption, rebinding,
+  errors, hooks, mode changes, weak/open environments and retirement. Optional
+  refusal and last-lease tests preserve existing code and release mappings.
+- Both portable Miri models pass two tests per default seed0/Tree Borrows seed1;
+  i686 models/check-all pass. Native Memcheck passes six tests with zero errors
+  and no definite/indirect leaks; 48 possible and 632 reachable bytes remain.
+  These are scoped proofs, not a blanket leak-free or all-platform claim. Full
+  Miri CI now includes the two loan models and its failure-propagation wrapper.
+- Shipping native/cost ELF files grow 19,088 bytes each; speed native/cost grow
+  33,840/33,808 bytes. These are observations, not a new size ceiling or approval.
+  Final retained-source hosted/platform evidence and the original complete
+  elapsed, compiler-resource-policy, feature-cost and release gates remain open.
+  In particular, this callback fix does not erase the existing polymorphic and
+  compiled-Off failures or waive any original threshold.
+
+Evidence: `target/jit-evidence/canonical-resume{,-v2,-production}/`, particularly
+the production `PROTOCOL.md`, `audited.json`, `preflight-audit.log` and raw profiles.
+
+### Previous implementation checkpoint — 2026-10-25
 
 The existing feature branch now selects the measured constant-string helper and
 live-prefix array-window implementation; the experimental private-opcode VM is

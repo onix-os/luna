@@ -44,6 +44,8 @@ mod field_memory;
 #[cfg(not(miri))]
 pub(super) mod inline_loop;
 mod integer_loop;
+#[cfg(not(miri))]
+pub(super) mod integer_resume;
 #[cfg(test)]
 mod projection_mode;
 #[cfg(test)]

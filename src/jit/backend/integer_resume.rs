@@ -1,0 +1,113 @@
+use super::*;
+use crate::jit::readonly_lookup::binding::integer_resume::{self, Entry, Plan};
+
+pub(in crate::jit) struct Code {
+    _memory: Memory,
+    pub entry: Entry,
+}
+
+pub(in crate::jit) fn compile(
+    source: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    limits: crate::jit::work::Limits,
+) -> Result<Code, JitError> {
+    let plan = Plan::recognize(source)
+        .ok_or_else(|| JitError::Compilation("canonical resume source".into()))?;
+    let expansion = crate::jit::work::Expansion {
+        instructions: 512,
+        blocks: 32,
+    };
+    if limits.instructions < expansion.instructions || limits.blocks < expansion.blocks {
+        return Err(JitError::ResourceLimit("canonical resume expansion"));
+    }
+    let _templates = Reservation::new(source.operations.allocator().0.clone(), 192 * 1024)
+        .map_err(|_| JitError::ResourceLimit("canonical resume templates"))?;
+    let _signatures = Reservation::new(
+        source.operations.allocator().0.clone(),
+        9 * Layout::new::<AbiParam>().size(),
+    )
+    .map_err(|_| JitError::ResourceLimit("canonical resume signatures"))?;
+    let status = MemoryStatus::try_new(metadata.clone())?;
+    let fail = |error: cranelift_module::ModuleError| {
+        status
+            .error()
+            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+    };
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page <= 0 {
+        return Err(JitError::Unavailable(
+            "cannot determine native memory page size",
+        ));
+    }
+    let memory = Handoff::try_new(
+        Memory {
+            allocations: BudgetVec::new_in(metadata.clone()),
+            total,
+            status: status.clone(),
+            #[cfg(test)]
+            failure: Failure::None,
+            limit,
+            page: page as usize,
+        },
+        metadata.clone(),
+    )
+    .map_err(|_| JitError::ResourceLimit("canonical resume handoff"))?;
+    let (provider, _charge) = global_box::try_new(Provider(memory.clone()), metadata)
+        .map_err(|_| JitError::ResourceLimit("canonical resume provider"))?;
+    let mut jit = native_builder(cranelift_native::builder())?;
+    jit.memory_provider(provider);
+    let mut module = JITModule::new(jit);
+    let mut context = module.make_context();
+    context.func = integer_resume::function(
+        plan,
+        module.target_config(),
+        module.isa().default_call_conv(),
+    );
+    integer_resume::verify(
+        plan,
+        &context.func,
+        module.target_config(),
+        module.isa().default_call_conv(),
+    )?;
+    cranelift_codegen::verify_function(&context.func, module.isa())
+        .map_err(|error| JitError::Compilation(error.to_string()))?;
+    expansion.verify_actual(
+        context
+            .func
+            .layout
+            .blocks()
+            .map(|b| context.func.layout.block_insts(b).count())
+            .sum(),
+        context.func.layout.blocks().count(),
+    )?;
+    let id = module
+        .declare_anonymous_function(&context.func.signature)
+        .map_err(fail)?;
+    context
+        .compile(module.isa(), &mut Default::default())
+        .map_err(|error| fail(error.into()))?;
+    let compiled = context.compiled_code().unwrap();
+    if !compiled.buffer.relocs().is_empty() {
+        return Err(JitError::Compilation("canonical resume relocations".into()));
+    }
+    module
+        .define_function_bytes(
+            id,
+            u64::from(compiled.buffer.alignment),
+            compiled.code_buffer(),
+            &[],
+        )
+        .map_err(fail)?;
+    module.finalize_definitions().map_err(fail)?;
+    let pointer = module.get_finalized_function(id);
+    let image = memory
+        .take()
+        .ok_or_else(|| JitError::Compilation("canonical resume mappings".into()))?;
+    drop(module);
+    Ok(Code {
+        _memory: image,
+        entry: unsafe { std::mem::transmute::<*const u8, Entry>(pointer) },
+    })
+}

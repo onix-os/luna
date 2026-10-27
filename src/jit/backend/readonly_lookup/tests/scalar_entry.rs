@@ -2,6 +2,8 @@ use super::*;
 use crate::jit::readonly_lookup::{binding::View, scalar_entry::Source};
 use crate::jit::resources::LedgerRef;
 
+mod integer_resume;
+
 fn hostless<'gc>(
     ctx: crate::Context<'gc>,
     closure: Closure<'gc>,

@@ -13,6 +13,10 @@ pub(in crate::jit) struct ReadCode {
     pub plan: Plan,
     pub registers: usize,
     pub relocations: usize,
+    pub integer_resume: Option<(
+        crate::jit::readonly_lookup::binding::integer_resume::Plan,
+        super::integer_resume::Code,
+    )>,
 }
 
 pub(in crate::jit) fn compile(
@@ -53,6 +57,7 @@ pub(in crate::jit) fn compile(
         plan,
         registers: image.registers,
         relocations: image.relocations,
+        integer_resume: None,
     })
 }
 
@@ -88,9 +93,29 @@ pub(in crate::jit) fn compile_pair(
         blocks: work.blocks.saturating_sub(bound.blocks),
         relocations: work.relocations.saturating_sub(ordinary.relocations),
     };
-    let Ok(child) = compile(source, total, limit, metadata.clone(), remaining) else {
+    let Ok(mut child) = compile(source, total.clone(), limit, metadata.clone(), remaining) else {
         return Ok(ordinary);
     };
+    if crate::jit::readonly_lookup::binding::integer_resume::enabled() {
+        if let Some(plan) =
+            crate::jit::readonly_lookup::binding::integer_resume::Plan::recognize(source)
+        {
+            if let Ok(bound) = crate::jit::work::Expansion::admit(source, remaining)
+                .and_then(|bound| expansion(bound, remaining))
+            {
+                let extra = crate::jit::work::Limits {
+                    instructions: remaining.instructions.saturating_sub(bound.instructions),
+                    blocks: remaining.blocks.saturating_sub(bound.blocks),
+                    relocations: remaining.relocations.saturating_sub(child.relocations),
+                };
+                if let Ok(code) =
+                    super::integer_resume::compile(source, total, limit, metadata.clone(), extra)
+                {
+                    child.integer_resume = Some((plan, code));
+                }
+            }
+        }
+    }
     let Some(relocations) = ordinary
         .relocations
         .checked_add(child.relocations)
