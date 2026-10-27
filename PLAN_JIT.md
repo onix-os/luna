@@ -9,6 +9,60 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Full-matrix acceptance checkpoint — 2026-10-28
+
+Retained runtime `b2c4c2ad` is committed and pushed. Two complete, unchanged
+original acceptance cohorts are independently audited; neither passes. This
+supersedes earlier statements that the new callback's full matrix is still
+unrun. There will be no third unchanged retry or averaging away failed gates.
+
+| Original gate | First cohort | Fixed repeat | Combined |
+| --- | --- | --- | --- |
+| Native elapsed gates | 192/192 pass | 190/192 pass | 382/384 pass |
+| Compiled-Off feature-cost gates | 190/216 pass | 175/216 pass | 365/432 pass |
+| Array native 1.25x gates | 24/24 pass | 24/24 pass | 48/48 pass |
+| Callback native mixed-work gates | 24/24 pass | 24/24 pass | 48/48 pass |
+
+- Both cohorts retain the original nine cases, two optimization profiles,
+  CPUs 0/16, six side-order rotations, identical-baseline controls, eleven
+  native samples and twenty cost iterations. Across 288 commands, readers
+  independently reparse 28,512 native executions and 570,240 cost iterations;
+  all 27 operational/resource fields and native proofs match. Both readers
+  reject all eighteen corrupted datasets. These counts include controls;
+  the scored candidate matrix contains 816 gates, with 69 failures retained.
+- The repeat's two native misses are speed-profile polymorphic work on CPU0,
+  rounds 0/3: Off/Auto 0.832225 and 0.832870 against the original minimum
+  1/1.2. Array minima remain 1.271578; callback minima remain 0.870430.
+  Passing arrays and callbacks does not compensate for polymorphic failures.
+- Separately linked, exact feature-cost images show callback compiled-Off
+  execute instructions 7.419% / 5.164% above no-feature in speed/shipping,
+  identical in three balanced rounds. Native-worker Off equality from the
+  earlier diagnostic does not certify this different link context. This is
+  instruction attribution, not a conversion to elapsed acceptance.
+- A source trial replacing the ordinary-path callable environment with a
+  shared block passes 122 focused executions but fails its fixed early
+  instruction screen: speed Off/Auto work increases 0.127% / 0.182%, shipping
+  is unchanged. It is rejected, not integrated or elapsed-benchmarked.
+- Exact-runtime hosted run `40593105706` passes verify, i686 fallback and both
+  Miri seeds. The three downloaded portable archives match server SHA256 and
+  source/run/job identities. Each Miri seed verifies 394 executions across
+  53 summaries, zero ignores and both typed-loan models; both hosted seeds
+  use the default borrow model. Fallback verifies 3,488 executions across
+  366 summaries/eight existing ignores, including the new models in three
+  lanes. Native GNU/musl/AArch64 jobs remain in progress at this checkpoint;
+  no terminal native-artifact or all-platform claim is made.
+
+**Still required:** fix polymorphic and compiled-Off regressions, resolve the
+opaque compiler-private memory/time boundary without weakening the original
+guarantees, audit final native platform artifacts, and close feature-size and
+release acceptance. A companion compiler is a packaging option awaiting a
+host-compatibility decision, not an implemented default or approved exclusion.
+
+Evidence: `target/jit-evidence/canonical-resume-production/`
+`{acceptance,acceptance-repeat,two-cohort-audited.json,off-attribution,ci-evidence}`
+and `target/jit-evidence/off-ordinary-block/RESULTS.md`. The measured runtime
+source remains unchanged by the rejected trial or this documentation update.
+
 ### Selected implementation checkpoint — 2026-10-27
 
 The existing branch now adds a typed canonical integer-resume entry for the
