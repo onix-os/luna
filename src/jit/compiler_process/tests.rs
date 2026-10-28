@@ -278,7 +278,7 @@ fn embedded_pending_job_survives_cache_clear_off_polling_and_lua_teardown() {
             },
         )
         .unwrap();
-        child.fail_cleanup(100, 100);
+        child.fail_cleanup(usize::MAX, usize::MAX);
         ticket.retain(child);
     };
     spawn();
@@ -303,9 +303,68 @@ fn embedded_pending_job_survives_cache_clear_off_polling_and_lua_teardown() {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(1));
     }
+    let completion = supervisor.completion();
     drop(supervisor);
+    completion.join();
     assert_eq!(host.current(), 0);
     assert!(original > 0);
+}
+
+#[cfg(feature = "jit-worker-embedded")]
+#[test]
+fn embedded_last_lua_drop_disconnects_without_waiting_for_permanent_job_cleanup() {
+    let mut lua = crate::Lua::empty();
+    let supervisor = lua.enter(|ctx| ctx.jit().compiler_jobs()).unwrap();
+    let (host, metadata) = lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        (manager.host.clone(), manager.metadata.clone())
+    });
+    let ticket = supervisor.reserve().unwrap();
+    let (bytes, identity, _) = crate::jit::__worker_embedded_image().unwrap();
+    let image = crate::jit::compiler_image::Image::shared(
+        bytes,
+        identity,
+        512 << 20,
+        host.clone(),
+        metadata.clone(),
+    )
+    .ok()
+    .unwrap();
+    let admission = crate::jit::compiler_launch::Admission::new(image, 512 << 20).unwrap();
+    let mut child = crate::jit::compiler_launch::Child::spawn_owned(
+        admission,
+        crate::jit::compiler_launch::Limits {
+            address_space: 512 << 20,
+            cpu_seconds: 3,
+            stall: true,
+        },
+    )
+    .unwrap();
+    let faults = child.fail_cleanup(usize::MAX, usize::MAX);
+    ticket.retain(child);
+    drop(supervisor);
+    let (returned, observed) = std::sync::mpsc::sync_channel(1);
+    let (release, resume) = std::sync::mpsc::sync_channel(1);
+    let rescue = std::thread::spawn(move || {
+        let disconnected = observed.recv_timeout(Duration::from_secs(2)).is_ok();
+        if disconnected {
+            let _ = resume.recv_timeout(Duration::from_secs(5));
+        }
+        faults.reset(0, 0);
+        disconnected
+    });
+    drop(lua);
+    let pending = host.current();
+    let _ = returned.send(());
+    let _ = release.send(());
+    let disconnected = rescue.join().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.current() != 0 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(disconnected, "Lua destruction waited for denied cleanup");
+    assert!(pending >= 512 << 20);
 }
 
 #[test]

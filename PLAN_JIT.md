@@ -9,6 +9,70 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Independent compiler completion checkpoint — 2026-10-28
+
+A supervisor now starts an independent completion service before publishing its
+first reserved ticket, before any child can be admitted. An unused supervisor
+starts no thread. Foreground clients include tickets and restoring scopes; the
+service's metadata-charged queue ownership is not a client. Last-client drop
+only disconnects and unparks it: no queue lock, child destructor or process
+cleanup retry loop runs on that caller path. The service exits only after
+disconnect and confirmed completion of all retained jobs.
+
+Retained jobs wake the service even while Lua remains alive. It moves each job
+to an in-flight admission slot, performs cleanup and final child destruction
+outside the shared queue mutex, then returns or retires the actual owner.
+In-flight jobs still occupy capacity. Round-robin selection prevents a refused
+job starving another; failed retries are throttled, while idle service parks.
+Image, workspace and host charges remain with the real child throughout. No
+numeric-PID cleanup fallback, forgotten owner or GC reference in the service.
+
+Thirteen supervisor cases include start refusal/recovery, ticket/client versus
+passive receipt ownership, permanent cleanup refusal, independently blocked
+cleanup, fair progress without foreground polling, poison/resize/quotas and
+existing pinned cleanup. A new actual-Lua case drops its last client while a
+source-built embedded image/job remains permanently refused, observes live
+512 MiB admission charges after return, then permits recovery and verifies full
+refund without holding an extra queue receipt. Test-only shared fault controls
+let failed cases release their blocked jobs before asserting failure.
+
+Broad testing exposed a real statistics race: compaction attributed a concurrent
+completion-header refund to its own container. Map reporting now uses the safe
+existing hashbrown allocation layout; vector reporting uses its own capacity
+bytes. Three deterministic cases release/grow unrelated same-ledger storage
+during rehashing or keep other storage live. No counter is zeroed to hide this
+bug. The exact worker/in-process trace/counter/resource comparator remains;
+its final metadata sample waits read-only for retired service ownership to
+settle to the control's measured value, without rerunning VM work or fuel.
+
+Refined current source passes 197 focused GNU and 169 musl executions, including
+41 parallel launch/image/owner/supervisor cases and embedded producer/conformance
+95. All-feature Force reports 2,437 passed, zero failed and 29 ignores across
+95 summaries; its library passes 1,867 cases. Both Miri models pass seven scoped
+atomic-owner/reservation/compaction cases each; native service/kernel behavior
+is not claimed under Miri. Exact-parent scoped Memcheck passes 33 cases with
+zero errors or definite/indirect leaks. Full raw supervisor Memcheck remains
+failed 5 passed/8 failed under Valgrind 3.26's unsupported pidfd syscall 424;
+it terminates promptly, without suppression or acceptance waiver. i686 executes
+wire8/reservation3/compaction3 and checks all targets/features. The Miri recipe
+requires 67 logs, 27 propagated failures and 13 refused zero-model selections.
+Failed development/broad receipts and immutable earlier source remain retained.
+Evidence: `target/jit-evidence/compiler-completion/refined/`.
+
+This establishes independent supervised completion and removes the caller-side
+retry loop, not an unconditional wall-time guarantee under arbitrary kernel
+scheduling. Direct low-level Child destruction retains its synchronous safety
+fallback. Standard thread parent allocation, stack/TLS and trampoline-tail
+accounting are not yet fully admitted through BudgetAllocator; OS thread-start
+errors are fallible, but this is not accepted whole thread-runtime resource
+policy. Normal production native JIT already exists; optional worker routing
+remains test-selected. Preserve the original sections 1/4.5/4.6/4.7 distinction
+between controlled accounting, estimates and conditional hard isolation; do not
+invent universal RSS or real-time claims. Approved resource/deployment policy,
+remaining worker integration, original 69/816 performance failures and current
+platform/feature-size/release acceptance remain open. No benchmark, quota/
+threshold waiver, dependency, default Manager/config change, branch or worktree.
+
 ### Owned worker address-space checkpoint — 2026-10-28
 
 Owned launch now requires a non-cloneable admission pairing its shared compiler

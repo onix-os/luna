@@ -1,4 +1,11 @@
-use std::sync::{Mutex, MutexGuard};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex, MutexGuard, OnceLock,
+    },
+    thread::{JoinHandle, Thread},
+    time::Duration,
+};
 
 use allocator_api2::vec::Vec;
 
@@ -13,6 +20,7 @@ enum Slot {
     Empty,
     Reserved,
     Retained(Child<'static>),
+    InFlight(#[cfg(test)] Option<super::compiler_launch::CleanupFaults>),
 }
 
 struct Queue {
@@ -21,17 +29,6 @@ struct Queue {
 }
 
 impl Queue {
-    fn poll(&mut self) {
-        for slot in &mut self.slots {
-            if let Slot::Retained(child) = slot {
-                let _ = child.cleanup_once();
-                if child.finished() {
-                    *slot = Slot::Empty;
-                }
-            }
-        }
-    }
-
     fn occupied(&self) -> usize {
         self.slots
             .iter()
@@ -40,8 +37,126 @@ impl Queue {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct Supervisor(AtomicShared<Mutex<Queue>>);
+struct Shared {
+    queue: Mutex<Queue>,
+    clients: AtomicUsize,
+    wake: OnceLock<Thread>,
+    completion: Mutex<Option<JoinHandle<()>>>,
+}
+
+fn complete(shared: AtomicShared<Shared>) {
+    let mut next = 0;
+    loop {
+        let mut queue = shared
+            .queue
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let selected = (0..queue.slots.len())
+            .map(|offset| (next + offset) % queue.slots.len())
+            .find(|&index| matches!(queue.slots[index], Slot::Retained(_)));
+        let Some(index) = selected else {
+            let finished = shared.clients.load(Ordering::Acquire) == 0 && queue.occupied() == 0;
+            drop(queue);
+            if finished {
+                break;
+            }
+            std::thread::park();
+            continue;
+        };
+        #[cfg(test)]
+        let faults = match &queue.slots[index] {
+            Slot::Retained(child) => child.cleanup_faults(),
+            _ => unreachable!(),
+        };
+        let Slot::Retained(mut child) = std::mem::replace(
+            &mut queue.slots[index],
+            Slot::InFlight(
+                #[cfg(test)]
+                faults,
+            ),
+        ) else {
+            unreachable!()
+        };
+        next = (index + 1) % queue.slots.len();
+        drop(queue);
+        let _ = child.cleanup_once();
+        let pending = if child.finished() {
+            drop(child);
+            None
+        } else {
+            Some(child)
+        };
+        let finished = pending.is_none();
+        let mut queue = shared
+            .queue
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        queue.slots[index] = pending.map_or(Slot::Empty, Slot::Retained);
+        drop(queue);
+        if !finished {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_START: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn start(shared: AtomicShared<Shared>) -> std::io::Result<JoinHandle<()>> {
+    #[cfg(test)]
+    if FAIL_START.get() {
+        return Err(std::io::Error::from_raw_os_error(libc::EAGAIN));
+    }
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || complete(shared))
+}
+
+pub(crate) struct Supervisor(AtomicShared<Shared>);
+
+impl Clone for Supervisor {
+    fn clone(&self) -> Self {
+        let shared = self.0.clone();
+        shared
+            .clients
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_add(1)
+            })
+            .expect("compiler client count overflow");
+        Self(shared)
+    }
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) {
+        if self.0.clients.fetch_sub(1, Ordering::AcqRel) == 1 {
+            if let Some(wake) = self.0.wake.get() {
+                wake.unpark();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct Completion(AtomicShared<Shared>);
+
+#[cfg(test)]
+impl Completion {
+    pub fn join(self) {
+        assert_eq!(self.0.clients.load(Ordering::Acquire), 0);
+        let handle = self
+            .0
+            .completion
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(handle) = handle {
+            handle.join().unwrap();
+        }
+    }
+}
 
 impl Supervisor {
     pub fn new(maximum: usize, metadata: BudgetAllocator) -> Result<Self, JitError> {
@@ -53,25 +168,39 @@ impl Supervisor {
             .try_reserve_exact(maximum)
             .map_err(|_| JitError::ResourceLimit("compiler jobs metadata"))?;
         slots.resize_with(maximum, || Slot::Empty);
-        AtomicShared::try_new(
-            Mutex::new(Queue {
-                slots,
-                limit: maximum,
-            }),
+        let shared = AtomicShared::try_new(
+            Shared {
+                queue: Mutex::new(Queue {
+                    slots,
+                    limit: maximum,
+                }),
+                clients: AtomicUsize::new(1),
+                wake: OnceLock::new(),
+                completion: Mutex::new(None),
+            },
             metadata,
         )
-        .map(Self)
-        .map_err(|_| JitError::ResourceLimit("compiler jobs metadata"))
+        .map_err(|_| JitError::ResourceLimit("compiler jobs metadata"))?;
+        Ok(Self(shared))
     }
 
     fn lock(&self) -> MutexGuard<'_, Queue> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0
+            .queue
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    #[cfg(test)]
+    pub fn completion(&self) -> Completion {
+        Completion(self.0.clone())
     }
 
     pub fn poll(&self) -> usize {
-        let mut queue = self.lock();
-        queue.poll();
-        queue.occupied()
+        if let Some(wake) = self.0.wake.get() {
+            wake.unpark();
+        }
+        self.lock().occupied()
     }
 
     pub fn occupied(&self) -> usize {
@@ -91,8 +220,12 @@ impl Supervisor {
     #[cfg(test)]
     pub fn fail_cleanup(&self, signals: usize, waits: usize) {
         for slot in &mut self.lock().slots {
-            if let Slot::Retained(child) = slot {
-                child.fail_cleanup(signals, waits);
+            match slot {
+                Slot::Retained(child) => {
+                    child.fail_cleanup(signals, waits);
+                }
+                Slot::InFlight(Some(faults)) => faults.reset(signals, waits),
+                _ => {}
             }
         }
     }
@@ -116,7 +249,6 @@ impl Supervisor {
 
     pub(super) fn reserve(&self) -> Result<Ticket, JitError> {
         let mut queue = self.lock();
-        queue.poll();
         if queue.occupied() >= queue.limit {
             return Err(JitError::ResourceLimit("compiler job capacity"));
         }
@@ -125,6 +257,21 @@ impl Supervisor {
             .iter()
             .position(|slot| matches!(slot, Slot::Empty))
             .ok_or(JitError::ResourceLimit("compiler job capacity"))?;
+        if self.0.wake.get().is_none() {
+            let handle = start(self.0.clone())
+                .map_err(|_| JitError::ResourceLimit("compiler completion service"))?;
+            let wake = handle.thread().clone();
+            *self
+                .0
+                .completion
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(handle);
+            self.0
+                .wake
+                .set(wake)
+                .ok()
+                .expect("compiler wake already set");
+        }
         queue.slots[index] = Slot::Reserved;
         Ok(Ticket {
             supervisor: self.clone(),
@@ -146,6 +293,8 @@ impl Ticket {
         debug_assert!(matches!(queue.slots[self.index], Slot::Reserved));
         queue.slots[self.index] = Slot::Retained(child);
         self.reserved = false;
+        drop(queue);
+        self.supervisor.0.wake.get().unwrap().unpark();
     }
 }
 

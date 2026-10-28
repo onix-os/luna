@@ -13,7 +13,13 @@ fn allocators() -> (LedgerRef, BudgetAllocator) {
 }
 
 fn storage(maximum: usize) -> usize {
-    maximum * std::mem::size_of::<Slot>() + AtomicShared::<Mutex<Queue>>::allocation_bytes()
+    maximum * std::mem::size_of::<Slot>() + AtomicShared::<Shared>::allocation_bytes()
+}
+
+fn finish(supervisor: Supervisor) {
+    let completion = supervisor.completion();
+    drop(supervisor);
+    completion.join();
 }
 
 fn image(host: LedgerRef, metadata: BudgetAllocator) -> crate::jit::compiler_image::Owner {
@@ -53,6 +59,7 @@ fn budget_exact_slots_headers_ticket_rollback_and_reconfiguration() {
     let (host, metadata) = allocators();
     let baseline = host.accounted();
     let supervisor = Supervisor::new(2, metadata.clone()).unwrap();
+    assert!(supervisor.0.wake.get().is_none());
     supervisor.ensure_host(&host).unwrap();
     assert!(supervisor
         .ensure_host(&Ledger::try_host(65536).unwrap())
@@ -85,7 +92,7 @@ fn budget_exact_slots_headers_ticket_rollback_and_reconfiguration() {
         .collect::<std::vec::Vec<_>>();
     assert!(supervisor.reserve().is_err());
     drop(tickets);
-    drop(supervisor);
+    finish(supervisor);
     assert_eq!(host.accounted(), baseline);
     assert_eq!(metadata.0.current(), 0);
 }
@@ -118,7 +125,7 @@ fn budget_allocator_and_host_refusals_have_no_partial_supervisor() {
         host.set_limit(16 << 20);
         metadata.0.set_limit(1 << 20);
         metadata.0.fail_after(usize::MAX);
-        drop(Supervisor::new(2, metadata.clone()).unwrap());
+        finish(Supervisor::new(2, metadata.clone()).unwrap());
         assert_eq!(host.accounted(), baseline);
     }
     let (_, metadata) = allocators();
@@ -155,7 +162,7 @@ fn budget_scope_restores_nested_and_unwinding_supervisors() {
     }));
     assert!(poisoned.is_err());
     drop(supervisor.reserve().unwrap());
-    drop(supervisor);
+    finish(supervisor);
     assert_eq!(host.accounted(), baseline);
 }
 
@@ -173,7 +180,7 @@ fn native_failed_cleanup_retains_image_charges_and_exhausts_admission_until_reco
     let before = fds();
     let ticket = supervisor.reserve().unwrap();
     let mut child = child(host.clone(), metadata.clone(), true);
-    child.fail_cleanup(100, 100);
+    child.fail_cleanup(usize::MAX, usize::MAX);
     let charged = host.accounted();
     assert_eq!(
         charged,
@@ -192,6 +199,7 @@ fn native_failed_cleanup_retains_image_charges_and_exhausts_admission_until_reco
     assert_eq!(host.accounted(), baseline);
     assert_eq!(fds(), before);
     drop(supervisor.reserve().unwrap());
+    finish(supervisor);
 }
 
 #[test]
@@ -206,13 +214,14 @@ fn native_wait_refusal_keeps_an_exited_image_owned_until_confirmed_reap() {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(1));
     }
-    child.fail_cleanup(0, 100);
+    child.fail_cleanup(0, usize::MAX);
     ticket.retain(child);
     assert_eq!(supervisor.poll(), 1);
     assert!(host.accounted() > baseline);
     supervisor.fail_cleanup(0, 0);
     drain(&supervisor);
     assert_eq!(host.accounted(), baseline);
+    finish(supervisor);
 }
 
 #[test]
@@ -231,7 +240,7 @@ fn native_final_supervisor_drop_finishes_cleanup_before_releasing_storage() {
     let mut child = child(host.clone(), metadata.clone(), true);
     child.fail_cleanup(2, 2);
     ticket.retain(child);
-    drop(supervisor);
+    finish(supervisor);
     assert_eq!(host.accounted(), baseline);
     assert_eq!(fds(), before);
 }
@@ -274,7 +283,7 @@ fn native_concurrent_owned_children_respect_one_shared_slot_bound() {
             scope.spawn(move || {
                 let ticket = supervisor.reserve().unwrap();
                 let mut child = child(host.clone(), metadata.clone(), true);
-                child.fail_cleanup(100, 100);
+                child.fail_cleanup(usize::MAX, usize::MAX);
                 ticket.retain(child);
             });
         }
@@ -284,4 +293,143 @@ fn native_concurrent_owned_children_respect_one_shared_slot_bound() {
     supervisor.fail_cleanup(0, 0);
     drain(&supervisor);
     assert_eq!(host.accounted(), baseline);
+    finish(supervisor);
+}
+
+#[test]
+fn budget_completion_start_refusal_rolls_back_then_recovers() {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FAIL_START.set(self.0);
+        }
+    }
+    let (host, metadata) = allocators();
+    let baseline = host.accounted();
+    let supervisor = Supervisor::new(1, metadata.clone()).unwrap();
+    let admitted = host.accounted();
+    let restore = Restore(FAIL_START.replace(true));
+    for _ in 0..2 {
+        assert!(matches!(
+            supervisor.reserve(),
+            Err(JitError::ResourceLimit("compiler completion service"))
+        ));
+        assert_eq!(host.accounted(), admitted);
+        assert_eq!(supervisor.occupied(), 0);
+        assert!(supervisor.0.wake.get().is_none());
+    }
+    drop(restore);
+    drop(supervisor.reserve().unwrap());
+    finish(supervisor);
+    assert_eq!(host.accounted(), baseline);
+}
+
+#[test]
+fn budget_tickets_are_clients_but_completion_receipts_are_not() {
+    let (host, metadata) = allocators();
+    let baseline = host.accounted();
+    let supervisor = Supervisor::new(1, metadata.clone()).unwrap();
+    let completion = supervisor.completion();
+    let ticket = supervisor.reserve().unwrap();
+    drop(supervisor);
+    assert_eq!(completion.0.clients.load(Ordering::Acquire), 1);
+    assert_eq!(completion.0.queue.lock().unwrap().occupied(), 1);
+    drop(ticket);
+    completion.join();
+    assert_eq!(host.accounted(), baseline);
+}
+
+#[test]
+fn native_last_client_drop_returns_with_live_charges_under_permanent_cleanup_refusal() {
+    let (host, metadata) = allocators();
+    let baseline = host.accounted();
+    let supervisor = Supervisor::new(1, metadata.clone()).unwrap();
+    let ticket = supervisor.reserve().unwrap();
+    let mut child = child(host.clone(), metadata.clone(), true);
+    let faults = child.fail_cleanup(usize::MAX, usize::MAX);
+    ticket.retain(child);
+    let charged = host.accounted();
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    let dropping = std::thread::spawn(move || {
+        drop(supervisor);
+        send.send(()).unwrap();
+    });
+    let returned = receive.recv_timeout(Duration::from_secs(2)).is_ok();
+    let retained = host.accounted();
+    faults.reset(0, 0);
+    dropping.join().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.accounted() != baseline {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(returned, "caller drop waited for denied cleanup");
+    assert_eq!(retained, charged);
+}
+
+#[test]
+fn native_completion_is_fair_and_progresses_without_foreground_polling() {
+    let (host, metadata) = allocators();
+    let baseline = host.accounted();
+    let supervisor = Supervisor::new(2, metadata.clone()).unwrap();
+    let one = supervisor.reserve().unwrap();
+    let mut blocked = child(host.clone(), metadata.clone(), true);
+    let faults = blocked.fail_cleanup(usize::MAX, usize::MAX);
+    one.retain(blocked);
+    let retained = host.accounted();
+    let two = supervisor.reserve().unwrap();
+    two.retain(child(host.clone(), metadata.clone(), false));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (host.accounted() != retained || supervisor.occupied() != 1) && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let progressed = host.accounted() == retained && supervisor.occupied() == 1;
+    faults.reset(0, 0);
+    finish(supervisor);
+    assert!(
+        progressed,
+        "refused job starved a second job or required a foreground poll"
+    );
+    assert_eq!(host.accounted(), baseline);
+}
+
+#[test]
+fn native_blocked_cleanup_keeps_capacity_without_holding_the_queue_or_caller() {
+    let (host, metadata) = allocators();
+    let baseline = host.accounted();
+    let supervisor = Supervisor::new(1, metadata.clone()).unwrap();
+    let ticket = supervisor.reserve().unwrap();
+    let mut job = child(host.clone(), metadata.clone(), true);
+    let faults = job.fail_cleanup(0, 0);
+    faults.pause();
+    ticket.retain(job);
+    let charged = host.accounted();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !faults.entered() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let entered = faults.entered();
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    let dropping = std::thread::spawn(move || {
+        let occupied = supervisor.poll();
+        let refused = matches!(
+            supervisor.reserve(),
+            Err(JitError::ResourceLimit("compiler job capacity"))
+        );
+        drop(supervisor);
+        let _ = send.send((occupied, refused));
+    });
+    let returned = receive.recv_timeout(Duration::from_secs(2)).ok();
+    let retained = host.accounted();
+    faults.resume();
+    dropping.join().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.accounted() != baseline {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(entered, "service did not enter cleanup");
+    assert_eq!(returned, Some((1, true)));
+    assert_eq!(retained, charged);
 }

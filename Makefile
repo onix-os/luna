@@ -117,6 +117,13 @@ table-capacity-miri:
 .PHONY: jit-compiler-image
 .PHONY: jit-error-publication jit-error-publication-miri
 .PHONY: jit-workspace-reservation jit-worker-workspace jit-worker-workspace-miri
+.PHONY: jit-compaction-delta jit-compaction-delta-miri
+jit-compaction-delta:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::resources::compaction_delta_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-compaction-delta-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::compaction_delta_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 jit-workspace-reservation:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::resources::reservation_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
@@ -133,14 +140,14 @@ jit-error-publication-miri:
 	@set -eu -o pipefail; for spec in 'jit::global_box::string_tests:5' 'jit::compiler_reply::publication_tests:4'; do filter=$${spec%:*}; count=$${spec##*:}; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; done
 .PHONY: jit-compiler-jobs
 jit-compiler-jobs:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_jobs::tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_jobs::tests -- --test-threads=1 | awk '/^test result: ok[.] 13 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 .PHONY: jit-compiler-image-owner
 jit-compiler-image-owner:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_image::owner_tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 .PHONY: jit-compiler-launch jit-compiler-launch-probe
 .PHONY: jit-compiler-fd-isolation
 jit-compiler-fd-isolation: jit-compiler-launch-probe
-	@set -eu -o pipefail; for spec in 'jit::compiler_launch::tests:11' 'jit::compiler_image:::17' 'jit::compiler_jobs::tests:8'; do filter=$${spec%:*}; count=$${spec##*:}; LUNA_LAUNCH_PROBE='$(TOP_DIR)/target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe' $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) "$$filter" -- --include-ignored --test-threads=16 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; done
+	@set -eu -o pipefail; for spec in 'jit::compiler_launch::tests:11' 'jit::compiler_image:::17' 'jit::compiler_jobs::tests:13'; do filter=$${spec%:*}; count=$${spec##*:}; LUNA_LAUNCH_PROBE='$(TOP_DIR)/target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe' $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) "$$filter" -- --include-ignored --test-threads=16 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; done
 
 jit-compiler-launch-probe:
 	@mkdir -p 'target/launch-probe/$(if $(TARGET),$(TARGET),host)'
@@ -153,7 +160,7 @@ jit-worker-build-tests:
 	@set -o pipefail; $(CARGO) test --locked -p luna-jit-embed --lib | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-worker-embedded: jit-worker-build-tests
-	@set -eu -o pipefail; for spec in 'jit::embedded_worker::tests:1' 'jit::compiler_image::tests:9' 'jit::compiler_process::tests:19' 'jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent:1' 'jit::backend::artifact::assemble::tests:4' 'worker_artifact_:12' 'jit::backend::artifact:::42'; do \
+	@set -eu -o pipefail; for spec in 'jit::embedded_worker::tests:1' 'jit::compiler_image::tests:9' 'jit::compiler_process::tests:20' 'jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent:1' 'jit::backend::artifact::assemble::tests:4' 'worker_artifact_:12' 'jit::backend::artifact:::42'; do \
 		filter=$${spec%:*}; count=$${spec##*:}; \
 		env -u LUNA_JIT_WORKER_IMAGE $(CARGO) test --locked -p luna --features jit-worker-embedded --lib $(TARGET_ARG) "$$filter" -- --test-threads=1 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; \
 	done
@@ -414,6 +421,7 @@ jit-miri:
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-reply-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_reply-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-error-publication-miri 2>&1 | tee '$(MIRI_DIR)/jit-error-publication.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-worker-workspace-miri 2>&1 | tee '$(MIRI_DIR)/jit-worker-workspace.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-compaction-delta-miri 2>&1 | tee '$(MIRI_DIR)/jit-compaction-delta.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-stream-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_stream-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-artifact-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-wire-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-artifact-linker-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-link-tests.log'
@@ -440,7 +448,7 @@ jit-platform:
 	if test "$$(uname -sm)" != "Linux $$arch"; then \
 		echo "Native gate requires Linux $$arch hardware, not a cross-build" >&2; exit 2; \
 	fi
-	@$(MAKE) --no-print-directory environment jit-verify jit-error-publication jit-worker-workspace jit-compiler-fd-isolation jit-compiler-launch jit-compiler-image-owner jit-compiler-jobs jit-worker-conformance jit-example jit-disassembly
+	@$(MAKE) --no-print-directory environment jit-verify jit-error-publication jit-worker-workspace jit-compaction-delta jit-compiler-fd-isolation jit-compiler-launch jit-compiler-image-owner jit-compiler-jobs jit-worker-conformance jit-example jit-disassembly
 
 jit-evidence:
 	@mkdir -p target/jit-evidence

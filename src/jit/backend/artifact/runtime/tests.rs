@@ -3,7 +3,7 @@ use crate::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMod
 
 #[test]
 fn worker_artifact_matches_in_process_frames_counters_and_live_resources() {
-    let run = |worker: bool, scenario: u8, budget: i32| {
+    let run = |worker: bool, scenario: u8, budget: i32, expected_metadata: Option<usize>| {
         with_enabled(worker, || {
             crate::jit::readonly_lookup::binding::integer_resume::with_enabled(true, || {
                 let mut lua = Lua::empty();
@@ -49,6 +49,13 @@ fn worker_artifact_matches_in_process_frames_counters_and_live_resources() {
                 }
                 assert!(finished);
                 let result = lua.execute::<f64>(&executor).unwrap().to_bits();
+                if let Some(expected) = expected_metadata {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    while lua.jit_stats().metadata_bytes != expected {
+                        assert!(std::time::Instant::now() < deadline, "compiler completion metadata did not settle");
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
                 let mut stats: JitStats = lua.jit_stats();
                 assert!(stats.native_instructions > 0 && stats.installed_regions > 0);
                 stats.snapshot_peak_bytes = 0;
@@ -67,8 +74,8 @@ fn worker_artifact_matches_in_process_frames_counters_and_live_resources() {
     };
     for scenario in 0..5 {
         for budget in [1, 2, 64, 65, 1024] {
-            let control = run(false, scenario, budget);
-            let candidate = run(true, scenario, budget);
+            let control = run(false, scenario, budget, None);
+            let candidate = run(true, scenario, budget, Some(control.0 .2.metadata_bytes));
             assert_eq!(control.1, 0);
             assert!(candidate.1 > 0);
             assert_eq!(
