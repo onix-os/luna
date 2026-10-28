@@ -99,9 +99,51 @@ pub(super) struct Child<'a> {
     reaped: bool,
     _image: Lease<'a>,
     #[cfg(test)]
-    kill_failures: usize,
-    #[cfg(test)]
-    wait_failures: usize,
+    cleanup_faults: Option<CleanupFaults>,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(super) struct CleanupFaults(std::sync::Arc<[std::sync::atomic::AtomicUsize; 4]>);
+
+#[cfg(test)]
+impl CleanupFaults {
+    pub fn reset(&self, signals: usize, waits: usize) {
+        use std::sync::atomic::Ordering;
+        self.0[0].store(signals, Ordering::Relaxed);
+        self.0[1].store(waits, Ordering::Relaxed);
+    }
+
+    fn consume(&self, kind: usize) -> bool {
+        use std::sync::atomic::Ordering;
+        self.0[kind]
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_sub(1)
+            })
+            .is_ok()
+    }
+
+    pub fn pause(&self) {
+        self.0[2].store(1, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn resume(&self) {
+        self.0[2].store(0, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn entered(&self) -> bool {
+        self.0[3].load(std::sync::atomic::Ordering::Acquire) != 0
+    }
+
+    fn wait(&self) {
+        use std::sync::atomic::Ordering;
+        if self.0[2].load(Ordering::Acquire) != 0 {
+            self.0[3].store(1, Ordering::Release);
+            while self.0[2].load(Ordering::Acquire) != 0 {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+    }
 }
 
 enum Lease<'a> {
@@ -422,9 +464,7 @@ impl<'a> Child<'a> {
             reaped: false,
             _image: image,
             #[cfg(test)]
-            kill_failures: 0,
-            #[cfg(test)]
-            wait_failures: 0,
+            cleanup_faults: None,
         };
         mask.restore()?;
         Ok(value)
@@ -511,15 +551,31 @@ impl<'a> Child<'a> {
     }
 
     #[cfg(test)]
-    pub fn fail_cleanup(&mut self, signals: usize, waits: usize) {
-        self.kill_failures = signals;
-        self.wait_failures = waits;
+    pub fn fail_cleanup(&mut self, signals: usize, waits: usize) -> CleanupFaults {
+        let faults = self.cleanup_faults.get_or_insert_with(|| {
+            CleanupFaults(std::sync::Arc::new([
+                std::sync::atomic::AtomicUsize::new(0),
+                std::sync::atomic::AtomicUsize::new(0),
+                std::sync::atomic::AtomicUsize::new(0),
+                std::sync::atomic::AtomicUsize::new(0),
+            ]))
+        });
+        faults.reset(signals, waits);
+        faults.clone()
+    }
+
+    #[cfg(test)]
+    pub fn cleanup_faults(&self) -> Option<CleanupFaults> {
+        self.cleanup_faults.clone()
     }
 
     fn signal(&mut self) -> io::Result<()> {
         #[cfg(test)]
-        if self.kill_failures != 0 {
-            self.kill_failures -= 1;
+        if self
+            .cleanup_faults
+            .as_ref()
+            .is_some_and(|faults| faults.consume(0))
+        {
             return Err(io::Error::from_raw_os_error(libc::EIO));
         }
         if unsafe {
@@ -554,8 +610,11 @@ impl<'a> Child<'a> {
 
     fn reap(&mut self) -> io::Result<Option<ExitStatus>> {
         #[cfg(test)]
-        if self.wait_failures != 0 {
-            self.wait_failures -= 1;
+        if self
+            .cleanup_faults
+            .as_ref()
+            .is_some_and(|faults| faults.consume(1))
+        {
             return Err(io::Error::from_raw_os_error(libc::EIO));
         }
         match self.observe(libc::WNOHANG) {
@@ -574,6 +633,10 @@ impl<'a> Child<'a> {
     pub fn cleanup_once(&mut self) -> io::Result<Option<ExitStatus>> {
         if self.reaped {
             return Err(io::Error::from_raw_os_error(libc::ECHILD));
+        }
+        #[cfg(test)]
+        if let Some(faults) = &self.cleanup_faults {
+            faults.wait();
         }
         let signal = self.signal();
         match self.reap() {
