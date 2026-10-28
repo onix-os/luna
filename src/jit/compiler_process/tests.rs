@@ -10,8 +10,7 @@ use std::os::unix::process::ExitStatusExt;
 const CHILD: &str = "LUNA_COMPILER_PROCESS_FIXTURE";
 
 struct Deployment {
-    file: std::fs::File,
-    identity: [u8; 32],
+    image: crate::jit::compiler_image::Image,
 }
 
 fn deployment() -> Result<Option<&'static Deployment>, crate::jit::compiler_request::Error> {
@@ -25,13 +24,44 @@ fn deployment() -> Result<Option<&'static Deployment>, crate::jit::compiler_requ
     let mut file =
         std::fs::File::open(path).map_err(|_| crate::jit::compiler_request::Error::Io)?;
     let identity = crate::jit::compiler_request::image_identity(&mut file, 512 << 20)?;
-    let _ = IMAGE.set(Deployment { file, identity });
+    use std::io::{Seek, SeekFrom};
+    let length = usize::try_from(
+        file.metadata()
+            .map_err(|_| crate::jit::compiler_request::Error::Io)?
+            .len(),
+    )
+    .map_err(|_| crate::jit::compiler_request::Error::Limit)?;
+    if length == 0 || length > 512 << 20 {
+        return Err(crate::jit::compiler_request::Error::Limit);
+    }
+    let ledger = Ledger::try_host(1025 << 20)
+        .map_err(|_| crate::jit::compiler_request::Error::Allocation)?;
+    let mut bytes = Vec::new_in(BudgetAllocator(ledger.clone()));
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| crate::jit::compiler_request::Error::Allocation)?;
+    bytes.resize(length, 0);
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| crate::jit::compiler_request::Error::Io)?;
+    file.read_exact(&mut bytes)
+        .map_err(|_| crate::jit::compiler_request::Error::Io)?;
+    let mut tail = [0];
+    if file
+        .read(&mut tail)
+        .map_err(|_| crate::jit::compiler_request::Error::Io)?
+        != 0
+    {
+        return Err(crate::jit::compiler_request::Error::Identity);
+    }
+    let image = crate::jit::compiler_image::Image::new(&bytes, &identity, 512 << 20, ledger)
+        .map_err(|_| crate::jit::compiler_request::Error::Identity)?;
+    let _ = IMAGE.set(Deployment { image });
     Ok(IMAGE.get())
 }
 
 fn compiler_identity() -> Result<[u8; 32], crate::jit::compiler_request::Error> {
     deployment()?.map_or_else(crate::jit::compiler_request::worker_identity, |image| {
-        Ok(image.identity)
+        Ok(*image.image.identity())
     })
 }
 
@@ -73,7 +103,7 @@ fn command(mode: &str) -> Command {
     COMMANDS.set(COMMANDS.get().saturating_add(1));
     if mode == "artifact" {
         if let Some(image) = deployment().unwrap() {
-            return Command::new(format!("/proc/self/fd/{}", image.file.as_raw_fd()));
+            return Command::new(format!("/proc/self/fd/{}", image.image.as_raw_fd()));
         }
     }
     let mut command = Command::new(std::env::current_exe().unwrap());

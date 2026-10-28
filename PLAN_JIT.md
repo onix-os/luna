@@ -9,6 +9,50 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Immutable compiler image checkpoint — 2026-10-28
+
+An internal `compiler_image::Image` now materializes caller-owned immutable bytes
+into a private executable memfd. Its explicit byte cap, checked page rounding,
+existing host-ledger reservation and exact expected image identity precede file
+creation. Copying uses bounded chunks with fixed error classes; content/length
+seals are applied and verified before the descriptor is exposed. Executable-mode
+sealing is used when supported, with content/length sealing retained on older
+kernels. Descriptor closure precedes reservation release on drop. The eventual
+supervisor must retain the owner until every child image reference is gone.
+
+File-size refusal uses a thread-scoped SIGXFSZ mask, not a process-global signal
+handler. Newly generated refusal signals are consumed without losing preexisting
+pending state, and the calling thread's original mask is restored. Native tests
+exercise successful bytes/hash/seals, write/truncate/shared-write refusal, exact
+quotas, overlapping images, lowered limits, failed identity, descriptor cleanup,
+thread transfer and zero-file-size/descriptor-limit refusal. The child-refusal
+test requires bounded output, a unique completion receipt and one successful
+child test; a zero-test subprocess exit cannot satisfy it.
+
+The actual-helper conformance selector now executes from this sealed descriptor
+instead of merely holding an open mutable file. File loading/environment selection
+remain test-only; the materializer accepts bytes rather than opening a deployment
+path. The module builds with the existing internal bootstrap feature, not normal
+JIT/default routing. Public APIs and dependency manifests are unchanged. Evidence:
+`target/jit-evidence/sealed-worker-image/`, including retained development/refined
+receipt-framing failures and frozen initial/refined qualification witnesses.
+
+Final native materialization9 and real producer73 pass on both GNU and musl.
+Root checks separately pass materialization9 plus static/default producer73each.
+Refined related validation passes491executions/30summaries with one existing
+dump ignore. Parent Memcheck passes39cases/four runs with zero errors or
+definite/indirect leaks;48possible bytes remain in each run,544reachable for
+materialization and744reachable for each actual-helper parent run. Children are
+untraced. Initial i686check-all/codec8 passes; no memfd support is claimed there.
+
+This is a verified materialization primitive, not source-built embedded delivery
+or selected production routing. Page-rounded payload charging does not account
+for all kernel object overhead or prove a hard wall deadline. Whole parent
+allocation/error policy, launch/cancellation/reaping/admission, original69/816
+failed performance gates and full platform/resource/feature-size/release
+acceptance remain open. No benchmark, threshold/quota waiver or branch/worktree
+change accompanies it; no memfd/codegen execution is claimed under Miri.
+
 ### Static GNU producer checkpoint — 2026-10-28
 
 `make jit-worker-conformance WORKER_STATIC_GNU=true` now builds a target-matched

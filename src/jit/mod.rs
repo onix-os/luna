@@ -98,6 +98,13 @@ pub(crate) mod chains;
 ))]
 mod code_index;
 #[cfg(all(
+    any(test, feature = "jit-worker-bootstrap"),
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod compiler_image;
+#[cfg(all(
     test,
     not(miri),
     target_os = "linux",
