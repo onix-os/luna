@@ -768,6 +768,9 @@ fn request_packet_inner(
         )
         .map_err(|_| crate::JitError::ResourceLimit("compiler request identities"))?;
     let workspace = snapshot.operations.allocator().clone();
+    let publication = host
+        .as_ref()
+        .map_or_else(|| workspace.clone(), |(_, metadata)| metadata.clone());
     let source = wire::encode(snapshot, wire_limits(), workspace.clone())
         .map_err(|_| crate::JitError::ResourceLimit("compiler request snapshot"))?;
     let environment =
@@ -881,7 +884,7 @@ fn request_packet_inner(
     Ok(Packet {
         source,
         bytes: crate::jit::compiler_reply::Artifact::new(receipt.bytes, request, &build)
-            .map_err(reply_error)?,
+            .map_err(|failure| failure.into_public(publication))?,
         environment,
         request,
         build,
@@ -1003,14 +1006,14 @@ fn successful_but_malformed_workers_are_not_valid_compiler_refusals() {
     for mode in ["empty-reply", "bad-reply"] {
         let output = allocator();
         let ledger = output.0.clone();
-        let receipt = run(command(mode), &[], limits(), output).unwrap();
+        let receipt = run(command(mode), &[], limits(), output.clone()).unwrap();
         reaped(receipt.pid);
         let fault = reply::Artifact::new(receipt.bytes, 1, &[0; 32])
             .err()
             .unwrap();
         assert!(matches!(fault, reply::Failure::Protocol(_)));
         assert!(matches!(
-            reply_error(fault),
+            fault.into_public(output.clone()),
             crate::JitError::Unavailable("compiler response protocol")
         ));
         assert_eq!(ledger.current(), 0);

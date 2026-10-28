@@ -9,6 +9,49 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Fallible worker-error publication checkpoint — 2026-10-28
+
+Worker failure conversion preserves `JitError::Compilation(String)` and every
+existing class/stage label. Compilation labels are admitted through the explicit
+metadata allocator under a 32-byte cap, then transferred from their Global-backed
+buffer to String without a second allocation or copy. Quota/allocation refusal
+returns the allocation-free `ResourceLimit("compiler error publication")`.
+Protocol failures and non-Compilation categories remain allocation-free. The
+host-aware request adapter uses the real metadata domain; legacy fixtures retain
+their explicit workspace domain. No public enum, wire ABI, dependency, resource
+quota, normal runtime selector or Manager layout changes accompany this step.
+
+The construction charge is released at explicit public-error ownership transfer.
+The resulting String belongs to the Rust caller, which may retain, destructure
+or grow it after Lua destruction. This is not JIT-retained storage and does not
+claim that Lua's ceiling accounts arbitrary caller-owned memory. Before export,
+the helper's separate charge remains live and the String must not grow.
+
+Nine focused cases cover exact UTF-8 capacities, cap/empty cases, host/metadata/
+underlying allocation refusal and explicit recovery, unwinding, ownership past
+Lua destruction, every class/stage mapping and authenticated failure versus
+protocol corruption. Both Miri borrow models pass all nine. GNU qualification
+passes 155 focused executions, musl 138 and the rebuilt checkout 111, including
+the real embedded process 19 and embedding/build-tool 94. i686 checks all targets/
+features and eight portable wire cases; native-only publication modules are not
+built there. Parent Memcheck passes the nine pure publication/string cases with
+zero memory errors or definite/indirect leaks; this does not replace the retained
+failed raw pidfd gates. The Miri recipe fixture now checks 65 logs, propagates 25
+failures and refuses 11 zero-model results. Initial fixture/toolchain/count
+failures remain recorded. Evidence: `target/jit-evidence/error-publication/`.
+
+The subsequent broad gate exposed process-wide descriptor-count assertions
+racing other concurrently executing tests. Focused serial qualification did
+not expose this. That broad failure remains retained; isolated-process fixture
+repair and another complete broad gate are required before accepting it.
+
+This closes the worker reply conversion gap, not every in-process backend error
+formatting site or full JIT acceptance. Bounded final teardown, whole kernel/
+workspace accounting, external cancellation/descendant policy, normal production
+work/format/routing, original 69/816 performance failures and full platform/
+resource/feature-size/release acceptance remain open. No benchmark, threshold
+waiver, branch or worktree was added; production routing remains unselected.
+
 ### Retained compiler-job checkpoint — 2026-10-28
 
 An owned native child now carries its own shared image lease. The embedded

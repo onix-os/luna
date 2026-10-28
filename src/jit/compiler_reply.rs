@@ -4,6 +4,8 @@ use sha2::{Digest, Sha256};
 use super::{resources::BudgetAllocator, JitError};
 
 #[cfg(test)]
+mod publication_tests;
+#[cfg(test)]
 mod tests;
 
 const MAGIC: &[u8; 8] = b"LUNARES\0";
@@ -180,6 +182,29 @@ pub(super) fn decode<'a>(
 pub(super) enum Failure {
     Protocol(Error),
     Worker(Fault),
+}
+
+impl Failure {
+    pub fn into_public(self, allocator: BudgetAllocator) -> JitError {
+        match self {
+            Self::Protocol(_) => JitError::Unavailable("compiler response protocol"),
+            Self::Worker(fault) => match fault.class {
+                Class::Resource => JitError::ResourceLimit(fault.label()),
+                Class::Unavailable | Class::Rejected => JitError::Unavailable(fault.label()),
+                Class::Configuration => JitError::InvalidConfiguration(fault.label()),
+                Class::Compilation => {
+                    let (text, charge) =
+                        match super::global_box::try_string(fault.label(), 32, allocator) {
+                            Ok(value) => value,
+                            Err(_) => return JitError::ResourceLimit("compiler error publication"),
+                        };
+                    let error = JitError::Compilation(text);
+                    drop(charge);
+                    error
+                }
+            },
+        }
+    }
 }
 
 pub(super) struct Artifact(Vec<u8, BudgetAllocator>);

@@ -30,19 +30,6 @@ impl Packet {
     }
 }
 
-fn reply_error(failure: super::compiler_reply::Failure) -> super::JitError {
-    use super::compiler_reply::{Class, Failure};
-    match failure {
-        Failure::Protocol(_) => super::JitError::Unavailable("compiler response protocol"),
-        Failure::Worker(fault) => match fault.class {
-            Class::Resource => super::JitError::ResourceLimit(fault.label()),
-            Class::Unavailable | Class::Rejected => super::JitError::Unavailable(fault.label()),
-            Class::Configuration => super::JitError::InvalidConfiguration(fault.label()),
-            Class::Compilation => super::JitError::Compilation(fault.label().into()),
-        },
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Limits {
     request: usize,
