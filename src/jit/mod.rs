@@ -104,6 +104,13 @@ mod code_index;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_image;
+#[cfg(all(
+    any(test, feature = "jit-worker-bootstrap"),
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod compiler_launch;
 #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
 mod embedded_worker;
 
