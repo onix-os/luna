@@ -9,6 +9,39 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Resume-loan trial and retained feature-size audit — 2026-10-28
+
+An isolated integer-resume candidate replaced the write-only external loop
+index's integer loan with explicit canonical output. It preserves the 88-byte
+private view, actual input guards, source grammar, fresh binding checks, budget
+boundaries and source-derived worker ABI identity. Focused qualification passes
+118 executions, including real native/artifact comparisons, plus five pure
+cases each under default and Tree Borrows Miri with verified source/flags.
+
+Whole-case profiling rejects it before elapsed testing: three callback Auto
+observations save only 96/96/15 instructions (about 0.0001%); Off is unchanged.
+In the first pair the Rust boundary adds 239,260 self instructions while the
+generated/unresolved-address bucket removes 239,356. Fewer input loans merely
+relocate work into publication/validation. No runtime adoption, shipping trial,
+unchanged elapsed retry or mask/layout/inline rescue follows.
+
+The retained runtime's canonical feature-cost probes now have source-bound
+static size and locked normal-dependency receipts for both original profiles:
+
+| Profile | No-JIT file bytes | JIT-enabled file bytes | Added bytes |
+| --- | ---: | ---: | ---: |
+| Speed, opt3 | 1,437,632 | 7,378,800 | 5,941,168 |
+| Shipping, opts | 1,153,800 | 4,823,744 | 3,669,944 |
+
+These are stripped LTO/CGU1 GNU x86-64 artifact measurements, not RSS, universal
+package size or runtime-cost acceptance. Normal default dependencies exclude
+the native compiler/icache/mapping packages; jit-only excludes optional worker
+bootstrap packages. The report checks two valid/restored datasets and rejects
+eight corruptions. The original 5% disabled-runtime ceiling and 69/816 failed
+gates remain unaccepted; full resource/platform/feature-cost/release scope is
+unchanged. Evidence: `target/jit-evidence/resume-loan-admission/RESULTS.md`,
+`profile-report.json` and `retained-size.json`. Production runtime is unchanged.
+
 ### Typed string fallback performance trial — 2026-10-28
 
 An isolated current-source candidate reused the existing prepared-string probe
