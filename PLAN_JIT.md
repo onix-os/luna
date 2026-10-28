@@ -9,6 +9,45 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Transaction-owned compiler image checkpoint — 2026-10-28
+
+The embedded actual-Lua Runtime conformance path now admits a fresh shared image
+against the real compilation host ledger. Its page-rounded payload uses host
+headroom; the complete AtomicShared refcount/allocator/value allocation uses the
+existing metadata allocator and cap. Both allocators must reach the same host
+root. Ordinary quota refusal, underlying owner-allocation failure, overlapping
+owners and final-clone destruction retain exact charges and reclaim descriptors.
+
+Source/target/work/request encoding and binding precede image materialization.
+The local owner remains alive through borrowing-child supervision and is dropped
+after confirmed successful reaping, before the independent artifact packet is
+returned. Clones preserve ownership across cache clearing, Lua destruction and
+thread handoff. Live charges appear in public accounted_memory/JIT diagnostics,
+not installed-code counters. The embedded host-aware request path does not use
+the global fixture image; legacy external/libtest deployment selection remains
+test-only. No Manager field, new image cache, default compiled-Off storage,
+dependency change or higher production resource quota accompanies this step.
+
+Eight owner models pass on GNU and musl, including exact host/metadata ceilings,
+underlying allocation denial, unrelated-root refusal, lifetime and recovery.
+A real source-built helper case proves Lua host refusal and metadata allocation
+refusal both precede spawn, then succeeds after headroom/fault recovery and
+releases image charges. Embedded process conformance now runs 17 cases and the
+full embedding gate 92 including build-tool tests. Source qualification passes
+127 GNU and 111 musl executions; root separately passes 100. Parent Memcheck
+passes owner 8 plus materializer 9 with zero errors/definite-indirect leaks;
+these do not replace the retained failed pidfd launcher instrumentation gates.
+Evidence: target/jit-evidence/worker-image-owner/.
+
+Normal production routing remains unselected. Successful reaping and ordinary
+refusal coverage do not certify ownership when cleanup itself fails or host
+sandbox/credential policy changes: that supervisor boundary remains required
+before production selection. Kernel object accounting, cancellation/concurrency/
+descendant cleanup, bounded public error publication, remaining format/routes,
+original 69/816 performance failures and full platform/resource/feature-size/
+release acceptance remain open. Per-request image-copy cost is unmeasured; no
+benchmark, threshold waiver, branch or worktree was added.
+
 ### Identity-safe compiler launch checkpoint — 2026-10-28
 
 Actual-helper conformance now launches the sealed image with a borrowed-lifetime

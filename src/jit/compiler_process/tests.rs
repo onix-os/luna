@@ -624,6 +624,33 @@ pub(in crate::jit) fn request_packet(
     resume: bool,
     requested_work: work::Limits,
 ) -> Result<Packet, crate::JitError> {
+    request_packet_inner(snapshot, route, resume, requested_work, None)
+}
+
+pub(in crate::jit) fn request_packet_in(
+    snapshot: &Snapshot,
+    route: backend::artifact::Route,
+    resume: bool,
+    requested_work: work::Limits,
+    host: crate::jit::resources::LedgerRef,
+    metadata: BudgetAllocator,
+) -> Result<Packet, crate::JitError> {
+    request_packet_inner(
+        snapshot,
+        route,
+        resume,
+        requested_work,
+        Some((host, metadata)),
+    )
+}
+
+fn request_packet_inner(
+    snapshot: &Snapshot,
+    route: backend::artifact::Route,
+    resume: bool,
+    requested_work: work::Limits,
+    host: Option<(crate::jit::resources::LedgerRef, BudgetAllocator)>,
+) -> Result<Packet, crate::JitError> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let request = NEXT
         .fetch_update(
@@ -650,8 +677,22 @@ pub(in crate::jit) fn request_packet(
             _ => crate::JitError::Unavailable("compiler target features"),
         })?;
     use crate::jit::compiler_request as protocol;
-    let identity =
-        compiler_identity().map_err(|_| crate::JitError::Unavailable("compiler image identity"))?;
+    let descriptor: Option<(&'static [u8], &'static [u8; 32], &'static str)> = {
+        #[cfg(feature = "jit-worker-embedded")]
+        {
+            host.as_ref()
+                .and_then(|_| crate::jit::__worker_embedded_image())
+        }
+        #[cfg(not(feature = "jit-worker-embedded"))]
+        {
+            None
+        }
+    };
+    let identity = if let Some((_, identity, _)) = descriptor {
+        *identity
+    } else {
+        compiler_identity().map_err(|_| crate::JitError::Unavailable("compiler image identity"))?
+    };
     let abi = protocol::abi_identity();
     let frame = protocol::encode(
         &protocol::View {
@@ -679,8 +720,27 @@ pub(in crate::jit) fn request_packet(
     })?;
     let build = protocol::binding(&frame)
         .map_err(|_| crate::JitError::Unavailable("compiler request binding"))?;
+    let image = match (host, descriptor) {
+        (Some((host, metadata)), Some((bytes, identity, _))) => Some(
+            crate::jit::compiler_image::Image::shared(bytes, identity, 512 << 20, host, metadata)
+                .map_err(|error| match error {
+                crate::jit::compiler_image::Error::Allocation
+                | crate::jit::compiler_image::Error::Limit => {
+                    crate::JitError::ResourceLimit("compiler image")
+                }
+                _ => crate::JitError::Unavailable("compiler image"),
+            })?,
+        ),
+        _ => None,
+    };
+    let command = if let Some(image) = &image {
+        COMMANDS.set(COMMANDS.get().saturating_add(1));
+        Launch::Image(image)
+    } else {
+        command("artifact")
+    };
     let receipt = run(
-        command("artifact"),
+        command,
         &frame,
         Limits {
             request: protocol::MAX_BYTES,
@@ -696,6 +756,7 @@ pub(in crate::jit) fn request_packet(
         _ => crate::JitError::Unavailable("compiler worker failed"),
     })?;
     reaped(receipt.pid);
+    drop(image);
     Ok(Packet {
         source,
         bytes: crate::jit::compiler_reply::Artifact::new(receipt.bytes, request, &build)
@@ -727,6 +788,60 @@ fn allocation_refusal_while_receiving_kills_and_reaps_the_worker() {
     assert_eq!(ledger.current(), 0);
     let mut probe = Vec::<u8, _>::new_in(output);
     assert!(probe.try_reserve_exact(1).is_err());
+}
+
+#[cfg(feature = "jit-worker-embedded")]
+#[test]
+fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers() {
+    let mut lua = crate::Lua::empty();
+    let (host, metadata, snapshot) = lua.enter(|ctx| {
+        let source = crate::Closure::load(ctx, None, &b"local x=1 return x+2"[..]).unwrap();
+        let manager = ctx.jit().0.borrow();
+        let snapshot =
+            Snapshot::new_in(&source.prototype(), 4096, manager.snapshots.clone()).unwrap();
+        (manager.host.clone(), manager.metadata.clone(), snapshot)
+    });
+    let baseline = host.accounted();
+    let metadata_before = metadata.0.current();
+    let commands = COMMANDS.get();
+    let request = || {
+        request_packet_in(
+            &snapshot,
+            backend::artifact::Route::Ordinary,
+            false,
+            work::Limits::from(&crate::JitConfig::default()),
+            host.clone(),
+            metadata.clone(),
+        )
+    };
+    lua.set_memory_limit(Some(lua.accounted_memory() + (128 << 10)));
+    assert!(matches!(
+        request(),
+        Err(crate::JitError::ResourceLimit("compiler image"))
+    ));
+    assert_eq!(COMMANDS.get(), commands);
+    assert_eq!(host.accounted(), baseline);
+    let (bytes, _, _) = crate::jit::__worker_embedded_image().unwrap();
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+    let allowance = bytes.len().div_ceil(page) * page
+        + crate::jit::compiler_image::Owner::allocation_bytes()
+        + lua.jit_config().max_snapshot_bytes
+        + lua.jit_config().max_metadata_bytes;
+    lua.set_memory_limit(Some(lua.accounted_memory() + allowance));
+    metadata.0.fail_after(0);
+    assert!(matches!(
+        request(),
+        Err(crate::JitError::ResourceLimit("compiler image"))
+    ));
+    assert_eq!(COMMANDS.get(), commands);
+    assert_eq!(host.accounted(), baseline);
+    assert_eq!(metadata.0.current(), metadata_before);
+    metadata.0.fail_after(usize::MAX);
+    let packet = request().unwrap();
+    assert_eq!(COMMANDS.get(), commands + 1);
+    assert_eq!(metadata.0.current(), metadata_before);
+    drop(packet);
+    assert_eq!(host.accounted(), baseline);
 }
 
 #[test]

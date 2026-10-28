@@ -55,7 +55,14 @@ pub(in crate::jit) fn compile(
         }
         crate::jit::work::Expansion::admit(source, work)?;
         let resume = crate::jit::readonly_lookup::binding::integer_resume::enabled();
-        let packet = crate::jit::compiler_process::request_packet(source, route, resume, work)?;
+        let packet = crate::jit::compiler_process::request_packet_in(
+            source,
+            route,
+            resume,
+            work,
+            total.host(),
+            metadata.clone(),
+        )?;
         assemble(
             &packet.bytes,
             packet.binding(),

@@ -9,7 +9,7 @@ use allocator_api2::vec::Vec;
 
 use super::resources::BudgetAllocator;
 
-pub(in crate::jit) use tests::request_packet;
+pub(in crate::jit) use tests::{request_packet, request_packet_in};
 
 pub(in crate::jit) struct Packet {
     pub source: Vec<u8, BudgetAllocator>,
