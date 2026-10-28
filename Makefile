@@ -52,6 +52,15 @@ SPLIT_SCRATCH_DIR ?= target/jit-evidence/short-slice-performance/split-scratch-p
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 
 JIT_PACKAGE_DIR ?= $(TOP_DIR)/target/jit-evidence/package-smoke/$(shell date +%s%N)
+JIT_MEMCHECK_DIR ?= $(TOP_DIR)/target/jit-evidence/compiler-jobs-memcheck/$(shell date +%s%N)
+VALGRIND ?= valgrind
+
+.PHONY: jit-compiler-jobs-memcheck jit-compiler-jobs-memcheck-reader-tests
+jit-compiler-jobs-memcheck-reader-tests:
+	@perl tests/test-jit-compiler-jobs-memcheck.pl tests/support/compiler_jobs_memcheck.pl
+
+jit-compiler-jobs-memcheck: jit-compiler-jobs-memcheck-reader-tests
+	@$(SHELL) tests/support/compiler_jobs_memcheck.sh '$(CARGO)' '$(VALGRIND)' '$(abspath $(JIT_MEMCHECK_DIR))' '$(TARGET)'
 
 .PHONY: jit-package-smoke jit-package-smoke-fmt
 jit-package-smoke-fmt:
@@ -2885,7 +2894,7 @@ clean:
 # Clippy is deliberately not in the gate yet: the code inherited from upstream carries 135
 # warnings and 2 deny-by-default `never_loop` errors in src/meta_ops.rs, so a `verify` that
 # included it would be red on arrival and stop being run. Put it back once that is cleared.
-verify: fmt-check check check-all test test-all rustdoc
+verify: fmt-check check check-all test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests
 
 # Order matters: luna depends on luna-derive and luna-util depends on luna, so each has to be in
 # the registry before the one that needs it.

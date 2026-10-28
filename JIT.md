@@ -799,6 +799,30 @@ Evidence includes source/archive/image hashes, dependency metadata and raw
 results. This is a functional package check, not performance, optional embedded
 worker integration, resource-policy, publication or all-platform acceptance.
 
+### Compiler-job parent memory checks
+
+On Linux GNU amd64, a pidfd-capable diagnostic Valgrind can run:
+
+```sh
+make jit-compiler-jobs-memcheck VALGRIND=/path/to/valgrind
+make jit-compiler-jobs-memcheck-reader-tests
+```
+
+The first target builds the current all-feature library test executable, lists
+the complete supervisor test family and checks every selected case. It records
+source, executable and producer hashes. The reader separates the parent PID's
+memory summaries from fork/pre-exec diagnostics and requires zero parent errors,
+definite/indirect leaks and suppressions. Possible/reachable bytes remain in
+the JSON report. Exec children are not traced; this is not a full resource proof.
+
+Stock 3.26 and the inspected upstream 3.28 source lack syscall-424 support. The
+local qualification uses an independently checked, diagnostic-only 3.28 adapter
+for signal-0/SIGKILL with null siginfo and zero flags. That adapter is not a
+runtime dependency or a project toolchain replacement. An unsupported tool
+fails visibly; the gate never skips native cases or selects numeric-PID cleanup.
+`JIT_MEMCHECK_DIR` selects a new evidence directory. Reader mutation tests also
+run through `make verify` and the split verify CI job without requiring Valgrind.
+
 ### Scoped reference-index caller moves (development WIP)
 
 Eligible native-region callers move references by copying bounded indices into

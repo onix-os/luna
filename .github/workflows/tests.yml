@@ -53,6 +53,8 @@ jobs:
         run: make jit-bench-raw-tests
       - name: Consumer evidence recipe
         run: make jit-oslo-consumer-tests
+      - name: Compiler job memory evidence reader
+        run: make jit-compiler-jobs-memcheck-reader-tests
       - name: test
         run: |
           set -o pipefail

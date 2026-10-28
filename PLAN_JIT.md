@@ -9,6 +9,40 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Native supervisor memory qualification — 2026-10-28
+
+The retained exact supervisor executable now passes all 13 cases, including
+eight native pidfd cases, under a private Linux amd64 Valgrind 3.28 adapter.
+Parent Memcheck reports zero errors, definite/indirect leaks and suppressions;
+48 possibly lost and 544 reachable bytes remain. The original stock-3.26
+five-pass/eight-fail unsupported-syscall result is retained, not relabeled a pass.
+Both publisher-verified 3.27.1 and current 3.28 sources lack syscall 424.
+The isolated adapter forwards supported real-kernel operations only; three
+unsupported forms are explicitly refused. Native/tool child-kill/reaping
+probes agree, while undefined FD/flags and invalid-read controls all trigger
+the required Memcheck error exit. No Luna syscall policy or toolchain changes.
+
+New `make jit-compiler-jobs-memcheck VALGRIND=...` builds/enumerates the complete
+current test family, verifies parent-only memory results and records source,
+executable and producer hashes. Fresh current-root qualification also passes
+13/13. The corrected independent reader accepts two valid/restored fixtures
+and rejects ten corruptions; its tests run in verify and the split verify CI.
+Mutation tests exposed Perl list-context predicates incorrectly accepting an
+error message as truth; two-scalar assertion prototypes fix the new reader.
+The same fix separately requalifies the prior package reader: two valid and
+fourteen negative cases, including wrong panic/optimization profiles. Original
+frozen tools/results remain unchanged. Local diagnostic audit checks 6,592
+source files, four reproducibly configured outputs and 350 installed tool files,
+accepting two datasets and rejecting twelve corruptions.
+
+This closes the scoped raw-pidfd instrumentation gap, not standard-thread runtime
+admission, optional worker production routing or full resource acceptance.
+Exec children are untraced. Production runtime is unchanged; original 69/816
+performance failures and current native-platform/full release requirements
+remain open. No elapsed trial or rejected counter/layout rescue ran here.
+Evidence: `target/jit-evidence/pidfd-memcheck/{report-v2.json,repository-gate-v2/}`
+and `release-consumer/{release-consumer-v3.json,audit-tests-v3.log}`.
+
 ### Fresh packaged release consumers — 2026-10-28
 
 `make jit-package-smoke` now provides a repeatable downstream archive test.
