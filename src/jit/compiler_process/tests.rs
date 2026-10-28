@@ -19,6 +19,15 @@ fn deployment() -> Result<Option<&'static Deployment>, crate::jit::compiler_requ
         return Ok(Some(image));
     }
     let Some(path) = std::env::var_os("LUNA_JIT_WORKER_IMAGE") else {
+        #[cfg(feature = "jit-worker-embedded")]
+        if let Some((bytes, identity, _)) = crate::jit::__worker_embedded_image() {
+            let ledger = Ledger::try_host(513 << 20)
+                .map_err(|_| crate::jit::compiler_request::Error::Allocation)?;
+            let image = crate::jit::compiler_image::Image::new(bytes, identity, 512 << 20, ledger)
+                .map_err(|_| crate::jit::compiler_request::Error::Identity)?;
+            let _ = IMAGE.set(Deployment { image });
+            return Ok(IMAGE.get());
+        }
         return Ok(None);
     };
     let mut file =

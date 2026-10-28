@@ -9,6 +9,50 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Source-built embedded producer checkpoint — 2026-10-28
+
+The internal opt-in `jit-worker-embedded` feature now builds and embeds a static,
+target-matched non-test compiler image from the same library source and existing
+worker main. The small `luna-jit-embed` build tool reuses Cargo-selected target
+dependency artifacts through the same rustc; it does not run a second Cargo
+resolver, download a helper, fork compiler source or intercept the caller's main.
+An internal hidden descriptor exposes immutable bytes, exact image identity and
+target. The actual-helper test selector materializes those bytes through the
+verified sealed-image owner, without an executable-path environment prerequisite.
+
+The build tool records source/dependency invocation fingerprints and exact private
+compiler commands, checks ELF target/entry/load ranges and refuses an interpreter,
+NEEDED dependency or dynamic search path. Generated inputs stay in OUT_DIR;
+identical published bytes retain their timestamp. Metadata-only checks and docs
+contain no executable payload and are not runtime producer proof. Unsupported
+invocation formats fail explicitly rather than selecting guessed artifacts.
+
+Cold downstream builds exposed Cargo's metadata/native-codegen pipelining. The
+private library consumes the exact selected externs, then a finite build-time
+completion barrier precedes binary linkage; rustc validates transitive identities
+through Cargo's search paths. A real optimized panic-abort consumer required a
+25,694 ms native-dependency wait before succeeding. This 900-second build-time wait
+is not a runtime deadline, resource quota or benchmark-threshold change.
+
+GNU and musl each pass 83 embedded executions plus 6 build-tool tests; root separately
+passes the same 89 checks. Final parent Memcheck passes 40 cases/five runs with zero
+errors/definite-indirect leaks; children are untraced. Real source packages build
+in an isolated offline Cargo home using actual locally packaged first-party
+crates, in both single-job debug and cold optimized panic-abort consumers. Both
+verify the embedded identity and start the relocated helper with env-i under
+unchanged AS/CPU/core limits, exit 67 with no diagnostics on empty input. The
+optimized image is 6,309,680 bytes, an observation rather than a size waiver.
+
+The optional first-party build tool must precede Luna in publication order; no
+public upload was performed. Initial missing-registry/type/context/freshness and
+optimized-readiness failures remain in `target/jit-evidence/embedded-worker/`.
+Normal/default runtime routing and normal dependency trees remain unchanged.
+This opt-in delivery proof does not select production compilation or finish
+image lifetime/accounting, parent allocation/error/launch/deadline/cancellation/
+reaping/admission policy. Original 69/816 failed performance gates and full current
+platform/resource/feature-size/release acceptance remain open. No benchmark,
+threshold waiver, new branch or worktree accompanies this checkpoint.
+
 ### Immutable compiler image checkpoint — 2026-10-28
 
 An internal `compiler_image::Image` now materializes caller-owned immutable bytes

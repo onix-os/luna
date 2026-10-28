@@ -115,6 +115,16 @@ table-capacity-miri:
 .PHONY: jit-compiler-wire jit-compiler-wire-miri jit-compiler-process
 .PHONY: jit-compiler-request jit-compiler-request-miri
 .PHONY: jit-compiler-image
+.PHONY: jit-worker-embedded jit-worker-build-tests
+jit-worker-build-tests:
+	@set -o pipefail; $(CARGO) test --locked -p luna-jit-embed --lib | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-worker-embedded: jit-worker-build-tests
+	@set -eu -o pipefail; for spec in 'jit::embedded_worker::tests:1' 'jit::compiler_image::tests:9' 'jit::compiler_process::tests:14' 'jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent:1' 'jit::backend::artifact::assemble::tests:4' 'worker_artifact_:12' 'jit::backend::artifact:::42'; do \
+		filter=$${spec%:*}; count=$${spec##*:}; \
+		env -u LUNA_JIT_WORKER_IMAGE $(CARGO) test --locked -p luna --features jit-worker-embedded --lib $(TARGET_ARG) "$$filter" -- --test-threads=1 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; \
+	done
+
 jit-compiler-image:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_image::tests -- --test-threads=1 | awk '/^test result: ok[.] 9 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 .PHONY: jit-compiler-reply jit-compiler-reply-miri
@@ -2829,6 +2839,7 @@ verify: fmt-check check check-all test test-all rustdoc
 # the registry before the one that needs it.
 publish:
 	@$(CARGO) publish -p $(PROJECT_NAME)-derive
+	@$(CARGO) publish -p luna-jit-embed
 	@$(CARGO) publish -p $(PROJECT_NAME)
 	@$(CARGO) publish -p $(PROJECT_NAME)-util
 

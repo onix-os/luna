@@ -104,6 +104,21 @@ mod code_index;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_image;
+#[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+mod embedded_worker;
+
+#[doc(hidden)]
+#[cfg(feature = "jit-worker-embedded")]
+pub fn __worker_embedded_image() -> Option<(&'static [u8], &'static [u8; 32], &'static str)> {
+    #[cfg(all(luna_jit_embedded_worker, not(miri)))]
+    {
+        return embedded_worker::image();
+    }
+    #[cfg(not(all(luna_jit_embedded_worker, not(miri))))]
+    {
+        None
+    }
+}
 #[cfg(all(
     test,
     not(miri),
