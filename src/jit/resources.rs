@@ -283,6 +283,11 @@ impl Ledger {
 pub(crate) struct MappingCounter(LedgerRef);
 
 impl MappingCounter {
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
+    pub(super) fn host(&self) -> LedgerRef {
+        self.0.clone()
+    }
+
     #[cfg(all(
         not(miri),
         target_os = "linux",

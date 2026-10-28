@@ -4,7 +4,9 @@ use std::{
     os::fd::{AsRawFd, FromRawFd, RawFd},
 };
 
-use super::resources::{LedgerRef, Reservation};
+use super::resources::{BudgetAllocator, LedgerRef, MappingCounter, Reservation};
+
+pub(super) type Owner = super::atomic_owner::AtomicShared<Image>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Error {
@@ -39,6 +41,21 @@ fn rounded(length: usize, maximum: usize, page: usize) -> Result<usize, Error> {
 }
 
 impl Image {
+    pub fn shared(
+        bytes: &[u8],
+        expected: &[u8; 32],
+        maximum: usize,
+        ledger: LedgerRef,
+        metadata: BudgetAllocator,
+    ) -> Result<Owner, Error> {
+        if !MappingCounter::new(ledger.clone()).same_root(&MappingCounter::new(metadata.0.clone()))
+        {
+            return Err(Error::Configuration);
+        }
+        let image = Self::new(bytes, expected, maximum, ledger)?;
+        Owner::try_new(image, metadata).map_err(|_| Error::Allocation)
+    }
+
     pub fn new(
         bytes: &[u8],
         expected: &[u8; 32],
@@ -171,3 +188,6 @@ impl Drop for FileSizeSignal {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod owner_tests;
