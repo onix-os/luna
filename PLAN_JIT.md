@@ -9,6 +9,56 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Typed compiler outcome checkpoint — 2026-10-28
+
+The actual emit-only worker now reports normal compiler failures through a
+bounded typed reply rather than unwrapping them into process crashes. A fixed
+112-byte header distinguishes unavailable/unsupported, resource, compilation,
+configuration and rejected-input classes, with source/target/compiler/artifact
+stage tags. Success carries one nonempty artifact; failures carry no payload.
+Unknown or inconsistent outcomes, reserved fields, wrong request/fingerprint,
+truncation/trailing data and checksum mismatch are protocol faults, not valid
+compiler refusals. A domain-separated digest binds header and artifact bytes;
+the request fingerprint already binds source, work, route/resume, target and
+actual worker image/ABI. ABI identity now includes the reply protocol version.
+
+Header encoding uses a fixed stack array and existing byte slices. The parent
+wraps the original budgeted receive vector and exposes only its checked artifact
+slice, with no extra allocation, copy or header shift. Faults reclaim the entire
+received allocation without resetting persistent allocator denial. The inner
+artifact decoder/linker still independently validates before installation. The
+2 MiB artifact cap is unchanged; only explicit, accounted protocol overhead is
+added to the supervisor transport cap.
+
+Real instruction/block/relocation work refusals now reach the parent as
+ResourceLimit, with normal worker exit, reaping and temporary storage reclaimed.
+A bound request containing an invalid snapshot returns a rejected-source reply;
+successful empty/garbage workers remain protocol failures, while abnormal exits,
+I/O faults and deadlines retain supervisor status. Pure codec models cover all
+closed classes/stages and public error classification; they do not claim to
+induce every internal compiler failure. Legacy Compilation(String) adaptation
+still allocates a static-label diagnostic outside the bounded reply core and
+does not complete whole-parent allocation policy.
+
+Frozen qualification passes 851 native executions/73 summaries, one existing
+kernel-dump diagnostic ignore, i686 codec8/check-all, and seven pure reply models
+under each of local default seed0 and Tree Borrows seed1 Miri. The fresh runner's
+source directory and unchanged source/image witnesses are retained. Native tests
+also cover every truncation, a one-bit mutation at each byte, and exact artifact
+caps. Parent Memcheck passes reply8/Runtime12/supervisor14, 34 cases/three runs,
+zero errors/definite-indirect leaks; 48 possible harness bytes each, reply544
+reachable/other two632. Children are untraced. All four parent entry kinds retain
+1,066 calls/4,161 native logical instructions and forty real helper calls. Hosted
+wrapper verifies 63 logs, 22 propagated failures and eight zero-model refusals.
+
+**Still test-only, not full acceptance:** reusable compiler service/deployment,
+compatible single-library packaging, scheduling/cancellation/process caps,
+complete parent allocation/error policy, universal work/format compatibility and
+production selection remain open, alongside original 69/816 failed performance
+gates and full current-source platform/resource/feature-size/release acceptance.
+No quota or threshold was waived; no performance inference comes from test time.
+Evidence: `target/jit-evidence/typed-compiler-reply/`.
+
 ### Owned compiler request checkpoint — 2026-10-28
 
 The supervised artifact fixture now receives one bounded owned request packet,

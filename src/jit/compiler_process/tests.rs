@@ -79,6 +79,8 @@ fn child() {
             }
         }
         "exit" => std::process::exit(23),
+        "empty-reply" => {}
+        "bad-reply" => io::stderr().write_all(b"not-a-compiler-reply").unwrap(),
         "duplex" => {
             let mut output = io::stderr().lock();
             output.write_all(&[99; 65536]).unwrap();
@@ -123,38 +125,77 @@ fn child() {
             let identity = request::worker_identity().unwrap();
             let abi = request::abi_identity();
             let view = request::decode(&packet, &identity, &abi).unwrap();
-            let snapshot = wire::decode(view.source, wire_limits(), allocator()).unwrap();
-            let bundle = backend::artifact::with_target(view.features, || {
-                backend::artifact::emission::emit(
-                    &snapshot,
-                    match view.route {
-                        request::Route::Ordinary => backend::artifact::Route::Ordinary,
-                        request::Route::Arrays => backend::artifact::Route::Arrays,
-                        request::Route::Readonly => backend::artifact::Route::Readonly,
+            use crate::jit::compiler_reply as reply;
+            let build = request::binding(&packet).unwrap();
+            let response = (|| {
+                let snapshot =
+                    wire::decode(view.source, wire_limits(), allocator()).map_err(|error| {
+                        reply::Fault {
+                            class: match error {
+                                wire::Error::Allocation | wire::Error::Limit => {
+                                    reply::Class::Resource
+                                }
+                                _ => reply::Class::Rejected,
+                            },
+                            stage: reply::Stage::Snapshot,
+                        }
+                    })?;
+                let bundle = backend::artifact::with_target(view.features, || {
+                    backend::artifact::emission::emit(
+                        &snapshot,
+                        match view.route {
+                            request::Route::Ordinary => backend::artifact::Route::Ordinary,
+                            request::Route::Arrays => backend::artifact::Route::Arrays,
+                            request::Route::Readonly => backend::artifact::Route::Readonly,
+                        },
+                        view.resume,
+                        view.work,
+                        allocator(),
+                        allocator(),
+                    )
+                })
+                .map_err(|_| reply::Fault {
+                    class: reply::Class::Rejected,
+                    stage: reply::Stage::Target,
+                })?
+                .map_err(|error| reply::Fault::classify(&error, reply::Stage::Compiler))?;
+                if bundle.target_environment() != view.environment {
+                    return Err(reply::Fault {
+                        class: reply::Class::Rejected,
+                        stage: reply::Stage::Target,
+                    });
+                }
+                backend::artifact::encode(
+                    &bundle,
+                    backend::artifact::Binding {
+                        request: view.request,
+                        build: &build,
+                        source: view.source,
+                        environment: view.environment,
                     },
-                    view.resume,
-                    view.work,
-                    allocator(),
+                    artifact_limits(),
                     allocator(),
                 )
-            })
-            .unwrap()
-            .unwrap();
-            assert_eq!(bundle.target_environment(), view.environment);
-            let build = request::binding(&packet).unwrap();
-            let response = backend::artifact::encode(
-                &bundle,
-                backend::artifact::Binding {
-                    request: view.request,
-                    build: &build,
-                    source: view.source,
-                    environment: view.environment,
-                },
-                artifact_limits(),
-                allocator(),
-            )
-            .unwrap();
-            io::stderr().write_all(&response).unwrap();
+                .map_err(|error| reply::Fault {
+                    class: match error {
+                        backend::artifact::Error::Allocation | backend::artifact::Error::Limit => {
+                            reply::Class::Resource
+                        }
+                        _ => reply::Class::Compilation,
+                    },
+                    stage: reply::Stage::Artifact,
+                })
+            })();
+            let outcome = match &response {
+                Ok(bytes) => reply::Outcome::Artifact(bytes),
+                Err(fault) => reply::Outcome::Failure(*fault),
+            };
+            let header = reply::header(outcome, view.request, &build).unwrap();
+            let mut output = io::stderr().lock();
+            output.write_all(&header).unwrap();
+            if let Ok(bytes) = response {
+                output.write_all(&bytes).unwrap();
+            }
         }
         "compile" => {
             let mut packet = Vec::new_in(allocator());
@@ -573,7 +614,7 @@ pub(in crate::jit) fn request_packet(
         &frame,
         Limits {
             request: protocol::MAX_BYTES,
-            response: 2 << 20,
+            response: crate::jit::compiler_reply::MAX_BYTES,
             ..limits()
         },
         workspace,
@@ -587,7 +628,8 @@ pub(in crate::jit) fn request_packet(
     reaped(receipt.pid);
     Ok(Packet {
         source,
-        bytes: receipt.bytes,
+        bytes: crate::jit::compiler_reply::Artifact::new(receipt.bytes, request, &build)
+            .map_err(reply_error)?,
         environment,
         request,
         build,
@@ -615,6 +657,87 @@ fn allocation_refusal_while_receiving_kills_and_reaps_the_worker() {
     assert_eq!(ledger.current(), 0);
     let mut probe = Vec::<u8, _>::new_in(output);
     assert!(probe.try_reserve_exact(1).is_err());
+}
+
+#[test]
+fn worker_resource_refusals_reach_the_parent_without_becoming_crashes() {
+    let snapshot = crate::Lua::empty().enter(|ctx| {
+        let closure =
+            crate::Closure::load(ctx, None, &b"local n=1 return n+host_increment(2)"[..]).unwrap();
+        Snapshot::new(&closure.prototype(), 4096, 2 << 20).unwrap()
+    });
+    let workspace = snapshot.operations.allocator().0.clone();
+    let baseline = workspace.current();
+    for field in 0..3 {
+        let mut work = work::Limits::from(&crate::JitConfig::default());
+        match field {
+            0 => work.instructions = 0,
+            1 => work.blocks = 0,
+            _ => work.relocations = 0,
+        }
+        let commands = COMMANDS.get();
+        assert!(matches!(
+            request_packet(&snapshot, backend::artifact::Route::Ordinary, false, work),
+            Err(crate::JitError::ResourceLimit(
+                "compiler worker compilation"
+            ))
+        ));
+        assert_eq!(COMMANDS.get(), commands + 1);
+        assert_eq!(workspace.current(), baseline);
+    }
+    drop(snapshot);
+    assert_eq!(workspace.current(), 0);
+}
+
+#[test]
+fn successful_but_malformed_workers_are_not_valid_compiler_refusals() {
+    use crate::jit::compiler_reply as reply;
+    for mode in ["empty-reply", "bad-reply"] {
+        let output = allocator();
+        let ledger = output.0.clone();
+        let receipt = run(command(mode), &[], limits(), output).unwrap();
+        reaped(receipt.pid);
+        let fault = reply::Artifact::new(receipt.bytes, 1, &[0; 32])
+            .err()
+            .unwrap();
+        assert!(matches!(fault, reply::Failure::Protocol(_)));
+        assert!(matches!(
+            reply_error(fault),
+            crate::JitError::Unavailable("compiler response protocol")
+        ));
+        assert_eq!(ledger.current(), 0);
+    }
+    let source = b"not-a-snapshot";
+    let features = backend::artifact::target_features().unwrap();
+    let environment = backend::artifact::environment().unwrap();
+    let frame = crate::jit::compiler_request::encode(
+        &crate::jit::compiler_request::View {
+            request: 43,
+            worker: &crate::jit::compiler_request::worker_identity().unwrap(),
+            abi: &crate::jit::compiler_request::abi_identity(),
+            work: work::Limits::from(&crate::JitConfig::default()),
+            route: crate::jit::compiler_request::Route::Ordinary,
+            resume: false,
+            features: &features,
+            environment: &environment,
+            source,
+        },
+        allocator(),
+    )
+    .unwrap();
+    let build = crate::jit::compiler_request::binding(&frame).unwrap();
+    let receipt = run(command("artifact"), &frame, limits(), allocator()).unwrap();
+    reaped(receipt.pid);
+    let fault = reply::Artifact::new(receipt.bytes, 43, &build)
+        .err()
+        .unwrap();
+    assert_eq!(
+        fault,
+        reply::Failure::Worker(reply::Fault {
+            class: reply::Class::Rejected,
+            stage: reply::Stage::Snapshot,
+        })
+    );
 }
 
 #[test]
@@ -684,17 +807,22 @@ fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
             &frame,
             Limits {
                 request: protocol::MAX_BYTES,
+                response: crate::jit::compiler_reply::MAX_BYTES,
                 ..limits()
             },
             allocator(),
         )
         .unwrap_or_else(|error| panic!("{name}: {error:?}"));
         reaped(receipt.pid);
+        let artifact = crate::jit::compiler_reply::decode(&receipt.bytes, request, &build)
+            .unwrap()
+            .into_result()
+            .unwrap();
         let metadata = allocator();
         let ledger = metadata.0.clone();
         let total = MappingCounter::new(ledger.clone());
         let installed = backend::artifact::install(
-            &receipt.bytes,
+            artifact,
             backend::artifact::Binding {
                 request,
                 build: &build,
@@ -802,18 +930,24 @@ fn owned_requests_reject_cross_process_mismatches_and_ignore_old_env_channels() 
         &frame,
         Limits {
             request: protocol::MAX_BYTES,
+            response: crate::jit::compiler_reply::MAX_BYTES,
             ..limits()
         },
         allocator(),
     )
     .unwrap();
     reaped(receipt.pid);
+    let build = protocol::binding(&frame).unwrap();
+    let artifact = crate::jit::compiler_reply::decode(&receipt.bytes, 37, &build)
+        .unwrap()
+        .into_result()
+        .unwrap();
     let total = MappingCounter::new(Ledger::new(4 << 20));
     let installed = backend::artifact::install(
-        &receipt.bytes,
+        artifact,
         backend::artifact::Binding {
             request: 37,
-            build: &protocol::binding(&frame).unwrap(),
+            build: &build,
             source: &source,
             environment: &environment,
         },

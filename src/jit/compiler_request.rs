@@ -177,7 +177,7 @@ pub(super) fn binding(bytes: &[u8]) -> Result<[u8; 32], Error> {
 #[cfg(not(miri))]
 pub(super) fn abi_identity() -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"luna-native-abi-source-v1;request=1;source=1;artifact=1\0");
+    hash.update(b"luna-native-abi-source-v1;request=1;reply=1;source=1;artifact=1\0");
     for source in [
         &include_bytes!("abi.rs")[..],
         &include_bytes!("helpers.rs")[..],

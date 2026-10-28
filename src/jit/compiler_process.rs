@@ -13,7 +13,7 @@ pub(in crate::jit) use tests::request_packet;
 
 pub(in crate::jit) struct Packet {
     pub source: Vec<u8, BudgetAllocator>,
-    pub bytes: Vec<u8, BudgetAllocator>,
+    pub bytes: super::compiler_reply::Artifact,
     pub environment: Vec<u8, BudgetAllocator>,
     pub request: u64,
     pub build: [u8; 32],
@@ -27,6 +27,19 @@ impl Packet {
             source: &self.source,
             environment: &self.environment,
         }
+    }
+}
+
+fn reply_error(failure: super::compiler_reply::Failure) -> super::JitError {
+    use super::compiler_reply::{Class, Failure};
+    match failure {
+        Failure::Protocol(_) => super::JitError::Unavailable("compiler response protocol"),
+        Failure::Worker(fault) => match fault.class {
+            Class::Resource => super::JitError::ResourceLimit(fault.label()),
+            Class::Unavailable | Class::Rejected => super::JitError::Unavailable(fault.label()),
+            Class::Configuration => super::JitError::InvalidConfiguration(fault.label()),
+            Class::Compilation => super::JitError::Compilation(fault.label().into()),
+        },
     }
 }
 
