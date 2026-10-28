@@ -124,78 +124,25 @@ fn child() {
             }
             let identity = request::worker_identity().unwrap();
             let abi = request::abi_identity();
-            let view = request::decode(&packet, &identity, &abi).unwrap();
-            use crate::jit::compiler_reply as reply;
-            let build = request::binding(&packet).unwrap();
-            let response = (|| {
-                let snapshot =
-                    wire::decode(view.source, wire_limits(), allocator()).map_err(|error| {
-                        reply::Fault {
-                            class: match error {
-                                wire::Error::Allocation | wire::Error::Limit => {
-                                    reply::Class::Resource
-                                }
-                                _ => reply::Class::Rejected,
-                            },
-                            stage: reply::Stage::Snapshot,
-                        }
-                    })?;
-                let bundle = backend::artifact::with_target(view.features, || {
-                    backend::artifact::emission::emit(
-                        &snapshot,
-                        match view.route {
-                            request::Route::Ordinary => backend::artifact::Route::Ordinary,
-                            request::Route::Arrays => backend::artifact::Route::Arrays,
-                            request::Route::Readonly => backend::artifact::Route::Readonly,
-                        },
-                        view.resume,
-                        view.work,
-                        allocator(),
-                        allocator(),
-                    )
-                })
-                .map_err(|_| reply::Fault {
-                    class: reply::Class::Rejected,
-                    stage: reply::Stage::Target,
-                })?
-                .map_err(|error| reply::Fault::classify(&error, reply::Stage::Compiler))?;
-                if bundle.target_environment() != view.environment {
-                    return Err(reply::Fault {
-                        class: reply::Class::Rejected,
-                        stage: reply::Stage::Target,
-                    });
-                }
-                backend::artifact::encode(
-                    &bundle,
-                    backend::artifact::Binding {
-                        request: view.request,
-                        build: &build,
-                        source: view.source,
-                        environment: view.environment,
-                    },
-                    artifact_limits(),
-                    allocator(),
-                )
-                .map_err(|error| reply::Fault {
-                    class: match error {
-                        backend::artifact::Error::Allocation | backend::artifact::Error::Limit => {
-                            reply::Class::Resource
-                        }
-                        _ => reply::Class::Compilation,
-                    },
-                    stage: reply::Stage::Artifact,
-                })
-            })();
-            let outcome = match &response {
-                Ok(bytes) => reply::Outcome::Artifact(bytes),
-                Err(fault) => reply::Outcome::Failure(*fault),
-            };
-            let header = reply::header(outcome, view.request, &build).unwrap();
+            let response = crate::jit::compiler_service::handle(
+                packet,
+                &identity,
+                &abi,
+                crate::jit::compiler_service::Limits {
+                    source: wire_limits(),
+                    artifact: artifact_limits(),
+                },
+                crate::jit::compiler_service::Allocators {
+                    source: allocator(),
+                    metadata: allocator(),
+                    objects: allocator(),
+                    output: allocator(),
+                },
+            )
+            .unwrap();
             let mut output = io::stderr().lock();
-            output.write_all(&header).unwrap();
-            if let Ok(bytes) = response {
-                output.write_all(&bytes).unwrap();
-            }
+            output.write_all(response.header()).unwrap();
+            output.write_all(response.payload()).unwrap();
         }
         "compile" => {
             let mut packet = Vec::new_in(allocator());

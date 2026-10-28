@@ -9,6 +9,50 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Owned compiler service checkpoint — 2026-10-28
+
+The real supervised artifact worker now delegates to one reusable owned-input
+compiler service instead of implementing compilation inside the libtest entry.
+Its interface contains an allocator-owned packet, expected image/ABI identity,
+finite source/artifact limits and explicit source/workspace, metadata, captured
+object and serialized-output allocators. No Lua/GC borrowing, environment request
+fields, process launch or stream I/O enters this core. It consumes the input and
+releases source/module/compiler ownership before returning only a fixed typed
+reply header and the original encoded artifact allocation. Invalid outer input
+or incompatible service configuration precedes compiler allocations.
+
+Six native service models exercise real compilation through all four parent
+entry kinds, source/request/response release, owned cross-thread compilation,
+byte quota refusal and source/artifact policy limits. All 129 allowance prefixes
+in four allocation domains (516 service invocations) test normal completion,
+typed refusal, reclamation and persistent denial; every domain must also reach a
+full no-refusal success. The source allocator intentionally funds later CFG,
+block-map, symbol/signature and lowering workspace too. An independent same-
+prefix decoder distinguishes early snapshot refusal from later compiler refusal;
+the original ledger contract was not changed to satisfy a test assumption. That
+initial development assertion failure remains recorded, followed by corrected
+frozen qualification. These budgets are not a hard bound on private Cranelift
+storage, and root-only quota models do not establish full host admission.
+
+Frozen qualification passes 857 native executions/74 summaries, one existing
+kernel-dump diagnostic ignore, and i686 codec8/check-all. Fresh verified-source
+Miri runs pass request8/reply7 under each of default seed0 and Tree Borrows seed1;
+service code generation is native-only, not claimed as Miri execution. Parent
+Memcheck passes service6/Runtime12/supervisor14, 32 cases/three runs, zero errors/
+definite-indirect leaks, with 48 possible and 632 reachable bytes retained in
+each run; children remain untraced. The service run includes the full 516-prefix
+matrix. Four-kind artifact conformance remains 1,066 parent calls/4,161 native
+logical instructions, including forty real helper calls. Existing hosted wrapper
+63 logs/22 propagated failures/eight empty-model refusals remains passing.
+
+**Not production acceptance:** the reusable core still has test-only gating.
+Bounded stream entry, single-library-compatible deployment/packaging, lifecycle/
+scheduling/cancellation/process caps, complete parent allocation/error policy,
+universal admission/format compatibility and production selection remain open.
+Original 69/816 failed performance gates and full current-source native platform,
+resource, feature-size and release acceptance remain open. No quota/threshold was
+waived and no benchmark was run. Evidence: `target/jit-evidence/compiler-service/`.
+
 ### Typed compiler outcome checkpoint — 2026-10-28
 
 The actual emit-only worker now reports normal compiler failures through a

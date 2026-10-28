@@ -113,6 +113,9 @@ table-capacity-miri:
 .PHONY: jit-compiler-wire jit-compiler-wire-miri jit-compiler-process
 .PHONY: jit-compiler-request jit-compiler-request-miri
 .PHONY: jit-compiler-reply jit-compiler-reply-miri
+.PHONY: jit-compiler-service
+jit-compiler-service:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_service::tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 jit-compiler-reply:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_reply::tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
