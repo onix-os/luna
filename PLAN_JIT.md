@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Typed string fallback performance trial — 2026-10-28
+
+An isolated current-source candidate reused the existing prepared-string probe
+for interpreted string hash-map reads. It passed 80 focused executions and
+removed exactly 3,000,000 callback Off instructions in each of three repeated
+speed-profile captures (3.19%). Auto work barely changed. This is not a native
+speedup or acceptance result; no runtime change was promoted.
+
+Fresh current control/candidate images in both original profiles completed the
+unchanged six-round, two-CPU, nine-workload direct comparison: 144 commands,
+14,256 native executions, 285,120 cost iterations, zero independent 27-field,
+resource or proof mismatches. Raw native/cost medians and paired dispersion
+verify; reader tests reject 16 corruptions. No-feature machine bytes remain
+identical; only nine speed/eleven shipping source-location records move.
+
+Shipping callback cost improved (control/trial 1.1635 CPU0, 1.0995 CPU16), but
+speed native arrays regressed (0.9444 CPU0, five of six rounds) and speed Off
+integer regressed (0.9230 CPU0, all six). Shipping Off float also worsened
+(0.9611 CPU16, all six). Candidate native gates pass 175/192 versus identical
+A/B controls 191/192 and 187/192; candidate cost gates still fail 9/216.
+Reject the implementation, retain every observation, and do not rescue it with
+an unchanged retry or layout/inline/argv sweep. Existing runtime stays unchanged.
+
+Initial profile-reader whitespace refusal and an obsolete f2d resource-oracle
+preflight failure remain recorded separately. Corrected timing uses the existing
+independent retained-b2c4c2ad oracle and passes all 72 preflight records before
+collection; no expected counter is inferred from the failed run. This direct
+comparison does not replace the two original cohorts or waive their 69/816
+failures. Full performance/resource/platform/feature-size/release acceptance
+remains open. Evidence: `target/jit-evidence/typed-string-fallback/RESULTS.md`,
+`report-v2.json` and `timing-current/joint-audited.json`.
+
 ### Independent compiler completion checkpoint — 2026-10-28
 
 A supervisor now starts an independent completion service before publishing its
