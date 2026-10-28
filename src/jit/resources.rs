@@ -48,6 +48,9 @@ impl Reservation {
 #[cfg(test)]
 mod reservation_tests;
 
+#[cfg(test)]
+mod compaction_delta_tests;
+
 #[cfg(any(
     test,
     all(
@@ -575,7 +578,7 @@ impl Compactor {
             return Compaction::Unchanged;
         }
         let allocator = values.allocator().clone();
-        let before = allocator.0.current();
+        let before = values.raw_table().allocation_info().1.size();
         let mut replacement =
             hashbrown::HashMap::with_hasher_in(values.hasher().clone(), allocator.clone());
         if replacement.try_reserve(values.len()).is_err() {
@@ -583,7 +586,7 @@ impl Compactor {
         }
         replacement.extend(values.drain());
         *values = replacement;
-        Compaction::Compacted(before.saturating_sub(allocator.0.current()))
+        Compaction::Compacted(before.saturating_sub(values.raw_table().allocation_info().1.size()))
     }
 
     pub fn vector<T>(
@@ -598,14 +601,14 @@ impl Compactor {
             return Compaction::Unchanged;
         }
         let allocator = values.allocator().clone();
-        let before = allocator.0.current();
+        let before = values.capacity() * std::mem::size_of::<T>();
         let mut replacement = allocator_api2::vec::Vec::new_in(allocator.clone());
         if replacement.try_reserve_exact(values.len()).is_err() {
             return self.refused();
         }
         replacement.append(values);
         *values = replacement;
-        Compaction::Compacted(before.saturating_sub(allocator.0.current()))
+        Compaction::Compacted(before.saturating_sub(values.capacity() * std::mem::size_of::<T>()))
     }
 }
 
