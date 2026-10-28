@@ -1,5 +1,6 @@
 use std::alloc::Layout;
 
+use allocator_api2::vec::Vec as BudgetVec;
 use allocator_api2::{alloc::AllocError, boxed::Box as BudgetBox};
 
 use super::resources::BudgetAllocator;
@@ -13,6 +14,33 @@ impl Drop for Charge {
     fn drop(&mut self) {
         self.allocator.0.release(self.bytes);
     }
+}
+
+/// Transfers capped UTF-8 bytes into a Global-backed String and its charge.
+/// Keep the charge until export or deallocation; do not grow before export.
+pub(super) fn try_string(
+    text: &str,
+    maximum: usize,
+    allocator: BudgetAllocator,
+) -> Result<(String, Charge), AllocError> {
+    if text.len() > maximum {
+        return Err(AllocError);
+    }
+    let mut bytes = BudgetVec::new_in(allocator);
+    bytes
+        .try_reserve_exact(text.len())
+        .map_err(|_| AllocError)?;
+    bytes.extend_from_slice(text.as_bytes());
+    let (pointer, length, capacity, allocator) = bytes.into_raw_parts_with_alloc();
+    let bytes = unsafe { std::vec::Vec::from_raw_parts(pointer, length, capacity) };
+    let value = unsafe { String::from_utf8_unchecked(bytes) };
+    Ok((
+        value,
+        Charge {
+            allocator,
+            bytes: capacity,
+        },
+    ))
 }
 
 /// Transfers an initialized Global allocation to a standard Box.
@@ -32,6 +60,9 @@ pub(super) fn try_new<T>(
         },
     ))
 }
+
+#[cfg(test)]
+mod string_tests;
 
 #[cfg(test)]
 mod tests {
