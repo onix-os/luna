@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Static GNU producer checkpoint — 2026-10-28
+
+`make jit-worker-conformance WORKER_STATIC_GNU=true` now builds a target-matched
+static GNU helper with an explicit target. Injected static flags apply to that
+helper build only; Cargo host tools and parent conformance remain ordinary.
+The gate captures ELF tables and rejects any interpreter or NEEDED dependency.
+The default dynamic producer path is unchanged. Native GNU CI requires the
+static producer; musl retains its existing matched producer. `nix develop
+.#worker` supplies a headless pinned toolchain and the static archive path,
+without injecting static libc into Cargo host linking.
+
+Frozen snapshot static/default producer gates each pass73executions/five
+summaries. Actual static-bin startup3 passes. A relocated read-only static helper
+with a cleared environment passes four-kind parent native execution and all12
+Runtime cases. Parent Memcheck against the real static helper passes30cases
+across three runs, zero errors/definite-indirect leaks;48possible/632reachable
+bytes remain in each parent and children are untraced. Unknown options, a musl
+target requesting GNU static linking, and a dynamic ELF substituted for a static
+producer are rejected. Formatting, actionlint, shell syntax and Miri wrapper
+checks pass. No Rust/Cargo dependency source changed or new Miri/native-platform
+certification is implied. Evidence: `target/jit-evidence/static-gnu-worker/`.
+
+The qualified local helper is4,706,088bytes; this is an image-size observation,
+not a feature-cost waiver. Static ELF structure and local clean-environment
+conformance do not establish foreign-distro/kernel portability, reproducible
+embedded delivery, bounded materialization/launch or production routing. Parent
+allocation/lifecycle/cancellation/admission, original69/816failed performance
+gates and full current-source platform/resource/size/release acceptance remain
+open. Earlier Nix-specific GNU loader observations below are historical dynamic
+producer evidence, not properties of the new static image. No benchmark rerun,
+threshold change, new branch or worktree accompanies this checkpoint.
+
 ### Repository-native producer gate — 2026-10-28
 
 `make jit-worker-conformance` builds a source-bound non-test release helper,

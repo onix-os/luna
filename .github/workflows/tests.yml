@@ -161,6 +161,9 @@ jobs:
       - name: Install musl linker
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install static GNU libraries
+        if: endsWith(matrix.target, '-gnu')
+        run: sudo apt-get update && sudo apt-get install -y libc6-dev
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
@@ -177,7 +180,11 @@ jobs:
           mkdir -p target/jit-evidence
           make environment TARGET=${{ matrix.target }} | tee target/jit-evidence/ci-environment.log
           set -o pipefail
-          make jit-platform TARGET=${{ matrix.target }} 2>&1 | tee target/jit-evidence/ci-native.log
+          static=false
+          case '${{ matrix.target }}' in
+            *-gnu) static=true ;;
+          esac
+          make jit-platform TARGET=${{ matrix.target }} WORKER_STATIC_GNU="$static" 2>&1 | tee target/jit-evidence/ci-native.log
       - name: Build matched shipping feature-cost artifacts
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
