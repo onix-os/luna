@@ -9,6 +9,39 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Fresh packaged release consumers — 2026-10-28
+
+`make jit-package-smoke` now provides a repeatable downstream archive test.
+It snapshots index-listed current source into an ordinary no-Git directory,
+vendors offline, packages all four current first-party crates, and builds a
+version-only consuming application with a fresh Cargo home. No local path/patch
+substitution, registry upload, tag, version bump, new branch or worktree.
+
+Two independent fresh local GNU x86-64 package/build sequences each pass all
+21 cases: seven workloads across no-JIT Off, JIT Off and JIT Auto. Stripped LTO,
+panic-abort release binaries exercise derive, serde roundtrips, integer/array/
+callback/upvalue/metamethod/coroutine execution, and actual async suspension with
+two wakes. Every Auto case prepares and executes native code with zero compiler
+failures; both Off lanes have zero native work. Execution uses an empty
+environment and nonexistent PATH. Dependency graphs verify registry/archive
+isolation, no native compiler in no-JIT, and no optional worker bootstrap in
+normal JIT. A separate strace capture observes only the initial executable,
+no compiler/worker exec, with identical Auto results.
+
+The independent evidence reader verifies every staged first-party file against
+its archive checksum and original snapshot; it accepts two valid/restored
+datasets and rejects twelve corruptions. Root format/all-feature checks pass.
+Hosted Miri seed 0 for exact runtime be5b5b14 now independently verifies 466
+passing tests, 66 summaries, zero ignores and 67 logs; seed 1 already qualified.
+Both hosted seeds use the default borrow model, not Tree Borrows/native code.
+
+Production runtime remains unchanged. This closes the local normal-JIT archive
+consumer smoke gap, not full release acceptance. No elapsed benchmark ran here;
+the original 69/816 failed performance gates remain unresolved. Current native
+CI jobs, remaining controlled-resource accounting and optional worker production
+routing also remain open. Evidence: `target/jit-evidence/release-consumer/`,
+especially `release-consumer.json`, `repository-smoke/` and `portable/`.
+
 ### Resume-loan trial and retained feature-size audit — 2026-10-28
 
 An isolated integer-resume candidate replaced the write-only external loop

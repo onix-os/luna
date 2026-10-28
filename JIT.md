@@ -772,6 +772,33 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+### Packaged downstream release smoke test
+
+On a supported Linux native target, run:
+
+```sh
+make jit-package-smoke
+```
+
+This packages the current index-listed source (including tracked working-tree
+edits) into fresh 0.5.1 archives without uploading them. Newly added fixture files
+must be staged before running. Dependencies must already be available to Cargo:
+all vendoring, packaging and builds run offline. `JIT_PACKAGE_DIR` can select a
+new evidence directory; an existing destination is refused.
+
+The version-only consumer uses a fresh Cargo home and the extracted archives,
+not path dependencies. It builds stripped LTO, panic-abort release binaries
+without JIT and with normal `jit`, checking compiler dependency isolation.
+Seven workloads run in each of no-JIT Off, compiled Off and Auto, including
+callbacks, arrays, upvalues, metamethods, coroutines and a foreign future that
+suspends twice. Derive and serde roundtrips are also exercised. Execution uses
+an empty environment with `PATH=/nonexistent`; Auto must actually execute native
+instructions, while both Off lanes must perform no native work.
+
+Evidence includes source/archive/image hashes, dependency metadata and raw
+results. This is a functional package check, not performance, optional embedded
+worker integration, resource-policy, publication or all-platform acceptance.
+
 ### Scoped reference-index caller moves (development WIP)
 
 Eligible native-region callers move references by copying bounded indices into
