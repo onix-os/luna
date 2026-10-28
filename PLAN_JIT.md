@@ -9,6 +9,35 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Final retained-runtime platform checkpoint — 2026-10-28
+
+Exact-runtime commit `b2c4c2ad`, hosted run `40593105706`, now passes all seven
+jobs: verify, GNU/musl x86-64, GNU ARM64, i686 fallback and both Miri seeds.
+The same run was watched to completion; no test job was restarted. All six
+downloaded evidence archives independently pass server SHA256, ZIP integrity,
+source/run/job identities and selected-fixture coverage. This supersedes the
+in-progress native-job status in the earlier checkpoint below.
+
+- Each native archive verifies 11,653 passing executions/554 summaries/139
+  reported ignores, nineteen selected fixtures in five feature lanes, eight
+  finalized native-payload hashes and two shipping ELF images of the correct
+  architecture. The five additional ignores versus the previous 134 are the
+  optional callback profiling diagnostic in each lane, not semantic waivers.
+- Actual native examples execute 200,007 native instructions on each target.
+  GNU/musl mapped/requested bytes are 57,344/44,848; ARM64 53,248/39,972. These
+  observations are not compiler-private resource or feature-size acceptance.
+- i686 and both hosted Miri receipts remain as described below. Both hosted
+  Miri seeds use the default borrow model; explicit local Tree Borrows checks
+  are separate evidence. Portable and native metadata/input witnesses remain
+  separate and reverify without overwriting the earlier portable receipt.
+- The runtime source is unchanged. **Full acceptance is still false:** two
+  polymorphic native and 67 compiled-Off gates fail across the two original
+  cohorts; compiler-private hard resource limits, feature-size and release
+  acceptance remain open. Passing the platform matrix does not waive them.
+
+Evidence: `target/jit-evidence/canonical-resume-production/ci-evidence/`
+`{RESULTS.md,reports,native/reports,native/inputs.sha256,await-native.status}`.
+
 ### Full-matrix acceptance checkpoint — 2026-10-28
 
 Retained runtime `b2c4c2ad` is committed and pushed. Two complete, unchanged
