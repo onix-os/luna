@@ -16,14 +16,32 @@ packet with all 46 opcodes, exact scalar bits and sender-prepared hash words.
 Eight tests cover exhaustive typed operands, truncation/mutation rejection,
 allocation refusal/reclamation, thread handoff and nine real workload snapshots
 decoded after the originating Lua arena is destroyed. Native and i686 tests,
-related IR/prepared-key/source-binding checks, check-all and default-borrow Miri
-pass. The explicit Tree Borrows run is still being qualified separately.
+related IR/prepared-key/source-binding checks, check-all and both default-borrow
+and explicit Tree Borrows Miri pass: eight codec tests in each borrow model.
 
 This module and its prepared-key accessors are gated by `cfg(test)`: no shipping
 runtime, public embedding API or packaging default changes. Owned transport is
 not compiler isolation, an enforced Cranelift resource budget, machine-code
 artifact installation or performance acceptance. Full acceptance remains false.
 Evidence: `target/jit-evidence/compiler-snapshot-wire/`.
+
+The separate native-Linux `compiler_process` test fixture now compiles ten owned
+snapshots in real child processes, including a prepared global-key request.
+Explicit per-workload witnesses verify ordinary, array, readonly and canonical
+integer-resume compiler routes rather than silently accepting optional fallback.
+Its nine tests verify kernel CPU/address-space limits, deadlines for silent and
+input-stalled workers, simultaneous bidirectional backpressure, exact response
+caps, malformed requests, abnormal exits, pre-spawn refusal and child reaping.
+Parent Memcheck passes all nine with zero errors and zero definite/indirect
+leaks; 48 bytes possible and 632 reachable remain in the Rust test harness.
+Check-all and the existing non-strict JIT clippy target pass with warnings.
+
+The fixture deliberately uses the current test executable, not a shipped helper,
+and returns snapshot witnesses, not installable machine code. It establishes
+the supervised single-child primitives only. All compiler paths, request/target/
+build identity, symbolic artifact transport and parent installation, compatible
+packaging and production enforcement remain required. No production compiler
+resource guarantee or original performance gate is marked accepted.
 
 ### Final retained-runtime platform checkpoint — 2026-10-28
 

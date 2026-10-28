@@ -97,6 +97,13 @@ pub(crate) mod chains;
     )
 ))]
 mod code_index;
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod compiler_process;
 #[cfg(test)]
 mod compiler_wire;
 #[cfg(test)]
