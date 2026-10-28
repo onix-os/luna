@@ -21,6 +21,17 @@ pub(in crate::jit) fn compile(
     metadata: BudgetAllocator,
     limits: crate::jit::work::Limits,
 ) -> Result<Code, JitError> {
+    compile_to(source, total, limit, metadata, limits, Destination::Install)?.installed()
+}
+
+pub(super) fn compile_to(
+    source: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    limits: crate::jit::work::Limits,
+    destination: Destination,
+) -> Result<Compilation<Code>, JitError> {
     let plan = Plan::recognize(source)
         .ok_or_else(|| JitError::Compilation("canonical resume source".into()))?;
     let expansion = crate::jit::work::Expansion {
@@ -110,6 +121,12 @@ pub(in crate::jit) fn compile(
         &[],
         &module,
     );
+    #[cfg(test)]
+    if !destination.installs() {
+        artifact_capture.commit();
+        return Ok(Compilation::Emitted { relocations: 0 });
+    }
+    debug_assert!(destination.installs());
     module
         .define_function_bytes(
             id,
@@ -126,8 +143,8 @@ pub(in crate::jit) fn compile(
         .take()
         .ok_or_else(|| JitError::Compilation("canonical resume mappings".into()))?;
     drop(module);
-    Ok(Code {
+    Ok(Compilation::Installed(Code {
         _memory: image,
         entry: unsafe { std::mem::transmute::<*const u8, Entry>(pointer) },
-    })
+    }))
 }

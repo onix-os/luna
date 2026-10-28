@@ -101,6 +101,8 @@ impl Drop for Memory {
 
 impl JITMemoryProvider for Memory {
     fn allocate(&mut self, size: usize, align: u64, kind: JITMemoryKind) -> io::Result<*mut u8> {
+        #[cfg(all(test, not(miri)))]
+        artifact::emission::assert_native_memory_allowed();
         let request = Request::new(size, align, self.page).inspect_err(|_| {
             self.status.quota_refused.store(true, Ordering::Relaxed);
         })?;
@@ -173,6 +175,8 @@ impl JITMemoryProvider for Memory {
     }
 
     fn finalize(&mut self, protection: BranchProtection) -> ModuleResult<()> {
+        #[cfg(all(test, not(miri)))]
+        artifact::emission::assert_native_memory_allowed();
         #[cfg(test)]
         if self.failure == Failure::Protect {
             self.status.unavailable.store(true, Ordering::Relaxed);
@@ -870,6 +874,51 @@ fn compile_selected_rooted(
     .ordinary()
 }
 
+#[derive(Clone, Copy)]
+enum Destination {
+    Install,
+    #[cfg(all(test, not(miri)))]
+    Emit,
+}
+
+impl Destination {
+    fn installs(self) -> bool {
+        matches!(self, Self::Install)
+    }
+}
+
+enum Compilation<T> {
+    Installed(T),
+    #[cfg(all(test, not(miri)))]
+    Emitted {
+        relocations: usize,
+    },
+}
+
+struct ImageOptions {
+    selection: Selection,
+    rooted_moves: bool,
+    destination: Destination,
+}
+
+impl<T> Compilation<T> {
+    fn installed(self) -> Result<T, JitError> {
+        match self {
+            Self::Installed(value) => Ok(value),
+            #[cfg(all(test, not(miri)))]
+            Self::Emitted { .. } => Err(JitError::Compilation("expected installed code".into())),
+        }
+    }
+
+    #[cfg(all(test, not(miri)))]
+    fn emitted(self) -> Result<usize, JitError> {
+        match self {
+            Self::Emitted { relocations } => Ok(relocations),
+            Self::Installed(_) => Err(JitError::Compilation("expected emitted code".into())),
+        }
+    }
+}
+
 fn compile_image(
     snapshot: &Snapshot,
     total: MappingCounter,
@@ -879,6 +928,34 @@ fn compile_image(
     selection: Selection,
     rooted_moves: bool,
 ) -> Result<Image, JitError> {
+    compile_image_to(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        ImageOptions {
+            selection,
+            rooted_moves,
+            destination: Destination::Install,
+        },
+    )?
+    .installed()
+}
+
+fn compile_image_to(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    options: ImageOptions,
+) -> Result<Compilation<Image>, JitError> {
+    let ImageOptions {
+        selection,
+        rooted_moves,
+        destination,
+    } = options;
     #[cfg(test)]
     let failure = if selection.failure == Failure::PreferBoundPayload {
         let ordinary = rooted_moves
@@ -2396,14 +2473,16 @@ fn compile_image(
                 + relocation_copy_bytes
         );
     }
-    module
-        .define_function_bytes(
-            function,
-            u64::from(compiled.buffer.alignment),
-            compiled.code_buffer(),
-            &module_relocations,
-        )
-        .map_err(fail)?;
+    if destination.installs() {
+        module
+            .define_function_bytes(
+                function,
+                u64::from(compiled.buffer.alignment),
+                compiled.code_buffer(),
+                &module_relocations,
+            )
+            .map_err(fail)?;
+    }
     drop(module_relocations);
     #[cfg(test)]
     if let Failure::RequireRelocationCopy(baseline) = failure {
@@ -2454,14 +2533,16 @@ fn compile_image(
         {
             projection_copy_bytes += bytes;
         }
-        module
-            .define_function_bytes(
-                id,
-                u64::from(compiled.buffer.alignment),
-                compiled.code_buffer(),
-                &relocations,
-            )
-            .map_err(fail)?;
+        if destination.installs() {
+            module
+                .define_function_bytes(
+                    id,
+                    u64::from(compiled.buffer.alignment),
+                    compiled.code_buffer(),
+                    &relocations,
+                )
+                .map_err(fail)?;
+        }
         drop((relocations, projection));
         projection_copy_charges[index] = Some(charge);
     }
@@ -2475,6 +2556,11 @@ fn compile_image(
                 + relocation_copy_bytes
                 + projection_copy_bytes
         );
+    }
+    #[cfg(all(test, not(miri)))]
+    if !destination.installs() {
+        artifact_capture.commit();
+        return Ok(Compilation::Emitted { relocations });
     }
     module.finalize_definitions().map_err(fail)?;
     #[cfg(all(test, not(miri)))]
@@ -2505,7 +2591,7 @@ fn compile_image(
     }
     drop(provider_charge);
     drop(memory);
-    Ok(Image {
+    Ok(Compilation::Installed(Image {
         _memory: image,
         entry,
         entry_arity,
@@ -2553,7 +2639,7 @@ fn compile_image(
         scalar_kernel: None,
         #[cfg(not(miri))]
         array_kernels: None,
-    })
+    }))
 }
 
 #[cfg(test)]

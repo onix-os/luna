@@ -108,6 +108,28 @@ fn compile(
     limits: work::Limits,
     #[cfg(test)] failure: Failure,
 ) -> Result<Kernels, JitError> {
+    compile_to(
+        source,
+        total,
+        limit,
+        metadata,
+        limits,
+        #[cfg(test)]
+        failure,
+        Destination::Install,
+    )?
+    .installed()
+}
+
+pub(super) fn compile_to(
+    source: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    limits: work::Limits,
+    #[cfg(test)] failure: Failure,
+    destination: Destination,
+) -> Result<Compilation<Kernels>, JitError> {
     let expansion = work::Expansion::admit(
         source,
         work::Limits {
@@ -218,15 +240,22 @@ fn compile(
             &[],
             &module,
         );
-        module
-            .define_function_bytes(
-                id,
-                u64::from(compiled.buffer.alignment),
-                compiled.code_buffer(),
-                &[],
-            )
-            .map_err(fail)?;
+        if destination.installs() {
+            module
+                .define_function_bytes(
+                    id,
+                    u64::from(compiled.buffer.alignment),
+                    compiled.code_buffer(),
+                    &[],
+                )
+                .map_err(fail)?;
+        }
         ids.push(id);
+    }
+    #[cfg(test)]
+    if !destination.installs() {
+        artifact_capture.commit();
+        return Ok(Compilation::Emitted { relocations: 0 });
     }
     module.finalize_definitions().map_err(fail)?;
     #[cfg(test)]
@@ -241,11 +270,11 @@ fn compile(
         .take()
         .ok_or_else(|| JitError::Compilation("missing array mappings".into()))?;
     drop(module);
-    Ok(Kernels {
+    Ok(Compilation::Installed(Kernels {
         _memory: image,
         bindings,
         registers: source.registers,
-    })
+    }))
 }
 
 #[cfg(test)]

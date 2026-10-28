@@ -145,7 +145,7 @@ fn child() {
                         &snapshot,
                         total.clone(),
                         4 << 20,
-                        metadata,
+                        metadata.clone(),
                         requested_work,
                         backend::Failure::None,
                     );
@@ -164,7 +164,7 @@ fn child() {
                                 &snapshot,
                                 total.clone(),
                                 4 << 20,
-                                metadata,
+                                metadata.clone(),
                                 requested_work,
                                 backend::Failure::None,
                             )
@@ -176,7 +176,7 @@ fn child() {
                         &snapshot,
                         total.clone(),
                         4 << 20,
-                        metadata,
+                        metadata.clone(),
                         requested_work,
                         backend::Failure::None,
                     )
@@ -184,26 +184,49 @@ fn child() {
             };
             let (code, captured) = if mode == "artifact" {
                 let features = std::env::var("LUNA_COMPILER_TARGET_FEATURES").unwrap();
-                let (code, bundle) = backend::artifact::with_target(&features, || {
-                    backend::artifact::capture(allocator(), compile)
+                let bundle = backend::artifact::with_target(&features, || {
+                    backend::artifact::emission::emit(
+                        &snapshot,
+                        match requested_route.as_deref() {
+                            Some("ordinary") => backend::artifact::Route::Ordinary,
+                            Some("readonly") => backend::artifact::Route::Readonly,
+                            Some("arrays") => backend::artifact::Route::Arrays,
+                            None if crate::jit::readonly_lookup::Plan::recognize(&snapshot)
+                                .is_some() =>
+                            {
+                                backend::artifact::Route::Readonly
+                            }
+                            None => backend::artifact::Route::Arrays,
+                            _ => panic!("compiler route request"),
+                        },
+                        requested_resume,
+                        requested_work,
+                        metadata.clone(),
+                        allocator(),
+                    )
                 })
                 .unwrap()
                 .unwrap();
-                (code.unwrap(), Some(bundle))
+                (None, Some(bundle))
             } else {
-                (compile().unwrap(), None)
+                (Some(compile().unwrap()), None)
             };
             let mapped = total.load(std::sync::atomic::Ordering::Relaxed);
-            assert!(mapped > 0);
-            let mut routes = 1u64;
-            if code.array_kernels.is_some() {
-                routes |= 2;
-            }
-            if let Some(readonly) = &code.readonly_lookup {
-                routes |= 4;
-                if readonly.integer_resume.is_some() {
-                    routes |= 8;
+            let mut routes = captured.as_ref().map_or(1u64, |bundle| bundle.routes());
+            if let Some(code) = &code {
+                assert!(mapped > 0);
+                if code.array_kernels.is_some() {
+                    routes |= 2;
                 }
+                if let Some(readonly) = &code.readonly_lookup {
+                    routes |= 4;
+                    if readonly.integer_resume.is_some() {
+                        routes |= 8;
+                    }
+                }
+            } else {
+                assert_eq!(mapped, 0);
+                assert!(routes & 1 != 0);
             }
             drop(code);
             assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);

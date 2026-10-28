@@ -113,12 +113,16 @@ table-capacity-miri:
 .PHONY: jit-compiler-wire jit-compiler-wire-miri jit-compiler-process
 .PHONY: jit-compiler-artifact jit-compiler-artifact-parent jit-compiler-artifact-wire-miri
 .PHONY: jit-compiler-code-owner
+.PHONY: jit-compiler-emission
+jit-compiler-emission:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact::emission::tests -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 jit-compiler-code-owner:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact::assemble::tests -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) worker_artifact_ -- --test-threads=1 | awk '/^test result: ok[.] 12 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-artifact:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact:: -- --test-threads=1 | awk '/^test result: ok[.] 18 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact:: -- --test-threads=1 | awk '/^test result: ok[.] 22 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-artifact-wire-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::artifact::wire::tests -- --test-threads=1 | awk '/^test result: ok[.] 5 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'

@@ -8,6 +8,8 @@ use super::*;
 
 #[cfg(not(miri))]
 mod assemble;
+#[cfg(not(miri))]
+pub(in crate::jit) mod emission;
 mod install;
 mod target;
 #[cfg(not(miri))]
@@ -486,6 +488,17 @@ pub(in crate::jit) fn capture<T>(
 }
 
 impl Bundle {
+    pub(in crate::jit) fn routes(&self) -> u64 {
+        self.modules.iter().fold(0, |routes, module| {
+            routes
+                | match module.kind {
+                    Kind::Ordinary => 1,
+                    Kind::Arrays => 2,
+                    Kind::Readonly => 4,
+                    Kind::Resume => 8,
+                }
+        })
+    }
     pub(in crate::jit) fn target_environment(&self) -> &[u8] {
         &self.environment
     }

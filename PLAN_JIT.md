@@ -9,6 +9,41 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Worker emit/install boundary checkpoint — 2026-10-28
+
+The test worker now emits artifacts without linking, mapping or constructing
+executable Code owners in the child. Shared lowering has explicit installed and
+test-only emitted results; emitted results carry relocation counts, not fake
+function pointers or Code/Image values. The scoped emitter rejects any attempted
+native provider allocation or protection, and runs with a zero mapping limit.
+Parent installation and Runtime publication retain the existing owners.
+
+Complete encoded artifact bytes match installed compilation across all nine
+real workloads, all four entry types, both applicable resume settings and a
+multiple-array source. Optional work refusal preserves ordinary artifacts;
+96 allocation allowances check fallible output, reclamation and persistent
+denial. An initially incorrect ordinal-derived route mask was caught and fixed
+with explicit mappings to the existing supervisor contract.
+
+Frozen local qualification passes 864 executions/73 summaries, including 170
+backend memory and fourteen backend integration tests. Two existing diagnostic
+ignores remain: callback profiling and generated-kernel dumping. i686 codec and
+check-all pass. Default and Tree Borrows Miri each pass 23 executions/six
+summaries with a verified fresh source-specific runner; native emission is not
+executed under Miri. Parent Memcheck passes 31 selected emission/owner/Runtime/
+supervisor tests with zero errors or definite/indirect leaks; each of four runs
+retains 48 possible/632 reachable harness bytes. Child compilers are not traced.
+
+**Not production isolation or full acceptance:** only Install is available to
+the shipping compiler; the emit route and supervisor remain test fixtures.
+No public API, packaging default or production Runtime selector is switched.
+Production request/build/deployment identity, helper packaging compatibility,
+scheduling/cancellation, complete parent-private allocation bounds and
+admissible-work/format compatibility remain open, as do the original 69 failed
+performance gates, feature-size and release acceptance. This refactoring is not
+a new performance or hosted-platform acceptance receipt. Evidence:
+`target/jit-evidence/compiler-emission/`.
+
 ### Worker-backed Runtime ownership checkpoint — 2026-10-28
 
 The test-only worker bridge now assembles artifacts into the original Runtime
@@ -35,7 +70,8 @@ harness bytes. Miri does not execute the native assembler or Runtime bridge,
 and Memcheck does not trace child compiler allocations.
 
 **Still test-only:** no production route, public API or packaging default changes.
-The child still links/maps before exporting. Production protocol/build identity,
+At this checkpoint the child still linked/mapped before exporting; the later
+emit/install boundary above supersedes that limitation. Production protocol/build identity,
 packaging compatibility, scheduling/cancellation, complete parent-private linker
 allocation bounds, the original 69 failed performance gates, feature-size and
 release acceptance remain open. Evidence:
@@ -74,7 +110,7 @@ claimed from these local checks.
 **Historical groundwork, still not production enforcement:** at this checkpoint
 the parent installer was not assembled into Runtime Code ownership; the later
 worker-backed ownership checkpoint above supersedes that limitation. The child
-still links before exporting. The build identity is an
+still linked before exporting at that checkpoint. The build identity is an
 explicit fixture token, not a real deployment fingerprint; target requests use
 a fixture channel. Production request/build/packaging compatibility, complete
 parent-private linker accounting, original performance failures, feature-size
