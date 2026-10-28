@@ -128,6 +128,10 @@ jit-compiler-jobs:
 jit-compiler-image-owner:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_image::owner_tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 .PHONY: jit-compiler-launch jit-compiler-launch-probe
+.PHONY: jit-compiler-fd-isolation
+jit-compiler-fd-isolation: jit-compiler-launch-probe
+	@set -eu -o pipefail; for spec in 'jit::compiler_launch::tests:11' 'jit::compiler_image:::17' 'jit::compiler_jobs::tests:8'; do filter=$${spec%:*}; count=$${spec##*:}; LUNA_LAUNCH_PROBE='$(TOP_DIR)/target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe' $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) "$$filter" -- --include-ignored --test-threads=16 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; done
+
 jit-compiler-launch-probe:
 	@mkdir -p 'target/launch-probe/$(if $(TARGET),$(TARGET),host)'
 	@set -eu; flags=(); if [[ -n "$${LUNA_WORKER_GLIBC_STATIC:-}" && '$(TARGET)' != *musl ]]; then flags=(-L "native=$$LUNA_WORKER_GLIBC_STATIC"); fi; rustc --edition=2021 $(TARGET_ARG) -C target-feature=+crt-static -C panic=abort "$${flags[@]}" tests/support/launch_probe.rs -o 'target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe'
@@ -425,7 +429,7 @@ jit-platform:
 	if test "$$(uname -sm)" != "Linux $$arch"; then \
 		echo "Native gate requires Linux $$arch hardware, not a cross-build" >&2; exit 2; \
 	fi
-	@$(MAKE) --no-print-directory environment jit-verify jit-error-publication jit-compiler-launch jit-compiler-image-owner jit-compiler-jobs jit-worker-conformance jit-example jit-disassembly
+	@$(MAKE) --no-print-directory environment jit-verify jit-error-publication jit-compiler-fd-isolation jit-compiler-launch jit-compiler-image-owner jit-compiler-jobs jit-worker-conformance jit-example jit-disassembly
 
 jit-evidence:
 	@mkdir -p target/jit-evidence

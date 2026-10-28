@@ -183,6 +183,12 @@ fn quota_boundaries_overlap_and_lowered_limits_preserve_live_images() {
 
 #[test]
 fn identity_refusals_and_repeated_drop_reclaim_descriptors_and_charges() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::identity_refusals_and_repeated_drop_reclaim_descriptors_and_charges"
+    )) {
+        return;
+    }
     let descriptors = || std::fs::read_dir("/proc/self/fd").unwrap().count();
     let before_fd = descriptors();
     let ledger = ledger();

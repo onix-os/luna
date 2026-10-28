@@ -83,6 +83,12 @@ fn fds() -> usize {
 
 #[test]
 fn invalid_limits_refuse_before_launch_or_descriptor_growth() {
+    if !super::isolation::enter(concat!(
+        module_path!(),
+        "::invalid_limits_refuse_before_launch_or_descriptor_growth"
+    )) {
+        return;
+    }
     let image = image(b"not an executable");
     let before = fds();
     for (address_space, cpu_seconds) in [
@@ -106,6 +112,12 @@ fn invalid_limits_refuse_before_launch_or_descriptor_growth() {
 
 #[test]
 fn missing_signal_capability_refuses_without_descriptors_or_children() {
+    if !super::isolation::enter(concat!(
+        module_path!(),
+        "::missing_signal_capability_refuses_without_descriptors_or_children"
+    )) {
+        return;
+    }
     let image = image(b"not an executable");
     let before = fds();
     let task = format!("/proc/self/task/{}/children", unsafe {
@@ -139,6 +151,12 @@ fn missing_signal_capability_refuses_without_descriptors_or_children() {
 
 #[test]
 fn invalid_exec_reports_fixed_startup_fault_and_reaps() {
+    if !super::isolation::enter(concat!(
+        module_path!(),
+        "::invalid_exec_reports_fixed_startup_fault_and_reaps"
+    )) {
+        return;
+    }
     let image = image(b"not an executable");
     let before = fds();
     let mut child = Child::spawn(&image, limits()).unwrap();
@@ -160,6 +178,12 @@ fn invalid_exec_reports_fixed_startup_fault_and_reaps() {
 
 #[test]
 fn cancellation_during_startup_reaps_the_pinned_child() {
+    if !super::isolation::enter(concat!(
+        module_path!(),
+        "::cancellation_during_startup_reaps_the_pinned_child"
+    )) {
+        return;
+    }
     use std::os::unix::process::ExitStatusExt;
     let image = image(b"not executed");
     let before = fds();
@@ -249,6 +273,12 @@ fn launch_startup_and_reap_have_no_parent_rust_allocations() {
 
 #[test]
 fn parallel_launches_preserve_pinned_wait_ownership() {
+    if !super::isolation::enter(concat!(
+        module_path!(),
+        "::parallel_launches_preserve_pinned_wait_ownership"
+    )) {
+        return;
+    }
     let image = image(b"not an executable");
     let before = fds();
     std::thread::scope(|scope| {

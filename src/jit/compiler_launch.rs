@@ -591,3 +591,6 @@ impl Drop for Child<'_> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) mod isolation;

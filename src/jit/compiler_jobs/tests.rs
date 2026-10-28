@@ -92,6 +92,12 @@ fn budget_exact_slots_headers_ticket_rollback_and_reconfiguration() {
 
 #[test]
 fn budget_allocator_and_host_refusals_have_no_partial_supervisor() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::budget_allocator_and_host_refusals_have_no_partial_supervisor"
+    )) {
+        return;
+    }
     for cause in 0..4 {
         let (host, metadata) = allocators();
         let baseline = host.accounted();
@@ -155,6 +161,12 @@ fn budget_scope_restores_nested_and_unwinding_supervisors() {
 
 #[test]
 fn native_failed_cleanup_retains_image_charges_and_exhausts_admission_until_recovery() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::native_failed_cleanup_retains_image_charges_and_exhausts_admission_until_recovery"
+    )) {
+        return;
+    }
     let (host, metadata) = allocators();
     let supervisor = Supervisor::new(1, metadata.clone()).unwrap();
     let baseline = host.accounted();
@@ -199,6 +211,12 @@ fn native_wait_refusal_keeps_an_exited_image_owned_until_confirmed_reap() {
 
 #[test]
 fn native_final_supervisor_drop_finishes_cleanup_before_releasing_storage() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::native_final_supervisor_drop_finishes_cleanup_before_releasing_storage"
+    )) {
+        return;
+    }
     let (host, metadata) = allocators();
     let baseline = host.accounted();
     let before = fds();

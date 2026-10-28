@@ -28,6 +28,12 @@ fn fds() -> usize {
 
 #[test]
 fn exact_payload_and_complete_metadata_owner_charge_until_final_clone() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::exact_payload_and_complete_metadata_owner_charge_until_final_clone"
+    )) {
+        return;
+    }
     let (host, metadata) = allocators();
     let baseline = host.accounted();
     host.set_limit(baseline + charge());
@@ -50,6 +56,12 @@ fn exact_payload_and_complete_metadata_owner_charge_until_final_clone() {
 
 #[test]
 fn host_and_metadata_limits_roll_back_descriptors_then_recover() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::host_and_metadata_limits_roll_back_descriptors_then_recover"
+    )) {
+        return;
+    }
     for metadata_denied in [false, true] {
         let (host, metadata) = allocators();
         let baseline = host.accounted();
@@ -76,6 +88,12 @@ fn host_and_metadata_limits_roll_back_descriptors_then_recover() {
 
 #[test]
 fn underlying_owner_denial_closes_temporary_image_and_preserves_fault() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::underlying_owner_denial_closes_temporary_image_and_preserves_fault"
+    )) {
+        return;
+    }
     let (host, metadata) = allocators();
     let baseline = host.accounted();
     let before = fds();
@@ -96,6 +114,12 @@ fn underlying_owner_denial_closes_temporary_image_and_preserves_fault() {
 
 #[test]
 fn invalid_inputs_and_unrelated_host_roots_never_publish_an_owner() {
+    if !crate::jit::compiler_launch::isolation::enter(concat!(
+        module_path!(),
+        "::invalid_inputs_and_unrelated_host_roots_never_publish_an_owner"
+    )) {
+        return;
+    }
     let (host, metadata) = allocators();
     let baseline = host.accounted();
     let before = fds();

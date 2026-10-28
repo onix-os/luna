@@ -41,9 +41,26 @@ failures and refuses 11 zero-model results. Initial fixture/toolchain/count
 failures remain recorded. Evidence: `target/jit-evidence/error-publication/`.
 
 The subsequent broad gate exposed process-wide descriptor-count assertions
-racing other concurrently executing tests. Focused serial qualification did
-not expose this. That broad failure remains retained; isolated-process fixture
-repair and another complete broad gate are required before accepting it.
+racing other concurrently executing tests, including reuse of a just-closed FD
+number. Thirteen descriptor-sensitive bodies now run in exact-name subprocesses
+under a parallel harness, with a body marker, one successful test, output cap
+and deadline. Explicitly serial harnesses still run the original bodies directly,
+preserving parent Memcheck coverage. Exact leak/EBADF assertions and each test's
+internal parallel-worker checks remain intact; the suite is not globally
+serialized. A new 16-thread gate requires all 36 launch/image/owner/job cases.
+
+The corrected complete `make jit-verify` plus tooling gate reports 12,525 passing
+test executions, zero failures and 144 existing ignores across 565 summaries.
+Its five large library runs pass 1,850/1,847/1,847/1,847/1,850 cases, each with
+28 existing ignores, including Off/Auto/Force and all-feature Force. Documentation
+and native/heap fuzz-smoke gates pass. Musl passes another 139 focused executions
+including the 36 parallel cases and real embedded worker, plus all-target/
+all-feature checking. An exact rebuilt parent passes 29 String/publication/
+owner/supervisor/image Memcheck cases with zero errors or definite/indirect
+leaks. These scoped checks do not replace the failed raw pidfd Memcheck gates.
+The original six-failure broad receipt and both failed isolation prototypes
+remain retained. Source/parent/count audit passes before this documentation
+update; evidence is in `target/jit-evidence/error-publication/fd-isolation/`.
 
 This closes the worker reply conversion gap, not every in-process backend error
 formatting site or full JIT acceptance. Bounded final teardown, whole kernel/
