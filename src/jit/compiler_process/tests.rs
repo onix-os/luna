@@ -198,6 +198,111 @@ fn sealed_launch_startup_shares_the_transport_deadline() {
 }
 
 #[test]
+fn owned_deadline_retains_failed_cleanup_and_image_until_supervisor_recovery() {
+    let host = Ledger::try_host(1 << 20).unwrap();
+    let metadata = BudgetAllocator(Ledger::try_child(1 << 20, host.clone()).unwrap());
+    let supervisor = crate::jit::compiler_jobs::Supervisor::new(1, metadata.clone()).unwrap();
+    let baseline = host.accounted();
+    let bytes = b"not executed";
+    let identity = crate::jit::compiler_request::image_identity(&bytes[..], 1 << 20).unwrap();
+    let image = crate::jit::compiler_image::Image::shared(
+        bytes,
+        &identity,
+        1 << 20,
+        host.clone(),
+        metadata,
+    )
+    .ok()
+    .unwrap();
+    let failure = run(
+        Launch::OwnedStalled(image, supervisor.reserve().unwrap(), 100, 100),
+        &[],
+        Limits {
+            wall: Duration::from_millis(20),
+            ..limits()
+        },
+        allocator(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(failure.cause, Cause::Deadline);
+    assert_eq!(failure.status, None);
+    assert_eq!(supervisor.occupied(), 1);
+    assert!(host.accounted() > baseline);
+    assert!(supervisor.reserve().is_err());
+    supervisor.fail_cleanup(0, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while supervisor.poll() != 0 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    reaped(failure.pid.unwrap());
+    assert_eq!(host.accounted(), baseline);
+}
+
+#[cfg(feature = "jit-worker-embedded")]
+#[test]
+fn embedded_pending_job_survives_cache_clear_off_polling_and_lua_teardown() {
+    let mut lua = crate::Lua::empty();
+    let original = lua.jit_stats().accounted_jit_bytes;
+    let supervisor = lua.enter(|ctx| ctx.jit().compiler_jobs()).unwrap();
+    let (host, metadata) = lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        (manager.host.clone(), manager.metadata.clone())
+    });
+    let spawn = || {
+        let ticket = supervisor.reserve().unwrap();
+        let bytes = b"not executed";
+        let identity = crate::jit::compiler_request::image_identity(&bytes[..], 1 << 20).unwrap();
+        let image = crate::jit::compiler_image::Image::shared(
+            bytes,
+            &identity,
+            1 << 20,
+            host.clone(),
+            metadata.clone(),
+        )
+        .ok()
+        .unwrap();
+        let mut child = crate::jit::compiler_launch::Child::spawn_owned(
+            image,
+            crate::jit::compiler_launch::Limits {
+                address_space: 512 << 20,
+                cpu_seconds: 3,
+                stall: true,
+            },
+        )
+        .unwrap();
+        child.fail_cleanup(100, 100);
+        ticket.retain(child);
+    };
+    spawn();
+    let charged = lua.jit_stats().accounted_jit_bytes;
+    lua.clear_jit_cache();
+    lua.set_jit_config(crate::JitConfig::default()).unwrap();
+    assert_eq!(lua.service_jit().unwrap(), 0);
+    assert_eq!(lua.jit_stats().accounted_jit_bytes, charged);
+    assert_eq!(supervisor.occupied(), 1);
+    supervisor.fail_cleanup(0, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while supervisor.occupied() != 0 {
+        lua.service_jit().unwrap();
+        assert!(Instant::now() < deadline);
+    }
+    spawn();
+    drop(lua);
+    assert_eq!(supervisor.occupied(), 1);
+    assert!(host.current() > 0);
+    supervisor.fail_cleanup(0, 0);
+    while supervisor.poll() != 0 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    drop(supervisor);
+    assert_eq!(host.current(), 0);
+    assert!(original > 0);
+}
+
+#[test]
 fn child() {
     let Ok(mode) = std::env::var(CHILD) else {
         return;
@@ -624,7 +729,7 @@ pub(in crate::jit) fn request_packet(
     resume: bool,
     requested_work: work::Limits,
 ) -> Result<Packet, crate::JitError> {
-    request_packet_inner(snapshot, route, resume, requested_work, None)
+    request_packet_inner(snapshot, route, resume, requested_work, None, None)
 }
 
 pub(in crate::jit) fn request_packet_in(
@@ -634,6 +739,7 @@ pub(in crate::jit) fn request_packet_in(
     requested_work: work::Limits,
     host: crate::jit::resources::LedgerRef,
     metadata: BudgetAllocator,
+    supervisor: Option<crate::jit::compiler_jobs::Supervisor>,
 ) -> Result<Packet, crate::JitError> {
     request_packet_inner(
         snapshot,
@@ -641,6 +747,7 @@ pub(in crate::jit) fn request_packet_in(
         resume,
         requested_work,
         Some((host, metadata)),
+        supervisor,
     )
 }
 
@@ -650,6 +757,7 @@ fn request_packet_inner(
     resume: bool,
     requested_work: work::Limits,
     host: Option<(crate::jit::resources::LedgerRef, BudgetAllocator)>,
+    supervisor: Option<crate::jit::compiler_jobs::Supervisor>,
 ) -> Result<Packet, crate::JitError> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let request = NEXT
@@ -720,6 +828,20 @@ fn request_packet_inner(
     })?;
     let build = protocol::binding(&frame)
         .map_err(|_| crate::JitError::Unavailable("compiler request binding"))?;
+    let ticket = if descriptor.is_some() {
+        supervisor
+            .as_ref()
+            .ok_or(crate::JitError::Unavailable("compiler supervisor scope"))?
+            .ensure_host(&host.as_ref().unwrap().0)?;
+        Some(
+            supervisor
+                .as_ref()
+                .ok_or(crate::JitError::Unavailable("compiler supervisor scope"))?
+                .reserve()?,
+        )
+    } else {
+        None
+    };
     let image = match (host, descriptor) {
         (Some((host, metadata)), Some((bytes, identity, _))) => Some(
             crate::jit::compiler_image::Image::shared(bytes, identity, 512 << 20, host, metadata)
@@ -733,9 +855,9 @@ fn request_packet_inner(
         ),
         _ => None,
     };
-    let command = if let Some(image) = &image {
+    let command = if let Some(image) = image {
         COMMANDS.set(COMMANDS.get().saturating_add(1));
-        Launch::Image(image)
+        Launch::Owned(image, ticket.unwrap())
     } else {
         command("artifact")
     };
@@ -756,7 +878,6 @@ fn request_packet_inner(
         _ => crate::JitError::Unavailable("compiler worker failed"),
     })?;
     reaped(receipt.pid);
-    drop(image);
     Ok(Packet {
         source,
         bytes: crate::jit::compiler_reply::Artifact::new(receipt.bytes, request, &build)
@@ -794,6 +915,7 @@ fn allocation_refusal_while_receiving_kills_and_reaps_the_worker() {
 #[test]
 fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers() {
     let mut lua = crate::Lua::empty();
+    let supervisor = lua.enter(|ctx| ctx.jit().compiler_jobs()).unwrap();
     let (host, metadata, snapshot) = lua.enter(|ctx| {
         let source = crate::Closure::load(ctx, None, &b"local x=1 return x+2"[..]).unwrap();
         let manager = ctx.jit().0.borrow();
@@ -812,6 +934,7 @@ fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers
             work::Limits::from(&crate::JitConfig::default()),
             host.clone(),
             metadata.clone(),
+            Some(supervisor.clone()),
         )
     };
     lua.set_memory_limit(Some(lua.accounted_memory() + (128 << 10)));

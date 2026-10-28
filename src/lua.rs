@@ -378,10 +378,38 @@ impl Lua {
     /// Compile at most one queued source prototype outside the arena and VM slice.
     #[cfg(feature = "jit")]
     pub fn service_jit(&mut self) -> Result<usize, crate::jit::JitError> {
+        #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+        self.jit.poll_compiler_jobs();
         if !self.jit.active() {
             return Ok(0);
         }
-        self.with_jit_memory_limit(Self::service_jit_inner)
+        #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+        {
+            self.with_jit_memory_limit(|lua| {
+                #[cfg(all(
+                    test,
+                    feature = "jit-worker-embedded",
+                    luna_jit_embedded_worker,
+                    not(miri)
+                ))]
+                let scope = lua.jit.compiler_jobs_scope()?;
+                let result = Self::service_jit_inner(lua);
+                #[cfg(all(
+                    test,
+                    feature = "jit-worker-embedded",
+                    luna_jit_embedded_worker,
+                    not(miri)
+                ))]
+                drop(scope);
+                #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+                lua.jit.poll_compiler_jobs();
+                result
+            })
+        }
+        #[cfg(not(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri))))]
+        {
+            self.with_jit_memory_limit(Self::service_jit_inner)
+        }
     }
 
     #[cfg(feature = "jit")]
@@ -570,6 +598,8 @@ impl Lua {
     /// Queue registered source prototypes and compile one bounded queue of them.
     #[cfg(feature = "jit")]
     pub fn prepare_jit(&mut self) -> Result<usize, crate::jit::JitError> {
+        #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+        self.jit.poll_compiler_jobs();
         if !self.jit.active() {
             return Ok(0);
         }

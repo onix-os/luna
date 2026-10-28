@@ -80,6 +80,13 @@ enum Launch<'a> {
     Fixture(Command),
     Image(&'a super::compiler_image::Image),
     Stalled(&'a super::compiler_image::Image),
+    Owned(super::compiler_image::Owner, super::compiler_jobs::Ticket),
+    OwnedStalled(
+        super::compiler_image::Owner,
+        super::compiler_jobs::Ticket,
+        usize,
+        usize,
+    ),
 }
 
 impl<'a> From<Command> for Launch<'a> {
@@ -91,6 +98,11 @@ impl<'a> From<Command> for Launch<'a> {
 enum Process<'a> {
     Fixture(Child),
     Image(super::compiler_launch::Child<'a>),
+    Owned(
+        super::compiler_launch::Child<'static>,
+        super::compiler_jobs::Ticket,
+    ),
+    Empty,
 }
 
 enum Input {
@@ -136,6 +148,8 @@ impl Running<'_> {
         match &self.child {
             Process::Fixture(child) => child.id(),
             Process::Image(child) => child.id(),
+            Process::Owned(child, _) => child.id(),
+            Process::Empty => 0,
         }
     }
 
@@ -143,11 +157,41 @@ impl Running<'_> {
         match &mut self.child {
             Process::Fixture(child) => child.try_wait(),
             Process::Image(child) => child.try_wait(),
+            Process::Owned(child, _) => child.try_wait(),
+            Process::Empty => Err(io::Error::from_raw_os_error(libc::ECHILD)),
+        }
+    }
+
+    fn startup(&mut self) -> io::Result<Result<bool, super::compiler_launch::Fault>> {
+        match &mut self.child {
+            Process::Image(child) => child.startup(),
+            Process::Owned(child, _) => child.startup(),
+            _ => Ok(Ok(true)),
         }
     }
 
     fn stop(&mut self) -> io::Result<()> {
         if self.stopped {
+            return Ok(());
+        }
+        if matches!(self.child, Process::Owned(..)) {
+            if let Process::Owned(mut child, ticket) =
+                std::mem::replace(&mut self.child, Process::Empty)
+            {
+                let result = child.cleanup_once();
+                self.stopped = true;
+                match result {
+                    Ok(Some(status)) => self.status = Some(status),
+                    result => {
+                        if !child.finished() {
+                            ticket.retain(child);
+                        }
+                        return Err(result
+                            .err()
+                            .unwrap_or_else(|| io::Error::from_raw_os_error(libc::EAGAIN)));
+                    }
+                }
+            }
             return Ok(());
         }
         match &mut self.child {
@@ -209,8 +253,31 @@ fn run<'a>(
         .try_reserve_exact(limits.response.min(4096))
         .map_err(|_| fail(Cause::Allocation))?;
     let command = command.into();
-    let stall = matches!(command, Launch::Stalled(_));
+    let (stall, signal_faults, wait_faults) = match &command {
+        Launch::Stalled(_) => (true, 0, 0),
+        Launch::OwnedStalled(_, _, signals, waits) => (true, *signals, *waits),
+        _ => (false, 0, 0),
+    };
     let mut running = match command {
+        Launch::Owned(image, ticket) | Launch::OwnedStalled(image, ticket, _, _) => {
+            let mut child = super::compiler_launch::Child::spawn_owned(
+                image,
+                super::compiler_launch::Limits {
+                    address_space: limits.address_space,
+                    cpu_seconds: limits.cpu_seconds,
+                    stall,
+                },
+            )
+            .map_err(|_| fail(Cause::Io))?;
+            child.fail_cleanup(signal_faults, wait_faults);
+            Running {
+                input: child.input.take().map(Input::Image),
+                output: child.output.take(),
+                child: Process::Owned(child, ticket),
+                status: None,
+                stopped: false,
+            }
+        }
         Launch::Image(image) | Launch::Stalled(image) => {
             let mut child = super::compiler_launch::Child::spawn(
                 image,
@@ -306,8 +373,8 @@ fn drive(
         if Instant::now() >= deadline {
             return Err(Cause::Deadline);
         }
-        if let Process::Image(child) = &mut running.child {
-            match child.startup().map_err(|_| Cause::Io)? {
+        {
+            match running.startup().map_err(|_| Cause::Io)? {
                 Err(fault) => return Err(Cause::Startup(fault)),
                 Ok(false) => {
                     std::thread::sleep(Duration::from_millis(1));

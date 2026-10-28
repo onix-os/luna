@@ -9,6 +9,50 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Retained compiler-job checkpoint — 2026-10-28
+
+An owned native child now carries its own shared image lease. The embedded
+request path reserves a metadata-charged supervisor slot before spawning; if
+nonblocking cleanup cannot confirm completion, the complete child/pidfd/image
+moves into that slot instead of releasing a request-local charge. Polling
+retries identity-pinned cleanup, frees only confirmed jobs and admits no more
+than the configured max_queue_entries. Slot storage and the complete supervisor
+owner use existing metadata/host limits. Resize/refusal preserves active jobs.
+
+The optional embedded-feature state retains outstanding jobs across cache clear
+and mode changes; service and prepare boundaries poll even when JIT is Off.
+Empty supervisors retire their allocations. Existing test-only Runtime selection
+receives a restoring, state-specific service scope; this is not a production
+policy cache. Ordinary default JIT builds gain no Manager field or new service
+path. Installed Code does not own compilation supervisors. No background thread,
+numeric-PID fallback, forgotten owner or dependency change accompanies this step.
+
+ECHILD alone no longer settles a native child: its pinned pidfd must also show
+exit/hangup readiness. Drop retains the image until cleanup is confirmed and
+throttles retries rather than spinning. Eight supervisor models cover full
+slot/header charges, allocation/host refusal, ticket rollback, reconfiguration,
+scope unwinding/poison recovery, repeated signal/wait failures, admission pressure,
+concurrent children, external reaping and final-owner cleanup. New transport and
+actual-Lua cases verify deadline-error retention and cache/Off/teardown lifetime.
+
+Refined source passes 138 GNU, 121 musl and 110 root executions; embedded process
+conformance is 19 cases and the embedding gate 94 including build-tool tests.
+Pure supervisor 3, image-owner 8 and materializer 9 pass parent Memcheck with no
+errors/definite-indirect leaks. Full supervisor Memcheck remains failed 3 passed/
+5 failed under Valgrind 3.26's unsupported pidfd signaling; no tool-only routing,
+suppression or accepted-failure waiver was added. The concurrent refusal fixture
+joins producers without a success-only Barrier, so unsupported startup fails
+instead of deadlocking. Evidence: target/jit-evidence/retained-worker-jobs/.
+
+This fixes premature worker-image release, not full lifecycle acceptance. Final
+supervisor destruction still completes cleanup synchronously and has no hard
+wall bound under permanently denied/uninterruptible kernel operations. Bounded
+teardown, whole kernel/workspace accounting, external cancellation/descendant
+policy, bounded public error publication, normal production work/format/routing,
+original 69/816 performance failures and full platform/resource/feature-size/
+release acceptance remain open. No benchmark, threshold waiver, branch or
+worktree was added; production routing remains unselected.
+
 ### Transaction-owned compiler image checkpoint — 2026-10-28
 
 The embedded actual-Lua Runtime conformance path now admits a fresh shared image

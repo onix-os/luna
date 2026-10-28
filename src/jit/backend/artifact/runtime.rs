@@ -21,6 +21,10 @@ pub(in crate::jit) fn with_enabled<T>(enabled: bool, run: impl FnOnce() -> T) ->
     (result, COMPILES.get())
 }
 
+pub(in crate::jit) fn enabled() -> bool {
+    ENABLED.get()
+}
+
 pub(in crate::jit) fn compile(
     route: Route,
     source: &Snapshot,
@@ -62,6 +66,7 @@ pub(in crate::jit) fn compile(
             work,
             total.host(),
             metadata.clone(),
+            crate::jit::compiler_jobs::current(),
         )?;
         assemble(
             &packet.bytes,

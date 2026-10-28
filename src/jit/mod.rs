@@ -874,6 +874,8 @@ pub enum JitError {
 }
 
 pub(crate) struct Manager {
+    #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+    compiler_jobs: Option<compiler_jobs::Supervisor>,
     #[cfg(all(
         not(miri),
         target_os = "linux",
@@ -949,6 +951,8 @@ impl Default for Manager {
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
+            #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+            compiler_jobs: None,
             #[cfg(all(
                 not(miri),
                 target_os = "linux",
@@ -1371,6 +1375,14 @@ impl Manager {
     }
 
     pub(crate) fn clear(&mut self) {
+        #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+        if self
+            .compiler_jobs
+            .as_ref()
+            .is_some_and(|jobs| jobs.poll() == 0)
+        {
+            self.compiler_jobs = None;
+        }
         #[cfg(all(
             not(miri),
             target_os = "linux",
@@ -1543,6 +1555,48 @@ impl Drop for InterpreterStats<'_> {
 }
 
 impl Runtime {
+    #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+    pub(crate) fn compiler_jobs(&self) -> Result<compiler_jobs::Supervisor, JitError> {
+        let mut manager = self.0.borrow_mut();
+        if let Some(jobs) = &manager.compiler_jobs {
+            jobs.configure(manager.config.max_queue_entries)?;
+            return Ok(jobs.clone());
+        }
+        let jobs = compiler_jobs::Supervisor::new(
+            manager.config.max_queue_entries,
+            manager.metadata.clone(),
+        )?;
+        manager.compiler_jobs = Some(jobs.clone());
+        Ok(jobs)
+    }
+
+    #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+    pub(crate) fn poll_compiler_jobs(&self) {
+        let mut manager = self.0.borrow_mut();
+        if manager
+            .compiler_jobs
+            .as_ref()
+            .is_some_and(|jobs| jobs.poll() == 0)
+        {
+            manager.compiler_jobs = None;
+        }
+    }
+
+    #[cfg(all(
+        test,
+        feature = "jit-worker-embedded",
+        luna_jit_embedded_worker,
+        not(miri)
+    ))]
+    pub(crate) fn compiler_jobs_scope(&self) -> Result<compiler_jobs::Scope, JitError> {
+        let jobs = if backend::artifact::runtime::enabled() {
+            Some(self.compiler_jobs()?)
+        } else {
+            None
+        };
+        Ok(compiler_jobs::Scope::enter(jobs))
+    }
+
     #[cfg(test)]
     pub(crate) fn test_activation_host(&self, limit: usize) {
         self.0.borrow_mut().activation_limit = limit;
