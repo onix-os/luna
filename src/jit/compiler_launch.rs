@@ -9,6 +9,30 @@ use std::{
 
 use super::compiler_image::{Image, Owner};
 
+pub(super) struct Admission {
+    image: Owner,
+    address_space: libc::rlim_t,
+    _workspace: super::resources::Reservation,
+}
+
+impl Admission {
+    pub fn new(image: Owner, address_space: libc::rlim_t) -> Result<Self, super::JitError> {
+        if address_space == 0 || address_space == libc::RLIM_INFINITY {
+            return Err(super::JitError::InvalidConfiguration("compiler workspace"));
+        }
+        let bytes = usize::try_from(address_space)
+            .map_err(|_| super::JitError::InvalidConfiguration("compiler workspace"))?;
+        let workspace = image
+            .reserve_workspace(bytes)
+            .map_err(|_| super::JitError::ResourceLimit("compiler workspace"))?;
+        Ok(Self {
+            image,
+            address_space,
+            _workspace: workspace,
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct Limits {
     pub address_space: libc::rlim_t,
@@ -82,14 +106,14 @@ pub(super) struct Child<'a> {
 
 enum Lease<'a> {
     Borrowed(&'a Image),
-    Owned(Owner),
+    Owned(Admission),
 }
 
 impl AsRawFd for Lease<'_> {
     fn as_raw_fd(&self) -> RawFd {
         match self {
             Self::Borrowed(image) => image.as_raw_fd(),
-            Self::Owned(image) => image.as_raw_fd(),
+            Self::Owned(admission) => admission.image.as_raw_fd(),
         }
     }
 }
@@ -571,8 +595,11 @@ impl<'a> Child<'a> {
 }
 
 impl Child<'static> {
-    pub fn spawn_owned(image: Owner, limits: Limits) -> io::Result<Self> {
-        Self::spawn_inner(Lease::Owned(image), limits)
+    pub fn spawn_owned(admission: Admission, limits: Limits) -> io::Result<Self> {
+        if admission.address_space != limits.address_space {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        }
+        Self::spawn_inner(Lease::Owned(admission), limits)
     }
 }
 
@@ -594,3 +621,6 @@ mod tests;
 
 #[cfg(test)]
 pub(super) mod isolation;
+
+#[cfg(test)]
+mod admission_tests;

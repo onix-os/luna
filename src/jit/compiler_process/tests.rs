@@ -215,10 +215,16 @@ fn owned_deadline_retains_failed_cleanup_and_image_until_supervisor_recovery() {
     .ok()
     .unwrap();
     let failure = run(
-        Launch::OwnedStalled(image, supervisor.reserve().unwrap(), 100, 100),
+        Launch::OwnedStalled(
+            crate::jit::compiler_launch::Admission::new(image, 64 << 10).unwrap(),
+            supervisor.reserve().unwrap(),
+            100,
+            100,
+        ),
         &[],
         Limits {
             wall: Duration::from_millis(20),
+            address_space: 64 << 10,
             ..limits()
         },
         allocator(),
@@ -264,7 +270,7 @@ fn embedded_pending_job_survives_cache_clear_off_polling_and_lua_teardown() {
         .ok()
         .unwrap();
         let mut child = crate::jit::compiler_launch::Child::spawn_owned(
-            image,
+            crate::jit::compiler_launch::Admission::new(image, 512 << 20).unwrap(),
             crate::jit::compiler_launch::Limits {
                 address_space: 512 << 20,
                 cpu_seconds: 3,
@@ -859,8 +865,9 @@ fn request_packet_inner(
         _ => None,
     };
     let command = if let Some(image) = image {
+        let admission = crate::jit::compiler_launch::Admission::new(image, limits().address_space)?;
         COMMANDS.set(COMMANDS.get().saturating_add(1));
-        Launch::Owned(image, ticket.unwrap())
+        Launch::Owned(admission, ticket.unwrap())
     } else {
         command("artifact")
     };
@@ -963,6 +970,14 @@ fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers
     assert_eq!(host.accounted(), baseline);
     assert_eq!(metadata.0.current(), metadata_before);
     metadata.0.fail_after(usize::MAX);
+    assert!(matches!(
+        request(),
+        Err(crate::JitError::ResourceLimit("compiler workspace"))
+    ));
+    assert_eq!(COMMANDS.get(), commands);
+    assert_eq!(host.accounted(), baseline);
+    assert_eq!(metadata.0.current(), metadata_before);
+    lua.set_memory_limit(Some(baseline + allowance + limits().address_space as usize));
     let packet = request().unwrap();
     assert_eq!(COMMANDS.get(), commands + 1);
     assert_eq!(metadata.0.current(), metadata_before);

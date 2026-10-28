@@ -38,7 +38,15 @@ impl Reservation {
         ledger.reserve(bytes)?;
         Ok(Self { ledger, bytes })
     }
+
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
+    pub fn additional(&self, bytes: usize) -> Result<Self, AllocError> {
+        Self::new(self.ledger.clone(), bytes)
+    }
 }
+
+#[cfg(test)]
+mod reservation_tests;
 
 #[cfg(any(
     test,

@@ -26,9 +26,9 @@ fn image(host: LedgerRef, metadata: BudgetAllocator) -> crate::jit::compiler_ima
 
 fn child(host: LedgerRef, metadata: BudgetAllocator, stall: bool) -> Child<'static> {
     Child::spawn_owned(
-        image(host, metadata),
+        crate::jit::compiler_launch::Admission::new(image(host, metadata), 64 << 10).unwrap(),
         Limits {
-            address_space: 512 << 20,
+            address_space: 64 << 10,
             cpu_seconds: 3,
             stall,
         },
@@ -175,7 +175,13 @@ fn native_failed_cleanup_retains_image_charges_and_exhausts_admission_until_reco
     let mut child = child(host.clone(), metadata.clone(), true);
     child.fail_cleanup(100, 100);
     let charged = host.accounted();
-    assert!(charged > baseline);
+    assert_eq!(
+        charged,
+        baseline
+            + unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize
+            + crate::jit::compiler_image::Owner::allocation_bytes()
+            + (64 << 10)
+    );
     assert!(child.cleanup_once().is_err());
     ticket.retain(child);
     assert_eq!(supervisor.occupied(), 1);

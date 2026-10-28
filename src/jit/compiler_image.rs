@@ -41,6 +41,13 @@ fn rounded(length: usize, maximum: usize, page: usize) -> Result<usize, Error> {
 }
 
 impl Image {
+    pub fn reserve_workspace(
+        &self,
+        bytes: usize,
+    ) -> Result<Reservation, allocator_api2::alloc::AllocError> {
+        self._reservation.additional(bytes)
+    }
+
     pub fn shared(
         bytes: &[u8],
         expected: &[u8; 32],

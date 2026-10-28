@@ -67,9 +67,12 @@ enum Launch<'a> {
     Fixture(Command),
     Image(&'a super::compiler_image::Image),
     Stalled(&'a super::compiler_image::Image),
-    Owned(super::compiler_image::Owner, super::compiler_jobs::Ticket),
+    Owned(
+        super::compiler_launch::Admission,
+        super::compiler_jobs::Ticket,
+    ),
     OwnedStalled(
-        super::compiler_image::Owner,
+        super::compiler_launch::Admission,
         super::compiler_jobs::Ticket,
         usize,
         usize,
