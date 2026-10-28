@@ -9,6 +9,57 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Owned worker address-space checkpoint — 2026-10-28
+
+Owned launch now requires a non-cloneable admission pairing its shared compiler
+image with a host-ledger reservation for the exact finite `RLIMIT_AS` applied to
+the exec image. The reservation derives from the admitted image's ledger domain,
+not an unrelated allocator. Each process pays separately even when images share
+an owner. An applied-limit mismatch refuses before spawn. Workspace quota refusal
+returns the fixed `ResourceLimit("compiler workspace")` before command publication
+or process creation; image/metadata refusal precedence remains intact.
+
+This reserves virtual-address capacity, not measured RSS. The existing 512 MiB
+exec-image limit is unchanged. Finite Lua budgets must now admit that envelope
+alongside the image, metadata and request storage; insufficient headroom refuses
+rather than borrowing unaccounted child workspace. The charge follows the actual
+Child through failed cleanup, supervisor retention, cache clear, Off polling and
+Lua destruction, and is released only after confirmed completion and owner drop.
+It appears in existing host accounting and peak diagnostics. No public JitConfig,
+Manager layout, default normal-route policy, wire ABI or dependency changes.
+
+Three pure reservation cases verify independent ownership without allocation,
+parent/child refusal, overflow, explicit recovery and unwinding past the original
+ledger reference. Five admission models verify exact non-page-aligned capacity,
+per-process image sharing, one-byte refusal, invalid/mismatched limits and atomic
+concurrent admission. A required source-built owned probe observes the matching
+512 MiB kernel limit, environment/descriptors/signals/CPU/core policy and retained
+charge through exit observation/reaping. Existing supervisor and actual-Lua
+tests verify exact retained workspace charges and refusal-before-command recovery.
+
+Current source passes 183 focused GNU and 155 musl executions, including the
+real owned probe, 36 parallel launch/image/owner/job cases and embedded-worker
+conformance. All-target/all-feature checks and the 66-log Miri recipe fixture
+pass; 26 failures propagate and 12 zero-model selections refuse. i686 executes
+three reservation/eight portable wire cases and checks all targets/features.
+Both Miri borrow models pass the three new pure reservation cases. Exact-parent
+Memcheck passes 20 pure admission/reservation/supervisor/image cases with zero
+errors or definite/indirect leaks. Current all-feature Force passes 2,428 test
+executions with zero failures and 29 ignores across 95 summaries; its large
+library passes 1,858 cases. The added probe ignore is exercised separately by
+the required native gate. The earlier complete 12,525-execution multi-mode gate
+belongs to the preceding checkpoint, not this changed source. Evidence and
+source/parent audit: `target/jit-evidence/worker-workspace/`.
+
+This closes post-exec address-space capacity admission, not whole-process
+accounting. Applying RLIMIT_AS after clone does not shrink inherited parent
+mappings before exec: transient fork/COW, kernel/process/FD/socket and descendant
+aggregate accounting remain open. Final teardown still retries synchronously
+without a hard wall bound. Normal production worker work/format/routing, other
+in-process error formatting, original 69/816 performance failures and full current
+platform/resource/feature-size/release acceptance remain open. No benchmark,
+threshold/quota waiver, thread, branch, worktree or registry upload was added.
+
 ### Fallible worker-error publication checkpoint — 2026-10-28
 
 Worker failure conversion preserves `JitError::Compilation(String)` and every

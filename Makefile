@@ -116,6 +116,16 @@ table-capacity-miri:
 .PHONY: jit-compiler-request jit-compiler-request-miri
 .PHONY: jit-compiler-image
 .PHONY: jit-error-publication jit-error-publication-miri
+.PHONY: jit-workspace-reservation jit-worker-workspace jit-worker-workspace-miri
+jit-workspace-reservation:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::resources::reservation_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-worker-workspace: jit-workspace-reservation jit-compiler-launch-probe
+	@set -o pipefail; LUNA_LAUNCH_PROBE='$(TOP_DIR)/target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe' $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_launch::admission_tests -- --include-ignored --test-threads=16 | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-worker-workspace-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::reservation_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 jit-error-publication:
 	@set -eu -o pipefail; for spec in 'jit::global_box::string_tests:5' 'jit::compiler_reply::publication_tests:4'; do filter=$${spec%:*}; count=$${spec##*:}; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) "$$filter" -- --test-threads=1 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; done
 
@@ -403,6 +413,7 @@ jit-miri:
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-request-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_request-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-reply-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_reply-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-error-publication-miri 2>&1 | tee '$(MIRI_DIR)/jit-error-publication.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-worker-workspace-miri 2>&1 | tee '$(MIRI_DIR)/jit-worker-workspace.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-stream-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_stream-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-artifact-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-wire-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-artifact-linker-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-link-tests.log'
@@ -429,7 +440,7 @@ jit-platform:
 	if test "$$(uname -sm)" != "Linux $$arch"; then \
 		echo "Native gate requires Linux $$arch hardware, not a cross-build" >&2; exit 2; \
 	fi
-	@$(MAKE) --no-print-directory environment jit-verify jit-error-publication jit-compiler-fd-isolation jit-compiler-launch jit-compiler-image-owner jit-compiler-jobs jit-worker-conformance jit-example jit-disassembly
+	@$(MAKE) --no-print-directory environment jit-verify jit-error-publication jit-worker-workspace jit-compiler-fd-isolation jit-compiler-launch jit-compiler-image-owner jit-compiler-jobs jit-worker-conformance jit-example jit-disassembly
 
 jit-evidence:
 	@mkdir -p target/jit-evidence
