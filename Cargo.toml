@@ -105,10 +105,14 @@ rustyline = "14.0"
 
 [target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
 target-lexicon = "=0.13.5"
+sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"] }
 
 # Defaults leave a release build with 16 codegen units, no cross-crate inlining and full debug
 # symbols. This is a library, so these apply only to what is built *here* — examples, tests and
 # the REPL — not to anything downstream.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.release]
 # Cuts a `Lua::core()` embed from ~794 KB to ~600 KB for about 19% off the VM's speed. Not "z",
 # which saves a further 43 KB but runs 2.4x slower: `run_vm` is one large dispatch loop and "z"

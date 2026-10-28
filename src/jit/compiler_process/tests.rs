@@ -106,7 +106,57 @@ fn child() {
             );
             io::stderr().write_all(b"address-space-refused").unwrap();
         }
-        "compile" | "artifact" => {
+        "artifact" => {
+            use crate::jit::compiler_request as request;
+            let mut packet = Vec::new_in(allocator());
+            packet.try_reserve_exact(request::MAX_BYTES).unwrap();
+            let mut input = io::stdin().lock().take(request::MAX_BYTES as u64 + 1);
+            let mut scratch = [0; 4096];
+            loop {
+                let count = input.read(&mut scratch).unwrap();
+                if count == 0 {
+                    break;
+                }
+                assert!(packet.len() + count <= request::MAX_BYTES);
+                packet.extend_from_slice(&scratch[..count]);
+            }
+            let identity = request::worker_identity().unwrap();
+            let abi = request::abi_identity();
+            let view = request::decode(&packet, &identity, &abi).unwrap();
+            let snapshot = wire::decode(view.source, wire_limits(), allocator()).unwrap();
+            let bundle = backend::artifact::with_target(view.features, || {
+                backend::artifact::emission::emit(
+                    &snapshot,
+                    match view.route {
+                        request::Route::Ordinary => backend::artifact::Route::Ordinary,
+                        request::Route::Arrays => backend::artifact::Route::Arrays,
+                        request::Route::Readonly => backend::artifact::Route::Readonly,
+                    },
+                    view.resume,
+                    view.work,
+                    allocator(),
+                    allocator(),
+                )
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(bundle.target_environment(), view.environment);
+            let build = request::binding(&packet).unwrap();
+            let response = backend::artifact::encode(
+                &bundle,
+                backend::artifact::Binding {
+                    request: view.request,
+                    build: &build,
+                    source: view.source,
+                    environment: view.environment,
+                },
+                artifact_limits(),
+                allocator(),
+            )
+            .unwrap();
+            io::stderr().write_all(&response).unwrap();
+        }
+        "compile" => {
             let mut packet = Vec::new_in(allocator());
             packet.try_reserve_exact(1 << 20).unwrap();
             let mut input = io::stdin().lock().take((1 << 20) + 1);
@@ -124,145 +174,51 @@ fn child() {
             let ledger = Ledger::new(4 << 20);
             let total = MappingCounter::new(ledger.clone());
             let metadata = allocator();
-            let requested_route = std::env::var("LUNA_COMPILER_ROUTE").ok();
-            let requested_resume =
-                std::env::var("LUNA_COMPILER_RESUME").map_or(true, |value| match value.as_str() {
-                    "true" => true,
-                    "false" => false,
-                    _ => panic!("compiler resume request"),
-                });
-            let requested_work = std::env::var("LUNA_COMPILER_WORK").map_or_else(
-                |_| work::Limits::from(&crate::JitConfig::default()),
-                |value| {
-                    let words: std::vec::Vec<usize> =
-                        value.split(',').map(|word| word.parse().unwrap()).collect();
-                    assert_eq!(words.len(), 3);
-                    work::Limits {
-                        instructions: words[0],
-                        blocks: words[1],
-                        relocations: words[2],
-                    }
-                },
-            );
-            let compile = || {
-                if requested_route.as_deref() == Some("ordinary") {
-                    return backend::compile_in(
+            let requested_work = work::Limits::from(&crate::JitConfig::default());
+            let code = if crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some() {
+                crate::jit::readonly_lookup::binding::integer_resume::with_enabled(true, || {
+                    backend::readonly_lookup::compile_pair(
                         &snapshot,
                         total.clone(),
                         4 << 20,
-                        metadata.clone(),
+                        metadata,
                         requested_work,
                         backend::Failure::None,
-                    );
-                }
-                assert!(matches!(
-                    requested_route.as_deref(),
-                    None | Some("readonly") | Some("arrays")
-                ));
-                if requested_route.as_deref() != Some("arrays")
-                    && crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some()
-                {
-                    crate::jit::readonly_lookup::binding::integer_resume::with_enabled(
-                        requested_resume,
-                        || {
-                            backend::readonly_lookup::compile_pair(
-                                &snapshot,
-                                total.clone(),
-                                4 << 20,
-                                metadata.clone(),
-                                requested_work,
-                                backend::Failure::None,
-                            )
-                        },
-                    )
-                    .0
-                } else {
-                    backend::array::compile_pair(
-                        &snapshot,
-                        total.clone(),
-                        4 << 20,
-                        metadata.clone(),
-                        requested_work,
-                        backend::Failure::None,
-                    )
-                }
-            };
-            let (code, captured) = if mode == "artifact" {
-                let features = std::env::var("LUNA_COMPILER_TARGET_FEATURES").unwrap();
-                let bundle = backend::artifact::with_target(&features, || {
-                    backend::artifact::emission::emit(
-                        &snapshot,
-                        match requested_route.as_deref() {
-                            Some("ordinary") => backend::artifact::Route::Ordinary,
-                            Some("readonly") => backend::artifact::Route::Readonly,
-                            Some("arrays") => backend::artifact::Route::Arrays,
-                            None if crate::jit::readonly_lookup::Plan::recognize(&snapshot)
-                                .is_some() =>
-                            {
-                                backend::artifact::Route::Readonly
-                            }
-                            None => backend::artifact::Route::Arrays,
-                            _ => panic!("compiler route request"),
-                        },
-                        requested_resume,
-                        requested_work,
-                        metadata.clone(),
-                        allocator(),
                     )
                 })
-                .unwrap()
-                .unwrap();
-                (None, Some(bundle))
+                .0
             } else {
-                (Some(compile().unwrap()), None)
-            };
+                backend::array::compile_pair(
+                    &snapshot,
+                    total.clone(),
+                    4 << 20,
+                    metadata,
+                    requested_work,
+                    backend::Failure::None,
+                )
+            }
+            .unwrap();
             let mapped = total.load(std::sync::atomic::Ordering::Relaxed);
-            let mut routes = captured.as_ref().map_or(1u64, |bundle| bundle.routes());
-            if let Some(code) = &code {
-                assert!(mapped > 0);
-                if code.array_kernels.is_some() {
-                    routes |= 2;
+            assert!(mapped > 0);
+            let mut routes = 1u64;
+            if code.array_kernels.is_some() {
+                routes |= 2;
+            }
+            if let Some(readonly) = &code.readonly_lookup {
+                routes |= 4;
+                if readonly.integer_resume.is_some() {
+                    routes |= 8;
                 }
-                if let Some(readonly) = &code.readonly_lookup {
-                    routes |= 4;
-                    if readonly.integer_resume.is_some() {
-                        routes |= 8;
-                    }
-                }
-            } else {
-                assert_eq!(mapped, 0);
-                assert!(routes & 1 != 0);
             }
             drop(code);
             assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
             assert_eq!(ledger.current(), 0);
             let result = wire::encode(&snapshot, wire_limits(), allocator()).unwrap();
             let mut output = io::stderr().lock();
-            if let Some(mut bundle) = captured {
-                bundle.retain_routes(routes);
-                let request = std::env::var("LUNA_COMPILER_REQUEST_ID")
-                    .unwrap()
-                    .parse()
-                    .unwrap();
-                let packet = backend::artifact::encode(
-                    &bundle,
-                    backend::artifact::Binding {
-                        request,
-                        build: &[0x51; 32],
-                        source: &result,
-                        environment: bundle.target_environment(),
-                    },
-                    artifact_limits(),
-                    allocator(),
-                )
-                .unwrap();
-                output.write_all(&packet).unwrap();
-            } else {
-                output.write_all(b"LUCOMP01").unwrap();
-                output.write_all(&(mapped as u64).to_le_bytes()).unwrap();
-                output.write_all(&routes.to_le_bytes()).unwrap();
-                output.write_all(&result).unwrap();
-            }
+            output.write_all(b"LUCOMP01").unwrap();
+            output.write_all(&(mapped as u64).to_le_bytes()).unwrap();
+            output.write_all(&routes.to_le_bytes()).unwrap();
+            output.write_all(&result).unwrap();
         }
         _ => panic!("unknown compiler fixture"),
     }
@@ -406,7 +362,7 @@ fn kernel_enforces_the_worker_cpu_limit() {
 
 #[test]
 fn request_and_storage_refusals_precede_process_creation() {
-    for allowance in 0..3 {
+    for allowance in 0..4 {
         let snapshot = crate::Lua::empty().enter(|ctx| {
             let closure = crate::Closure::load(ctx, None, &b"local x=1 return x+1"[..]).unwrap();
             Snapshot::new(&closure.prototype(), 4096, 2 << 20).unwrap()
@@ -582,32 +538,41 @@ pub(in crate::jit) fn request_packet(
             }
             _ => crate::JitError::Unavailable("compiler target features"),
         })?;
-    let mut worker = command("artifact");
-    worker.env("LUNA_COMPILER_REQUEST_ID", request.to_string());
-    worker.env("LUNA_COMPILER_TARGET_FEATURES", features);
-    worker.env(
-        "LUNA_COMPILER_ROUTE",
-        match route {
-            backend::artifact::Route::Ordinary => "ordinary",
-            backend::artifact::Route::Arrays => "arrays",
-            backend::artifact::Route::Readonly => "readonly",
+    use crate::jit::compiler_request as protocol;
+    let identity = protocol::worker_identity()
+        .map_err(|_| crate::JitError::Unavailable("compiler image identity"))?;
+    let abi = protocol::abi_identity();
+    let frame = protocol::encode(
+        &protocol::View {
+            request,
+            worker: &identity,
+            abi: &abi,
+            work: requested_work,
+            route: match route {
+                backend::artifact::Route::Ordinary => protocol::Route::Ordinary,
+                backend::artifact::Route::Arrays => protocol::Route::Arrays,
+                backend::artifact::Route::Readonly => protocol::Route::Readonly,
+            },
+            resume,
+            features: &features,
+            environment: &environment,
+            source: &source,
         },
-    );
-    worker.env(
-        "LUNA_COMPILER_RESUME",
-        if resume { "true" } else { "false" },
-    );
-    worker.env(
-        "LUNA_COMPILER_WORK",
-        format!(
-            "{},{},{}",
-            requested_work.instructions, requested_work.blocks, requested_work.relocations
-        ),
-    );
+        workspace.clone(),
+    )
+    .map_err(|error| match error {
+        protocol::Error::Allocation | protocol::Error::Limit => {
+            crate::JitError::ResourceLimit("compiler request packet")
+        }
+        _ => crate::JitError::Unavailable("compiler request packet"),
+    })?;
+    let build = protocol::binding(&frame)
+        .map_err(|_| crate::JitError::Unavailable("compiler request binding"))?;
     let receipt = run(
-        worker,
-        &source,
+        command("artifact"),
+        &frame,
         Limits {
+            request: protocol::MAX_BYTES,
             response: 2 << 20,
             ..limits()
         },
@@ -625,6 +590,7 @@ pub(in crate::jit) fn request_packet(
         bytes: receipt.bytes,
         environment,
         request,
+        build,
     })
 }
 
@@ -689,11 +655,40 @@ fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
     let mut progressing_routes = 0;
     for (index, (name, source)) in requests.into_iter().enumerate() {
         let request = index as u64 + 1;
-        let mut worker = command("artifact");
-        worker.env("LUNA_COMPILER_REQUEST_ID", request.to_string());
-        worker.env("LUNA_COMPILER_TARGET_FEATURES", &target_features);
-        let receipt = run(worker, &source, limits(), allocator())
-            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+        use crate::jit::compiler_request as protocol;
+        let snapshot = wire::decode(&source, wire_limits(), allocator()).unwrap();
+        let route = if crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some() {
+            protocol::Route::Readonly
+        } else {
+            protocol::Route::Arrays
+        };
+        drop(snapshot);
+        let frame = protocol::encode(
+            &protocol::View {
+                request,
+                worker: &protocol::worker_identity().unwrap(),
+                abi: &protocol::abi_identity(),
+                work: work::Limits::from(&crate::JitConfig::default()),
+                route,
+                resume: true,
+                features: &target_features,
+                environment: &environment,
+                source: &source,
+            },
+            allocator(),
+        )
+        .unwrap();
+        let build = protocol::binding(&frame).unwrap();
+        let receipt = run(
+            command("artifact"),
+            &frame,
+            Limits {
+                request: protocol::MAX_BYTES,
+                ..limits()
+            },
+            allocator(),
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error:?}"));
         reaped(receipt.pid);
         let metadata = allocator();
         let ledger = metadata.0.clone();
@@ -702,7 +697,7 @@ fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
             &receipt.bytes,
             backend::artifact::Binding {
                 request,
-                build: &[0x51; 32],
+                build: &build,
                 source: &source,
                 environment: &environment,
             },
@@ -743,4 +738,93 @@ fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
     assert_eq!(progressing_routes, 15);
     assert!(calls > 0 && instructions > 0);
     eprintln!("artifact-parent calls={calls} instructions={instructions} routes={routes}");
+}
+
+#[test]
+fn owned_requests_reject_cross_process_mismatches_and_ignore_old_env_channels() {
+    use crate::jit::compiler_request as protocol;
+    let snapshot = crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, &b"local n=1 return n+2"[..]).unwrap();
+        Snapshot::new(&closure.prototype(), 4096, 2 << 20).unwrap()
+    });
+    let source = wire::encode(&snapshot, wire_limits(), allocator()).unwrap();
+    drop(snapshot);
+    let environment = backend::artifact::environment().unwrap();
+    let features = backend::artifact::target_features().unwrap();
+    let frame = protocol::encode(
+        &protocol::View {
+            request: 37,
+            worker: &protocol::worker_identity().unwrap(),
+            abi: &protocol::abi_identity(),
+            work: work::Limits::from(&crate::JitConfig::default()),
+            route: protocol::Route::Ordinary,
+            resume: false,
+            features: &features,
+            environment: &environment,
+            source: &source,
+        },
+        allocator(),
+    )
+    .unwrap();
+    for offset in [32, 64, 96, 120, 124, 152, frame.len() - 1] {
+        let output = allocator();
+        let ledger = output.0.clone();
+        let mut changed = frame.clone();
+        changed[offset] ^= 1;
+        let failure = run(
+            command("artifact"),
+            &changed,
+            Limits {
+                request: protocol::MAX_BYTES,
+                ..limits()
+            },
+            output,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(failure.cause, Cause::Exit, "offset={offset}");
+        assert_eq!(failure.status.unwrap().code(), Some(101));
+        reaped(failure.pid.unwrap());
+        assert_eq!(ledger.current(), 0);
+    }
+    let mut worker = command("artifact");
+    for key in [
+        "LUNA_COMPILER_REQUEST_ID",
+        "LUNA_COMPILER_TARGET_FEATURES",
+        "LUNA_COMPILER_ROUTE",
+        "LUNA_COMPILER_RESUME",
+        "LUNA_COMPILER_WORK",
+    ] {
+        worker.env(key, "not-a-valid-request-field");
+    }
+    let receipt = run(
+        worker,
+        &frame,
+        Limits {
+            request: protocol::MAX_BYTES,
+            ..limits()
+        },
+        allocator(),
+    )
+    .unwrap();
+    reaped(receipt.pid);
+    let total = MappingCounter::new(Ledger::new(4 << 20));
+    let installed = backend::artifact::install(
+        &receipt.bytes,
+        backend::artifact::Binding {
+            request: 37,
+            build: &protocol::binding(&frame).unwrap(),
+            source: &source,
+            environment: &environment,
+        },
+        artifact_limits(),
+        total.clone(),
+        4 << 20,
+        allocator(),
+        backend::Failure::None,
+    )
+    .unwrap();
+    assert_eq!(installed.len(), 1);
+    drop(installed);
+    assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
 }

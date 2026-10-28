@@ -13,6 +13,7 @@ fi
 count=
 case " $* " in
     *' jit::compiler_wire '*) count=8 ;;
+    *' jit::compiler_request::tests '*) count=8 ;;
     *' jit::backend::artifact::wire::tests '*) count=5 ;;
     *' jit::backend::artifact::link::tests '*) count=7 ;;
     *' jit::backend::artifact::target::tests '*) count=7 ;;
@@ -33,7 +34,7 @@ run_recipe() {
 
 run_recipe success
 logs=("$root/success/"*.log)
-test "${#logs[@]}" -eq 61
+test "${#logs[@]}" -eq 62
 for log in "${logs[@]}"; do
     [[ ${log##*/} =~ ^[a-z0-9_-]+\.log$ ]]
 done
@@ -45,6 +46,7 @@ grep -Fq 'jit::scoped_helpers::tests -- --test-threads=1' "$root/success/jit-sco
 
 transport_filters=(
     jit::compiler_wire
+    jit::compiler_request::tests
     jit::backend::artifact::wire::tests
     jit::backend::artifact::link::tests
     jit::backend::artifact::target::tests
@@ -77,7 +79,7 @@ for filter in setup jit::resources::tests jit::handoff::tests jit::scoped_helper
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
 unset FAIL_FILTER
-for filter in jit::compiler_wire jit::backend::artifact::wire::tests jit::backend::artifact::link::tests jit::backend::artifact::target::tests jit::native_fault::tests jit::backend::native_memory::tests; do
+for filter in jit::compiler_wire jit::compiler_request::tests jit::backend::artifact::wire::tests jit::backend::artifact::link::tests jit::backend::artifact::target::tests jit::native_fault::tests jit::backend::native_memory::tests; do
     export EMPTY_FILTER="$filter"
     dir="empty-${filter//::/-}"
     if run_recipe "$dir"; then
@@ -87,4 +89,4 @@ for filter in jit::compiler_wire jit::backend::artifact::wire::tests jit::backen
     grep -Fq 'test result: ok. 0 passed;' "$root/$dir.log"
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
-echo 'Miri recipe checks passed: 61 portable logs; 20 failures propagated; 6 zero-model results rejected'
+echo 'Miri recipe checks passed: 62 portable logs; 21 failures propagated; 7 zero-model results rejected'

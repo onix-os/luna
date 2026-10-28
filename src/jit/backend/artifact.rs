@@ -21,6 +21,7 @@ pub(in crate::jit) mod runtime;
 mod tests;
 mod wire;
 pub(in crate::jit) use install::{install, InstallError, Installed};
+pub(in crate::jit) use target::validate_identity;
 pub(super) use target::{apply_target, assert_compiler_allowed};
 pub(in crate::jit) use target::{environment_in, target_features, target_features_in, with_target};
 #[cfg(not(miri))]

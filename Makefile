@@ -111,6 +111,12 @@ table-capacity-miri:
 .PHONY: jit-array-window jit-array-window-miri
 .PHONY: jit-unlinked-identity
 .PHONY: jit-compiler-wire jit-compiler-wire-miri jit-compiler-process
+.PHONY: jit-compiler-request jit-compiler-request-miri
+jit-compiler-request:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_request::tests -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-compiler-request-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::compiler_request::tests -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 .PHONY: jit-compiler-artifact jit-compiler-artifact-parent jit-compiler-artifact-wire-miri
 .PHONY: jit-compiler-code-owner
 .PHONY: jit-compiler-emission
@@ -165,7 +171,7 @@ jit-compiler-artifact-parent:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-process:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_process -- --test-threads=1 | awk '/^test result: ok[.] 11 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_process -- --test-threads=1 | awk '/^test result: ok[.] 12 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-wire:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_wire | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
@@ -332,6 +338,7 @@ jit-miri:
 	@set -o pipefail; { rustc -vV; $(CARGO) miri --version; printf 'MIRIFLAGS=%s\ntarget=%s\n' "$${MIRIFLAGS:-}" '$(MIRI_TARGET)'; } 2>&1 | tee '$(MIRI_DIR)/environment.log'
 	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_wire.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-request-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_request-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-artifact-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-wire-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-artifact-linker-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-link-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-target-identity-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-target-tests.log'

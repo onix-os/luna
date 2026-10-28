@@ -16,13 +16,14 @@ pub(in crate::jit) struct Packet {
     pub bytes: Vec<u8, BudgetAllocator>,
     pub environment: Vec<u8, BudgetAllocator>,
     pub request: u64,
+    pub build: [u8; 32],
 }
 
 impl Packet {
     pub fn binding(&self) -> super::backend::artifact::Binding<'_> {
         super::backend::artifact::Binding {
             request: self.request,
-            build: &[0x51; 32],
+            build: &self.build,
             source: &self.source,
             environment: &self.environment,
         }

@@ -277,6 +277,28 @@ pub(in crate::jit) fn with_target<T>(features: &str, run: impl FnOnce() -> T) ->
     Ok(with_features(features, run))
 }
 
+pub(in crate::jit) fn validate_identity(features: &str, environment: &[u8]) -> Result<(), Error> {
+    struct Compare<'a>(&'a [u8]);
+    impl fmt::Write for Compare<'_> {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            self.0 = self.0.strip_prefix(text.as_bytes()).ok_or(fmt::Error)?;
+            Ok(())
+        }
+    }
+    identity(|| {
+        let features = Features::parse(Architecture::native(), features)?;
+        let mut output = Compare(environment);
+        features
+            .emit(&mut output, true)
+            .map_err(|_| Error::Identity)?;
+        if output.0.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Identity)
+        }
+    })
+}
+
 pub(in crate::jit) fn apply_target(
     builder: &mut cranelift_codegen::isa::Builder,
 ) -> Result<(), crate::jit::JitError> {

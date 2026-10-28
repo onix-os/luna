@@ -9,6 +9,53 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Owned compiler request checkpoint — 2026-10-28
+
+The supervised artifact fixture now receives one bounded owned request packet,
+not request/source-independent environment fields. Its versioned little-endian
+header binds request ID, work limits, explicit route/resume, complete optimized
+target features/environment and source bytes. A domain-separated SHA-256 digest
+of every field becomes the artifact build binding. The fixed 0x51 fixture token
+is no longer used by the actual worker path. Worker image identity streams the
+actual /proc/self/exe inode with a finite cap and fixed scratch buffer; an
+immutable process fingerprint is retained, not a mutable policy cache. Separate
+ABI identity binds implementation source contracts and actual common C layouts.
+
+The sender reserves exactly once through its supplied budget allocator. The
+outer decoder borrows packet slices and rejects unknown/noncanonical fields,
+length/count overflow, work/format ceilings, wrong image/ABI identity, target
+inconsistency and checksum mismatch before source ownership or compilation.
+Nested snapshot decoding retains its bounded allocations and semantic verifier.
+Zero work is a valid request, not malformed input. The first four sender
+allocation refusals preserve ResourceLimit, release temporary ownership, retain
+persistent denial and precede Command construction. Old request environment
+variables are deliberately poisoned in a passing real-worker test.
+
+Frozen native qualification passes 841 executions/72 summaries, with one
+existing generated-kernel dump ignore. Ten codec models include exhaustive
+truncation/one-byte mutation and exact source-cap boundaries; twelve supervisor
+models retain reaping, backpressure, deadline and resource tests. All four real
+parent entry kinds still execute 1,066 calls/4,161 native logical instructions,
+including forty real helper calls. Both local Miri models (default seed0 and
+Tree Borrows seed1) pass eight pure request models each, using a fresh verified
+source runner. Native exhaustive/image tests are not claimed as Miri execution.
+i686 codec8/check-all passes. Parent Memcheck passes 34 selected request/Runtime/
+supervisor cases across three runs, zero errors/definite-indirect leaks;
+48 possible harness bytes each, 544 reachable request/632 Runtime and supervisor.
+Children remain untraced. Hosted wrapper verifies 62 logs, 21 propagated failures
+and seven zero-model refusals. SHA2 is pinned dev-only; no shipping dependency,
+public default or production worker selector changes.
+
+**Still not fully accepted:** typed worker outcome transport, single-library-
+compatible deployment/packaging, scheduling/cancellation/process caps, complete
+parent error/Command allocation policy and universal admission/format ceilings
+remain open. The original 69/816 failed performance gates, full current-source
+platform/resource/feature-size/release acceptance remain open. No threshold or
+quota was waived; test timings are not performance acceptance. Initial native
+test-lifetime and wrapper-wiring development failures remain recorded; final
+qualification uses the corrected frozen source and immutable image. Evidence:
+`target/jit-evidence/owned-compiler-request/`.
+
 ### Typed native-memory fault checkpoint — 2026-10-28
 
 Request/Segment and Memory allocation/finalization now share one typed core.
