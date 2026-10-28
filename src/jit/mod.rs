@@ -98,6 +98,8 @@ pub(crate) mod chains;
 ))]
 mod code_index;
 #[cfg(test)]
+mod compiler_wire;
+#[cfg(test)]
 mod continuations;
 #[cfg(all(
     target_os = "linux",

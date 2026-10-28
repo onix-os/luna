@@ -41,6 +41,19 @@ impl Snapshot {
 }
 
 impl Keys {
+    #[cfg(test)]
+    pub(in crate::jit) fn words(&self) -> &[u64] {
+        &self.0
+    }
+    #[cfg(test)]
+    pub(in crate::jit) fn from_words(
+        words: Vec<u64, super::resources::BudgetAllocator>,
+        snapshot: &Snapshot,
+    ) -> Result<Self, JitError> {
+        let keys = Self(words);
+        keys.verify(snapshot)?;
+        Ok(keys)
+    }
     pub fn new(snapshot: &Snapshot, prototype: &FunctionPrototype<'_>) -> Option<Self> {
         let mut count = 0;
         for &operation in &snapshot.operations {

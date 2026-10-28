@@ -110,6 +110,13 @@ table-capacity-miri:
 
 .PHONY: jit-array-window jit-array-window-miri
 .PHONY: jit-unlinked-identity
+.PHONY: jit-compiler-wire jit-compiler-wire-miri
+jit-compiler-wire:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_wire
+
+jit-compiler-wire-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::compiler_wire -- --test-threads=1
+
 jit-unlinked-identity:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Unlinked identity gate requires supported hardware'; exit 2;; esac
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::unlinked:: -- --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'

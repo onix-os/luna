@@ -9,6 +9,22 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Compiler ownership groundwork — 2026-10-28
+
+The test-only `compiler_wire` module defines a bounded, versioned owned snapshot
+packet with all 46 opcodes, exact scalar bits and sender-prepared hash words.
+Eight tests cover exhaustive typed operands, truncation/mutation rejection,
+allocation refusal/reclamation, thread handoff and nine real workload snapshots
+decoded after the originating Lua arena is destroyed. Native and i686 tests,
+related IR/prepared-key/source-binding checks, check-all and default-borrow Miri
+pass. The explicit Tree Borrows run is still being qualified separately.
+
+This module and its prepared-key accessors are gated by `cfg(test)`: no shipping
+runtime, public embedding API or packaging default changes. Owned transport is
+not compiler isolation, an enforced Cranelift resource budget, machine-code
+artifact installation or performance acceptance. Full acceptance remains false.
+Evidence: `target/jit-evidence/compiler-snapshot-wire/`.
+
 ### Final retained-runtime platform checkpoint — 2026-10-28
 
 Exact-runtime commit `b2c4c2ad`, hosted run `40593105706`, now passes all seven
