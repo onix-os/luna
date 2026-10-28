@@ -6,26 +6,38 @@ use cranelift_module::{FuncId, ModuleRelocTarget};
 
 use super::*;
 
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
 mod assemble;
 #[cfg(not(miri))]
 pub(in crate::jit) mod emission;
+#[cfg(test)]
 mod install;
 mod link;
 mod target;
-#[cfg(not(miri))]
-pub(in crate::jit) use assemble::{assemble, Assembly, Route};
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
+pub(in crate::jit) use assemble::{assemble, Assembly};
+#[cfg(all(test, not(miri)))]
 pub(in crate::jit) mod runtime;
 #[cfg(all(test, not(miri)))]
 mod tests;
 mod wire;
+#[cfg(test)]
 pub(in crate::jit) use install::{install, InstallError, Installed};
+#[cfg(test)]
+pub(in crate::jit) use target::target_features;
 pub(in crate::jit) use target::validate_identity;
 pub(super) use target::{apply_target, assert_compiler_allowed};
-pub(in crate::jit) use target::{environment_in, target_features, target_features_in, with_target};
-#[cfg(not(miri))]
+pub(in crate::jit) use target::{environment_in, target_features_in, with_target};
+#[cfg(all(test, not(miri)))]
 pub(in crate::jit) use tests::{exercise, exercise_prepared};
+
+#[cfg(not(miri))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::jit) enum Route {
+    Ordinary,
+    Arrays,
+    Readonly,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::jit) enum Error {
@@ -225,6 +237,7 @@ fn copy<T: Copy>(
     Ok(output)
 }
 
+#[cfg(test)]
 pub(in crate::jit) fn environment() -> Result<BudgetVec<u8, BudgetAllocator>, Error> {
     environment_in(BudgetAllocator(super::super::resources::Ledger::new(32768)))
 }

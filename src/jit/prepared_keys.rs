@@ -41,11 +41,11 @@ impl Snapshot {
 }
 
 impl Keys {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     pub(in crate::jit) fn words(&self) -> &[u64] {
         &self.0
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     pub(in crate::jit) fn from_words(
         words: Vec<u64, super::resources::BudgetAllocator>,
         snapshot: &Snapshot,

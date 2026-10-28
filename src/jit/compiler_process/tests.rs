@@ -9,6 +9,40 @@ use std::os::unix::process::ExitStatusExt;
 
 const CHILD: &str = "LUNA_COMPILER_PROCESS_FIXTURE";
 
+struct Deployment {
+    file: std::fs::File,
+    identity: [u8; 32],
+}
+
+fn deployment() -> Result<Option<&'static Deployment>, crate::jit::compiler_request::Error> {
+    static IMAGE: std::sync::OnceLock<Deployment> = std::sync::OnceLock::new();
+    if let Some(image) = IMAGE.get() {
+        return Ok(Some(image));
+    }
+    let Some(path) = std::env::var_os("LUNA_JIT_WORKER_IMAGE") else {
+        return Ok(None);
+    };
+    let mut file =
+        std::fs::File::open(path).map_err(|_| crate::jit::compiler_request::Error::Io)?;
+    let identity = crate::jit::compiler_request::image_identity(&mut file, 512 << 20)?;
+    let _ = IMAGE.set(Deployment { file, identity });
+    Ok(IMAGE.get())
+}
+
+fn compiler_identity() -> Result<[u8; 32], crate::jit::compiler_request::Error> {
+    deployment()?.map_or_else(crate::jit::compiler_request::worker_identity, |image| {
+        Ok(image.identity)
+    })
+}
+
+fn artifact_rejection_code() -> i32 {
+    if deployment().unwrap().is_some() {
+        67
+    } else {
+        101
+    }
+}
+
 thread_local! {
     static COMMANDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
@@ -37,6 +71,11 @@ fn allocator() -> BudgetAllocator {
 
 fn command(mode: &str) -> Command {
     COMMANDS.set(COMMANDS.get().saturating_add(1));
+    if mode == "artifact" {
+        if let Some(image) = deployment().unwrap() {
+            return Command::new(format!("/proc/self/fd/{}", image.file.as_raw_fd()));
+        }
+    }
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args([
         "--exact",
@@ -515,8 +554,8 @@ pub(in crate::jit) fn request_packet(
             _ => crate::JitError::Unavailable("compiler target features"),
         })?;
     use crate::jit::compiler_request as protocol;
-    let identity = protocol::worker_identity()
-        .map_err(|_| crate::JitError::Unavailable("compiler image identity"))?;
+    let identity =
+        compiler_identity().map_err(|_| crate::JitError::Unavailable("compiler image identity"))?;
     let abi = protocol::abi_identity();
     let frame = protocol::encode(
         &protocol::View {
@@ -648,7 +687,7 @@ fn successful_but_malformed_workers_are_not_valid_compiler_refusals() {
     let frame = crate::jit::compiler_request::encode(
         &crate::jit::compiler_request::View {
             request: 43,
-            worker: &crate::jit::compiler_request::worker_identity().unwrap(),
+            worker: &compiler_identity().unwrap(),
             abi: &crate::jit::compiler_request::abi_identity(),
             work: work::Limits::from(&crate::JitConfig::default()),
             route: crate::jit::compiler_request::Route::Ordinary,
@@ -724,7 +763,7 @@ fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
         let frame = protocol::encode(
             &protocol::View {
                 request,
-                worker: &protocol::worker_identity().unwrap(),
+                worker: &compiler_identity().unwrap(),
                 abi: &protocol::abi_identity(),
                 work: work::Limits::from(&crate::JitConfig::default()),
                 route,
@@ -817,7 +856,7 @@ fn owned_requests_reject_cross_process_mismatches_and_ignore_old_env_channels() 
     let frame = protocol::encode(
         &protocol::View {
             request: 37,
-            worker: &protocol::worker_identity().unwrap(),
+            worker: &compiler_identity().unwrap(),
             abi: &protocol::abi_identity(),
             work: work::Limits::from(&crate::JitConfig::default()),
             route: protocol::Route::Ordinary,
@@ -846,7 +885,10 @@ fn owned_requests_reject_cross_process_mismatches_and_ignore_old_env_channels() 
         .err()
         .unwrap();
         assert_eq!(failure.cause, Cause::Exit, "offset={offset}");
-        assert_eq!(failure.status.unwrap().code(), Some(101));
+        assert_eq!(
+            failure.status.unwrap().code(),
+            Some(artifact_rejection_code())
+        );
         reaped(failure.pid.unwrap());
         assert_eq!(ledger.current(), 0);
     }

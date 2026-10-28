@@ -4,13 +4,6 @@ use crate::jit::{array_window, compiler_wire, flow, readonly_lookup as read, wor
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::jit) enum Route {
-    Ordinary,
-    Arrays,
-    Readonly,
-}
-
 pub(in crate::jit) struct Assembly<'a> {
     pub source: &'a Snapshot,
     pub route: Route,

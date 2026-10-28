@@ -211,7 +211,10 @@ pub(super) fn abi_identity() -> [u8; 32] {
     hash.finalize().into()
 }
 
-fn image_identity(mut reader: impl std::io::Read, limit: u64) -> Result<[u8; 32], Error> {
+pub(super) fn image_identity(
+    mut reader: impl std::io::Read,
+    limit: u64,
+) -> Result<[u8; 32], Error> {
     let mut hash = Sha256::new();
     hash.update(b"luna-compiler-image-v1\0");
     let mut scratch = [0; 16384];

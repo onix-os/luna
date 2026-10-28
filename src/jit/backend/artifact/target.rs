@@ -4,7 +4,7 @@ use cranelift_codegen::settings::{self, Configurable};
 
 use super::{link::Architecture, BudgetAllocator, BudgetVec, Error};
 
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
 mod native_tests;
 mod profile;
 #[cfg(test)]
@@ -239,6 +239,7 @@ fn identity<T>(run: impl FnOnce() -> T) -> T {
     run()
 }
 
+#[cfg(test)]
 pub(in crate::jit) fn target_features() -> Result<FeatureBytes, Error> {
     target_features_in(BudgetAllocator(crate::jit::resources::Ledger::new(
         MAX_BYTES,

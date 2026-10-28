@@ -26,7 +26,7 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "jit-worker-bootstrap"))]
 pub(in crate::jit) mod artifact;
 #[cfg(all(test, not(miri)))]
 pub(super) mod bound_pair;
@@ -109,7 +109,7 @@ impl Memory {
         align: u64,
         kind: JITMemoryKind,
     ) -> Result<*mut u8, Fault> {
-        #[cfg(all(test, not(miri)))]
+        #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
         artifact::emission::assert_native_memory_allowed();
         let request = Request::checked(size, align, self.page).inspect_err(|_| {
             self.status.quota_refused.store(true, Ordering::Relaxed);
@@ -176,7 +176,7 @@ impl Memory {
     }
 
     fn finalize_checked(&mut self, protection: BranchProtection) -> Result<(), Fault> {
-        #[cfg(all(test, not(miri)))]
+        #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
         artifact::emission::assert_native_memory_allowed();
         #[cfg(test)]
         if self.failure == Failure::Protect {
@@ -905,7 +905,7 @@ fn compile_selected_rooted(
 #[derive(Clone, Copy)]
 enum Destination {
     Install,
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     Emit,
 }
 
@@ -917,7 +917,7 @@ impl Destination {
 
 enum Compilation<T> {
     Installed(T),
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     Emitted {
         relocations: usize,
     },
@@ -933,12 +933,12 @@ impl<T> Compilation<T> {
     fn installed(self) -> Result<T, JitError> {
         match self {
             Self::Installed(value) => Ok(value),
-            #[cfg(all(test, not(miri)))]
+            #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
             Self::Emitted { .. } => Err(JitError::Compilation("expected installed code".into())),
         }
     }
 
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     fn emitted(self) -> Result<usize, JitError> {
         match self {
             Self::Emitted { relocations } => Ok(relocations),
@@ -1311,7 +1311,7 @@ fn compile_image_to(
     #[cfg(test)]
     let universal_memory_charge;
     let mut module = JITModule::new(jit);
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     let artifact_capture = artifact::begin(if selection.readonly_scope {
         artifact::Kind::Readonly
     } else {
@@ -2469,7 +2469,7 @@ fn compile_image_to(
         &module_relocations,
         &module,
     );
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     artifact_capture.record(
         function,
         compiled.code_buffer(),
@@ -2549,7 +2549,7 @@ fn compile_image_to(
             .size();
         let charge = Reservation::new(snapshot.operations.allocator().0.clone(), bytes)
             .map_err(|_| JitError::ResourceLimit("projection relocation copy"))?;
-        #[cfg(all(test, not(miri)))]
+        #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
         artifact_capture.record(
             id,
             compiled.code_buffer(),
@@ -2585,13 +2585,13 @@ fn compile_image_to(
                 + projection_copy_bytes
         );
     }
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     if !destination.installs() {
         artifact_capture.commit();
         return Ok(Compilation::Emitted { relocations });
     }
     module.finalize_definitions().map_err(fail)?;
-    #[cfg(all(test, not(miri)))]
+    #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     artifact_capture.commit();
     let entry = module.get_finalized_function(function);
     let entry_arity = module
@@ -2716,12 +2716,12 @@ impl cranelift_codegen::inline::Inline for LeafInliner<'_> {
 fn native_builder(
     isa: Result<cranelift_codegen::isa::Builder, &'static str>,
 ) -> Result<JITBuilder, JitError> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact::assert_compiler_allowed();
     let isa = isa.map_err(JitError::Unavailable)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     let mut isa = isa;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact::apply_target(&mut isa)?;
     let mut flags = settings::builder();
     for (name, value) in [

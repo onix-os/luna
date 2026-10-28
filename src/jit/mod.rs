@@ -105,32 +105,51 @@ mod code_index;
 ))]
 mod compiler_process;
 #[cfg(all(
-    test,
+    any(test, feature = "jit-worker-bootstrap"),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_reply;
 #[cfg(all(
-    test,
+    any(test, feature = "jit-worker-bootstrap"),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_request;
 #[cfg(all(
-    test,
+    any(test, feature = "jit-worker-bootstrap"),
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_service;
 #[cfg(all(
-    test,
+    any(test, feature = "jit-worker-bootstrap"),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_stream;
-#[cfg(test)]
+#[cfg(any(test, feature = "jit-worker-bootstrap"))]
 mod compiler_wire;
+
+#[cfg(all(
+    feature = "jit-worker-bootstrap",
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod compiler_worker;
+
+#[doc(hidden)]
+#[cfg(all(
+    feature = "jit-worker-bootstrap",
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub fn __worker_bootstrap_main() -> u8 {
+    compiler_worker::run()
+}
 #[cfg(test)]
 mod continuations;
 #[cfg(all(

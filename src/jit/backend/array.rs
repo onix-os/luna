@@ -196,7 +196,7 @@ pub(super) fn compile_to(
     let mut jit = native_builder(cranelift_native::builder())?;
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     let artifact_capture = artifact::begin(artifact::Kind::Arrays);
     let (mut instructions, mut blocks) = (0usize, 0usize);
     for &plan in &plans {
@@ -232,7 +232,7 @@ pub(super) fn compile_to(
         if !compiled.buffer.relocs().is_empty() {
             return Err(JitError::Compilation("array unexpected relocation".into()));
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "jit-worker-bootstrap"))]
         artifact_capture.record(
             id,
             compiled.code_buffer(),
@@ -252,13 +252,13 @@ pub(super) fn compile_to(
         }
         ids.push(id);
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     if !destination.installs() {
         artifact_capture.commit();
         return Ok(Compilation::Emitted { relocations: 0 });
     }
     module.finalize_definitions().map_err(fail)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact_capture.commit();
     for (plan, id) in plans.into_iter().zip(ids) {
         let entry = unsafe {

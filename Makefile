@@ -115,6 +115,12 @@ table-capacity-miri:
 .PHONY: jit-compiler-reply jit-compiler-reply-miri
 .PHONY: jit-compiler-service
 .PHONY: jit-compiler-stream jit-compiler-stream-miri
+.PHONY: jit-worker-bootstrap jit-worker-startup
+jit-worker-bootstrap:
+	@$(CARGO) build --locked -p luna --features jit-worker-bootstrap --bin luna-jit-worker $(TARGET_ARG)
+
+jit-worker-startup:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit-worker-bootstrap --test jit_worker $(TARGET_ARG) -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 jit-compiler-stream:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_stream::tests -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 

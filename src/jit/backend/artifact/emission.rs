@@ -50,9 +50,13 @@ pub(in crate::jit) fn emit(
                             projected: false,
                             readonly_scope: readonly,
                             scoped_helpers: false,
+                            #[cfg(test)]
                             leaf: false,
+                            #[cfg(test)]
                             cell_kernel: false,
+                            #[cfg(test)]
                             integer_activation: false,
+                            #[cfg(test)]
                             failure: Failure::None,
                         },
                         rooted_moves: false,
@@ -71,6 +75,7 @@ pub(in crate::jit) fn emit(
                         0,
                         metadata.clone(),
                         limits,
+                        #[cfg(test)]
                         Failure::None,
                         Destination::Emit,
                     )

@@ -78,7 +78,7 @@ pub(super) fn compile_to(
     let mut jit = native_builder(cranelift_native::builder())?;
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     let artifact_capture = artifact::begin(artifact::Kind::Resume);
     let mut context = module.make_context();
     context.func = integer_resume::function(
@@ -113,7 +113,7 @@ pub(super) fn compile_to(
     if !compiled.buffer.relocs().is_empty() {
         return Err(JitError::Compilation("canonical resume relocations".into()));
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact_capture.record(
         id,
         compiled.code_buffer(),
@@ -121,7 +121,7 @@ pub(super) fn compile_to(
         &[],
         &module,
     );
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     if !destination.installs() {
         artifact_capture.commit();
         return Ok(Compilation::Emitted { relocations: 0 });
@@ -136,7 +136,7 @@ pub(super) fn compile_to(
         )
         .map_err(fail)?;
     module.finalize_definitions().map_err(fail)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact_capture.commit();
     let pointer = module.get_finalized_function(id);
     let image = memory

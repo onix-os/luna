@@ -9,6 +9,54 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Standalone compiler bootstrap checkpoint — 2026-10-28
+
+A real `luna-jit-worker` executable now builds without libtest or cfg(test),
+behind the explicit internal `jit-worker-bootstrap` feature. It runs the same
+owned compiler service and bounded stream as the fixture, not a second compiler.
+Only emission/capture, complete target selection and prepared-hash transport
+are shared into bootstrap; parent install/runtime test bridges, experimental
+Selection fields and fault injections stay test-only. Normal JIT/default feature
+behavior is unchanged. Normal production dependency trees compare identical;
+SHA2 remains absent without the bootstrap feature. No lock version changed.
+
+Startup verifies both soft and hard AS/CPU/core limits before image hashing or
+service allocation, uses fallible production host ledgers, and returns fixed
+codes without panic diagnostics for invalid startup/input/I/O. Tests select a
+source-qualified helper descriptor and bind its real executable fingerprint;
+this is an immutable test deployment selection, not a mutable JIT policy cache
+or production sealed-image contract. Malformed helper requests expect exact67,
+where the legacy libtest fixture still expects exact panic101.
+
+GNU debug/release and static x86-64-musl release helpers each pass the same
+73 producer conformance executions/five summaries: supervisor14, four-kind
+artifact1, Codeowner4, actual Runtime12 and artifact42. Four-kind proof remains
+1,066 parent calls/4,161 logical native instructions and forty real helper calls.
+Actual-bin startup tests pass three cases on GNU debug/release and musl, covering
+EOF/malformed input without panic and strict soft/hard limit refusal. The ordinary
+fixture/related gate separately passes 870 executions/76 summaries, one existing
+kernel-dump ignore. Real i686 fallback codec8/check-all and helper exit64 with
+empty output pass; unsupported helper dispatch is not native-JIT acceptance.
+
+Local default seed0 and Tree Borrows seed1 Miri each pass44 executions across
+six boundary suites with a fresh exact-source runner; no helper/code generation
+is claimed under Miri. Parent Memcheck against the real release helper passes
+Runtime12/supervisor14/Codeowner4,30 cases/three runs, zero errors/definite-indirect
+leaks, retaining48 possible/632 reachable bytes each; children are untraced.
+Source, helper and parent-image witnesses remain unchanged.
+
+The local GNU shipping helper is about3.7MiB stripped PIE but has a Nix-specific
+ELF interpreter and GLIBC requirements through2.34: it is not redistributable
+merely because conformance passes. Static musl is self-contained as an executable
+and tested only with a matching musl parent; GNU/musl environment identity is
+not waived. Embedded target-matched delivery remains a candidate requiring
+reproducible bootstrap/publish provenance, bounded materialization/launch and
+feature-cost proof. There is no default external-helper requirement or selected
+production worker routing. Parent allocation/lifecycle/deadline/cancellation,
+universal admission/format compatibility, original69/816 failed performance
+gates and full current-source platform/resource/size/release acceptance remain
+open. Evidence: `target/jit-evidence/compiler-helper/`.
+
 ### Bounded compiler stream checkpoint — 2026-10-28
 
 The actual artifact child now uses one reusable stream adapter around the owned
