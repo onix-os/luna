@@ -10,6 +10,15 @@ if [[ -n ${FAIL_FILTER:-} && " $* " == *" $FAIL_FILTER "* ]]; then
     echo 'mock Miri failure' >&2
     exit 17
 fi
+count=
+case " $* " in
+    *' jit::compiler_wire '*) count=8 ;;
+    *' jit::backend::artifact::wire::tests '*) count=5 ;;
+esac
+if [[ -n $count ]]; then
+    if [[ -n ${EMPTY_FILTER:-} && " $* " == *" $EMPTY_FILTER "* ]]; then count=0; fi
+    printf 'test result: ok. %s passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n' "$count"
+fi
 SH
 chmod +x "$root/cargo"
 
@@ -20,7 +29,7 @@ run_recipe() {
 
 run_recipe success
 logs=("$root/success/"*.log)
-test "${#logs[@]}" -eq 55
+test "${#logs[@]}" -eq 57
 for log in "${logs[@]}"; do
     [[ ${log##*/} =~ ^[a-z0-9_-]+\.log$ ]]
 done
@@ -31,6 +40,8 @@ grep -Fq 'lua::memory_tests -- --test-threads=1' "$root/success/lua-memory_tests
 grep -Fq 'jit::scoped_helpers::tests -- --test-threads=1' "$root/success/jit-scoped_helpers-tests.log"
 
 transport_filters=(
+    jit::compiler_wire
+    jit::backend::artifact::wire::tests
     jit::helpers::existing_entry_tests
     jit::array_window::
     jit::backend::specialized::tests
@@ -57,4 +68,15 @@ for filter in setup jit::resources::tests jit::handoff::tests jit::scoped_helper
     grep -Fq 'mock Miri failure' "$root/$dir.log"
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
-echo 'Miri recipe checks passed: 55 portable logs; 14 failures propagated'
+unset FAIL_FILTER
+for filter in jit::compiler_wire jit::backend::artifact::wire::tests; do
+    export EMPTY_FILTER="$filter"
+    dir="empty-${filter//::/-}"
+    if run_recipe "$dir"; then
+        echo "Recipe accepted zero selected models for $filter" >&2
+        exit 1
+    fi
+    grep -Fq 'test result: ok. 0 passed;' "$root/$dir.log"
+    test ! -e "$root/$dir/lua-memory_tests.log"
+done
+echo 'Miri recipe checks passed: 57 portable logs; 16 failures propagated; 2 zero-model results rejected'

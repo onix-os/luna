@@ -25,6 +25,8 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
+#[cfg(test)]
+pub(in crate::jit) mod artifact;
 #[cfg(all(test, not(miri)))]
 pub(super) mod bound_pair;
 #[cfg(all(test, not(miri)))]
@@ -1204,6 +1206,12 @@ fn compile_image(
     #[cfg(test)]
     let universal_memory_charge;
     let mut module = JITModule::new(jit);
+    #[cfg(all(test, not(miri)))]
+    let artifact_capture = artifact::begin(if selection.readonly_scope {
+        artifact::Kind::Readonly
+    } else {
+        artifact::Kind::Ordinary
+    });
     let ptr = module.target_config().pointer_type();
     let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
     let helper_types = [ptr, ptr, types::I32, types::I32, types::I32, types::I32];
@@ -2356,6 +2364,14 @@ fn compile_image(
         &module_relocations,
         &module,
     );
+    #[cfg(all(test, not(miri)))]
+    artifact_capture.record(
+        function,
+        compiled.code_buffer(),
+        u64::from(compiled.buffer.alignment),
+        &module_relocations,
+        &module,
+    );
     let relocation_copy_bytes = Layout::array::<ModuleReloc>(compiled.buffer.relocs().len())
         .map_err(|_| JitError::ResourceLimit("native relocation copy size"))?
         .size();
@@ -2426,6 +2442,14 @@ fn compile_image(
             .size();
         let charge = Reservation::new(snapshot.operations.allocator().0.clone(), bytes)
             .map_err(|_| JitError::ResourceLimit("projection relocation copy"))?;
+        #[cfg(all(test, not(miri)))]
+        artifact_capture.record(
+            id,
+            compiled.code_buffer(),
+            u64::from(compiled.buffer.alignment),
+            &relocations,
+            &module,
+        );
         #[cfg(test)]
         {
             projection_copy_bytes += bytes;
@@ -2453,6 +2477,8 @@ fn compile_image(
         );
     }
     module.finalize_definitions().map_err(fail)?;
+    #[cfg(all(test, not(miri)))]
+    artifact_capture.commit();
     let entry = module.get_finalized_function(function);
     let entry_arity = module
         .declarations()
@@ -2577,6 +2603,10 @@ fn native_builder(
     isa: Result<cranelift_codegen::isa::Builder, &'static str>,
 ) -> Result<JITBuilder, JitError> {
     let isa = isa.map_err(JitError::Unavailable)?;
+    #[cfg(test)]
+    let mut isa = isa;
+    #[cfg(test)]
+    artifact::apply_target(&mut isa)?;
     let mut flags = settings::builder();
     for (name, value) in [
         ("opt_level", "speed"),

@@ -146,6 +146,8 @@ fn compile(
     let mut jit = native_builder(cranelift_native::builder())?;
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
+    #[cfg(test)]
+    let artifact_capture = artifact::begin(artifact::Kind::Arrays);
     let (mut instructions, mut blocks) = (0usize, 0usize);
     for &plan in &plans {
         let mut context = module.make_context();
@@ -180,6 +182,14 @@ fn compile(
         if !compiled.buffer.relocs().is_empty() {
             return Err(JitError::Compilation("array unexpected relocation".into()));
         }
+        #[cfg(test)]
+        artifact_capture.record(
+            id,
+            compiled.code_buffer(),
+            u64::from(compiled.buffer.alignment),
+            &[],
+            &module,
+        );
         module
             .define_function_bytes(
                 id,
@@ -191,6 +201,8 @@ fn compile(
         ids.push(id);
     }
     module.finalize_definitions().map_err(fail)?;
+    #[cfg(test)]
+    artifact_capture.commit();
     for (plan, id) in plans.into_iter().zip(ids) {
         let entry = unsafe {
             std::mem::transmute::<*const u8, window::KernelEntry>(module.get_finalized_function(id))

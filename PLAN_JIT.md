@@ -9,6 +9,45 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Generated-code artifact groundwork — 2026-10-28
+
+The test-only artifact boundary now returns real unlinked code from a supervised
+child and installs it in the parent through the existing W^X memory provider.
+It covers ordinary, readonly, array and canonical-resume entry types. Ten owned
+requests exercise 1,066 parent entry calls/4,161 native instructions, requiring
+positive progress for each entry kind. Comparisons preserve exits, slots, array
+contents/read-write counts and binding/resume state. Forty calls also use real
+parent helper frames and a fresh closure, comparing all eight helper counters
+after the worker and original arena are gone.
+
+Versioned packets own typed signatures, code sections and symbolic relocations;
+imports resolve only through the closed parent-local helper registry. Complete
+allocation-free preflight checks canonical records, explicit caps, identities,
+target/settings, widths, offsets, addends and branch spans before ownership or
+mapping. Parent target-feature requests cover every backend builder; a real
+Memcheck/native AVX-VNNI mismatch was fixed by compiling for the parent, without
+weakening the response identity check. The fixture bounds complete feature
+requests and restores nested/panicking scopes.
+
+Local qualification: 500 passing executions/52 summaries across related targets;
+five pure wire models pass both default and Tree Borrows Miri; i686 codec/checks
+pass; parent Memcheck passes twelve artifact and ten supervisor cases with zero
+errors/definite-indirect leaks (48 possible/632 reachable harness bytes remain
+per run). Miri runner-cwd/source and retained native-image witnesses are checked.
+The hosted Miri recipe now includes both owned snapshot and artifact-wire models
+with exact positive counts; its wrapper proves 57 logs, sixteen propagated
+failures and rejection of two zero-model results. New hosted success is not
+claimed from these local checks.
+
+**Still test-only, not production enforcement:** the child still links before
+exporting, and the parent installer is not yet assembled into Runtime Code
+ownership, admission, optional fallbacks or leases. The build identity is an
+explicit fixture token, not a real deployment fingerprint; target requests use
+a fixture channel. Production request/build/packaging compatibility, complete
+parent-private linker accounting, original performance failures, feature-size
+and release acceptance remain open. No public API/default or shipping JIT path
+has been switched. Evidence: `target/jit-evidence/compiler-artifacts/`.
+
 ### Compiler ownership groundwork — 2026-10-28
 
 The test-only `compiler_wire` module defines a bounded, versioned owned snapshot

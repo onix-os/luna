@@ -101,7 +101,7 @@ fn child() {
             );
             io::stderr().write_all(b"address-space-refused").unwrap();
         }
-        "compile" => {
+        "compile" | "artifact" => {
             let mut packet = Vec::new_in(allocator());
             packet.try_reserve_exact(1 << 20).unwrap();
             let mut input = io::stdin().lock().take((1 << 20) + 1);
@@ -119,9 +119,21 @@ fn child() {
             let ledger = Ledger::new(4 << 20);
             let total = MappingCounter::new(ledger.clone());
             let metadata = allocator();
-            let code = if crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some() {
-                crate::jit::readonly_lookup::binding::integer_resume::with_enabled(true, || {
-                    backend::readonly_lookup::compile_pair(
+            let compile = || {
+                if crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some() {
+                    crate::jit::readonly_lookup::binding::integer_resume::with_enabled(true, || {
+                        backend::readonly_lookup::compile_pair(
+                            &snapshot,
+                            total.clone(),
+                            4 << 20,
+                            metadata,
+                            work::Limits::from(&crate::JitConfig::default()),
+                            backend::Failure::None,
+                        )
+                    })
+                    .0
+                } else {
+                    backend::array::compile_pair(
                         &snapshot,
                         total.clone(),
                         4 << 20,
@@ -129,19 +141,19 @@ fn child() {
                         work::Limits::from(&crate::JitConfig::default()),
                         backend::Failure::None,
                     )
+                }
+            };
+            let (code, captured) = if mode == "artifact" {
+                let features = std::env::var("LUNA_COMPILER_TARGET_FEATURES").unwrap();
+                let (code, bundle) = backend::artifact::with_target(&features, || {
+                    backend::artifact::capture(allocator(), compile)
                 })
-                .0
+                .unwrap()
+                .unwrap();
+                (code.unwrap(), Some(bundle))
             } else {
-                backend::array::compile_pair(
-                    &snapshot,
-                    total.clone(),
-                    4 << 20,
-                    metadata,
-                    work::Limits::from(&crate::JitConfig::default()),
-                    backend::Failure::None,
-                )
-            }
-            .unwrap();
+                (compile().unwrap(), None)
+            };
             let mapped = total.load(std::sync::atomic::Ordering::Relaxed);
             assert!(mapped > 0);
             let mut routes = 1u64;
@@ -159,10 +171,31 @@ fn child() {
             assert_eq!(ledger.current(), 0);
             let result = wire::encode(&snapshot, wire_limits(), allocator()).unwrap();
             let mut output = io::stderr().lock();
-            output.write_all(b"LUCOMP01").unwrap();
-            output.write_all(&(mapped as u64).to_le_bytes()).unwrap();
-            output.write_all(&routes.to_le_bytes()).unwrap();
-            output.write_all(&result).unwrap();
+            if let Some(mut bundle) = captured {
+                bundle.retain_routes(routes);
+                let request = std::env::var("LUNA_COMPILER_REQUEST_ID")
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let packet = backend::artifact::encode(
+                    &bundle,
+                    backend::artifact::Binding {
+                        request,
+                        build: &[0x51; 32],
+                        source: &result,
+                        environment: bundle.target_environment(),
+                    },
+                    artifact_limits(),
+                    allocator(),
+                )
+                .unwrap();
+                output.write_all(&packet).unwrap();
+            } else {
+                output.write_all(b"LUCOMP01").unwrap();
+                output.write_all(&(mapped as u64).to_le_bytes()).unwrap();
+                output.write_all(&routes.to_le_bytes()).unwrap();
+                output.write_all(&result).unwrap();
+            }
         }
         _ => panic!("unknown compiler fixture"),
     }
@@ -413,4 +446,108 @@ fn rejected_wire_requests_do_not_damage_the_parent_or_next_worker() {
     let receipt = run(command("memory"), &[], limits(), allocator()).unwrap();
     reaped(receipt.pid);
     assert_eq!(&*receipt.bytes, b"address-space-refused");
+}
+
+fn artifact_limits() -> backend::artifact::Limits {
+    backend::artifact::Limits {
+        bytes: 2 << 20,
+        modules: 16,
+        declarations: 256,
+        functions: 128,
+        relocations: 8192,
+    }
+}
+
+#[test]
+fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
+    mod workloads {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/jit_support/workloads.rs"
+        ));
+    }
+    let requests = {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            workloads::WORKLOADS
+                .iter()
+                .map(|workload| (workload.name, workload.source))
+                .chain([
+                    ("predicate", workloads::PREDICATE_SOURCE),
+                    ("cold", workloads::COLD_SOURCE),
+                    ("prepared", &b"return target"[..]),
+                ])
+                .map(|(name, source)| {
+                    let closure = crate::Closure::load(ctx, None, source).unwrap();
+                    let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 << 20).unwrap();
+                    (
+                        name,
+                        wire::encode(&snapshot, wire_limits(), allocator()).unwrap(),
+                    )
+                })
+                .collect::<std::vec::Vec<_>>()
+        })
+    };
+    let environment = backend::artifact::environment().unwrap();
+    let target_features = backend::artifact::target_features().unwrap();
+    let mut routes = 0;
+    let mut calls = 0;
+    let mut instructions = 0;
+    let mut progressing_routes = 0;
+    for (index, (name, source)) in requests.into_iter().enumerate() {
+        let request = index as u64 + 1;
+        let mut worker = command("artifact");
+        worker.env("LUNA_COMPILER_REQUEST_ID", request.to_string());
+        worker.env("LUNA_COMPILER_TARGET_FEATURES", &target_features);
+        let receipt = run(worker, &source, limits(), allocator())
+            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+        reaped(receipt.pid);
+        let metadata = allocator();
+        let ledger = metadata.0.clone();
+        let total = MappingCounter::new(ledger.clone());
+        let installed = backend::artifact::install(
+            &receipt.bytes,
+            backend::artifact::Binding {
+                request,
+                build: &[0x51; 32],
+                source: &source,
+                environment: &environment,
+            },
+            artifact_limits(),
+            total.clone(),
+            4 << 20,
+            metadata,
+            backend::Failure::None,
+        )
+        .unwrap();
+        let snapshot = wire::decode(&source, wire_limits(), allocator()).unwrap();
+        drop(source);
+        drop(receipt);
+        for module in 0..installed.len() {
+            routes |= 1 << (installed.kind(module) as u8 - 1);
+        }
+        let (count, native, progressing) = backend::artifact::exercise(&installed, &snapshot);
+        calls += count;
+        instructions += native;
+        progressing_routes |= progressing;
+        if name == "prepared" {
+            let (bound_calls, bound_instructions) =
+                backend::artifact::exercise_prepared(&installed, &snapshot);
+            calls += bound_calls;
+            instructions += bound_instructions;
+            eprintln!(
+                "artifact-parent-helper calls={bound_calls} instructions={bound_instructions}"
+            );
+        }
+        eprintln!("artifact-case name={name} calls={count} instructions={native} progressing={progressing}");
+        drop(snapshot);
+        drop(installed);
+        assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(total.requested(), 0);
+        assert_eq!(ledger.current(), 0);
+    }
+    assert_eq!(routes, 15);
+    assert_eq!(progressing_routes, 15);
+    assert!(calls > 0 && instructions > 0);
+    eprintln!("artifact-parent calls={calls} instructions={instructions} routes={routes}");
 }
