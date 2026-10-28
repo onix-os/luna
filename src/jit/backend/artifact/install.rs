@@ -6,10 +6,10 @@ pub(in crate::jit) enum InstallError {
     Native(JitError),
 }
 
-struct Loaded {
-    _memory: Memory,
-    kind: Kind,
-    entries: BudgetVec<*const u8, BudgetAllocator>,
+pub(super) struct Loaded {
+    pub(super) _memory: Memory,
+    pub(super) kind: Kind,
+    pub(super) entries: BudgetVec<*const u8, BudgetAllocator>,
 }
 
 pub(in crate::jit) struct Installed {
@@ -64,11 +64,22 @@ pub(in crate::jit) fn install(
     Ok(Installed { modules })
 }
 
-fn load(
+pub(super) fn load(
     image: &ModuleImage,
     total: MappingCounter,
     limit: usize,
     metadata: BudgetAllocator,
+    failure: Failure,
+) -> Result<Loaded, JitError> {
+    load_in(image, total, limit, metadata.clone(), metadata, failure)
+}
+
+pub(super) fn load_in(
+    image: &ModuleImage,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    workspace: BudgetAllocator,
     failure: Failure,
 ) -> Result<Loaded, JitError> {
     let status = MemoryStatus::try_new(metadata.clone())?;
@@ -98,7 +109,7 @@ fn load(
     let (provider, _provider_charge) =
         global_box::try_new(Provider(memory.clone()), metadata.clone())
             .map_err(|_| JitError::ResourceLimit("artifact provider"))?;
-    let mut entries = BudgetVec::new_in(metadata.clone());
+    let mut entries = BudgetVec::new_in(workspace.clone());
     entries
         .try_reserve_exact(image.functions.len())
         .map_err(|_| JitError::ResourceLimit("artifact entries"))?;
@@ -122,9 +133,9 @@ fn load(
             )
         })
         .ok_or(JitError::ResourceLimit("artifact signatures"))?;
-    let _symbols = Reservation::new(metadata.0.clone(), symbol_bytes)
+    let _symbols = Reservation::new(workspace.0.clone(), symbol_bytes)
         .map_err(|_| JitError::ResourceLimit("artifact symbols"))?;
-    let _signatures = Reservation::new(metadata.0.clone(), signature_bytes)
+    let _signatures = Reservation::new(workspace.0.clone(), signature_bytes)
         .map_err(|_| JitError::ResourceLimit("artifact signatures"))?;
     let relocation_bytes = image
         .functions
@@ -137,7 +148,7 @@ fn load(
             )
         })
         .ok_or(JitError::ResourceLimit("artifact relocation copy"))?;
-    let _relocations = Reservation::new(metadata.0.clone(), relocation_bytes)
+    let _relocations = Reservation::new(workspace.0.clone(), relocation_bytes)
         .map_err(|_| JitError::ResourceLimit("artifact relocation copy"))?;
     let mut builder = native_builder(cranelift_native::builder())?;
     for declaration in &image.declarations {
@@ -161,7 +172,7 @@ fn load(
         }
     }
     for function in &image.functions {
-        let mut relocations = BudgetVec::new_in(metadata.clone());
+        let mut relocations = BudgetVec::new_in(workspace.clone());
         relocations
             .try_reserve_exact(function.relocations.len())
             .map_err(|_| JitError::ResourceLimit("artifact relocation staging"))?;

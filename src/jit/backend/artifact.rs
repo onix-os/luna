@@ -6,8 +6,14 @@ use cranelift_module::{FuncId, ModuleRelocTarget};
 
 use super::*;
 
+#[cfg(not(miri))]
+mod assemble;
 mod install;
 mod target;
+#[cfg(not(miri))]
+pub(in crate::jit) use assemble::{assemble, Assembly, Route};
+#[cfg(not(miri))]
+pub(in crate::jit) mod runtime;
 #[cfg(all(test, not(miri)))]
 mod tests;
 mod wire;

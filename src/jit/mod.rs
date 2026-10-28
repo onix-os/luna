@@ -1722,6 +1722,17 @@ impl Runtime {
                             | backend::Failure::RefuseReadonlyCacheAllocation
                     )
                 {
+                    if let Some(result) = backend::artifact::runtime::compile(
+                        backend::artifact::Route::Readonly,
+                        snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    ) {
+                        return result;
+                    }
                     return backend::readonly_lookup::compile_pair(
                         snapshot,
                         memory.clone(),
@@ -1733,6 +1744,17 @@ impl Runtime {
                 }
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().array_kernels {
+                    if let Some(result) = backend::artifact::runtime::compile(
+                        backend::artifact::Route::Arrays,
+                        snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    ) {
+                        return result;
+                    }
                     return backend::array::compile_pair(
                         snapshot,
                         memory.clone(),
@@ -1796,6 +1818,18 @@ impl Runtime {
                     metadata.clone(),
                     work,
                 );
+                #[cfg(all(test, not(miri)))]
+                if let Some(result) = backend::artifact::runtime::compile(
+                    backend::artifact::Route::Ordinary,
+                    snapshot,
+                    memory.clone(),
+                    limit,
+                    metadata.clone(),
+                    work,
+                    failure,
+                ) {
+                    return result;
+                }
                 #[cfg(any(test, miri))]
                 backend::compile_in(
                     snapshot,

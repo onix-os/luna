@@ -12,6 +12,34 @@ pub(in crate::jit) struct Kernels {
     registers: usize,
 }
 
+#[cfg(test)]
+pub(super) fn from_artifact(
+    memory: Memory,
+    plans: &[window::Plan],
+    entries: &[*const u8],
+    registers: usize,
+    metadata: BudgetAllocator,
+) -> Result<Kernels, JitError> {
+    if plans.len() != entries.len() {
+        return Err(JitError::Compilation("artifact array identities".into()));
+    }
+    let mut bindings = BudgetVec::new_in(metadata);
+    bindings
+        .try_reserve_exact(plans.len())
+        .map_err(|_| JitError::ResourceLimit("array bindings"))?;
+    for (&plan, &entry) in plans.iter().zip(entries) {
+        bindings.push(Binding {
+            plan,
+            entry: unsafe { std::mem::transmute::<*const u8, window::KernelEntry>(entry) },
+        });
+    }
+    Ok(Kernels {
+        _memory: memory,
+        bindings,
+        registers,
+    })
+}
+
 impl Kernels {
     pub(in crate::jit) fn invoke<'gc>(
         &self,

@@ -9,6 +9,26 @@ use allocator_api2::vec::Vec;
 
 use super::resources::BudgetAllocator;
 
+pub(in crate::jit) use tests::request_packet;
+
+pub(in crate::jit) struct Packet {
+    pub source: Vec<u8, BudgetAllocator>,
+    pub bytes: Vec<u8, BudgetAllocator>,
+    pub environment: Vec<u8, BudgetAllocator>,
+    pub request: u64,
+}
+
+impl Packet {
+    pub fn binding(&self) -> super::backend::artifact::Binding<'_> {
+        super::backend::artifact::Binding {
+            request: self.request,
+            build: &[0x51; 32],
+            source: &self.source,
+            environment: &self.environment,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Limits {
     request: usize,
@@ -96,7 +116,7 @@ fn run(
     }
     let mut bytes = Vec::new_in(allocator);
     bytes
-        .try_reserve_exact(limits.response)
+        .try_reserve_exact(limits.response.min(4096))
         .map_err(|_| fail(Cause::Allocation))?;
     command
         .stdin(Stdio::piped())
@@ -182,6 +202,17 @@ fn drive(
                 Ok(count) => {
                     if count > limits.response - bytes.len() {
                         return Err(Cause::ResponseLimit);
+                    }
+                    let needed = bytes.len().checked_add(count).ok_or(Cause::ResponseLimit)?;
+                    if needed > bytes.capacity() {
+                        let capacity = bytes
+                            .capacity()
+                            .saturating_mul(2)
+                            .max(needed)
+                            .min(limits.response);
+                        bytes
+                            .try_reserve_exact(capacity - bytes.len())
+                            .map_err(|_| Cause::Allocation)?;
                     }
                     bytes.extend_from_slice(&scratch[..count]);
                 }

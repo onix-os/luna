@@ -119,18 +119,57 @@ fn child() {
             let ledger = Ledger::new(4 << 20);
             let total = MappingCounter::new(ledger.clone());
             let metadata = allocator();
+            let requested_route = std::env::var("LUNA_COMPILER_ROUTE").ok();
+            let requested_resume =
+                std::env::var("LUNA_COMPILER_RESUME").map_or(true, |value| match value.as_str() {
+                    "true" => true,
+                    "false" => false,
+                    _ => panic!("compiler resume request"),
+                });
+            let requested_work = std::env::var("LUNA_COMPILER_WORK").map_or_else(
+                |_| work::Limits::from(&crate::JitConfig::default()),
+                |value| {
+                    let words: std::vec::Vec<usize> =
+                        value.split(',').map(|word| word.parse().unwrap()).collect();
+                    assert_eq!(words.len(), 3);
+                    work::Limits {
+                        instructions: words[0],
+                        blocks: words[1],
+                        relocations: words[2],
+                    }
+                },
+            );
             let compile = || {
-                if crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some() {
-                    crate::jit::readonly_lookup::binding::integer_resume::with_enabled(true, || {
-                        backend::readonly_lookup::compile_pair(
-                            &snapshot,
-                            total.clone(),
-                            4 << 20,
-                            metadata,
-                            work::Limits::from(&crate::JitConfig::default()),
-                            backend::Failure::None,
-                        )
-                    })
+                if requested_route.as_deref() == Some("ordinary") {
+                    return backend::compile_in(
+                        &snapshot,
+                        total.clone(),
+                        4 << 20,
+                        metadata,
+                        requested_work,
+                        backend::Failure::None,
+                    );
+                }
+                assert!(matches!(
+                    requested_route.as_deref(),
+                    None | Some("readonly") | Some("arrays")
+                ));
+                if requested_route.as_deref() != Some("arrays")
+                    && crate::jit::readonly_lookup::Plan::recognize(&snapshot).is_some()
+                {
+                    crate::jit::readonly_lookup::binding::integer_resume::with_enabled(
+                        requested_resume,
+                        || {
+                            backend::readonly_lookup::compile_pair(
+                                &snapshot,
+                                total.clone(),
+                                4 << 20,
+                                metadata,
+                                requested_work,
+                                backend::Failure::None,
+                            )
+                        },
+                    )
                     .0
                 } else {
                     backend::array::compile_pair(
@@ -138,7 +177,7 @@ fn child() {
                         total.clone(),
                         4 << 20,
                         metadata,
-                        work::Limits::from(&crate::JitConfig::default()),
+                        requested_work,
                         backend::Failure::None,
                     )
                 }
@@ -456,6 +495,96 @@ fn artifact_limits() -> backend::artifact::Limits {
         functions: 128,
         relocations: 8192,
     }
+}
+
+pub(in crate::jit) fn request_packet(
+    snapshot: &Snapshot,
+    route: backend::artifact::Route,
+    resume: bool,
+    requested_work: work::Limits,
+) -> Result<Packet, crate::JitError> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let request = NEXT
+        .fetch_update(
+            std::sync::atomic::Ordering::Relaxed,
+            std::sync::atomic::Ordering::Relaxed,
+            |id| id.checked_add(1),
+        )
+        .map_err(|_| crate::JitError::ResourceLimit("compiler request identities"))?;
+    let workspace = snapshot.operations.allocator().clone();
+    let source = wire::encode(snapshot, wire_limits(), workspace.clone())
+        .map_err(|_| crate::JitError::ResourceLimit("compiler request snapshot"))?;
+    let environment = backend::artifact::environment()
+        .map_err(|_| crate::JitError::Unavailable("compiler target environment"))?;
+    let features = backend::artifact::target_features()
+        .map_err(|_| crate::JitError::Unavailable("compiler target features"))?;
+    let mut worker = command("artifact");
+    worker.env("LUNA_COMPILER_REQUEST_ID", request.to_string());
+    worker.env("LUNA_COMPILER_TARGET_FEATURES", features);
+    worker.env(
+        "LUNA_COMPILER_ROUTE",
+        match route {
+            backend::artifact::Route::Ordinary => "ordinary",
+            backend::artifact::Route::Arrays => "arrays",
+            backend::artifact::Route::Readonly => "readonly",
+        },
+    );
+    worker.env(
+        "LUNA_COMPILER_RESUME",
+        if resume { "true" } else { "false" },
+    );
+    worker.env(
+        "LUNA_COMPILER_WORK",
+        format!(
+            "{},{},{}",
+            requested_work.instructions, requested_work.blocks, requested_work.relocations
+        ),
+    );
+    let receipt = run(
+        worker,
+        &source,
+        Limits {
+            response: 2 << 20,
+            ..limits()
+        },
+        workspace,
+    )
+    .map_err(|failure| match failure.cause {
+        Cause::Allocation | Cause::RequestLimit | Cause::ResponseLimit => {
+            crate::JitError::ResourceLimit("compiler transport")
+        }
+        _ => crate::JitError::Unavailable("compiler worker failed"),
+    })?;
+    reaped(receipt.pid);
+    Ok(Packet {
+        source,
+        bytes: receipt.bytes,
+        environment,
+        request,
+    })
+}
+
+#[test]
+fn allocation_refusal_while_receiving_kills_and_reaps_the_worker() {
+    let output = allocator();
+    let ledger = output.0.clone();
+    output.0.fail_after(1);
+    let failure = run(
+        command("flood"),
+        &[],
+        Limits {
+            response: 16384,
+            ..limits()
+        },
+        output.clone(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(failure.cause, Cause::Allocation);
+    reaped(failure.pid.unwrap());
+    assert_eq!(ledger.current(), 0);
+    let mut probe = Vec::<u8, _>::new_in(output);
+    assert!(probe.try_reserve_exact(1).is_err());
 }
 
 #[test]

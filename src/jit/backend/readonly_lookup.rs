@@ -19,6 +19,24 @@ pub(in crate::jit) struct ReadCode {
     )>,
 }
 
+#[cfg(test)]
+pub(super) fn from_artifact(
+    memory: Memory,
+    entry: *const u8,
+    plan: Plan,
+    registers: usize,
+    relocations: usize,
+) -> ReadCode {
+    ReadCode {
+        _memory: memory,
+        entry: unsafe { std::mem::transmute::<*const u8, ReadEntry>(entry) },
+        plan,
+        registers,
+        relocations,
+        integer_resume: None,
+    }
+}
+
 pub(in crate::jit) fn compile(
     source: &Snapshot,
     total: MappingCounter,

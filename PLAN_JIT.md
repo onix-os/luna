@@ -9,6 +9,38 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Worker-backed Runtime ownership checkpoint — 2026-10-28
+
+The test-only worker bridge now assembles artifacts into the original Runtime
+`Code` owners, preserving ordinary admission, optional fallbacks, shared leases,
+cache retirement and mode changes. Source/route mismatch is rejected before
+metadata or mapping allocation. Temporary request/staging allocations are
+separated from retained metadata and released before cache publication. The
+supervisor grows response storage fallibly within its cap; late growth refusal
+kills and reaps the worker without resetting external allocation denial.
+
+Five scripts across five fuel budgets compare worker-backed and in-process
+execution directly: frames, stack, fuel, results, operational counters and live
+resource values match exactly. Only three transient allocation peaks are
+excluded. Existing fixtures also cover callbacks, yields/GC, typed errors,
+environment rebinding, arrays, mutation, admission refusal and last-lease
+mapping reclamation. Scoped test selection restores nested/panicking callers.
+
+Local qualification: 629 passing executions/63 summaries across related targets;
+i686 codec/check-all passes; five pure wire models pass default and Tree Borrows
+Miri with a fresh source-specific cache and verified runner directory. Parent
+Memcheck passes four owner, twelve Runtime and eleven supervisor tests with zero
+errors or definite/indirect leaks; each run retains 48 possible/632 reachable
+harness bytes. Miri does not execute the native assembler or Runtime bridge,
+and Memcheck does not trace child compiler allocations.
+
+**Still test-only:** no production route, public API or packaging default changes.
+The child still links/maps before exporting. Production protocol/build identity,
+packaging compatibility, scheduling/cancellation, complete parent-private linker
+allocation bounds, the original 69 failed performance gates, feature-size and
+release acceptance remain open. Evidence:
+`target/jit-evidence/compiler-code-owner/`.
+
 ### Generated-code artifact groundwork — 2026-10-28
 
 The test-only artifact boundary now returns real unlinked code from a supervised
@@ -39,9 +71,10 @@ with exact positive counts; its wrapper proves 57 logs, sixteen propagated
 failures and rejection of two zero-model results. New hosted success is not
 claimed from these local checks.
 
-**Still test-only, not production enforcement:** the child still links before
-exporting, and the parent installer is not yet assembled into Runtime Code
-ownership, admission, optional fallbacks or leases. The build identity is an
+**Historical groundwork, still not production enforcement:** at this checkpoint
+the parent installer was not assembled into Runtime Code ownership; the later
+worker-backed ownership checkpoint above supersedes that limitation. The child
+still links before exporting. The build identity is an
 explicit fixture token, not a real deployment fingerprint; target requests use
 a fixture channel. Production request/build/packaging compatibility, complete
 parent-private linker accounting, original performance failures, feature-size

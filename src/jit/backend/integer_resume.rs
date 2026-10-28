@@ -6,6 +6,14 @@ pub(in crate::jit) struct Code {
     pub entry: Entry,
 }
 
+#[cfg(test)]
+pub(super) fn from_artifact(memory: Memory, entry: *const u8) -> Code {
+    Code {
+        _memory: memory,
+        entry: unsafe { std::mem::transmute::<*const u8, Entry>(entry) },
+    }
+}
+
 pub(in crate::jit) fn compile(
     source: &Snapshot,
     total: MappingCounter,

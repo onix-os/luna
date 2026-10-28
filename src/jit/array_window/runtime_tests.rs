@@ -1,5 +1,25 @@
 use crate::{Closure, Executor, Fuel, JitConfig, JitMode, JitStats, Lua};
 
+fn worker_artifacts(run: impl FnOnce()) {
+    let (_, compiles) = crate::jit::backend::artifact::runtime::with_enabled(true, run);
+    assert!(compiles > 0);
+}
+
+#[test]
+fn worker_artifact_array_entries_preserve_slices_and_helper_elimination() {
+    worker_artifacts(auto_array_kernels_preserve_executor_slices_and_remove_table_helpers);
+}
+
+#[test]
+fn worker_artifact_array_fallback_preserves_aliases_callbacks_and_changes() {
+    worker_artifacts(auto_array_fallback_preserves_aliases_callbacks_and_host_observable_changes);
+}
+
+#[test]
+fn worker_artifact_array_writes_stop_after_host_readonly_mutation() {
+    worker_artifacts(host_readonly_mutation_between_gc_steps_stops_previously_native_writes);
+}
+
 struct Run {
     result: i64,
     slices: Vec<(bool, crate::ExecutorMode, i32, u64)>,

@@ -1,6 +1,15 @@
 use super::*;
 use crate::{Executor, Fuel, JitConfig, JitMode};
 
+#[test]
+fn worker_artifact_preserves_callback_yield_and_gc_before_resumption() {
+    let (_, compiles) = crate::jit::backend::artifact::runtime::with_enabled(
+        true,
+        canonical_resume_preserves_callback_yield_and_gc_before_resumption,
+    );
+    assert!(compiles > 0);
+}
+
 fn routed<R>(enabled: bool, run: impl FnOnce() -> R) -> (R, u64) {
     with_enabled(enabled, || {
         crate::jit::readonly_lookup::runtime::with_enabled(true, run)
