@@ -108,11 +108,11 @@ fn allocator() -> BudgetAllocator {
     BudgetAllocator(Ledger::new(32 << 20))
 }
 
-fn command(mode: &str) -> Command {
+fn command(mode: &str) -> Launch<'static> {
     COMMANDS.set(COMMANDS.get().saturating_add(1));
     if mode == "artifact" {
         if let Some(image) = deployment().unwrap() {
-            return Command::new(format!("/proc/self/fd/{}", image.image.as_raw_fd()));
+            return Launch::Image(&image.image);
         }
     }
     let mut command = Command::new(std::env::current_exe().unwrap());
@@ -123,7 +123,7 @@ fn command(mode: &str) -> Command {
         "--quiet",
     ]);
     command.env(CHILD, mode);
-    command
+    Launch::Fixture(command)
 }
 
 fn reaped(pid: u32) {
@@ -138,6 +138,63 @@ fn reaped(pid: u32) {
         io::Error::last_os_error().raw_os_error(),
         Some(libc::ECHILD)
     );
+}
+
+#[test]
+fn sealed_launch_startup_faults_are_typed_and_reaped() {
+    let bytes = b"not an executable";
+    let ledger = Ledger::try_host(1 << 20).unwrap();
+    let baseline = ledger.accounted();
+    let identity = crate::jit::compiler_request::image_identity(&bytes[..], 1 << 20).unwrap();
+    let image = crate::jit::compiler_image::Image::new(bytes, &identity, 1 << 20, ledger.clone())
+        .ok()
+        .unwrap();
+    let output = allocator();
+    let failure = run(Launch::Image(&image), &[], limits(), output.clone())
+        .err()
+        .unwrap();
+    assert_eq!(
+        failure.cause,
+        Cause::Startup(crate::jit::compiler_launch::Fault {
+            stage: crate::jit::compiler_launch::Stage::Exec,
+            errno: libc::ENOEXEC,
+        })
+    );
+    assert_eq!(failure.status.unwrap().code(), Some(127));
+    reaped(failure.pid.unwrap());
+    assert_eq!(output.0.current(), 0);
+    drop(image);
+    assert_eq!(ledger.accounted(), baseline);
+}
+
+#[test]
+fn sealed_launch_startup_shares_the_transport_deadline() {
+    let bytes = b"not executed";
+    let identity = crate::jit::compiler_request::image_identity(&bytes[..], 1 << 20).unwrap();
+    let image = crate::jit::compiler_image::Image::new(
+        bytes,
+        &identity,
+        1 << 20,
+        Ledger::try_host(1 << 20).unwrap(),
+    )
+    .ok()
+    .unwrap();
+    let output = allocator();
+    let failure = run(
+        Launch::Stalled(&image),
+        &[],
+        Limits {
+            wall: Duration::from_millis(20),
+            ..limits()
+        },
+        output.clone(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(failure.cause, Cause::Deadline);
+    assert_eq!(failure.status.unwrap().signal(), Some(libc::SIGKILL));
+    reaped(failure.pid.unwrap());
+    assert_eq!(output.0.current(), 0);
 }
 
 #[test]
@@ -939,7 +996,9 @@ fn owned_requests_reject_cross_process_mismatches_and_ignore_old_env_channels() 
         "LUNA_COMPILER_RESUME",
         "LUNA_COMPILER_WORK",
     ] {
-        worker.env(key, "not-a-valid-request-field");
+        if let Launch::Fixture(worker) = &mut worker {
+            worker.env(key, "not-a-valid-request-field");
+        }
     }
     let receipt = run(
         worker,

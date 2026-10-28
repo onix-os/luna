@@ -115,12 +115,19 @@ table-capacity-miri:
 .PHONY: jit-compiler-wire jit-compiler-wire-miri jit-compiler-process
 .PHONY: jit-compiler-request jit-compiler-request-miri
 .PHONY: jit-compiler-image
+.PHONY: jit-compiler-launch jit-compiler-launch-probe
+jit-compiler-launch-probe:
+	@mkdir -p 'target/launch-probe/$(if $(TARGET),$(TARGET),host)'
+	@set -eu; flags=(); if [[ -n "$${LUNA_WORKER_GLIBC_STATIC:-}" && '$(TARGET)' != *musl ]]; then flags=(-L "native=$$LUNA_WORKER_GLIBC_STATIC"); fi; rustc --edition=2021 $(TARGET_ARG) -C target-feature=+crt-static -C panic=abort "$${flags[@]}" tests/support/launch_probe.rs -o 'target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe'
+
+jit-compiler-launch: jit-compiler-launch-probe
+	@set -o pipefail; LUNA_LAUNCH_PROBE='$(TOP_DIR)/target/launch-probe/$(if $(TARGET),$(TARGET),host)/probe' $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_launch::tests -- --include-ignored --test-threads=1 | awk '/^test result: ok[.] 11 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 .PHONY: jit-worker-embedded jit-worker-build-tests
 jit-worker-build-tests:
 	@set -o pipefail; $(CARGO) test --locked -p luna-jit-embed --lib | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-worker-embedded: jit-worker-build-tests
-	@set -eu -o pipefail; for spec in 'jit::embedded_worker::tests:1' 'jit::compiler_image::tests:9' 'jit::compiler_process::tests:14' 'jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent:1' 'jit::backend::artifact::assemble::tests:4' 'worker_artifact_:12' 'jit::backend::artifact:::42'; do \
+	@set -eu -o pipefail; for spec in 'jit::embedded_worker::tests:1' 'jit::compiler_image::tests:9' 'jit::compiler_process::tests:16' 'jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent:1' 'jit::backend::artifact::assemble::tests:4' 'worker_artifact_:12' 'jit::backend::artifact:::42'; do \
 		filter=$${spec%:*}; count=$${spec##*:}; \
 		env -u LUNA_JIT_WORKER_IMAGE $(CARGO) test --locked -p luna --features jit-worker-embedded --lib $(TARGET_ARG) "$$filter" -- --test-threads=1 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; \
 	done
@@ -210,7 +217,7 @@ jit-compiler-artifact-parent:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_process::tests::child_generated_artifacts_run_all_production_entries_in_the_parent -- --exact --test-threads=1 --nocapture | awk '/^test result: ok[.] 1 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-process:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_process -- --test-threads=1 | awk '/^test result: ok[.] 14 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_process -- --test-threads=1 | awk '/^test result: ok[.] 16 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-wire:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_wire | awk '/^test result: ok[.] 8 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
@@ -405,7 +412,7 @@ jit-platform:
 	if test "$$(uname -sm)" != "Linux $$arch"; then \
 		echo "Native gate requires Linux $$arch hardware, not a cross-build" >&2; exit 2; \
 	fi
-	@$(MAKE) --no-print-directory environment jit-verify jit-worker-conformance jit-example jit-disassembly
+	@$(MAKE) --no-print-directory environment jit-verify jit-compiler-launch jit-worker-conformance jit-example jit-disassembly
 
 jit-evidence:
 	@mkdir -p target/jit-evidence

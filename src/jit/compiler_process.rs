@@ -61,6 +61,7 @@ enum Cause {
     ResponseLimit,
     Deadline,
     Exit,
+    Startup(super::compiler_launch::Fault),
 }
 
 #[derive(Debug)]
@@ -75,24 +76,99 @@ struct Receipt {
     pid: u32,
 }
 
-struct Running {
-    child: Child,
-    status: Option<ExitStatus>,
+enum Launch<'a> {
+    Fixture(Command),
+    Image(&'a super::compiler_image::Image),
+    Stalled(&'a super::compiler_image::Image),
 }
 
-impl Running {
-    fn stop(&mut self) {
-        if self.status.is_none() {
-            unsafe { libc::kill(-(self.child.id() as i32), libc::SIGKILL) };
-            let _ = self.child.kill();
-            self.status = self.child.wait().ok();
+impl<'a> From<Command> for Launch<'a> {
+    fn from(command: Command) -> Self {
+        Self::Fixture(command)
+    }
+}
+
+enum Process<'a> {
+    Fixture(Child),
+    Image(super::compiler_launch::Child<'a>),
+}
+
+enum Input {
+    Fixture(std::process::ChildStdin),
+    Image(super::compiler_launch::Input),
+}
+
+impl Write for Input {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Fixture(input) => input.write(bytes),
+            Self::Image(input) => input.write(bytes),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Fixture(input) => input.flush(),
+            Self::Image(input) => input.flush(),
         }
     }
 }
 
-impl Drop for Running {
+impl AsRawFd for Input {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        match self {
+            Self::Fixture(input) => input.as_raw_fd(),
+            Self::Image(input) => input.as_raw_fd(),
+        }
+    }
+}
+
+struct Running<'a> {
+    child: Process<'a>,
+    input: Option<Input>,
+    output: Option<std::fs::File>,
+    status: Option<ExitStatus>,
+    stopped: bool,
+}
+
+impl Running<'_> {
+    fn id(&self) -> u32 {
+        match &self.child {
+            Process::Fixture(child) => child.id(),
+            Process::Image(child) => child.id(),
+        }
+    }
+
+    fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        match &mut self.child {
+            Process::Fixture(child) => child.try_wait(),
+            Process::Image(child) => child.try_wait(),
+        }
+    }
+
+    fn stop(&mut self) -> io::Result<()> {
+        if self.stopped {
+            return Ok(());
+        }
+        match &mut self.child {
+            Process::Fixture(child) if self.status.is_none() => {
+                unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+                let _ = child.kill();
+                self.status = Some(child.wait()?);
+            }
+            Process::Image(child) => {
+                self.status = Some(child.stop()?);
+            }
+            _ => {}
+        }
+        self.stopped = true;
+        Ok(())
+    }
+}
+
+impl Drop for Running<'_> {
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop();
     }
 }
 
@@ -104,8 +180,8 @@ fn nonblocking(fd: libc::c_int) -> io::Result<()> {
     Ok(())
 }
 
-fn run(
-    mut command: Command,
+fn run<'a>(
+    command: impl Into<Launch<'a>>,
     request: &[u8],
     limits: Limits,
     allocator: BudgetAllocator,
@@ -132,40 +208,77 @@ fn run(
     bytes
         .try_reserve_exact(limits.response.min(4096))
         .map_err(|_| fail(Cause::Allocation))?;
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .process_group(0);
-    unsafe {
-        command.pre_exec(move || {
-            for (resource, limit) in [
-                (libc::RLIMIT_CORE, 0),
-                (libc::RLIMIT_AS, limits.address_space),
-                (libc::RLIMIT_CPU, limits.cpu_seconds),
-            ] {
-                let limit = libc::rlimit {
-                    rlim_cur: limit,
-                    rlim_max: limit,
-                };
-                if libc::setrlimit(resource, &limit) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
+    let command = command.into();
+    let stall = matches!(command, Launch::Stalled(_));
+    let mut running = match command {
+        Launch::Image(image) | Launch::Stalled(image) => {
+            let mut child = super::compiler_launch::Child::spawn(
+                image,
+                super::compiler_launch::Limits {
+                    address_space: limits.address_space,
+                    cpu_seconds: limits.cpu_seconds,
+                    stall,
+                },
+            )
+            .map_err(|_| fail(Cause::Io))?;
+            Running {
+                input: child.input.take().map(Input::Image),
+                output: child.output.take(),
+                child: Process::Image(child),
+                status: None,
+                stopped: false,
             }
-            Ok(())
-        });
-    }
-    let child = command.spawn().map_err(|_| fail(Cause::Io))?;
-    let mut running = Running {
-        child,
-        status: None,
+        }
+        Launch::Fixture(mut command) => {
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .process_group(0);
+            unsafe {
+                command.pre_exec(move || {
+                    for (resource, limit) in [
+                        (libc::RLIMIT_CORE, 0),
+                        (libc::RLIMIT_AS, limits.address_space),
+                        (libc::RLIMIT_CPU, limits.cpu_seconds),
+                    ] {
+                        let limit = libc::rlimit {
+                            rlim_cur: limit,
+                            rlim_max: limit,
+                        };
+                        if libc::setrlimit(resource, &limit) != 0 {
+                            return Err(io::Error::last_os_error());
+                        }
+                    }
+                    Ok(())
+                });
+            }
+            let mut child = command.spawn().map_err(|_| fail(Cause::Io))?;
+            Running {
+                input: child.stdin.take().map(Input::Fixture),
+                output: child.stderr.take().map(|pipe| {
+                    let fd: std::os::fd::OwnedFd = pipe.into();
+                    fd.into()
+                }),
+                child: Process::Fixture(child),
+                status: None,
+                stopped: false,
+            }
+        }
     };
-    let pid = running.child.id();
+    let pid = running.id();
     let result = drive(&mut running, request, limits, deadline, &mut bytes);
     match result {
-        Ok(()) => Ok(Receipt { bytes, pid }),
+        Ok(()) => {
+            running.stop().map_err(|_| Failure {
+                cause: Cause::Io,
+                pid: Some(pid),
+                status: running.status,
+            })?;
+            Ok(Receipt { bytes, pid })
+        }
         Err(cause) => {
-            running.stop();
+            let _ = running.stop();
             Err(Failure {
                 cause,
                 pid: Some(pid),
@@ -176,14 +289,14 @@ fn run(
 }
 
 fn drive(
-    running: &mut Running,
+    running: &mut Running<'_>,
     request: &[u8],
     limits: Limits,
     deadline: Instant,
     bytes: &mut Vec<u8, BudgetAllocator>,
 ) -> Result<(), Cause> {
-    let mut input = running.child.stdin.take();
-    let mut output = running.child.stderr.take().ok_or(Cause::Io)?;
+    let mut input = running.input.take();
+    let mut output = running.output.take().ok_or(Cause::Io)?;
     nonblocking(input.as_ref().ok_or(Cause::Io)?.as_raw_fd()).map_err(|_| Cause::Io)?;
     nonblocking(output.as_raw_fd()).map_err(|_| Cause::Io)?;
     let mut sent = 0;
@@ -192,6 +305,16 @@ fn drive(
     loop {
         if Instant::now() >= deadline {
             return Err(Cause::Deadline);
+        }
+        if let Process::Image(child) = &mut running.child {
+            match child.startup().map_err(|_| Cause::Io)? {
+                Err(fault) => return Err(Cause::Startup(fault)),
+                Ok(false) => {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
+                Ok(true) => {}
+            }
         }
         if let Some(pipe) = &mut input {
             if sent < request.len() {
@@ -239,7 +362,7 @@ fn drive(
             }
         }
         if running.status.is_none() {
-            running.status = running.child.try_wait().map_err(|_| Cause::Io)?;
+            running.status = running.try_wait().map_err(|_| Cause::Io)?;
         }
         if let Some(status) = running.status {
             if !status.success() {

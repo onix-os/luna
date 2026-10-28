@@ -9,6 +9,49 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Identity-safe compiler launch checkpoint — 2026-10-28
+
+Actual-helper conformance now launches the sealed image with a borrowed-lifetime
+native launcher rather than allocating Command/path/environment construction.
+Atomic CLONE_PIDFD creation, pidfd signaling and pidfd wait keep cleanup tied to
+one child identity. Fixed argv, empty environment, direct execveat and inherited
+descriptor close-on-exec isolation require no executable or null-device path.
+Both output streams enter the bounded, strictly decoded response channel.
+
+The calling thread's signal mask is restored; the raw child resets dispositions,
+sets its process group and unchanged AS/CPU/core limits, then executes without
+post-clone Rust allocation, user callbacks or atfork handlers. A fixed startup
+stage/errno channel shares the supervisor deadline with transport. Socket writes
+use MSG_NOSIGNAL. Invalid cleanup capabilities refuse before child creation;
+the wait capability probe requires nonnegative INT_MAX to reach descriptor
+validation. A private executable duplicate above fd 2 preserves images when an
+embedding process has closed standard streams.
+
+The mandatory native launch gate executes all 11 cases, including a static
+environment/descriptor/limits/signal probe, startup cancellation, typed exec
+failure, parallel child ownership, closed-stdio/descriptor-exhaustion recovery
+and zero parent Rust allocations during launch/startup/reap. The static-probe
+case is explicitly ignored in ordinary Cargo runs and required with
+--include-ignored in jit-platform; this is separate from the existing dump
+ignore. Final source qualification passes 118 GNU and 102 musl executions;
+root separately passes 102, with i686 check-all/codec 8 and tooling checks.
+
+Valgrind 3.26 does not handle pidfd_send_signal: full launcher Memcheck remains
+failed, not certified or replaced by numeric-PID signaling. The initial failed
+cancellation child was explicitly cleaned up; the new capability refusal is
+checked before cloning. Failed shared-cache stale-source and negative-wait-ID
+probes remain in target/jit-evidence/worker-launch alongside frozen corrected
+source and executable receipts. Final qualification rebuilds first-party units
+in isolated caches rather than trusting cross-checkout Cargo freshness.
+
+Normal/default public JIT routing remains unchanged. This launcher does not
+complete kernel resource accounting, image admission/ownership policy,
+descendant/process-group cleanup, external cancellation/concurrency, hard kernel
+reap latency, bounded public error publication or production Lua routing.
+Original 69/816 performance failures and full platform/resource/feature-size/
+release acceptance remain open. No benchmarks, threshold waivers, branches or
+worktrees accompany this checkpoint.
+
 ### Source-built embedded producer checkpoint — 2026-10-28
 
 The internal opt-in `jit-worker-embedded` feature now builds and embeds a static,
