@@ -7,7 +7,7 @@ use std::{
     process::ExitStatus,
 };
 
-use super::compiler_image::Image;
+use super::compiler_image::{Image, Owner};
 
 #[derive(Clone, Copy)]
 pub(super) struct Limits {
@@ -73,7 +73,25 @@ pub(super) struct Child<'a> {
     received: usize,
     ready: bool,
     reaped: bool,
-    _image: &'a Image,
+    _image: Lease<'a>,
+    #[cfg(test)]
+    kill_failures: usize,
+    #[cfg(test)]
+    wait_failures: usize,
+}
+
+enum Lease<'a> {
+    Borrowed(&'a Image),
+    Owned(Owner),
+}
+
+impl AsRawFd for Lease<'_> {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Self::Borrowed(image) => image.as_raw_fd(),
+            Self::Owned(image) => image.as_raw_fd(),
+        }
+    }
 }
 
 fn high(fd: OwnedFd) -> io::Result<OwnedFd> {
@@ -289,6 +307,10 @@ fn child(image: RawFd, input: RawFd, output: RawFd, status: RawFd, limits: Limit
 
 impl<'a> Child<'a> {
     pub fn spawn(image: &'a Image, limits: Limits) -> io::Result<Self> {
+        Self::spawn_inner(Lease::Borrowed(image), limits)
+    }
+
+    fn spawn_inner(image: Lease<'a>, limits: Limits) -> io::Result<Self> {
         if [limits.address_space, limits.cpu_seconds]
             .iter()
             .any(|&value| value == 0 || value == libc::RLIM_INFINITY)
@@ -375,6 +397,10 @@ impl<'a> Child<'a> {
             ready: false,
             reaped: false,
             _image: image,
+            #[cfg(test)]
+            kill_failures: 0,
+            #[cfg(test)]
+            wait_failures: 0,
         };
         mask.restore()?;
         Ok(value)
@@ -456,9 +482,21 @@ impl<'a> Child<'a> {
         self.observe(libc::WNOHANG | libc::WNOWAIT)
     }
 
-    pub fn stop(&mut self) -> io::Result<ExitStatus> {
-        if self.reaped {
-            return Err(io::Error::from_raw_os_error(libc::ECHILD));
+    pub fn finished(&self) -> bool {
+        self.reaped
+    }
+
+    #[cfg(test)]
+    pub fn fail_cleanup(&mut self, signals: usize, waits: usize) {
+        self.kill_failures = signals;
+        self.wait_failures = waits;
+    }
+
+    fn signal(&mut self) -> io::Result<()> {
+        #[cfg(test)]
+        if self.kill_failures != 0 {
+            self.kill_failures -= 1;
+            return Err(io::Error::from_raw_os_error(libc::EIO));
         }
         if unsafe {
             libc::syscall(
@@ -475,27 +513,78 @@ impl<'a> Child<'a> {
                 return Err(error);
             }
         }
+        Ok(())
+    }
+
+    fn ready(&self, millis: i32) -> io::Result<bool> {
+        let mut descriptor = libc::pollfd {
+            fd: self.pidfd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        if unsafe { libc::poll(&mut descriptor, 1, millis) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(descriptor.revents & (libc::POLLIN | libc::POLLHUP) != 0)
+    }
+
+    fn reap(&mut self) -> io::Result<Option<ExitStatus>> {
+        #[cfg(test)]
+        if self.wait_failures != 0 {
+            self.wait_failures -= 1;
+            return Err(io::Error::from_raw_os_error(libc::EIO));
+        }
+        match self.observe(libc::WNOHANG) {
+            Ok(Some(status)) => {
+                self.reaped = true;
+                Ok(Some(status))
+            }
+            Err(error) if error.raw_os_error() == Some(libc::ECHILD) => {
+                self.reaped = self.ready(0)?;
+                Err(error)
+            }
+            result => result,
+        }
+    }
+
+    pub fn cleanup_once(&mut self) -> io::Result<Option<ExitStatus>> {
+        if self.reaped {
+            return Err(io::Error::from_raw_os_error(libc::ECHILD));
+        }
+        let signal = self.signal();
+        match self.reap() {
+            Ok(None) => signal.map(|()| None),
+            result => result,
+        }
+    }
+
+    pub fn stop(&mut self) -> io::Result<ExitStatus> {
         loop {
-            match self.observe(0) {
-                Ok(Some(status)) => {
-                    self.reaped = true;
-                    return Ok(status);
-                }
-                Ok(None) => return Err(io::Error::from_raw_os_error(libc::EPROTO)),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) => {
-                    self.reaped = error.raw_os_error() == Some(libc::ECHILD);
-                    return Err(error);
+            match self.cleanup_once()? {
+                Some(status) => return Ok(status),
+                None => {
+                    self.ready(20)?;
                 }
             }
         }
     }
 }
 
+impl Child<'static> {
+    pub fn spawn_owned(image: Owner, limits: Limits) -> io::Result<Self> {
+        Self::spawn_inner(Lease::Owned(image), limits)
+    }
+}
+
 impl Drop for Child<'_> {
     fn drop(&mut self) {
-        if !self.reaped {
-            let _ = self.stop();
+        while !self.reaped {
+            let _ = self.cleanup_once();
+            if !self.reaped {
+                if self.ready(20).unwrap_or(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
         }
     }
 }
