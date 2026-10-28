@@ -462,6 +462,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "libc",
  "luna-derive",
+ "luna-jit-embed",
  "memmap2",
  "ottavino-gc-arena",
  "rand",
@@ -479,6 +480,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.68",
+]
+
+[[package]]
+name = "luna-jit-embed"
+version = "0.5.1"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]

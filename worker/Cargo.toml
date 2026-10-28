@@ -1,0 +1,14 @@
+[package]
+name = "luna-jit-embed"
+description = "Source bootstrap for Luna's native compiler image"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"] }
