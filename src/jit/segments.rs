@@ -1,7 +1,10 @@
+#[cfg(any(test, target_arch = "aarch64"))]
 use std::io;
 
 use cranelift_jit::{BranchProtection, JITMemoryKind};
 use memmap2::{Mmap, MmapMut};
+
+use super::native_fault::{self, Fault, Operation};
 
 pub(super) struct Request {
     pub bytes: usize,
@@ -10,14 +13,15 @@ pub(super) struct Request {
 }
 
 impl Request {
+    #[cfg(test)]
     pub fn new(size: usize, align: u64, page: usize) -> io::Result<Self> {
-        let align =
-            usize::try_from(align).map_err(|_| io::Error::other("native alignment overflow"))?;
+        Self::checked(size, align, page).map_err(Fault::into_io)
+    }
+
+    pub fn checked(size: usize, align: u64, page: usize) -> Result<Self, Fault> {
+        let align = usize::try_from(align).map_err(|_| Fault::AlignmentOverflow)?;
         if !align.is_power_of_two() || !page.is_power_of_two() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid native alignment or page size",
-            ));
+            return Err(Fault::InvalidAlignment);
         }
         let bytes = size
             .max(1)
@@ -25,7 +29,7 @@ impl Request {
             .map(|size| size / page * page)
             .and_then(|size| size.checked_add(align.saturating_sub(page)))
             .filter(|size| *size <= isize::MAX as usize)
-            .ok_or_else(|| io::Error::other("native allocation size overflow"))?;
+            .ok_or(Fault::SizeOverflow)?;
         Ok(Self { bytes, align, size })
     }
 
@@ -55,15 +59,16 @@ pub(super) struct Segment {
 }
 
 impl Segment {
-    pub fn new(request: Request, kind: JITMemoryKind) -> io::Result<(Self, *mut u8)> {
-        let mut map = MmapMut::map_anon(request.bytes)?;
+    pub fn checked(request: Request, kind: JITMemoryKind) -> Result<(Self, *mut u8), Fault> {
+        let mut map = MmapMut::map_anon(request.bytes)
+            .map_err(|error| Fault::capture(Operation::Map, error))?;
         let base = map.as_mut_ptr();
         let offset = request.offset(base as usize);
         if !offset
             .checked_add(request.size.max(1))
             .is_some_and(|end| end <= map.len())
         {
-            return Err(io::Error::other("native alignment outside mapping"));
+            return Err(Fault::AlignmentOutsideMapping);
         }
         let pointer = unsafe { base.add(offset) };
         let kind = match kind {
@@ -83,7 +88,11 @@ impl Segment {
         ))
     }
 
-    pub fn finalize(&mut self, protection: BranchProtection) -> io::Result<()> {
+    pub fn finalize_checked(
+        &mut self,
+        protection: BranchProtection,
+        #[cfg(test)] refuse_cache: bool,
+    ) -> Result<(), Fault> {
         if self.finalized {
             return Ok(());
         }
@@ -93,17 +102,29 @@ impl Segment {
         }
         if matches!(self.kind, Kind::Executable) {
             let Some(Pages::Writable(map)) = &self.pages else {
-                return Err(io::Error::other("native segment unavailable"));
+                return Err(Fault::SegmentUnavailable);
             };
-            unsafe { wasmtime_jit_icache_coherence::clear_cache(map.as_ptr().cast(), map.len()) }
-                .map_err(|error| io::Error::other(error.to_string()))?;
+            #[cfg(test)]
+            if refuse_cache {
+                return Err(Fault::System(
+                    Operation::Cache,
+                    super::native_fault::System::kind(io::ErrorKind::PermissionDenied),
+                ));
+            }
+            native_fault::coherence(Operation::Cache, unsafe {
+                wasmtime_jit_icache_coherence::clear_cache(map.as_ptr().cast(), map.len())
+            })?;
         }
         let Some(Pages::Writable(map)) = self.pages.take() else {
-            return Err(io::Error::other("native segment unavailable"));
+            return Err(Fault::SegmentUnavailable);
         };
         let map = match self.kind {
-            Kind::Executable => map.make_exec()?,
-            Kind::ReadOnly => map.make_read_only()?,
+            Kind::Executable => map
+                .make_exec()
+                .map_err(|error| Fault::capture(Operation::Protect, error))?,
+            Kind::ReadOnly => map
+                .make_read_only()
+                .map_err(|error| Fault::capture(Operation::Protect, error))?,
             Kind::Writable => unreachable!(),
         };
         self.pages = Some(Pages::Protected(map));
@@ -123,9 +144,10 @@ impl Segment {
         }
     }
 
-    fn enable_bti(&self, protection: BranchProtection) -> io::Result<()> {
+    fn enable_bti(&self, protection: BranchProtection) -> Result<(), Fault> {
+        let operation = Operation::Bti;
         let Some(Pages::Protected(map)) = &self.pages else {
-            return Err(io::Error::other("native segment unavailable"));
+            return Err(Fault::SegmentUnavailable);
         };
         #[cfg(target_arch = "aarch64")]
         if protection == BranchProtection::BTI && std::arch::is_aarch64_feature_detected!("bti") {
@@ -137,11 +159,11 @@ impl Segment {
                 )
             } < 0
             {
-                return Err(io::Error::last_os_error());
+                return Err(Fault::capture(operation, io::Error::last_os_error()));
             }
         }
         #[cfg(not(target_arch = "aarch64"))]
-        let _ = (protection, map);
+        let _ = (protection, map, operation);
         Ok(())
     }
 }

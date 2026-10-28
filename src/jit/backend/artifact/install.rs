@@ -80,6 +80,22 @@ pub(super) fn load_in(
     failure: Failure,
     protection: BranchProtection,
 ) -> Result<Loaded, JitError> {
+    native_fault::bounded(|| {
+        load(
+            image, total, limit, metadata, workspace, failure, protection,
+        )
+    })
+}
+
+fn load(
+    image: &ModuleImage,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    workspace: BudgetAllocator,
+    failure: Failure,
+    protection: BranchProtection,
+) -> Result<Loaded, JitError> {
     let architecture = link::Architecture::native();
     let mut layouts = BudgetVec::new_in(workspace.clone());
     layouts
@@ -117,7 +133,7 @@ pub(super) fn load_in(
     };
     for (function, layout) in image.functions.iter().zip(&layouts) {
         let pointer = memory
-            .allocate(
+            .allocate_checked(
                 layout.bytes,
                 u64::from(function.alignment),
                 JITMemoryKind::Executable,
@@ -146,7 +162,7 @@ pub(super) fn load_in(
                 .map_err(|_| JitError::Unavailable("artifact relocation cannot be installed"))?;
         }
     }
-    memory.finalize(protection).map_err(|_| fail())?;
+    memory.finalize_checked(protection).map_err(|_| fail())?;
     Ok(Loaded {
         _memory: memory,
         kind: image.kind,

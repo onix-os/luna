@@ -9,6 +9,44 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Typed native-memory fault checkpoint — 2026-10-28
+
+Request/Segment and Memory allocation/finalization now share one typed core.
+Faults are fixed Copy values holding static tags and captured OS code/kind, not
+owned diagnostic strings or compiler errors. The worker-backed parent loader
+calls that core under a scope that rejects allocating I/O/ModuleError adapters.
+Existing compiler/provider interfaces retain thin adapters and their diagnostic
+kinds/messages. This common refactoring also serves the shipping provider;
+production worker routing itself remains unchanged/test-only.
+
+Quota/status precedence, host and metadata rollback, per-function requested/
+mapped bytes, alignment, W^X, cache synchronization, BTI and last-lease cleanup
+are retained. Native tests check real page sizes and RW/RO/RX permissions,
+idempotent finalization and cleanup after cache, pipeline and partial-protection
+refusal. All six pre-OS refusal classes compare core and legacy paths, including
+exact flags/reasons and both host/child ledgers. The pinned syscall paths were
+audited: admitted native memmap/protection errors are raw OS errors, while the
+existing cache/membarrier implementations and fallbacks remain in use.
+
+Frozen local qualification passes 916 executions/81 summaries, including all
+170 existing backend-memory cases; the two existing diagnostic ignores remain.
+i686 codec8/check-all passes. Default seed 0 and Tree Borrows seed 1 Miri each
+pass 48 executions/twelve summaries, with exact positive counts and a fresh
+verified runner. Native OS mappings are not executed under Miri. Parent Memcheck
+passes fifty selected fault/memory/target/linker/owner/Runtime/supervisor cases,
+zero errors/definite-indirect leaks. All seven runs retain 48 possible harness
+bytes; fault/memory/target retain 544 reachable each, the other four 632 each.
+Children remain untraced. The hosted Miri wrapper verifies 61 logs, twenty
+propagated failures and six zero-model refusals.
+
+**Not whole JIT acceptance:** remaining parent error publication/transport
+allocation policy, actual owned protocol and non-fixture build/deployment/ABI
+identity, compatible helper packaging, production scheduling/cancellation and
+admitted-work/format compatibility are still required. The original 69 failed
+performance gates, feature-size and release acceptance remain open. No cache
+barrier, quota or original threshold was waived, and no performance result is
+inferred from test timings. Evidence: `target/jit-evidence/typed-native-memory/`.
+
 ### Bounded parent target identity checkpoint — 2026-10-28
 
 Parent request/validation identity paths now avoid ISA/JITModule construction,
@@ -45,7 +83,8 @@ wrapper verifies 59 logs, eighteen propagated failures and four empty refusals.
 
 **Still test-only and not fully accepted:** actual worker protocol, non-fixture
 build/deployment identity, compatible helper packaging, scheduling/cancellation,
-complete inherited I/O-error/transport allocation policy and admissible-work/
+complete inherited I/O-error/transport allocation policy (native operations
+are addressed by the later typed-fault checkpoint above) and admissible-work/
 format compatibility remain open, as do the original 69 failed performance
 gates, feature-size and release acceptance. Compiler-side capture/reference
 formatting still uses compiler objects; this checkpoint removes them from the

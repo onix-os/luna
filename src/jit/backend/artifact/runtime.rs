@@ -45,6 +45,8 @@ pub(in crate::jit) fn compile(
                 | Failure::RefuseOwnerAllocation
                 | Failure::Allocate
                 | Failure::Protect
+                | Failure::Cache
+                | Failure::Pipeline
                 | Failure::RequireReleasedSnapshot
         ) {
             return Err(JitError::Unavailable(

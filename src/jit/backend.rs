@@ -19,6 +19,7 @@ use super::{
     helpers,
     ir::Snapshot,
     memory_status::MemoryStatus,
+    native_fault::{self, Fault, Operation as NativeOperation},
     resources::{BudgetAllocator, MappingCounter, Reservation},
     segments::{Request, Segment},
     JitError,
@@ -48,6 +49,8 @@ pub(super) mod inline_loop;
 mod integer_loop;
 #[cfg(not(miri))]
 pub(super) mod integer_resume;
+#[cfg(test)]
+mod native_memory;
 #[cfg(test)]
 mod projection_mode;
 #[cfg(test)]
@@ -99,11 +102,16 @@ impl Drop for Memory {
     }
 }
 
-impl JITMemoryProvider for Memory {
-    fn allocate(&mut self, size: usize, align: u64, kind: JITMemoryKind) -> io::Result<*mut u8> {
+impl Memory {
+    fn allocate_checked(
+        &mut self,
+        size: usize,
+        align: u64,
+        kind: JITMemoryKind,
+    ) -> Result<*mut u8, Fault> {
         #[cfg(all(test, not(miri)))]
         artifact::emission::assert_native_memory_allowed();
-        let request = Request::new(size, align, self.page).inspect_err(|_| {
+        let request = Request::checked(size, align, self.page).inspect_err(|_| {
             self.status.quota_refused.store(true, Ordering::Relaxed);
         })?;
         let bytes = request.bytes;
@@ -114,11 +122,11 @@ impl JITMemoryProvider for Memory {
         if image_bytes.is_none_or(|bytes| bytes > self.limit) {
             self.status.image_refused.store(true, Ordering::Relaxed);
             self.status.quota_refused.store(true, Ordering::Relaxed);
-            return Err(io::Error::other("native image exceeds code cache limit"));
+            return Err(Fault::ImageLimit);
         }
         self.allocations.try_reserve_exact(1).map_err(|_| {
             self.status.metadata_refused.store(true, Ordering::Relaxed);
-            io::Error::other("native allocation record quota exhausted")
+            Fault::MetadataLimit
         })?;
         self.total
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
@@ -126,7 +134,7 @@ impl JITMemoryProvider for Memory {
             })
             .map_err(|_| {
                 self.status.quota_refused.store(true, Ordering::Relaxed);
-                io::Error::other("native memory quota exhausted")
+                Fault::MappingLimit
             })?;
         if self
             .allocations
@@ -137,7 +145,7 @@ impl JITMemoryProvider for Memory {
         {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.status.quota_refused.store(true, Ordering::Relaxed);
-            return Err(io::Error::other("host memory quota exhausted"));
+            return Err(Fault::HostLimit);
         }
         #[cfg(test)]
         if matches!(
@@ -150,12 +158,9 @@ impl JITMemoryProvider for Memory {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
             self.status.unavailable.store(true, Ordering::Relaxed);
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "injected native allocation denial",
-            ));
+            return Err(Fault::AllocationDenied);
         }
-        match Segment::new(request, kind) {
+        match Segment::checked(request, kind) {
             Ok((segment, pointer)) => {
                 self.total.add_requested(segment.requested_bytes);
                 self.allocations.push(segment);
@@ -170,20 +175,16 @@ impl JITMemoryProvider for Memory {
         }
     }
 
-    unsafe fn free_memory(&mut self) {
-        self.release();
-    }
-
-    fn finalize(&mut self, protection: BranchProtection) -> ModuleResult<()> {
+    fn finalize_checked(&mut self, protection: BranchProtection) -> Result<(), Fault> {
         #[cfg(all(test, not(miri)))]
         artifact::emission::assert_native_memory_allowed();
         #[cfg(test)]
         if self.failure == Failure::Protect {
             self.status.unavailable.store(true, Ordering::Relaxed);
-            return Err(cranelift_module::ModuleError::Backend(anyhow::anyhow!(
-                "injected native protection denial"
-            )));
+            return Err(Fault::ProtectionDenied);
         }
+        #[cfg(test)]
+        let refuse_cache = self.failure == Failure::Cache;
         #[cfg(test)]
         let segments = self.allocations.iter_mut().enumerate();
         #[cfg(not(test))]
@@ -194,23 +195,48 @@ impl JITMemoryProvider for Memory {
             #[cfg(test)]
             if self.failure == Failure::ProtectAfterFirst && index == 1 {
                 self.status.unavailable.store(true, Ordering::Relaxed);
-                return Err(cranelift_module::ModuleError::Backend(anyhow::anyhow!(
-                    "injected partial protection denial"
-                )));
+                return Err(Fault::PartialProtectionDenied);
             }
-            if let Err(error) = segment.finalize(protection) {
+            if let Err(error) = segment.finalize_checked(
+                protection,
+                #[cfg(test)]
+                refuse_cache,
+            ) {
                 self.status.unavailable.store(true, Ordering::Relaxed);
-                return Err(cranelift_module::ModuleError::Backend(anyhow::Error::new(
-                    error,
-                )));
+                return Err(error);
             }
         }
-        wasmtime_jit_icache_coherence::pipeline_flush_mt().map_err(|error| {
+        #[cfg(test)]
+        if self.failure == Failure::Pipeline {
             self.status.unavailable.store(true, Ordering::Relaxed);
-            cranelift_module::ModuleError::Backend(anyhow::anyhow!(
-                "native pipeline flush: {error}"
-            ))
+            return Err(Fault::System(
+                NativeOperation::Pipeline,
+                super::native_fault::System::kind(io::ErrorKind::PermissionDenied),
+            ));
+        }
+        native_fault::coherence(
+            NativeOperation::Pipeline,
+            wasmtime_jit_icache_coherence::pipeline_flush_mt(),
+        )
+        .inspect_err(|_| {
+            self.status.unavailable.store(true, Ordering::Relaxed);
         })
+    }
+}
+
+impl JITMemoryProvider for Memory {
+    fn allocate(&mut self, size: usize, align: u64, kind: JITMemoryKind) -> io::Result<*mut u8> {
+        self.allocate_checked(size, align, kind)
+            .map_err(Fault::into_io)
+    }
+
+    unsafe fn free_memory(&mut self) {
+        self.release();
+    }
+
+    fn finalize(&mut self, protection: BranchProtection) -> ModuleResult<()> {
+        self.finalize_checked(protection)
+            .map_err(Fault::into_module)
     }
 }
 
@@ -471,6 +497,8 @@ pub(super) enum Failure {
     DetectHostSetup,
     DetectProviderSetup,
     ProtectAfterFirst,
+    Cache,
+    Pipeline,
     RefuseOwnerStorage,
     RefuseOwnerAllocation,
     #[cfg(not(miri))]

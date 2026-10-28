@@ -114,6 +114,20 @@ table-capacity-miri:
 .PHONY: jit-compiler-artifact jit-compiler-artifact-parent jit-compiler-artifact-wire-miri
 .PHONY: jit-compiler-code-owner
 .PHONY: jit-compiler-emission
+.PHONY: jit-native-faults jit-native-memory-native jit-native-fault-miri jit-native-memory-miri
+jit-native-faults:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_fault::tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::native_memory::tests -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-native-memory-native:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::native_memory::native -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-native-fault-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::native_fault::tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-native-memory-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::native_memory::tests -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-target-identity jit-target-identity-native jit-target-identity-miri
 jit-target-identity:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact::target::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
@@ -321,6 +335,8 @@ jit-miri:
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-artifact-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-wire-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-artifact-linker-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-link-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-target-identity-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-target-tests.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-native-fault-miri 2>&1 | tee '$(MIRI_DIR)/jit-native_fault-tests.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-native-memory-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-native_memory-tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit-resources-tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::entry_path_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/entry-path-quota.log'

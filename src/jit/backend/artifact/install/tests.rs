@@ -123,6 +123,8 @@ fn bounded_loader_reclaims_partial_protection_and_every_allocator_refusal() {
         Failure::Allocate,
         Failure::Protect,
         Failure::ProtectAfterFirst,
+        Failure::Cache,
+        Failure::Pipeline,
     ] {
         let metadata = allocator();
         let workspace = allocator();
