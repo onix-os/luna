@@ -9,6 +9,17 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Repository-native producer gate — 2026-10-28
+
+`make jit-worker-conformance` builds a source-bound non-test release helper,
+selects exactly one Cargo artifact, copies a unique read-only evidence image and
+runs the existing supervisor/artifact/Code-owner/Runtime producer gates against
+it. Source and executable hashes are checked afterward; failures propagate and
+positive-count guards remain active. The matching native `jit-platform` lane now
+requires this gate, including GNU, musl and AArch64 on their own hardware. This
+gate change is a separate commit from bootstrap; its local producer proof does
+not substitute for pending current-source hosted/platform/release acceptance.
+
 ### Standalone compiler bootstrap checkpoint — 2026-10-28
 
 A real `luna-jit-worker` executable now builds without libtest or cfg(test),

@@ -29,6 +29,7 @@ JIT_ASSEMBLY_BINARY ?= target/release/examples/jit_bench
 JIT_ASSEMBLY_DIR ?= target/jit-evidence
 JIT_METRICS_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_metrics
 JIT_DUMP_DIR ?= target/jit-evidence/native/$(if $(TARGET),$(TARGET),host)
+WORKER_EVIDENCE_DIR ?= target/jit-evidence/compiler-worker/$(if $(TARGET),$(TARGET),host)
 SIZE_PROFILE ?= shipping
 COST_SAMPLES ?= 11
 COST_ITERATIONS ?= 20
@@ -115,7 +116,10 @@ table-capacity-miri:
 .PHONY: jit-compiler-reply jit-compiler-reply-miri
 .PHONY: jit-compiler-service
 .PHONY: jit-compiler-stream jit-compiler-stream-miri
-.PHONY: jit-worker-bootstrap jit-worker-startup
+.PHONY: jit-worker-bootstrap jit-worker-startup jit-worker-conformance
+jit-worker-conformance:
+	@CARGO='$(CARGO)' bash tests/jit-worker-conformance.sh '$(TARGET)' '$(WORKER_EVIDENCE_DIR)'
+
 jit-worker-bootstrap:
 	@$(CARGO) build --locked -p luna --features jit-worker-bootstrap --bin luna-jit-worker $(TARGET_ARG)
 
@@ -387,7 +391,7 @@ jit-platform:
 	if test "$$(uname -sm)" != "Linux $$arch"; then \
 		echo "Native gate requires Linux $$arch hardware, not a cross-build" >&2; exit 2; \
 	fi
-	@$(MAKE) --no-print-directory environment jit-verify jit-example jit-disassembly
+	@$(MAKE) --no-print-directory environment jit-verify jit-worker-conformance jit-example jit-disassembly
 
 jit-evidence:
 	@mkdir -p target/jit-evidence
