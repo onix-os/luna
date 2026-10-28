@@ -114,6 +114,12 @@ table-capacity-miri:
 .PHONY: jit-compiler-request jit-compiler-request-miri
 .PHONY: jit-compiler-reply jit-compiler-reply-miri
 .PHONY: jit-compiler-service
+.PHONY: jit-compiler-stream jit-compiler-stream-miri
+jit-compiler-stream:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_stream::tests -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-compiler-stream-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::compiler_stream::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 jit-compiler-service:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compiler_service::tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 jit-compiler-reply:
@@ -349,6 +355,7 @@ jit-miri:
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_wire.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-request-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_request-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-reply-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_reply-tests.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-stream-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_stream-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-artifact-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-wire-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-artifact-linker-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-link-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-target-identity-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-target-tests.log'

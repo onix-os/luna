@@ -109,40 +109,28 @@ fn child() {
             io::stderr().write_all(b"address-space-refused").unwrap();
         }
         "artifact" => {
-            use crate::jit::compiler_request as request;
-            let mut packet = Vec::new_in(allocator());
-            packet.try_reserve_exact(request::MAX_BYTES).unwrap();
-            let mut input = io::stdin().lock().take(request::MAX_BYTES as u64 + 1);
-            let mut scratch = [0; 4096];
-            loop {
-                let count = input.read(&mut scratch).unwrap();
-                if count == 0 {
-                    break;
-                }
-                assert!(packet.len() + count <= request::MAX_BYTES);
-                packet.extend_from_slice(&scratch[..count]);
-            }
-            let identity = request::worker_identity().unwrap();
-            let abi = request::abi_identity();
-            let response = crate::jit::compiler_service::handle(
-                packet,
-                &identity,
-                &abi,
-                crate::jit::compiler_service::Limits {
-                    source: wire_limits(),
-                    artifact: artifact_limits(),
-                },
-                crate::jit::compiler_service::Allocators {
-                    source: allocator(),
-                    metadata: allocator(),
-                    objects: allocator(),
-                    output: allocator(),
+            use crate::jit::{compiler_request as request, compiler_stream as stream};
+            stream::serve(
+                &mut io::stdin().lock(),
+                &mut io::stderr().lock(),
+                stream::Service {
+                    worker: request::worker_identity().unwrap(),
+                    abi: request::abi_identity(),
+                    request_limit: request::MAX_BYTES,
+                    input: allocator(),
+                    limits: crate::jit::compiler_service::Limits {
+                        source: wire_limits(),
+                        artifact: artifact_limits(),
+                    },
+                    allocators: crate::jit::compiler_service::Allocators {
+                        source: allocator(),
+                        metadata: allocator(),
+                        objects: allocator(),
+                        output: allocator(),
+                    },
                 },
             )
             .unwrap();
-            let mut output = io::stderr().lock();
-            output.write_all(response.header()).unwrap();
-            output.write_all(response.payload()).unwrap();
         }
         "compile" => {
             let mut packet = Vec::new_in(allocator());

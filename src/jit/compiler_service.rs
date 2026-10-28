@@ -28,6 +28,16 @@ pub(super) enum Error {
     Reply(reply::Error),
 }
 
+impl Limits {
+    pub fn validate(self) -> Result<(), Error> {
+        if self.artifact.bytes > reply::MAX_BYTES - reply::HEADER {
+            Err(Error::Configuration)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 pub(super) struct Response {
     header: [u8; reply::HEADER],
     payload: Option<Vec<u8, BudgetAllocator>>,
@@ -111,9 +121,7 @@ pub(super) fn handle(
     limits: Limits,
     allocators: Allocators,
 ) -> Result<Response, Error> {
-    if limits.artifact.bytes > reply::MAX_BYTES - reply::HEADER {
-        return Err(Error::Configuration);
-    }
+    limits.validate()?;
     let view = request::decode(&packet, worker, abi).map_err(Error::Request)?;
     let build = request::binding(&packet).map_err(Error::Request)?;
     let result = compile(&view, &build, limits, allocators);

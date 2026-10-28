@@ -123,6 +123,12 @@ mod compiler_request;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_service;
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod compiler_stream;
 #[cfg(test)]
 mod compiler_wire;
 #[cfg(test)]

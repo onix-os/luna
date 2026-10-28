@@ -15,6 +15,7 @@ case " $* " in
     *' jit::compiler_wire '*) count=8 ;;
     *' jit::compiler_request::tests '*) count=8 ;;
     *' jit::compiler_reply::tests '*) count=7 ;;
+    *' jit::compiler_stream::tests '*) count=7 ;;
     *' jit::backend::artifact::wire::tests '*) count=5 ;;
     *' jit::backend::artifact::link::tests '*) count=7 ;;
     *' jit::backend::artifact::target::tests '*) count=7 ;;
@@ -35,7 +36,7 @@ run_recipe() {
 
 run_recipe success
 logs=("$root/success/"*.log)
-test "${#logs[@]}" -eq 63
+test "${#logs[@]}" -eq 64
 for log in "${logs[@]}"; do
     [[ ${log##*/} =~ ^[a-z0-9_-]+\.log$ ]]
 done
@@ -49,6 +50,7 @@ transport_filters=(
     jit::compiler_wire
     jit::compiler_request::tests
     jit::compiler_reply::tests
+    jit::compiler_stream::tests
     jit::backend::artifact::wire::tests
     jit::backend::artifact::link::tests
     jit::backend::artifact::target::tests
@@ -81,7 +83,7 @@ for filter in setup jit::resources::tests jit::handoff::tests jit::scoped_helper
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
 unset FAIL_FILTER
-for filter in jit::compiler_wire jit::compiler_request::tests jit::compiler_reply::tests jit::backend::artifact::wire::tests jit::backend::artifact::link::tests jit::backend::artifact::target::tests jit::native_fault::tests jit::backend::native_memory::tests; do
+for filter in jit::compiler_wire jit::compiler_request::tests jit::compiler_reply::tests jit::compiler_stream::tests jit::backend::artifact::wire::tests jit::backend::artifact::link::tests jit::backend::artifact::target::tests jit::native_fault::tests jit::backend::native_memory::tests; do
     export EMPTY_FILTER="$filter"
     dir="empty-${filter//::/-}"
     if run_recipe "$dir"; then
@@ -91,4 +93,4 @@ for filter in jit::compiler_wire jit::compiler_request::tests jit::compiler_repl
     grep -Fq 'test result: ok. 0 passed;' "$root/$dir.log"
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
-echo 'Miri recipe checks passed: 63 portable logs; 22 failures propagated; 8 zero-model results rejected'
+echo 'Miri recipe checks passed: 64 portable logs; 23 failures propagated; 9 zero-model results rejected'

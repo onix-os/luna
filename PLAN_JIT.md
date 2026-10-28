@@ -9,6 +9,51 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded compiler stream checkpoint — 2026-10-28
+
+The actual artifact child now uses one reusable stream adapter around the owned
+compiler service. Input grows fallibly through its supplied BudgetAllocator
+instead of reserving the complete maximum request up front. Fixed scratch reads
+offer at most remaining capacity plus one byte; overflow consumes only the first
+excess byte, reclaims ownership and never silently truncates. Empty input needs
+no allocation. Service and over-limit stream configuration refuse before reads.
+
+Short writes and Interrupted reads/writes/flushes are handled explicitly.
+WouldBlock is a typed error, not a busy loop. Zero write progress, invalid trait
+counts, OS I/O failures and flush failures return fixed Copy kind/OS-code faults;
+no partial reply is reported as successful. Canonical response construction is
+still the service's responsibility; private stream output enforces finite sizes,
+and the parent independently verifies response identity/checksum and inner code.
+The parent requires both a complete valid response and successful worker exit.
+The existing supervisor deadline/process limits remain responsible for blocking
+stream cancellation; generic Read/Write alone does not provide a hard deadline.
+
+Ten stream models include seven portable cases for fragmented/empty/Interrupted
+input, exact overflow, every modeled growth refusal and persistent denial, byte
+quotas, OS/WouldBlock faults, complete two-segment writes and failures at every
+header/payload prefix or flush. Three native cases exercise real compilation and
+resource replies, input/configuration/request/output failure reclamation and
+exact maximum caps. Existing actual child/supervisor/Runtime tests use this same
+adapter; there is no separate fixture compilation or I/O pipeline.
+
+Frozen qualification passes 867 native executions/75 summaries, one existing
+kernel-dump ignore; i686 codec8/check-all passes. Each of local default seed0 and
+Tree Borrows seed1 Miri passes seven portable stream models with a fresh verified
+source runner. Native service/process/code generation is not claimed under Miri.
+Parent Memcheck stream10/Runtime12/supervisor14 passes 36 cases/three runs, zero
+errors/definite-indirect leaks; each retains 48 possible/632 reachable bytes.
+Children are untraced. Four-kind artifact proof remains 1,066 parent calls/4,161
+native logical instructions and forty real helper calls. Hosted wrapper now
+verifies 64 logs, 23 propagated failures and nine empty-model refusals.
+
+**Not full JIT acceptance:** stream/service selection is still test-only.
+Trusted compatible deployment/packaging, bounded parent launch/error allocation,
+worker scheduling/cancellation/group lifecycle, universal admission/format limits
+and production routing remain open, as do original 69/816 failed performance
+gates and current-source platform/resource/feature-size/release acceptance. No
+threshold or quota changed; no benchmark was run. Evidence:
+`target/jit-evidence/compiler-stream/`.
+
 ### Owned compiler service checkpoint — 2026-10-28
 
 The real supervised artifact worker now delegates to one reusable owned-input
