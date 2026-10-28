@@ -9,6 +9,45 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded parent artifact linker checkpoint — 2026-10-28
+
+The test-only parent installer no longer constructs JITModule/JITBuilder/ISA
+objects or reconstructs signature, symbol and relocation collections. A checked
+slice-based linker handles all six wire-supported relocation forms, closed
+parent helper imports, local function offsets, x86 direct/GOT relaxation and
+far-call veneers, and AArch64 branch/veneer encoding. Existing Memory/Segment
+ownership, per-function requested/mapped sizes, W^X, cache synchronization and
+final leases are preserved. BTI comes from the already equality-validated target
+environment, using its canonical 0/1 flag representation.
+
+Seven pure models exercise both architectures, signed branch/displacement
+endpoints, addend/address overflow, multiple veneers/GOT entries, padding,
+bounded writes and malformed BTI fields. Three native tests check actual RX
+permissions, exact mapping/requested bytes, two-function partial protection,
+both allocation ledgers over eighty allowances and closed-symbol rejection.
+Existing worker/direct Runtime comparisons still match live resource values
+and operational counters; only the established three transient peaks differ.
+
+Frozen local qualification passes 884 executions/75 summaries with the two
+existing diagnostic ignores. i686 eight-codec/check-all passes. Default seed 0
+and Tree Borrows seed 1 Miri each pass thirty executions/seven summaries using
+a verified fresh source-specific runner; native mappings are not run under
+Miri. Parent Memcheck passes thirty selected linker/owner/Runtime/supervisor
+cases in four runs, zero errors/definite-indirect leaks; each retains 48
+possible/632 reachable harness bytes. Children remain untraced. The hosted
+Miri recipe now includes the seven linker models; its wrapper verifies 58
+logs, seventeen propagated failures and three zero-model refusals.
+
+**Still not whole-resource or production acceptance:** environment()/target
+identity construction still allocates private ISA/formatting state. Inherited
+Memory/Segment I/O error helpers also require a complete resource audit. The
+worker/linker route remains test-only; no public API/default, production route
+or shipping runtime source changes here. Production protocol/build/deployment
+identity, compatible packaging, scheduling/cancellation, admissible-work/format
+compatibility, original 69 failed performance gates and size/release acceptance
+remain open. Local x86 tests and pure AArch64 models are not a hosted ARM/musl
+acceptance receipt. Evidence: `target/jit-evidence/bounded-artifact-linker/`.
+
 ### Worker emit/install boundary checkpoint — 2026-10-28
 
 The test worker now emits artifacts without linking, mapping or constructing

@@ -78,6 +78,8 @@ pub(in crate::jit) fn assemble(
     if *environment().map_err(InstallError::Packet)? != *bundle.environment {
         return Err(InstallError::Packet(Error::Identity));
     }
+    let protection = link::protection(&bundle.environment, link::Architecture::native())
+        .map_err(InstallError::Packet)?;
     let ordinary = bundle.modules.first().ok_or_else(invalid)?;
     if ordinary.kind != Kind::Ordinary || ordinary.functions.len() != 1 {
         return Err(invalid());
@@ -137,6 +139,7 @@ pub(in crate::jit) fn assemble(
         metadata.clone(),
         workspace.clone(),
         failure,
+        protection,
     )
     .map_err(InstallError::Native)?;
     let mut code = Image {
@@ -182,6 +185,7 @@ pub(in crate::jit) fn assemble(
                 metadata.clone(),
                 workspace.clone(),
                 failure,
+                protection,
             ) {
                 code.array_kernels = array::from_artifact(
                     loaded._memory,
@@ -228,6 +232,7 @@ pub(in crate::jit) fn assemble(
         metadata.clone(),
         workspace.clone(),
         failure,
+        protection,
     ) else {
         return Ok(code);
     };
@@ -259,6 +264,7 @@ pub(in crate::jit) fn assemble(
                 metadata.clone(),
                 workspace.clone(),
                 failure,
+                protection,
             ) {
                 child.integer_resume = Some((
                     resume_plan.unwrap(),

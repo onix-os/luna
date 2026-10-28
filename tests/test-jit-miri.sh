@@ -14,6 +14,7 @@ count=
 case " $* " in
     *' jit::compiler_wire '*) count=8 ;;
     *' jit::backend::artifact::wire::tests '*) count=5 ;;
+    *' jit::backend::artifact::link::tests '*) count=7 ;;
 esac
 if [[ -n $count ]]; then
     if [[ -n ${EMPTY_FILTER:-} && " $* " == *" $EMPTY_FILTER "* ]]; then count=0; fi
@@ -29,7 +30,7 @@ run_recipe() {
 
 run_recipe success
 logs=("$root/success/"*.log)
-test "${#logs[@]}" -eq 57
+test "${#logs[@]}" -eq 58
 for log in "${logs[@]}"; do
     [[ ${log##*/} =~ ^[a-z0-9_-]+\.log$ ]]
 done
@@ -42,6 +43,7 @@ grep -Fq 'jit::scoped_helpers::tests -- --test-threads=1' "$root/success/jit-sco
 transport_filters=(
     jit::compiler_wire
     jit::backend::artifact::wire::tests
+    jit::backend::artifact::link::tests
     jit::helpers::existing_entry_tests
     jit::array_window::
     jit::backend::specialized::tests
@@ -69,7 +71,7 @@ for filter in setup jit::resources::tests jit::handoff::tests jit::scoped_helper
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
 unset FAIL_FILTER
-for filter in jit::compiler_wire jit::backend::artifact::wire::tests; do
+for filter in jit::compiler_wire jit::backend::artifact::wire::tests jit::backend::artifact::link::tests; do
     export EMPTY_FILTER="$filter"
     dir="empty-${filter//::/-}"
     if run_recipe "$dir"; then
@@ -79,4 +81,4 @@ for filter in jit::compiler_wire jit::backend::artifact::wire::tests; do
     grep -Fq 'test result: ok. 0 passed;' "$root/$dir.log"
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
-echo 'Miri recipe checks passed: 57 portable logs; 16 failures propagated; 2 zero-model results rejected'
+echo 'Miri recipe checks passed: 58 portable logs; 17 failures propagated; 3 zero-model results rejected'

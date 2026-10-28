@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 
 use cranelift_codegen::binemit::Reloc;
-use cranelift_codegen::ir::{Signature, Type};
+use cranelift_codegen::ir::Signature;
 use cranelift_module::{FuncId, ModuleRelocTarget};
 
 use super::*;
@@ -11,6 +11,7 @@ mod assemble;
 #[cfg(not(miri))]
 pub(in crate::jit) mod emission;
 mod install;
+mod link;
 mod target;
 #[cfg(not(miri))]
 pub(in crate::jit) use assemble::{assemble, Assembly, Route};
@@ -132,20 +133,6 @@ impl Declaration {
     fn params(&self) -> &[u8] {
         &self.0[4..4 + usize::from(self.0[1])]
     }
-    fn signature(self, module: &JITModule) -> Signature {
-        let mut signature = module.make_signature();
-        signature.params.extend(
-            self.params()
-                .iter()
-                .map(|&ty| AbiParam::new(ty_from_word(ty))),
-        );
-        if self.0[2] != 0 {
-            signature
-                .returns
-                .push(AbiParam::new(ty_from_word(self.0[2])));
-        }
-        signature
-    }
 }
 
 fn field(parameter: AbiParam) -> Result<u8, Error> {
@@ -156,14 +143,6 @@ fn field(parameter: AbiParam) -> Result<u8, Error> {
         types::I32 => Ok(1),
         types::I64 => Ok(2),
         _ => Err(Error::Declaration),
-    }
-}
-
-fn ty_from_word(word: u8) -> Type {
-    match word {
-        1 => types::I32,
-        2 => types::I64,
-        _ => unreachable!(),
     }
 }
 
@@ -211,26 +190,6 @@ impl Relocation {
             2..=4 | 6 if cfg!(target_arch = "x86_64") => Ok(4),
             5 if cfg!(target_arch = "aarch64") => Ok(4),
             _ => Err(Error::Relocation),
-        }
-    }
-    fn module(self) -> ModuleReloc {
-        ModuleReloc {
-            offset: self.offset,
-            kind: match self.kind {
-                1 => Reloc::Abs8,
-                2 => Reloc::X86CallPCRel4,
-                3 => Reloc::X86CallPLTRel4,
-                4 => Reloc::X86GOTPCRel4,
-                5 => Reloc::Arm64Call,
-                6 => Reloc::X86PCRel4,
-                _ => unreachable!(),
-            },
-            name: if self.target_kind == 0 {
-                ModuleRelocTarget::user(0, self.index)
-            } else {
-                ModuleRelocTarget::FunctionOffset(FuncId::from_u32(self.index), self.target_offset)
-            },
-            addend: self.addend,
         }
     }
 }

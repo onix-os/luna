@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(not(miri))]
+mod tests;
+
 #[derive(Debug)]
 pub(in crate::jit) enum InstallError {
     Packet(Error),
@@ -45,33 +48,27 @@ pub(in crate::jit) fn install(
     if *expected != *bundle.environment {
         return Err(InstallError::Packet(Error::Identity));
     }
+    let protection = link::protection(&bundle.environment, link::Architecture::native())
+        .map_err(InstallError::Packet)?;
     let mut modules = BudgetVec::new_in(metadata.clone());
     modules
         .try_reserve_exact(bundle.modules.len())
         .map_err(|_| InstallError::Native(JitError::ResourceLimit("artifact module owners")))?;
     for image in &bundle.modules {
         modules.push(
-            load(
+            load_in(
                 image,
                 total.clone(),
                 mapping_limit,
                 metadata.clone(),
+                metadata.clone(),
                 failure,
+                protection,
             )
             .map_err(InstallError::Native)?,
         );
     }
     Ok(Installed { modules })
-}
-
-pub(super) fn load(
-    image: &ModuleImage,
-    total: MappingCounter,
-    limit: usize,
-    metadata: BudgetAllocator,
-    failure: Failure,
-) -> Result<Loaded, JitError> {
-    load_in(image, total, limit, metadata.clone(), metadata, failure)
 }
 
 pub(super) fn load_in(
@@ -81,12 +78,28 @@ pub(super) fn load_in(
     metadata: BudgetAllocator,
     workspace: BudgetAllocator,
     failure: Failure,
+    protection: BranchProtection,
 ) -> Result<Loaded, JitError> {
+    let architecture = link::Architecture::native();
+    let mut layouts = BudgetVec::new_in(workspace.clone());
+    layouts
+        .try_reserve_exact(image.functions.len())
+        .map_err(|_| JitError::ResourceLimit("artifact layouts"))?;
+    for function in &image.functions {
+        layouts.push(
+            link::Layout::new(function.bytes.len(), &function.relocations, architecture)
+                .map_err(|_| JitError::Unavailable("artifact relocation layout"))?,
+        );
+    }
+    let mut entries = BudgetVec::new_in(workspace);
+    entries
+        .try_reserve_exact(image.functions.len())
+        .map_err(|_| JitError::ResourceLimit("artifact entries"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
-    let fail = |error: cranelift_module::ModuleError| {
+    let fail = || {
         status
             .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+            .unwrap_or(JitError::Unavailable("artifact native memory"))
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
@@ -94,116 +107,78 @@ pub(super) fn load_in(
             "cannot determine native memory page size",
         ));
     }
-    let memory = Handoff::try_new(
-        Memory {
-            allocations: BudgetVec::new_in(metadata.clone()),
-            total,
-            status: status.clone(),
-            failure,
-            limit,
-            page: page as usize,
-        },
-        metadata.clone(),
-    )
-    .map_err(|_| JitError::ResourceLimit("artifact memory handoff"))?;
-    let (provider, _provider_charge) =
-        global_box::try_new(Provider(memory.clone()), metadata.clone())
-            .map_err(|_| JitError::ResourceLimit("artifact provider"))?;
-    let mut entries = BudgetVec::new_in(workspace.clone());
-    entries
-        .try_reserve_exact(image.functions.len())
-        .map_err(|_| JitError::ResourceLimit("artifact entries"))?;
-    let symbol_bytes = symbol_storage_bytes(
-        image
-            .declarations
-            .iter()
-            .filter(|decl| decl.0[0] != 0)
-            .map(|decl| symbol(decl.0[0]).0.len()),
-    )?;
-    let signature_bytes = image
-        .declarations
-        .iter()
-        .try_fold(0usize, |sum, declaration| {
-            let count = declaration.params().len() + usize::from(declaration.0[2] != 0);
-            sum.checked_add(
-                Layout::array::<AbiParam>(count)
-                    .ok()?
-                    .size()
-                    .checked_mul(2)?,
-            )
-        })
-        .ok_or(JitError::ResourceLimit("artifact signatures"))?;
-    let _symbols = Reservation::new(workspace.0.clone(), symbol_bytes)
-        .map_err(|_| JitError::ResourceLimit("artifact symbols"))?;
-    let _signatures = Reservation::new(workspace.0.clone(), signature_bytes)
-        .map_err(|_| JitError::ResourceLimit("artifact signatures"))?;
-    let relocation_bytes = image
-        .functions
-        .iter()
-        .try_fold(0usize, |sum, function| {
-            sum.checked_add(
-                Layout::array::<ModuleReloc>(function.relocations.len())
-                    .ok()?
-                    .size(),
-            )
-        })
-        .ok_or(JitError::ResourceLimit("artifact relocation copy"))?;
-    let _relocations = Reservation::new(workspace.0.clone(), relocation_bytes)
-        .map_err(|_| JitError::ResourceLimit("artifact relocation copy"))?;
-    let mut builder = native_builder(cranelift_native::builder())?;
-    for declaration in &image.declarations {
-        if declaration.0[0] != 0 {
-            let (name, address) = symbol(declaration.0[0]);
-            builder.symbol(owned_symbol(name)?, address);
-        }
-    }
-    builder.memory_provider(provider);
-    let mut module = JITModule::new(builder);
-    for (index, declaration) in image.declarations.iter().enumerate() {
-        let signature = declaration.signature(&module);
-        let id = if declaration.0[0] == 0 {
-            module.declare_anonymous_function(&signature)
-        } else {
-            module.declare_function(symbol(declaration.0[0]).0, Linkage::Import, &signature)
-        }
-        .map_err(fail)?;
-        if id.as_u32() as usize != index {
-            return Err(JitError::Compilation("artifact function identity".into()));
-        }
-    }
-    for function in &image.functions {
-        let mut relocations = BudgetVec::new_in(workspace.clone());
-        relocations
-            .try_reserve_exact(function.relocations.len())
-            .map_err(|_| JitError::ResourceLimit("artifact relocation staging"))?;
-        relocations.extend(
-            function
-                .relocations
-                .iter()
-                .map(|relocation| relocation.module()),
-        );
-        module
-            .define_function_bytes(
-                FuncId::from_u32(function.id),
+    let mut memory = Memory {
+        allocations: BudgetVec::new_in(metadata),
+        total,
+        status: status.clone(),
+        failure,
+        limit,
+        page: page as usize,
+    };
+    for (function, layout) in image.functions.iter().zip(&layouts) {
+        let pointer = memory
+            .allocate(
+                layout.bytes,
                 u64::from(function.alignment),
-                &function.bytes,
-                &relocations,
+                JITMemoryKind::Executable,
             )
-            .map_err(fail)?;
+            .map_err(|_| fail())?;
+        // The slice covers the exact writable allocation owned by memory.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(pointer, layout.bytes) };
+        bytes[..function.bytes.len()].copy_from_slice(&function.bytes);
+        entries.push(pointer.cast_const());
     }
-    module.finalize_definitions().map_err(fail)?;
-    for function in &image.functions {
-        entries.push(module.get_finalized_function(FuncId::from_u32(function.id)));
+    for ((function, layout), &entry) in image.functions.iter().zip(&layouts).zip(&entries) {
+        // All mappings remain writable and unexposed until finalization.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(entry.cast_mut(), layout.bytes) };
+        let mut patcher = link::Patcher::new(
+            bytes,
+            *layout,
+            architecture,
+            entry.expose_provenance() as u64,
+        )
+        .map_err(|_| JitError::Unavailable("artifact relocation address"))?;
+        for relocation in &function.relocations {
+            let target = target(image, &entries, relocation)
+                .ok_or(JitError::Unavailable("artifact relocation target"))?;
+            patcher
+                .apply(relocation, target)
+                .map_err(|_| JitError::Unavailable("artifact relocation cannot be installed"))?;
+        }
     }
-    let image_memory = memory
-        .take()
-        .ok_or_else(|| JitError::Compilation("artifact missing mappings".into()))?;
-    drop(module);
+    memory.finalize(protection).map_err(|_| fail())?;
     Ok(Loaded {
-        _memory: image_memory,
+        _memory: memory,
         kind: image.kind,
         entries,
     })
+}
+
+fn target(image: &ModuleImage, entries: &[*const u8], relocation: &Relocation) -> Option<u64> {
+    let declaration = image.declarations.get(relocation.index as usize)?;
+    let base = if declaration.0[0] == 0 {
+        let index = image
+            .functions
+            .iter()
+            .position(|function| function.id == relocation.index)?;
+        entries.get(index)?.expose_provenance() as u64
+    } else {
+        if !(1..=12).contains(&declaration.0[0]) || relocation.target_kind != 0 {
+            return None;
+        }
+        symbol(declaration.0[0]).1.expose_provenance() as u64
+    };
+    match relocation.target_kind {
+        0 if relocation.target_offset == 0 => Some(base),
+        1 if image.functions.iter().any(|function| {
+            function.id == relocation.index
+                && (relocation.target_offset as usize) < function.bytes.len()
+        }) =>
+        {
+            base.checked_add(u64::from(relocation.target_offset))
+        }
+        _ => None,
+    }
 }
 
 impl Installed {
