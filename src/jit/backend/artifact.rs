@@ -21,8 +21,8 @@ pub(in crate::jit) mod runtime;
 mod tests;
 mod wire;
 pub(in crate::jit) use install::{install, InstallError, Installed};
-pub(super) use target::apply_target;
-pub(in crate::jit) use target::{target_features, with_target};
+pub(super) use target::{apply_target, assert_compiler_allowed};
+pub(in crate::jit) use target::{environment_in, target_features, target_features_in, with_target};
 #[cfg(not(miri))]
 pub(in crate::jit) use tests::{exercise, exercise_prepared};
 
@@ -225,12 +225,7 @@ fn copy<T: Copy>(
 }
 
 pub(in crate::jit) fn environment() -> Result<BudgetVec<u8, BudgetAllocator>, Error> {
-    let module =
-        JITModule::new(native_builder(cranelift_native::builder()).map_err(|_| Error::Identity)?);
-    environment_of(
-        &module,
-        BudgetAllocator(super::super::resources::Ledger::new(32768)),
-    )
+    environment_in(BudgetAllocator(super::super::resources::Ledger::new(32768)))
 }
 
 fn environment_of(

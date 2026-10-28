@@ -75,7 +75,7 @@ pub(in crate::jit) fn assemble(
     drop(encoded);
     let bundle =
         decode(packet, binding, limits, workspace.clone()).map_err(InstallError::Packet)?;
-    if *environment().map_err(InstallError::Packet)? != *bundle.environment {
+    if *environment_in(workspace.clone()).map_err(InstallError::Packet)? != *bundle.environment {
         return Err(InstallError::Packet(Error::Identity));
     }
     let protection = link::protection(&bundle.environment, link::Architecture::native())

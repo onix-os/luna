@@ -103,6 +103,9 @@ jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "
 # into every `cargo test`.
 rustyline = "14.0"
 
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
+target-lexicon = "=0.13.5"
+
 # Defaults leave a release build with 16 codegen units, no cross-crate inlining and full debug
 # symbols. This is a library, so these apply only to what is built *here* — examples, tests and
 # the REPL — not to anything downstream.

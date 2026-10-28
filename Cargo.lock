@@ -418,6 +418,7 @@ dependencies = [
  "ottavino-gc-arena",
  "rand",
  "rustyline",
+ "target-lexicon",
  "thiserror",
  "wasmtime-internal-jit-icache-coherence",
 ]

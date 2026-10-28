@@ -114,6 +114,16 @@ table-capacity-miri:
 .PHONY: jit-compiler-artifact jit-compiler-artifact-parent jit-compiler-artifact-wire-miri
 .PHONY: jit-compiler-code-owner
 .PHONY: jit-compiler-emission
+.PHONY: jit-target-identity jit-target-identity-native jit-target-identity-miri
+jit-target-identity:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact::target::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-target-identity-native:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact::target::native_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-target-identity-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::artifact::target::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-artifact-linker jit-artifact-linker-miri jit-artifact-linker-native
 jit-artifact-linker:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact::link::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
@@ -132,7 +142,7 @@ jit-compiler-code-owner:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) worker_artifact_ -- --test-threads=1 | awk '/^test result: ok[.] 12 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-artifact:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact:: -- --test-threads=1 | awk '/^test result: ok[.] 32 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::artifact:: -- --test-threads=1 | awk '/^test result: ok[.] 42 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-compiler-artifact-wire-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::artifact::wire::tests -- --test-threads=1 | awk '/^test result: ok[.] 5 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
@@ -310,6 +320,7 @@ jit-miri:
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_wire.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-artifact-wire-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-wire-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-artifact-linker-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-link-tests.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-target-identity-miri 2>&1 | tee '$(MIRI_DIR)/jit-backend-artifact-target-tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit-resources-tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::entry_path_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/entry-path-quota.log'

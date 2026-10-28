@@ -2688,6 +2688,8 @@ impl cranelift_codegen::inline::Inline for LeafInliner<'_> {
 fn native_builder(
     isa: Result<cranelift_codegen::isa::Builder, &'static str>,
 ) -> Result<JITBuilder, JitError> {
+    #[cfg(test)]
+    artifact::assert_compiler_allowed();
     let isa = isa.map_err(JitError::Unavailable)?;
     #[cfg(test)]
     let mut isa = isa;

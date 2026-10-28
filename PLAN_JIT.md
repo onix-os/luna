@@ -9,6 +9,50 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded parent target identity checkpoint — 2026-10-28
+
+Parent request/validation identity paths now avoid ISA/JITModule construction,
+private feature vectors/strings and formatting allocations. A fixed Copy feature
+set reuses upstream native detection through Configurable, retaining the full
+optimized CPU target. Strict complete ordered schemas and nested/panic-safe
+scopes replace heap-owned requested features. Unknown future detector operations
+produce a typed decline after detection rather than triggering upstream unwrap
+or silently dropping a feature. Output counts first, enforces 32 KiB, reserves
+exactly once through the caller's allocator, then writes without growing.
+
+The version-bound complete shared/ISA profile preserves the actual compiler's
+environment bytes, canonical host triple and calling convention. Native tests
+independently compare all defaults/schema fields, individual bits, full/empty
+masks and 32 mixed masks against real compiler modules. This is not a substitute
+for a deployment fingerprint. A native-target dev dependency uses the already
+locked target-lexicon 0.13.5; no shipping dependency or feature default changes.
+
+Snapshot/environment/features allocation denial is tested at each first request
+allocation: ResourceLimit is preserved, no worker command is constructed, all
+temporary storage is reclaimed and denial is not reset. Existing worker/direct
+Runtime results, fuel, frames, live accounting and counters still match, with
+only the same three transient peaks excluded.
+
+Frozen qualification passes 904 executions/77 summaries with the two existing
+diagnostic ignores; i686 codec8/check-all passes. Default seed 0 and Tree Borrows
+seed 1 Miri each pass 37 executions/eight summaries, including seven pure target
+models, with a fresh verified runner. Native detection/reference modules are
+tested natively, not executed under Miri. Parent Memcheck passes forty selected
+target/linker/owner/Runtime/supervisor cases with zero errors/definite-indirect
+leaks. All five runs retain 48 possible harness bytes; target tests retain 544
+reachable bytes, the other four 632 each. Children are untraced. The hosted Miri
+wrapper verifies 59 logs, eighteen propagated failures and four empty refusals.
+
+**Still test-only and not fully accepted:** actual worker protocol, non-fixture
+build/deployment identity, compatible helper packaging, scheduling/cancellation,
+complete inherited I/O-error/transport allocation policy and admissible-work/
+format compatibility remain open, as do the original 69 failed performance
+gates, feature-size and release acceptance. Compiler-side capture/reference
+formatting still uses compiler objects; this checkpoint removes them from the
+bounded parent identity paths, not from compilation itself. No production
+Runtime selector/public API/default changes. Evidence:
+`target/jit-evidence/bounded-target-identity/`.
+
 ### Bounded parent artifact linker checkpoint — 2026-10-28
 
 The test-only parent installer no longer constructs JITModule/JITBuilder/ISA
@@ -38,8 +82,9 @@ possible/632 reachable harness bytes. Children remain untraced. The hosted
 Miri recipe now includes the seven linker models; its wrapper verifies 58
 logs, seventeen propagated failures and three zero-model refusals.
 
-**Still not whole-resource or production acceptance:** environment()/target
-identity construction still allocates private ISA/formatting state. Inherited
+**Historical limitation, not whole-resource or production acceptance:** at this
+checkpoint environment()/target identity still allocated private ISA/formatting
+state; the later bounded target checkpoint above supersedes that limitation. Inherited
 Memory/Segment I/O error helpers also require a complete resource audit. The
 worker/linker route remains test-only; no public API/default, production route
 or shipping runtime source changes here. Production protocol/build/deployment

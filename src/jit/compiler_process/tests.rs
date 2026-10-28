@@ -9,6 +9,10 @@ use std::os::unix::process::ExitStatusExt;
 
 const CHILD: &str = "LUNA_COMPILER_PROCESS_FIXTURE";
 
+thread_local! {
+    static COMMANDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 fn limits() -> Limits {
     Limits {
         request: 1 << 20,
@@ -32,6 +36,7 @@ fn allocator() -> BudgetAllocator {
 }
 
 fn command(mode: &str) -> Command {
+    COMMANDS.set(COMMANDS.get().saturating_add(1));
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args([
         "--exact",
@@ -401,6 +406,32 @@ fn kernel_enforces_the_worker_cpu_limit() {
 
 #[test]
 fn request_and_storage_refusals_precede_process_creation() {
+    for allowance in 0..3 {
+        let snapshot = crate::Lua::empty().enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, &b"local x=1 return x+1"[..]).unwrap();
+            Snapshot::new(&closure.prototype(), 4096, 2 << 20).unwrap()
+        });
+        let workspace = snapshot.operations.allocator().clone();
+        let baseline = workspace.0.current();
+        let commands = COMMANDS.get();
+        workspace.0.fail_after(allowance);
+        assert!(matches!(
+            request_packet(
+                &snapshot,
+                backend::artifact::Route::Ordinary,
+                false,
+                work::Limits::from(&crate::JitConfig::default()),
+            ),
+            Err(crate::JitError::ResourceLimit(_))
+        ));
+        assert_eq!(COMMANDS.get(), commands);
+        assert_eq!(workspace.0.current(), baseline);
+        assert!(Vec::<u8, _>::new_in(workspace.clone())
+            .try_reserve_exact(1)
+            .is_err());
+        drop(snapshot);
+        assert_eq!(workspace.0.current(), 0);
+    }
     let missing = || Command::new("/luna-compiler-fixture-does-not-exist");
     let output = allocator();
     output.0.fail_after(0);
@@ -537,10 +568,20 @@ pub(in crate::jit) fn request_packet(
     let workspace = snapshot.operations.allocator().clone();
     let source = wire::encode(snapshot, wire_limits(), workspace.clone())
         .map_err(|_| crate::JitError::ResourceLimit("compiler request snapshot"))?;
-    let environment = backend::artifact::environment()
-        .map_err(|_| crate::JitError::Unavailable("compiler target environment"))?;
-    let features = backend::artifact::target_features()
-        .map_err(|_| crate::JitError::Unavailable("compiler target features"))?;
+    let environment =
+        backend::artifact::environment_in(workspace.clone()).map_err(|error| match error {
+            backend::artifact::Error::Allocation | backend::artifact::Error::Limit => {
+                crate::JitError::ResourceLimit("compiler target environment")
+            }
+            _ => crate::JitError::Unavailable("compiler target environment"),
+        })?;
+    let features =
+        backend::artifact::target_features_in(workspace.clone()).map_err(|error| match error {
+            backend::artifact::Error::Allocation | backend::artifact::Error::Limit => {
+                crate::JitError::ResourceLimit("compiler target features")
+            }
+            _ => crate::JitError::Unavailable("compiler target features"),
+        })?;
     let mut worker = command("artifact");
     worker.env("LUNA_COMPILER_REQUEST_ID", request.to_string());
     worker.env("LUNA_COMPILER_TARGET_FEATURES", features);

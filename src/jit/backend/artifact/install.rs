@@ -44,7 +44,7 @@ pub(in crate::jit) fn install(
     failure: Failure,
 ) -> Result<Installed, InstallError> {
     let bundle = decode(packet, binding, limits, metadata.clone()).map_err(InstallError::Packet)?;
-    let expected = environment().map_err(InstallError::Packet)?;
+    let expected = environment_in(metadata.clone()).map_err(InstallError::Packet)?;
     if *expected != *bundle.environment {
         return Err(InstallError::Packet(Error::Identity));
     }
