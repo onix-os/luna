@@ -1,0 +1,23 @@
+[package]
+name = "luna-release-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+luna = { version = "=0.5.1", features = ["derive", "async"] }
+luna-util = { version = "=0.5.1" }
+serde_json = "1.0"
+
+[features]
+default = []
+jit = ["luna/jit"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

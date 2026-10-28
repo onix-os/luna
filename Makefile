@@ -51,6 +51,15 @@ SPLIT_SCRATCH_DIR ?= target/jit-evidence/short-slice-performance/split-scratch-p
 
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 
+JIT_PACKAGE_DIR ?= $(TOP_DIR)/target/jit-evidence/package-smoke/$(shell date +%s%N)
+
+.PHONY: jit-package-smoke jit-package-smoke-fmt
+jit-package-smoke-fmt:
+	@$(CARGO) fmt --manifest-path tests/release_consumer/Cargo.toml --check
+
+jit-package-smoke: jit-package-smoke-fmt
+	@$(SHELL) tests/support/package_smoke.sh '$(TOP_DIR)' '$(abspath $(JIT_PACKAGE_DIR))'
+
 $(info ------------------------------------------)
 $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info ------------------------------------------)
