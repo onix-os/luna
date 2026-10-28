@@ -77,6 +77,19 @@
         ];
       in
       {
+        devShells.worker = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.stable.latest.default.override {
+              targets = [ "x86_64-unknown-linux-musl" ];
+              extensions = [ "rustfmt" "clippy" ];
+            })
+            pkgs.binutils
+            pkgs.jq
+            pkgs.actionlint
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.valgrind ];
+          LUNA_WORKER_GLIBC_STATIC = pkgs.lib.optionalString pkgs.stdenv.isLinux "${pkgs.glibc.static}/lib";
+        };
+
         devShells.pgo = pkgs.mkShell {
           packages = [
             (pkgs.rust-bin.stable.latest.default.override {
