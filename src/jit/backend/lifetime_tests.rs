@@ -29,14 +29,87 @@ fn result(code: &Code, source: &Snapshot) -> u64 {
     panic!("native slice did not return");
 }
 
+#[cfg(not(miri))]
+#[test]
+fn diagnostic_charge_survives_real_module_and_snapshot_cleanup_until_publication() {
+    let source_ledger = Ledger::new(2 << 20);
+    let source = Lua::empty().enter(|ctx| {
+        let prototype = Closure::load(ctx, None, b"return 42").unwrap().prototype();
+        Snapshot::new_in(&prototype, 4096, BudgetAllocator(source_ledger.clone())).unwrap()
+    });
+    let snapshot_bytes = source_ledger.current();
+    let metadata = Ledger::new(2 << 20);
+    let memory = MappingCounter::new(metadata.clone());
+    let error = compile_in(
+        &source,
+        memory.clone(),
+        1 << 20,
+        BudgetAllocator(metadata.clone()),
+        Limits::from(&JitConfig::default()),
+        Failure::CompilerDiagnostic,
+    )
+    .err()
+    .unwrap();
+    let CompileError::Compilation(ref message) = error else {
+        panic!("native diagnostic class")
+    };
+    assert!(message.as_str().contains("diagnostic_probe"));
+    let bytes = message.as_str().len();
+    let pointer = message.as_str().as_ptr();
+    assert_eq!(source_ledger.current(), snapshot_bytes + bytes);
+    assert_eq!(metadata.current(), 0);
+    assert_eq!(memory.load(Ordering::Relaxed), 0);
+    drop(source);
+    assert_eq!(source_ledger.current(), bytes);
+    let crate::JitError::Compilation(text) = error.into_public(BudgetAllocator(metadata.clone()))
+    else {
+        panic!("public class")
+    };
+    assert_eq!(text.as_ptr(), pointer);
+    assert_eq!(text.len(), bytes);
+    assert_eq!(source_ledger.current(), 0);
+    assert_eq!(metadata.current(), 0);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn diagnostic_real_compiler_failure_is_published_without_retained_source_storage() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: u32::MAX,
+        ..Default::default()
+    })
+    .unwrap();
+    let _source = lua
+        .try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, None, b"return 42")?)))
+        .unwrap();
+    lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = Failure::CompilerDiagnostic);
+    let error = lua.prepare_jit().unwrap_err();
+    let crate::JitError::Compilation(ref text) = error else {
+        panic!("public compilation class")
+    };
+    assert!(text.contains("diagnostic_probe"));
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+    assert_eq!(lua.jit_stats().installed_regions, 0);
+    drop(lua);
+    assert!(error.to_string().contains("diagnostic_probe"));
+}
+
 #[test]
 fn host_isa_refusal_is_typed_and_success_preserves_pinned_builder_settings() {
     for reason in ["x86 support requires SSE2", "unsupported architecture"] {
         assert!(
-            matches!(native_builder(Err(reason)), Err(JitError::Unavailable(actual)) if actual == reason)
+            matches!(native_builder(Err(reason), crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20))), Err(CompileError::Unavailable(actual)) if actual == reason)
         );
     }
-    let actual = JITModule::new(native_builder(cranelift_native::builder()).unwrap());
+    let actual = JITModule::new(
+        native_builder(
+            cranelift_native::builder(),
+            crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20)),
+        )
+        .unwrap(),
+    );
     let expected = JITModule::new(
         JITBuilder::with_flags(
             &[("opt_level", "speed"), ("enable_verifier", "true")],
@@ -94,7 +167,7 @@ fn host_isa_refusal_preserves_public_execution_cached_peer_and_recovery() {
     lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = Failure::NativeIsaUnavailable);
     assert!(matches!(
         lua.prepare_jit(),
-        Err(JitError::Unavailable(
+        Err(crate::jit::JitError::Unavailable(
             "injected unsupported host instruction set"
         ))
     ));
@@ -143,7 +216,7 @@ fn symbol_layout_counts_registration_declarations_and_lookup_temporary() {
     for lengths in [[usize::MAX, 0], [isize::MAX as usize, 1]] {
         assert!(matches!(
             symbol_storage_bytes(lengths),
-            Err(JitError::ResourceLimit("native symbol size"))
+            Err(CompileError::ResourceLimit("native symbol size"))
         ));
     }
     for name in names.into_iter().chain(["", "λx"]) {
@@ -172,7 +245,7 @@ fn signature_layout_counts_initial_declaration_and_import_vectors() {
     ] {
         assert!(matches!(
             signature_storage_bytes(counts.0, counts.1, counts.2, counts.3),
-            Err(JitError::ResourceLimit("native signature size"))
+            Err(CompileError::ResourceLimit("native signature size"))
         ));
     }
     let mut signature =
@@ -218,7 +291,7 @@ fn declaration_refusals_preserve_peer_and_reservations_outlive_compiler_owners()
     );
     assert!(matches!(
         compile(&source, Failure::NativeIsaUnavailable),
-        Err(JitError::Unavailable(
+        Err(CompileError::Unavailable(
             "injected unsupported host instruction set"
         ))
     ));
@@ -238,7 +311,7 @@ fn declaration_refusals_preserve_peer_and_reservations_outlive_compiler_owners()
     ] {
         assert!(matches!(
             compile(&source, failure),
-            Err(JitError::ResourceLimit(reason)) if reason == expected
+            Err(CompileError::ResourceLimit(reason)) if reason == expected
         ));
         snapshots.set_limit(2 * 1024 * 1024);
         assert_eq!(snapshots.current(), baseline);
@@ -255,7 +328,7 @@ fn declaration_refusals_preserve_peer_and_reservations_outlive_compiler_owners()
     for failure in [Failure::Allocate, Failure::Protect] {
         assert!(matches!(
             compile(&source, failure),
-            Err(JitError::Unavailable(_))
+            Err(CompileError::Unavailable(_))
         ));
         assert_eq!(snapshots.current(), baseline);
         assert_eq!(
@@ -314,7 +387,7 @@ fn verification_workspace_is_released_before_codegen_and_failures_preserve_peer(
     let retained = (total.load(Ordering::Relaxed), metadata.0.current());
     for failure in [Failure::Allocate, Failure::Protect] {
         let outcome = compile(&source, failure);
-        assert!(matches!(outcome, Err(JitError::Unavailable(_))));
+        assert!(matches!(outcome, Err(CompileError::Unavailable(_))));
         assert_eq!(snapshots.current(), baseline);
         assert_eq!(
             (total.load(Ordering::Relaxed), metadata.0.current()),

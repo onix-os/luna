@@ -180,14 +180,14 @@ fn owned_failure_and_corruption_reclaim_storage_without_resetting_denial() {
 #[test]
 fn worker_error_classification_preserves_public_categories_without_text_transport() {
     for (error, class) in [
-        (JitError::Unavailable("unsupported"), Class::Unavailable),
-        (JitError::ResourceLimit("budget"), Class::Resource),
+        (CompileError::Unavailable("unsupported"), Class::Unavailable),
+        (CompileError::ResourceLimit("budget"), Class::Resource),
         (
-            JitError::InvalidConfiguration("config"),
+            CompileError::InvalidConfiguration("config"),
             Class::Configuration,
         ),
         (
-            JitError::Compilation("compiler detail".into()),
+            CompileError::Compilation("compiler detail".into()),
             Class::Compilation,
         ),
     ] {

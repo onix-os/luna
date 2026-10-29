@@ -3,13 +3,15 @@ use cranelift_codegen::ir::{
     MemFlagsData, Opcode, Type, Value, ValueDef,
 };
 
-use super::{abi, JitError, Operation, RCIndex, Region, Snapshot, MAX_OPERATIONS, MAX_REGISTERS};
+use super::{
+    abi, CompileError, Operation, RCIndex, Region, Snapshot, MAX_OPERATIONS, MAX_REGISTERS,
+};
 
-fn invalid() -> JitError {
-    JitError::Compilation("integer loop translation".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("integer loop translation".into())
 }
 
-fn require(valid: bool) -> Result<(), JitError> {
+fn require(valid: bool) -> Result<(), CompileError> {
     if valid {
         Ok(())
     } else {
@@ -22,7 +24,7 @@ fn call(
     actual: BlockCall,
     block: Block,
     args: &[Value],
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     require(
         actual.block(&function.dfg.value_lists) == block
             && actual
@@ -31,7 +33,7 @@ fn call(
     )
 }
 
-fn preserved(before: &Function, after: &Function, generic: Block) -> Result<(), JitError> {
+fn preserved(before: &Function, after: &Function, generic: Block) -> Result<(), CompileError> {
     require(
         before.name == after.name
             && before.params == after.params
@@ -136,7 +138,7 @@ impl<'a> Scan<'a> {
         }
     }
 
-    fn take(&mut self, opcode: Opcode, outputs: &[Type]) -> Result<Inst, JitError> {
+    fn take(&mut self, opcode: Opcode, outputs: &[Type]) -> Result<Inst, CompileError> {
         let inst = self.next.ok_or_else(invalid)?;
         self.next = self.function.layout.next_inst(inst);
         require(
@@ -156,11 +158,11 @@ impl<'a> Scan<'a> {
         Ok(inst)
     }
 
-    fn finish(self) -> Result<(), JitError> {
+    fn finish(self) -> Result<(), CompileError> {
         require(self.next.is_none())
     }
 
-    fn constant(&mut self, ty: Type, value: i64) -> Result<Value, JitError> {
+    fn constant(&mut self, ty: Type, value: i64) -> Result<Value, CompileError> {
         let inst = self.take(Opcode::Iconst, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::UnaryImm { imm, .. } if i64::from(imm) == value),
@@ -174,7 +176,7 @@ impl<'a> Scan<'a> {
         ty: Type,
         left: Value,
         right: Value,
-    ) -> Result<Value, JitError> {
+    ) -> Result<Value, CompileError> {
         let inst = self.take(opcode, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Binary { args, .. } if args == [left, right]),
@@ -182,7 +184,12 @@ impl<'a> Scan<'a> {
         Ok(self.function.dfg.first_result(inst))
     }
 
-    fn compare(&mut self, condition: IntCC, left: Value, right: Value) -> Result<Value, JitError> {
+    fn compare(
+        &mut self,
+        condition: IntCC,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, CompileError> {
         let inst = self.take(Opcode::Icmp, &[types::I8])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::IntCompare { cond, args, .. } if cond == condition && args == [left, right]),
@@ -195,16 +202,16 @@ impl<'a> Scan<'a> {
         condition: IntCC,
         left: Value,
         right: i64,
-    ) -> Result<Value, JitError> {
+    ) -> Result<Value, CompileError> {
         let constant = self.constant(self.function.dfg.value_type(left), right)?;
         self.compare(condition, left, constant)
     }
 
-    fn load(&mut self, pointer: Value, offset: i32) -> Result<Value, JitError> {
+    fn load(&mut self, pointer: Value, offset: i32) -> Result<Value, CompileError> {
         self.typed_load(pointer, offset, types::I64)
     }
 
-    fn typed_load(&mut self, pointer: Value, offset: i32, ty: Type) -> Result<Value, JitError> {
+    fn typed_load(&mut self, pointer: Value, offset: i32, ty: Type) -> Result<Value, CompileError> {
         let inst = self.take(Opcode::Load, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Load { arg, offset: actual, flags, .. }
@@ -213,7 +220,7 @@ impl<'a> Scan<'a> {
         Ok(self.function.dfg.first_result(inst))
     }
 
-    fn number(&mut self, bits: u64) -> Result<Value, JitError> {
+    fn number(&mut self, bits: u64) -> Result<Value, CompileError> {
         let inst = self.take(Opcode::F64const, &[types::F64])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::UnaryIeee64 { imm, .. } if imm.bits() == bits),
@@ -221,7 +228,7 @@ impl<'a> Scan<'a> {
         Ok(self.function.dfg.first_result(inst))
     }
 
-    fn numeric_constant(&mut self, slot: abi::Slot) -> Result<Value, JitError> {
+    fn numeric_constant(&mut self, slot: abi::Slot) -> Result<Value, CompileError> {
         if slot.tag == abi::NUMBER {
             self.number(slot.bits)
         } else {
@@ -229,7 +236,7 @@ impl<'a> Scan<'a> {
         }
     }
 
-    fn store(&mut self, pointer: Value, offset: i32, value: Value) -> Result<(), JitError> {
+    fn store(&mut self, pointer: Value, offset: i32, value: Value) -> Result<(), CompileError> {
         let inst = self.take(Opcode::Store, &[])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Store { args, offset: actual, flags, .. }
@@ -237,7 +244,7 @@ impl<'a> Scan<'a> {
         )
     }
 
-    fn jump(&mut self, target: Block, args: &[Value]) -> Result<(), JitError> {
+    fn jump(&mut self, target: Block, args: &[Value]) -> Result<(), CompileError> {
         let inst = self.take(Opcode::Jump, &[])?;
         let InstructionData::Jump { destination, .. } = self.function.dfg.insts[inst] else {
             return Err(invalid());
@@ -249,7 +256,7 @@ impl<'a> Scan<'a> {
         &mut self,
         condition: Value,
         targets: [(Block, &[Value]); 2],
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let inst = self.take(Opcode::Brif, &[])?;
         let InstructionData::Brif { arg, blocks, .. } = self.function.dfg.insts[inst] else {
             return Err(invalid());
@@ -262,7 +269,7 @@ impl<'a> Scan<'a> {
     }
 }
 
-fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
+fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), CompileError> {
     source.verify()?;
     let p = region.plan;
     require(
@@ -281,7 +288,7 @@ fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
     let mut used = (1 << base.0) | (1 << (base.0 + 1)) | (1 << (base.0 + 2)) | (1 << (base.0 + 3));
     let mut written = (1 << base.0) | (1 << (base.0 + 3));
     require(p.numbers & used == 0 && p.numbers & !p.used == 0)?;
-    let constant_type = |index: usize| -> Result<bool, JitError> {
+    let constant_type = |index: usize| -> Result<bool, CompileError> {
         match source.constants[index].tag {
             abi::INTEGER => Ok(false),
             abi::NUMBER => Ok(true),
@@ -289,7 +296,7 @@ fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
         }
     };
     for op in source.operations[p.start..p.end].iter().copied() {
-        let mut input = |operand: RCIndex| -> Result<bool, JitError> {
+        let mut input = |operand: RCIndex| -> Result<bool, CompileError> {
             match operand {
                 RCIndex::Register(index) => {
                     used |= 1 << index.0;
@@ -322,7 +329,7 @@ fn state(
     prefix: &[Type],
     mask: u16,
     numbers: u16,
-) -> Result<[Option<Value>; MAX_REGISTERS], JitError> {
+) -> Result<[Option<Value>; MAX_REGISTERS], CompileError> {
     let params = function.dfg.block_params(block);
     require(params.len() == prefix.len() + mask.count_ones() as usize)?;
     for (index, &value) in params.iter().enumerate() {
@@ -357,7 +364,7 @@ fn arguments(
     count: Value,
     values: &[Option<Value>; MAX_REGISTERS],
     mask: u16,
-) -> Result<([Value; MAX_REGISTERS + 1], usize), JitError> {
+) -> Result<([Value; MAX_REGISTERS + 1], usize), CompileError> {
     let mut args = [count; MAX_REGISTERS + 1];
     let mut len = 1;
     for (index, value) in values.iter().enumerate() {
@@ -375,7 +382,7 @@ fn operand(
     values: &[Option<Value>; MAX_REGISTERS],
     input: RCIndex,
     number: bool,
-) -> Result<Value, JitError> {
+) -> Result<Value, CompileError> {
     let value = match input {
         RCIndex::Register(index) => values[usize::from(index.0)].ok_or_else(invalid)?,
         RCIndex::Constant(index) => {
@@ -399,7 +406,7 @@ fn flush(
     values: &[Option<Value>; MAX_REGISTERS],
     mask: u16,
     numbers: u16,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let tag = scan.constant(types::I64, abi::INTEGER as i64)?;
     let number = if mask & numbers != 0 {
         Some(scan.constant(types::I64, abi::NUMBER as i64)?)
@@ -428,7 +435,7 @@ pub(super) fn checkpoint(
     function: &Function,
     checkpoints: &super::Checkpoints,
     inst: Inst,
-) -> Result<Option<super::Checkpoint>, JitError> {
+) -> Result<Option<super::Checkpoint>, CompileError> {
     use super::{Checkpoint, CheckpointPc};
     let r = &checkpoints.region;
     let block = function.layout.inst_block(inst).ok_or_else(invalid)?;
@@ -479,7 +486,7 @@ pub(super) fn check(
     exhausted: Block,
     r: &Region,
     probe: bool,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     cranelift_codegen::verify_function(
         after,
         &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),

@@ -179,7 +179,7 @@ mod plan;
 mod transport_tests;
 
 #[cfg(test)]
-pub(super) fn has_source_plan(source: &super::ir::Snapshot) -> Result<bool, super::JitError> {
+pub(super) fn has_source_plan(source: &super::ir::Snapshot) -> Result<bool, super::CompileError> {
     source.verify()?;
     Ok((0..source.operations.len()).any(|end| plan::Plan::new(source, end).is_some()))
 }

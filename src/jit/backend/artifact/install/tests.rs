@@ -40,7 +40,7 @@ fn load(
     workspace: BudgetAllocator,
     total: MappingCounter,
     failure: Failure,
-) -> Result<Loaded, JitError> {
+) -> Result<Loaded, CompileError> {
     load_in(
         image,
         total,
@@ -163,7 +163,7 @@ fn bounded_loader_reclaims_partial_protection_and_every_allocator_refusal() {
                     successes += 1;
                     drop(loaded);
                 }
-                Err(JitError::ResourceLimit(_)) => {
+                Err(CompileError::ResourceLimit(_)) => {
                     failures += 1;
                     assert!(BudgetVec::<u8, _>::new_in(denied.clone())
                         .try_reserve_exact(1)

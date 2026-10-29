@@ -102,7 +102,7 @@ impl Program {
         metadata: super::resources::BudgetAllocator,
         limits: super::work::Limits,
         #[cfg(test)] failure: super::backend::Failure,
-    ) -> Result<Self, super::JitError> {
+    ) -> Result<Self, super::CompileError> {
         if !super::resources::LedgerRef::ptr_eq(
             &caller.operations.allocator().0,
             &callee.operations.allocator().0,
@@ -110,7 +110,7 @@ impl Program {
             caller.operations.allocator().0.clone(),
         )) || !memory.same_root(&super::resources::MappingCounter::new(metadata.0.clone()))
         {
-            return Err(super::JitError::Compilation(
+            return Err(super::CompileError::Compilation(
                 "pair ledger provenance".into(),
             ));
         }

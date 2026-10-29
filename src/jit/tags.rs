@@ -6,7 +6,7 @@ use cranelift_codegen::ir::{
 
 use super::{
     abi, dominance::Dominators, flow::FlowGraph, preds::Predecessors, resources::BudgetAllocator,
-    JitError,
+    CompileError,
 };
 use crate::opcode::{Operation, RCIndex};
 
@@ -273,16 +273,16 @@ pub(super) struct Stores {
     dominance_work: Option<usize>,
 }
 
-fn refused() -> JitError {
-    JitError::ResourceLimit("scalar tag verification")
+fn refused() -> CompileError {
+    CompileError::ResourceLimit("scalar tag verification")
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid scalar tag data flow".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid scalar tag data flow".into())
 }
 
 impl Stores {
-    pub fn new(graph: &FlowGraph, snapshot: &super::ir::Snapshot) -> Result<Self, JitError> {
+    pub fn new(graph: &FlowGraph, snapshot: &super::ir::Snapshot) -> Result<Self, CompileError> {
         let allocator = snapshot.operations.allocator().clone();
         let mut capacity = 0usize;
         let mut input_capacity = 0usize;
@@ -541,7 +541,7 @@ impl Stores {
         slots: Value,
         exit: Option<Value>,
         registers: usize,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if registers > 256
             || self.overflowed
             || self.expected_transfers.is_some_and(|counts| {
@@ -869,8 +869,8 @@ impl Stores {
         slots: Value,
         paths: &super::entry_flow::Paths,
         graph: &FlowGraph,
-    ) -> Result<(), JitError> {
-        let invalid = || JitError::Compilation("invalid semantic source ownership".into());
+    ) -> Result<(), CompileError> {
+        let invalid = || CompileError::Compilation("invalid semantic source ownership".into());
         let check_inst = |pc, inst| {
             if paths.owns_inst(function, pc, inst) {
                 Ok(())
@@ -1048,7 +1048,7 @@ impl Stores {
         snapshot: &super::ir::Snapshot,
         blocks: &[Block],
         fallback: Block,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if blocks.len() != snapshot.operations.len()
             || (self.rooted_moves && !super::helper_flow::rooted_moves_admitted(snapshot))
         {
@@ -1507,7 +1507,7 @@ impl Stores {
         blocks: &[Block],
         fallback: Block,
         guard: Block,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         use super::shape::{numeric_loop, LoopExpression as Part};
         if blocks.len() != snapshot.operations.len() {
             return Err(invalid());
@@ -1771,7 +1771,7 @@ impl Stores {
         slots: Value,
         snapshot: &super::ir::Snapshot,
         blocks: &[Block],
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if blocks.len() != snapshot.operations.len() {
             return Err(invalid());
         }
@@ -2069,7 +2069,7 @@ impl Stores {
         slots: Value,
         snapshot: &super::ir::Snapshot,
         blocks: &[Block],
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if blocks.len() != snapshot.operations.len() {
             return Err(invalid());
         }
@@ -2248,7 +2248,7 @@ impl Stores {
         function: &Function,
         slots: Value,
         snapshot: &super::ir::Snapshot,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if self
             .inputs
             .windows(2)
@@ -2567,7 +2567,7 @@ fn loop_split(
     inst: Inst,
     inputs: &[(Value, Value)],
     part: super::shape::LoopExpression,
-) -> Result<[Block; 2], JitError> {
+) -> Result<[Block; 2], CompileError> {
     let InstructionData::Brif { arg, blocks, .. } = function.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -2590,7 +2590,7 @@ fn payload_store(
     inst: Inst,
     slots: Value,
     register: u8,
-) -> Result<(Value, Value), JitError> {
+) -> Result<(Value, Value), CompileError> {
     let prior = function.layout.prev_inst(inst).ok_or_else(invalid)?;
     let mut values = [slots; 2];
     for (index, point, offset) in [
@@ -2625,7 +2625,7 @@ fn loop_advance(
     target: usize,
     count: Value,
     fallback: Block,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let InstructionData::Jump { destination, .. } = function.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -2654,7 +2654,11 @@ fn loop_advance(
     Ok(())
 }
 
-fn only_loop_stores(function: &Function, block: Block, allowed: &[Inst]) -> Result<(), JitError> {
+fn only_loop_stores(
+    function: &Function,
+    block: Block,
+    allowed: &[Inst],
+) -> Result<(), CompileError> {
     for inst in function.layout.block_insts(block) {
         if function.dfg.insts[inst].opcode().can_store()
             && !allowed.iter().any(|payload| {
@@ -2759,7 +2763,7 @@ impl Analysis<'_> {
         true
     }
 
-    fn fresh(&mut self) -> Result<(), JitError> {
+    fn fresh(&mut self) -> Result<(), CompileError> {
         self.epoch = self.epoch.checked_add(1).ok_or_else(refused)?;
         self.pending.clear();
         Ok(())
@@ -2773,7 +2777,7 @@ impl Analysis<'_> {
         }
     }
 
-    fn possible(&mut self, value: Value, store: Block) -> Result<u8, JitError> {
+    fn possible(&mut self, value: Value, store: Block) -> Result<u8, CompileError> {
         self.fresh()?;
         self.push(value);
         let mut possible = 0;
@@ -3072,7 +3076,7 @@ impl Analysis<'_> {
         }
     }
 
-    fn depends(&mut self, inst: Inst, bits: Value) -> Result<bool, JitError> {
+    fn depends(&mut self, inst: Inst, bits: Value) -> Result<bool, CompileError> {
         self.fresh()?;
         let bits = self.function.dfg.resolve_aliases(bits);
         for &value in self.function.dfg.inst_args(inst) {
@@ -3128,14 +3132,14 @@ mod tests {
 
     pub(super) fn fixture(
         action: impl FnOnce(&mut FunctionBuilder<'_>, Value, Value, &mut Stores),
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         fixture_in(None, action)
     }
 
     fn fixture_in(
         snapshot: Option<&super::super::ir::Snapshot>,
         action: impl FnOnce(&mut FunctionBuilder<'_>, Value, Value, &mut Stores),
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let allocator = BudgetAllocator(Ledger::new(1024 * 1024));
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
@@ -3228,9 +3232,9 @@ mod tests {
         stores.record(inst, allowed);
     }
 
-    fn rejected(result: Result<(), JitError>) {
+    fn rejected(result: Result<(), CompileError>) {
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
             "{result:?}"
         );
     }
@@ -3424,7 +3428,7 @@ mod tests {
         });
         assert!(matches!(
             result,
-            Err(JitError::ResourceLimit("scalar tag verification"))
+            Err(CompileError::ResourceLimit("scalar tag verification"))
         ));
     }
 
@@ -3444,7 +3448,7 @@ mod tests {
         });
         assert!(matches!(
             result,
-            Err(JitError::ResourceLimit("scalar tag verification"))
+            Err(CompileError::ResourceLimit("scalar tag verification"))
         ));
         let (ledger, peak) = retained.unwrap();
         assert_eq!(
@@ -3928,7 +3932,7 @@ mod tests {
         fault: FloatFault,
         inverted: bool,
         constant: Option<u64>,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         fixture(|builder, slots, choice, stores| {
             let (tag, bits) = if let Some(tag) = constant {
                 (
@@ -4138,7 +4142,7 @@ mod tests {
         kind: usize,
         constants: bool,
         change: impl FnOnce(&mut FunctionBuilder<'_>, &mut Stores),
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let snapshot = arithmetic_snapshot(kind, constants);
         snapshot.verify().unwrap();
         fixture_in(Some(&snapshot), |builder, slots, _, stores| {
@@ -4401,7 +4405,7 @@ mod tests {
         );
         assert!(matches!(
             Stores::new(&graph, &snapshot),
-            Err(JitError::ResourceLimit("scalar tag verification"))
+            Err(CompileError::ResourceLimit("scalar tag verification"))
         ));
         assert_eq!(ledger.current(), before);
         assert_eq!(ledger.refusals(), 1);
@@ -4440,7 +4444,7 @@ mod tests {
         ledger.set_limit(before + allowance);
         assert!(matches!(
             Stores::new(&graph, &snapshot),
-            Err(JitError::ResourceLimit("scalar tag verification"))
+            Err(CompileError::ResourceLimit("scalar tag verification"))
         ));
         assert_eq!(ledger.current(), before);
         assert_eq!(ledger.peak(), before + allowance);
@@ -4495,7 +4499,7 @@ mod tests {
             ledger.set_limit(before + allowance);
             assert!(matches!(
                 Stores::new(&graph, &snapshot),
-                Err(JitError::ResourceLimit("scalar tag verification"))
+                Err(CompileError::ResourceLimit("scalar tag verification"))
             ));
             assert_eq!(ledger.current(), before);
             assert_eq!(ledger.peak(), before + allowance);
@@ -4551,7 +4555,7 @@ mod tests {
             ledger.set_limit(before + allowance);
             assert!(matches!(
                 Stores::new(&graph, &snapshot),
-                Err(JitError::ResourceLimit("scalar tag verification"))
+                Err(CompileError::ResourceLimit("scalar tag verification"))
             ));
             assert_eq!(ledger.current(), before);
             assert_eq!(ledger.peak(), peak.max(before + allowance));
@@ -4588,7 +4592,7 @@ mod tests {
         ledger.set_limit(before + allowance);
         assert!(matches!(
             Stores::new(&graph, &snapshot),
-            Err(JitError::ResourceLimit("helper call verification"))
+            Err(CompileError::ResourceLimit("helper call verification"))
         ));
         assert_eq!(ledger.current(), before);
         assert_eq!(ledger.peak(), peak.max(before + allowance));
@@ -4598,7 +4602,7 @@ mod tests {
     fn truth_fixture(
         test: Option<bool>,
         change: impl FnOnce(&mut FunctionBuilder<'_>, &mut Stores, &[Block]),
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         use crate::types::{RegisterIndex, VarCount};
         let snapshot = super::super::ir::Snapshot {
             prepared_keys: None,
@@ -4827,7 +4831,7 @@ mod workspace_accounting {
             let (result, peak, refusals) = measure(extra, Some(expected - 1));
             assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit("scalar tag verification"))
+                Err(CompileError::ResourceLimit("scalar tag verification"))
             ));
             assert!(peak < expected);
             assert_eq!(refusals, 1);

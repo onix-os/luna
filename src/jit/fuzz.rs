@@ -14,7 +14,7 @@ use super::{
     abi::{self, Slot},
     backend,
     ir::Snapshot,
-    model, JitError,
+    model,
 };
 use crate::{
     opcode::{Operation, RCIndex},
@@ -245,12 +245,13 @@ fn invalidate(snapshot: &mut Snapshot, mutation: usize) {
 }
 
 fn reject(snapshot: &Snapshot) {
-    assert!(matches!(snapshot.verify(), Err(JitError::Compilation(_))));
+    let error = snapshot.verify().unwrap_err();
+    assert_eq!(error.class(), super::compile_error::Class::Compilation);
     let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
-    assert!(matches!(
-        backend::compile(snapshot, memory.clone(), 8 * 1024 * 1024),
-        Err(JitError::Compilation(_))
-    ));
+    let error = backend::compile(snapshot, memory.clone(), 8 * 1024 * 1024)
+        .err()
+        .expect("malformed snapshot rejected");
+    assert_eq!(error.class(), super::compile_error::Class::Compilation);
     assert_eq!(memory.load(Ordering::Relaxed), 0);
 }
 

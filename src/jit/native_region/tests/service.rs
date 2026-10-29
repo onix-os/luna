@@ -199,10 +199,13 @@ fn snapshot_metadata_and_host_failures_consume_bounded_attempts() {
             if fault == 2 {
                 assert!(matches!(
                     result,
-                    Err(JitError::ResourceLimit("host memory"))
+                    Err(crate::jit::JitError::ResourceLimit("host memory"))
                 ));
             } else {
-                assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                assert!(matches!(
+                    result,
+                    Err(crate::jit::JitError::ResourceLimit(_))
+                ));
             }
             snapshots.fail_after(usize::MAX);
             metadata.fail_after(usize::MAX);
@@ -319,7 +322,7 @@ fn real_mapping_retry_pins_dependencies_and_respects_attempts_and_peer_leases() 
         if mode != 0 {
             assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit("native mappings"))
+                Err(crate::jit::JitError::ResourceLimit("native mappings"))
             ));
             assert_eq!(setup.lua.jit_stats().code_bytes, before.code_bytes);
             assert_eq!(

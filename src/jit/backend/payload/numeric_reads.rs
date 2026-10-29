@@ -165,14 +165,14 @@ pub(super) struct Analysis {
 }
 
 impl Analysis {
-    pub(super) fn new(f: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
+    pub(super) fn new(f: &Function, allocator: BudgetAllocator) -> Result<Self, CompileError> {
         let predecessors = Predecessors::new(f, allocator.clone())?;
         let dominators = Dominators::new(f, &predecessors, allocator)?;
         let (instructions, blocks) = size(f);
         let remaining = instructions
             .checked_add(blocks)
             .and_then(|n| n.checked_mul(64))
-            .ok_or(JitError::ResourceLimit("payload numeric read work"))?;
+            .ok_or(CompileError::ResourceLimit("payload numeric read work"))?;
         Ok(Self {
             predecessors,
             dominators,
@@ -204,7 +204,7 @@ impl Analysis {
         f: &Function,
         read: &BoundRead,
         slots: IrValue,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if f.dfg.first_result(read.inst) != read.result
             || f.dfg.value_type(read.result) != read.ty
             || analyze(
@@ -303,7 +303,7 @@ pub(super) fn verify_bound(
     read: &BoundRead,
     slots: IrValue,
     predecessors: &Predecessors,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if !matches!(read.ty, types::I64 | types::F64)
         || !guard(f, read.guard, slots, read.index, predecessors)
         || f.layout.first_inst(read.guard.accepted) != Some(read.pointer)
@@ -375,7 +375,7 @@ pub(super) fn verify(
     read: &Read,
     slots: IrValue,
     predecessors: &Predecessors,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let [before, after, wide, zero] = read.blocks;
     if before != read.guard.accepted
         || !guard(f, read.guard, slots, read.index, predecessors)

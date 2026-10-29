@@ -49,16 +49,19 @@ pub(super) struct Witness {
     convention: CallConv,
 }
 
-fn push<T>(values: &mut BudgetVec<T, BudgetAllocator>, value: T) -> Result<(), JitError> {
+fn push<T>(values: &mut BudgetVec<T, BudgetAllocator>, value: T) -> Result<(), CompileError> {
     values
         .try_reserve(1)
-        .map_err(|_| JitError::ResourceLimit("read-only preservation witness"))?;
+        .map_err(|_| CompileError::ResourceLimit("read-only preservation witness"))?;
     values.push(value);
     Ok(())
 }
 
 impl Witness {
-    pub(super) fn new(function: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
+    pub(super) fn new(
+        function: &Function,
+        allocator: BudgetAllocator,
+    ) -> Result<Self, CompileError> {
         let params: [AbiParam; 5] = function
             .signature
             .params
@@ -170,7 +173,7 @@ impl Witness {
         &mut self,
         function: &Function,
         values: impl Iterator<Item = IrValue>,
-    ) -> Result<Range<usize>, JitError> {
+    ) -> Result<Range<usize>, CompileError> {
         let start = self.values.len();
         for value in values {
             push(
@@ -208,7 +211,11 @@ impl Witness {
         expected.next().is_none()
     }
 
-    pub(super) fn verify(&self, function: &Function, rewrite: &Rewrite) -> Result<(), JitError> {
+    pub(super) fn verify(
+        &self,
+        function: &Function,
+        rewrite: &Rewrite,
+    ) -> Result<(), CompileError> {
         if function.signature.params[..5] != self.params
             || function.signature.call_conv != self.convention
             || !function.signature.returns.is_empty()

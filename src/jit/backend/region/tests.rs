@@ -28,7 +28,7 @@ impl Resources {
         ]
     }
 
-    fn compile(&self, limits: Limits, bytes: usize, fault: Fault) -> Result<Driver, JitError> {
+    fn compile(&self, limits: Limits, bytes: usize, fault: Fault) -> Result<Driver, CompileError> {
         compile(
             caller,
             boundary,
@@ -156,7 +156,7 @@ fn corrupted_bound_caller_slots_and_status_are_refused_before_mapping() {
     for fault in [Fault::Bound, Fault::Caller, Fault::Slots, Fault::Status] {
         assert!(matches!(
             resources.compile(limits(), 2 * 1024 * 1024, fault),
-            Err(JitError::Compilation(message)) if message == "native region source mismatch"
+            Err(CompileError::Compilation(message)) if message == "native region source mismatch"
         ));
         assert_eq!(resources.usage(), baseline);
     }
@@ -181,7 +181,7 @@ fn refused_ir_relocations_mapping_and_allocations_release_all_charges() {
         assert!(
             matches!(
                 resources.compile(limits, bytes, Fault::None),
-                Err(JitError::ResourceLimit(_))
+                Err(CompileError::ResourceLimit(_))
             ),
             "case {case}"
         );

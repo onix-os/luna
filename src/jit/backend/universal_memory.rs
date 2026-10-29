@@ -2,7 +2,7 @@ use cranelift_codegen::ir::{
     AliasRegionData, Function, GlobalValueData, Inst, MemFlags, MemFlagsData,
 };
 
-use super::{BudgetAllocator, BudgetVec, JitError, Reservation};
+use super::{BudgetAllocator, BudgetVec, CompileError, Reservation};
 use crate::jit::work::Expansion;
 
 const REGION_ID: u32 = 0x4c554e41;
@@ -10,15 +10,15 @@ const DESCRIPTION: &str = "all Luna native memory";
 const MAX_FLAGS: usize = 32;
 const TABLE_BYTES: usize = 16 * 1024;
 
-fn invalid() -> JitError {
-    JitError::Compilation("universal memory translation".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("universal memory translation".into())
 }
 
 fn verify(
     source: &Function,
     candidate: &mut Function,
     allocator: BudgetAllocator,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let region = candidate
         .dfg
         .alias_regions
@@ -47,7 +47,7 @@ fn verify(
                     return Err(invalid());
                 }
                 records.try_reserve(1).map_err(|_| {
-                    JitError::ResourceLimit("universal memory verification records")
+                    CompileError::ResourceLimit("universal memory verification records")
                 })?;
                 records.push((inst, new));
                 *candidate.dfg.insts[inst]
@@ -82,7 +82,7 @@ pub(super) fn lower(
     function: &mut Function,
     allocator: BudgetAllocator,
     expansion: Expansion,
-) -> Result<Reservation, JitError> {
+) -> Result<Reservation, CompileError> {
     expansion.verify_actual(function.dfg.num_insts(), function.layout.blocks().count())?;
     if function.dfg.alias_regions.len() != 0 {
         return Err(invalid());
@@ -92,7 +92,7 @@ pub(super) fn lower(
         .mem_flags
         .is_valid(MemFlags::from_bits(MAX_FLAGS as u32))
     {
-        return Err(JitError::ResourceLimit("universal memory source flags"));
+        return Err(CompileError::ResourceLimit("universal memory source flags"));
     }
     if function
         .global_values
@@ -118,7 +118,7 @@ pub(super) fn lower(
         }
     }
     let charge = Reservation::new(allocator.0.clone(), TABLE_BYTES)
-        .map_err(|_| JitError::ResourceLimit("universal memory tables"))?;
+        .map_err(|_| CompileError::ResourceLimit("universal memory tables"))?;
     let mut candidate = function.clone();
     let region = candidate.dfg.alias_regions.insert(AliasRegionData {
         user_id: REGION_ID,
@@ -136,7 +136,7 @@ pub(super) fn lower(
                 .dfg
                 .mem_flags
                 .insert(data)
-                .map_err(|_| JitError::ResourceLimit("universal memory flags"))?;
+                .map_err(|_| CompileError::ResourceLimit("universal memory flags"))?;
             *candidate.dfg.insts[inst]
                 .memflags_mut()
                 .ok_or_else(invalid)? = new;

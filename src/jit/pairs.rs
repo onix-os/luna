@@ -6,7 +6,7 @@ use super::{
     metadata_map,
     owner::Shared,
     resources::{BudgetAllocator, Compactor},
-    JitConfig, JitError, JitMode, MetadataMap, Runtime,
+    CompileError, JitConfig, JitMode, MetadataMap, Runtime,
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -451,7 +451,7 @@ impl Runtime {
         key: Key,
         caller: Snapshot,
         callee: Snapshot,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         #[cfg(test)]
         let hook = self.0.borrow_mut().before_compile.take();
         #[cfg(test)]
@@ -483,7 +483,7 @@ impl Runtime {
             )
         };
         let mut result = compile();
-        if matches!(&result, Err(JitError::ResourceLimit("native mappings"))) {
+        if matches!(&result, Err(CompileError::ResourceLimit("native mappings"))) {
             let mut manager = self.0.borrow_mut();
             let eligible = manager.config.mode == JitMode::Auto
                 && manager.pairs.as_ref().is_some_and(|pairs| {
@@ -532,7 +532,7 @@ impl Runtime {
                 _ => {}
             }
             let program = Shared::try_new(program, manager.metadata.clone())
-                .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+                .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
             let last_used = manager.clock.saturating_add(1);
             let pairs = manager.pairs.as_mut().unwrap();
             pairs.regions.remove(key);

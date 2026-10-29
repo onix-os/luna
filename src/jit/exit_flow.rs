@@ -4,13 +4,13 @@ use cranelift_codegen::ir::{
 #[cfg(test)]
 use cranelift_codegen::ir::{Inst, Value};
 
-use super::{abi::Exit, JitError};
+use super::{abi::Exit, CompileError};
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid shared exit data flow".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid shared exit data flow".into())
 }
 
-pub(super) fn verify(function: &Function, handlers: &[Block; 4]) -> Result<(), JitError> {
+pub(super) fn verify(function: &Function, handlers: &[Block; 4]) -> Result<(), CompileError> {
     let entry = function.layout.entry_block().ok_or_else(invalid)?;
     let parameters = function.dfg.block_params(entry);
     if parameters.len() != 5
@@ -272,7 +272,7 @@ mod tests {
     use cranelift_codegen::{ir::InstBuilder, isa::CallConv};
     use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
-    fn fixture(fault: Option<Fault>) -> Result<(), JitError> {
+    fn fixture(fault: Option<Fault>) -> Result<(), CompileError> {
         let mut function = Function::new();
         function.signature.call_conv = CallConv::SystemV;
         function.signature.params.extend(
@@ -335,7 +335,7 @@ mod tests {
             #[test]
             fn $name() {
                 let result = fixture(Some(Fault::$fault));
-                assert!(matches!(result, Err(JitError::Compilation(ref message))
+                assert!(matches!(result, Err(CompileError::Compilation(ref message))
                     if message == "invalid shared exit data flow"), "{result:?}");
             }
         };

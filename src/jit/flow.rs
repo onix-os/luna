@@ -2,7 +2,7 @@ use allocator_api2::vec::Vec;
 
 use crate::opcode::Operation;
 
-use super::{abi, ir::Snapshot, JitError};
+use super::{abi, ir::Snapshot, CompileError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Successors(pub [Option<u32>; 2]);
@@ -16,10 +16,14 @@ impl Successors {
     }
 }
 
-pub(super) fn successors(op: Operation, pc: usize, length: usize) -> Result<Successors, JitError> {
+pub(super) fn successors(
+    op: Operation,
+    pc: usize,
+    length: usize,
+) -> Result<Successors, CompileError> {
     use Operation::*;
     if pc >= length {
-        return Err(JitError::Compilation(format!("invalid source PC {pc}")));
+        return Err(CompileError::indexed("invalid source PC ", pc));
     }
     let next = pc.checked_add(1);
     let skip = pc.checked_add(2);
@@ -78,7 +82,7 @@ pub(super) fn successors(op: Operation, pc: usize, length: usize) -> Result<Succ
             targets[index]
                 .filter(|target| *target < length)
                 .and_then(|target| u32::try_from(target).ok())
-                .ok_or_else(|| JitError::Compilation(format!("invalid successor at PC {pc}")))?,
+                .ok_or_else(|| CompileError::indexed("invalid successor at PC ", pc))?,
         );
     }
     Ok(Successors(result))
@@ -266,17 +270,17 @@ pub(super) struct FlowGraph {
 }
 
 impl FlowGraph {
-    pub fn new(snapshot: &Snapshot) -> Result<Self, JitError> {
+    pub fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
         snapshot.verify()?;
         let allocator = snapshot.operations.allocator().clone();
         let mut nodes = Vec::new_in(allocator.clone());
         nodes
             .try_reserve_exact(snapshot.operations.len())
-            .map_err(|_| JitError::ResourceLimit("control-flow snapshot"))?;
+            .map_err(|_| CompileError::ResourceLimit("control-flow snapshot"))?;
         let mut pending = Vec::new_in(allocator);
         pending
             .try_reserve_exact(snapshot.operations.len())
-            .map_err(|_| JitError::ResourceLimit("control-flow snapshot"))?;
+            .map_err(|_| CompileError::ResourceLimit("control-flow snapshot"))?;
         for (pc, &op) in snapshot.operations.iter().enumerate() {
             let (lowering, effects, native_effects) = description(op);
             let node = Node {
@@ -291,9 +295,7 @@ impl FlowGraph {
                 access: super::access::Access::new(op, snapshot),
             };
             if !node.valid_admission() {
-                return Err(JitError::Compilation(format!(
-                    "invalid native admission at PC {pc}"
-                )));
+                return Err(CompileError::indexed("invalid native admission at PC ", pc));
             }
             nodes.push(node);
         }
@@ -357,7 +359,7 @@ impl FlowGraph {
                     .flatten()
                     .any(|target| !graph.permits_edge(pc, target as usize))
             {
-                return Err(JitError::Compilation(format!("invalid region at PC {pc}")));
+                return Err(CompileError::indexed("invalid region at PC ", pc));
             }
         }
         Ok(graph)
@@ -763,7 +765,7 @@ mod tests {
             let source = snapshot(&[ret(), invalid], BudgetAllocator(Ledger::new(65536)));
             assert!(matches!(
                 FlowGraph::new(&source),
-                Err(JitError::Compilation(_))
+                Err(CompileError::Indexed { index: 1, .. })
             ));
         }
         assert!(successors(ret(), usize::MAX, 1).is_err());
@@ -1089,7 +1091,7 @@ mod tests {
             ledger.set_limit(before + allowance);
             assert!(matches!(
                 FlowGraph::new(&source),
-                Err(JitError::ResourceLimit("control-flow snapshot"))
+                Err(CompileError::ResourceLimit("control-flow snapshot"))
             ));
             assert_eq!(ledger.current(), before);
         }
@@ -1166,7 +1168,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             lua.prepare_jit(),
-            Err(JitError::ResourceLimit("control-flow snapshot"))
+            Err(crate::jit::JitError::ResourceLimit("control-flow snapshot"))
         ));
         let refused = lua.jit_stats();
         assert_eq!(refused.snapshot_bytes, 0);

@@ -33,7 +33,7 @@ pub(in crate::jit) fn compile(
     metadata: BudgetAllocator,
     work: crate::jit::work::Limits,
     failure: Failure,
-) -> Option<Result<Code, JitError>> {
+) -> Option<Result<Code, CompileError>> {
     if !ENABLED.get() {
         return None;
     }
@@ -53,7 +53,7 @@ pub(in crate::jit) fn compile(
                 | Failure::Pipeline
                 | Failure::RequireReleasedSnapshot
         ) {
-            return Err(JitError::Unavailable(
+            return Err(CompileError::Unavailable(
                 "unsupported artifact compiler injection",
             ));
         }
@@ -92,10 +92,10 @@ pub(in crate::jit) fn compile(
         .map_err(|error| match error {
             InstallError::Native(error) => error,
             InstallError::Packet(Error::Allocation | Error::Limit) => {
-                JitError::ResourceLimit("compiler artifact")
+                CompileError::ResourceLimit("compiler artifact")
             }
             InstallError::Packet(_) => {
-                JitError::Compilation("compiler artifact source or identity".into())
+                CompileError::Compilation("compiler artifact source or identity".into())
             }
         })
     })())

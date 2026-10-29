@@ -4,7 +4,7 @@ use cranelift_codegen::{
     ir::{Block, Function, Inst},
 };
 
-use super::{resources::BudgetAllocator, JitError};
+use super::{resources::BudgetAllocator, CompileError};
 
 #[derive(Clone, Copy)]
 struct Edge {
@@ -28,8 +28,8 @@ impl Predecessors {
         }
     }
 
-    pub fn new(function: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
-        let refused = || JitError::ResourceLimit("frontend predecessor graph");
+    pub fn new(function: &Function, allocator: BudgetAllocator) -> Result<Self, CompileError> {
+        let refused = || CompileError::ResourceLimit("frontend predecessor graph");
         let mut count = 0usize;
         for block in function.layout.blocks() {
             if let Some(inst) = function.layout.last_inst(block) {
@@ -59,7 +59,9 @@ impl Predecessors {
             {
                 let target = destination.block(&function.dfg.value_lists);
                 if target.as_u32() as usize >= function.dfg.num_blocks() {
-                    return Err(JitError::Compilation("invalid predecessor target".into()));
+                    return Err(CompileError::Compilation(
+                        "invalid predecessor target".into(),
+                    ));
                 }
                 graph.edges.push(Edge {
                     target,
@@ -166,7 +168,7 @@ mod tests {
             }
             assert!(matches!(
                 Predecessors::new(&function, BudgetAllocator(ledger.clone())),
-                Err(JitError::ResourceLimit("frontend predecessor graph"))
+                Err(CompileError::ResourceLimit("frontend predecessor graph"))
             ));
             assert_eq!(ledger.current(), 0);
             assert_eq!(crate::jit::resources::LedgerRef::strong_count(&ledger), 1);
@@ -195,7 +197,7 @@ mod tests {
         let ledger = Ledger::new(4096);
         assert!(matches!(
             Predecessors::new(&function, BudgetAllocator(ledger.clone())),
-            Err(JitError::Compilation(message)) if message == "invalid predecessor target"
+            Err(CompileError::Compilation(message)) if message == "invalid predecessor target"
         ));
         assert_eq!(ledger.current(), 0);
         assert!(ledger.peak() > 0);

@@ -5,7 +5,7 @@ use cranelift_codegen::{
 
 use super::*;
 
-fn require(condition: bool) -> Result<(), JitError> {
+fn require(condition: bool) -> Result<(), CompileError> {
     condition.then_some(()).ok_or_else(invalid)
 }
 
@@ -166,7 +166,7 @@ fn write(
     inst: Inst,
     step: Step,
     arguments: [IrValue; 4],
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let [pointers, destinations, writer, _] = arguments;
     require(function.dfg.inst_results(inst).is_empty())?;
     match (step.store, function.dfg.insts[inst]) {
@@ -223,7 +223,7 @@ fn guard(
     budget: IrValue,
     done: Block,
     next: Block,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let [count, compare, branch]: [_; 3] = instructions.try_into().map_err(|_| invalid())?;
     require(function.dfg.inst_results(count).len() == 1)?;
     let count = function.dfg.first_result(count);
@@ -257,7 +257,7 @@ pub(super) fn verify(
     plan: &Plan,
     function: &Function,
     isa: &dyn TargetIsa,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     plan.verify(source)?;
     require(
         function.dfg.num_blocks() == plan.steps.len() + 2

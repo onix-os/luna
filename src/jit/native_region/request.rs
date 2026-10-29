@@ -6,7 +6,7 @@ use crate::{
         owner::Shared,
         resources::{BudgetAllocator, MappingCounter},
         work::{Expansion, Limits},
-        JitConfig, JitError, JitMode, Manager, Prepared, PreparedPair, Runtime,
+        CompileError, JitConfig, JitMode, Manager, Prepared, PreparedPair, Runtime,
     },
     Context,
 };
@@ -29,19 +29,19 @@ impl Request {
         ctx: Context<'gc>,
         caller: Gc<'gc, FunctionPrototype<'gc>>,
         pair: PreparedPair,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let source = ctx
             .jit_registry()
             .borrow()
             .identity(ctx, caller)
-            .ok_or_else(|| JitError::Compilation("unregistered region caller".into()))?;
+            .ok_or_else(|| CompileError::Compilation("unregistered region caller".into()))?;
         if pair.program.key().caller != source {
-            return Err(JitError::Compilation("region pair caller".into()));
+            return Err(CompileError::Compilation("region pair caller".into()));
         }
         let ordinary = ctx
             .jit()
             .lookup(source)
-            .ok_or_else(|| JitError::Compilation("missing region fallback".into()))?;
+            .ok_or_else(|| CompileError::Compilation("missing region fallback".into()))?;
         let manager = ctx.jit().0.borrow();
         if manager.config.mode != JitMode::Auto
             || !manager
@@ -49,7 +49,9 @@ impl Request {
                 .as_ref()
                 .is_some_and(|pairs| pairs.contains(&pair))
         {
-            return Err(JitError::Compilation("region dependency admission".into()));
+            return Err(CompileError::Compilation(
+                "region dependency admission".into(),
+            ));
         }
         let snapshot = Snapshot::new_in(
             &caller,
@@ -115,9 +117,9 @@ impl Request {
         )
     }
 
-    pub(crate) fn compile(self, runtime: &Runtime) -> Result<Region, JitError> {
+    pub(crate) fn compile(self, runtime: &Runtime) -> Result<Region, CompileError> {
         if !self.admitted(&runtime.0.borrow()) {
-            return Err(JitError::Compilation("stale region request".into()));
+            return Err(CompileError::Compilation("stale region request".into()));
         }
         let limits = Limits::from(&self.config);
         let expansion = Expansion::admit(&self.snapshot, limits)?;
@@ -130,7 +132,7 @@ impl Request {
                 .checked_add(4)
                 .is_none_or(|count| count > limits.blocks)
         {
-            return Err(JitError::ResourceLimit("connected region IR"));
+            return Err(CompileError::ResourceLimit("connected region IR"));
         }
         let mut inline_callee = self.inline_callee;
         let compile_caller = || {
@@ -143,7 +145,7 @@ impl Request {
             )
         };
         let caller = match compile_caller() {
-            Err(JitError::ResourceLimit(_)) if inline_callee.is_some() => {
+            Err(CompileError::ResourceLimit(_)) if inline_callee.is_some() => {
                 drop(inline_callee.take());
                 compile_caller()?
             }
@@ -171,7 +173,7 @@ impl Request {
             )
         };
         let driver = match compile_driver() {
-            Err(JitError::ResourceLimit(_)) if snapshot.is_some() => {
+            Err(CompileError::ResourceLimit(_)) if snapshot.is_some() => {
                 drop(snapshot.take());
                 drop(inline_callee.take());
                 compile_driver()?

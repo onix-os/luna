@@ -139,7 +139,7 @@ fn packed_helper_matches_prepared_pc_declines_and_panic_state() {
 #[test]
 fn independent_flow_verifier_refuses_hashless_call_corruption() {
     use crate::jit::{
-        backend, helper_flow::Fault, ir::Snapshot, resources::MappingCounter, work, JitError,
+        backend, helper_flow::Fault, ir::Snapshot, resources::MappingCounter, work, CompileError,
     };
     crate::Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, b"target=target return target").unwrap();
@@ -183,7 +183,7 @@ fn independent_flow_verifier_refuses_hashless_call_corruption() {
         ] {
             let (memory, result) = compile(Some(fault));
             assert!(
-                matches!(result, Err(JitError::Compilation(ref message))
+                matches!(result, Err(CompileError::Compilation(ref message))
                 if message == "invalid helper call data flow"),
                 "{fault:?}"
             );
@@ -199,7 +199,7 @@ fn independent_flow_verifier_refuses_hashless_call_corruption() {
 ))]
 #[test]
 fn native_canonical_reads_reduce_real_workload_snapshot_peaks() {
-    use crate::jit::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
+    use crate::jit::{backend, ir::Snapshot, resources::MappingCounter, work, CompileError};
     use crate::opcode::Operation;
 
     #[allow(dead_code)]
@@ -261,7 +261,7 @@ fn native_canonical_reads_reduce_real_workload_snapshot_peaks() {
                 assert_eq!(exact_peak, new_peak);
                 if sites > 0 {
                     let (refused, _, _) = measure(true, new_peak);
-                    assert!(matches!(refused, Err(JitError::ResourceLimit("scalar tag verification"))), "{name}/{prototype_index}");
+                    assert!(matches!(refused, Err(CompileError::ResourceLimit("scalar tag verification"))), "{name}/{prototype_index}");
                     prepared += 1;
                 }
                 println!("canonical_compile_case={name} prototype={prototype_index} read_sites={sites} legacy_peak={old_peak} canonical_peak={new_peak}");

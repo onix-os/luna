@@ -6,7 +6,7 @@ use crate::{
     Constant, FunctionPrototype,
 };
 
-use super::{ir::Snapshot, JitError};
+use super::{ir::Snapshot, CompileError};
 
 pub(super) struct Keys(Vec<u64, super::resources::BudgetAllocator>);
 
@@ -25,11 +25,11 @@ impl Snapshot {
     pub(super) fn with_prepared_fallback<T>(
         &mut self,
         retry: bool,
-        mut compile: impl FnMut(&Self) -> Result<T, JitError>,
-    ) -> Result<T, JitError> {
+        mut compile: impl FnMut(&Self) -> Result<T, CompileError>,
+    ) -> Result<T, CompileError> {
         let result = compile(self);
         if retry
-            && matches!(result, Err(JitError::ResourceLimit(_)))
+            && matches!(result, Err(CompileError::ResourceLimit(_)))
             && self.prepared_keys.is_some()
         {
             self.prepared_keys = None;
@@ -49,7 +49,7 @@ impl Keys {
     pub(in crate::jit) fn from_words(
         words: Vec<u64, super::resources::BudgetAllocator>,
         snapshot: &Snapshot,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let keys = Self(words);
         keys.verify(snapshot)?;
         Ok(keys)
@@ -90,15 +90,19 @@ impl Keys {
         self.0[usize::from(index)]
     }
 
-    pub fn verify(&self, snapshot: &Snapshot) -> Result<(), JitError> {
+    pub fn verify(&self, snapshot: &Snapshot) -> Result<(), CompileError> {
         if self.0.is_empty() || self.0.len() > snapshot.constants.len() || self.0.len() > 256 {
-            return Err(JitError::Compilation("invalid prepared key count".into()));
+            return Err(CompileError::Compilation(
+                "invalid prepared key count".into(),
+            ));
         }
         let mut count = 0;
         for &operation in &snapshot.operations {
             if let Operation::GetUpTable { key, .. } = operation {
                 let RCIndex::Constant(index) = key else {
-                    return Err(JitError::Compilation("invalid prepared key operand".into()));
+                    return Err(CompileError::Compilation(
+                        "invalid prepared key operand".into(),
+                    ));
                 };
                 count = count.max(usize::from(index.0) + 1);
                 if snapshot
@@ -106,14 +110,16 @@ impl Keys {
                     .get(usize::from(index.0))
                     .is_none_or(|slot| slot.tag != super::abi::REFERENCE || slot.bits != 0)
                 {
-                    return Err(JitError::Compilation(
+                    return Err(CompileError::Compilation(
                         "invalid prepared key descriptor".into(),
                     ));
                 }
             }
         }
         if count != self.0.len() {
-            return Err(JitError::Compilation("invalid prepared key count".into()));
+            return Err(CompileError::Compilation(
+                "invalid prepared key count".into(),
+            ));
         }
         Ok(())
     }

@@ -9,6 +9,39 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Bounded compiler-report ownership — 2026-10-29
+
+Internal compilation errors now retain an admitted String/Charge owner until
+actual public publication. Dynamic reports use a fixed 4096-byte UTF-8 formatter;
+indexed frontend errors defer allocation, and internal preparation/service calls
+do not prematurely export public Strings. Public `JitError` remains unchanged.
+Publication refusal stays inside Lua's host-memory classification interval.
+
+The integrated snapshot passes native/all-feature type checks, four repaired
+malformed-source checks, and **26 diagnostic/publication executions in each of
+default0 and Tree1 Miri**, with actual source and borrow flags verified. Real
+i686-musl fallback executes **3644 passes / 373 summaries / eight existing
+reported ignores**, with actual ELF32 headers and source hashes checked.
+Initial malformed-error assertion and i686 module-gating failures are preserved,
+not counted as successful qualification.
+
+All six fresh canonical images build, and the independent **72-row / 27-field
+resource oracle matches exactly**. NoFeature differences against c44 remain
+seven verified Lua source-line records per profile. The portability repair's
+four JIT images are not full-byte-identical to their predecessor: only25/27
+verified module source-line records change; all other ELF bytes match. Both
+image readers reject line/column/length/header corruption. The initial strict
+byte-identity comparison remains a recorded failed expectation.
+
+**Not full acceptance:** full current-source native/Miri, image/resource,
+platform, elapsed, feature-size and release gates remain separate. Native-fault
+io/anyhow adapters and upstream-private allocations remain explicit exclusions;
+this is not a process-RSS or whole-compiler resource guarantee. Earlier failed
+elapsed gates remain failed, with no threshold waiver or rejected pair adoption.
+
+Evidence: `target/jit-evidence/bounded-compiler-diagnostics/`, latest source and
+receipts under `revision-3/`; earlier source-specific failures remain intact.
+
 ### Native callback entry improvement — 2026-10-29
 
 Existing integer-resume code is now selected after the original PC/frame checks

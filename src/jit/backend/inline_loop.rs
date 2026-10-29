@@ -32,32 +32,32 @@ impl Code {
         metadata: BudgetAllocator,
         limits: Limits,
         #[cfg(test)] failure: Failure,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let workspace = caller.operations.allocator().clone();
         if !LedgerRef::ptr_eq(&workspace.0, &callee.operations.allocator().0)
             || !total.same_root(&MappingCounter::new(workspace.0.clone()))
             || !total.same_root(&MappingCounter::new(metadata.0.clone()))
         {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "inline loop ledger provenance".into(),
             ));
         }
         let plan = Plan::new(caller, callee, key.pc, limits)?;
         let descriptor = plan.descriptor()?;
         let _templates = Reservation::new(workspace.0.clone(), 32 * 1024)
-            .map_err(|_| JitError::ResourceLimit("inline loop template workspace"))?;
+            .map_err(|_| CompileError::ResourceLimit("inline loop template workspace"))?;
         let _signatures =
             Reservation::new(workspace.0.clone(), 3 * Layout::new::<AbiParam>().size())
-                .map_err(|_| JitError::ResourceLimit("inline loop signatures"))?;
+                .map_err(|_| CompileError::ResourceLimit("inline loop signatures"))?;
         let status = MemoryStatus::try_new(metadata.clone())?;
         let fail = |error: cranelift_module::ModuleError| {
-            status
-                .error()
-                .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+            status.error().unwrap_or_else(|| {
+                CompileError::compilation(format_args!("{error}"), workspace.clone())
+            })
         };
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         if page <= 0 {
-            return Err(JitError::Unavailable(
+            return Err(CompileError::Unavailable(
                 "cannot determine native memory page size",
             ));
         }
@@ -73,23 +73,24 @@ impl Code {
             },
             metadata.clone(),
         )
-        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+        .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
         let (provider, _provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
-            .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-        let mut jit = native_builder(cranelift_native::builder())?;
+            .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
+        let mut jit = native_builder(cranelift_native::builder(), workspace.clone())?;
         jit.memory_provider(provider);
         let mut module = JITModule::new(jit);
         let config = module.isa().frontend_config();
         let convention = module.isa().default_call_conv();
         let function = plan.function(config, convention)?;
         plan.verify_function(&function, config, convention)?;
-        cranelift_codegen::verify_function(&function, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&function, module.isa()).map_err(|error| {
+            CompileError::compilation(format_args!("{error}"), workspace.clone())
+        })?;
         let id = module
             .declare_anonymous_function(&function.signature)
             .map_err(fail)?;
         if id.as_u32() != 0 {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "inline loop function identity".into(),
             ));
         }
@@ -100,7 +101,7 @@ impl Code {
             .map_err(|error| fail(error.into()))?;
         let compiled = context.compiled_code().unwrap();
         if !compiled.buffer.relocs().is_empty() {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "inline loop unexpected relocation".into(),
             ));
         }
@@ -116,7 +117,7 @@ impl Code {
         let pointer = module.get_finalized_function(id);
         let image = memory
             .take()
-            .ok_or_else(|| JitError::Compilation("missing inline loop mappings".into()))?;
+            .ok_or_else(|| CompileError::Compilation("missing inline loop mappings".into()))?;
         drop(module);
         Ok(Self {
             _memory: image,

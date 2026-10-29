@@ -43,7 +43,7 @@ pub(super) enum Read {
     },
 }
 
-pub(super) fn tag_snapshot(f: &Function, read: &Read) -> Result<(Inst, IrValue), JitError> {
+pub(super) fn tag_snapshot(f: &Function, read: &Read) -> Result<(Inst, IrValue), CompileError> {
     let Read::Tag(input) = read else {
         return Err(invalid());
     };
@@ -57,7 +57,7 @@ pub(super) fn admit(
     inst: Inst,
     slots: IrValue,
     registers: usize,
-) -> Result<Input, JitError> {
+) -> Result<Input, CompileError> {
     let InstructionData::Load {
         opcode: Opcode::Load,
         arg,
@@ -176,7 +176,7 @@ pub(super) fn verify_source(
     read: &Read,
     slots: IrValue,
     registers: usize,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let input = match read {
         Read::Tag(input) | Read::Bits { input, .. } => input,
     };
@@ -194,7 +194,7 @@ pub(super) fn verify_source(
 pub(super) fn fragment<'a>(
     f: &Function,
     read: &'a Read,
-) -> Result<packed_lower::Fragment<'a>, JitError> {
+) -> Result<packed_lower::Fragment<'a>, CompileError> {
     match read {
         Read::Tag(input) => Ok(packed_lower::Fragment {
             source: input.inst,
@@ -228,11 +228,11 @@ fn operation(
     opcode: Opcode,
     args: &[IrValue],
     ty: Type,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     reads::value(f, inst, opcode, args, ty)
 }
 
-pub(super) fn verify(f: &Function, read: &Read) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, read: &Read) -> Result<(), CompileError> {
     let input = match read {
         Read::Tag(input) | Read::Bits { input, .. } => input,
     };

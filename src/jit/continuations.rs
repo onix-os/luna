@@ -2,7 +2,7 @@ use allocator_api2::vec::Vec;
 
 use crate::opcode::{CallTransition, Operation};
 
-use super::{abi, exits, ir::Snapshot, resources::BudgetAllocator, JitError};
+use super::{abi, exits, ir::Snapshot, resources::BudgetAllocator, CompileError};
 
 pub(super) struct Continuations {
     records: Vec<Option<CallTransition>, BudgetAllocator>,
@@ -33,16 +33,18 @@ fn source_transition(operation: Operation) -> Option<CallTransition> {
 }
 
 impl Continuations {
-    pub fn new(source: &Snapshot, allocator: BudgetAllocator) -> Result<Self, JitError> {
+    pub fn new(source: &Snapshot, allocator: BudgetAllocator) -> Result<Self, CompileError> {
         let graph = super::flow::FlowGraph::new(source)?;
         let mut records = Vec::new_in(allocator);
         records
             .try_reserve_exact(source.operations.len())
-            .map_err(|_| JitError::ResourceLimit("native continuations"))?;
+            .map_err(|_| CompileError::ResourceLimit("native continuations"))?;
         for (operation, node) in source.operations.iter().copied().zip(&graph.nodes) {
             let transition = source_transition(operation);
             if transition.is_some() && node.lowering != super::flow::Lowering::Interpreter {
-                return Err(JitError::Compilation("native continuation lowering".into()));
+                return Err(CompileError::Compilation(
+                    "native continuation lowering".into(),
+                ));
             }
             records.push(transition);
         }
@@ -51,7 +53,7 @@ impl Continuations {
         Ok(table)
     }
 
-    fn verify(&self, source: &Snapshot) -> Result<(), JitError> {
+    fn verify(&self, source: &Snapshot) -> Result<(), CompileError> {
         use crate::opcode::OpCode;
         if self.records.len() != source.operations.len()
             || self
@@ -61,7 +63,7 @@ impl Continuations {
                 .zip(&source.operations)
                 .any(|(record, operation)| record != OpCode::encode(*operation).call_transition())
         {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "native continuation source mismatch".into(),
             ));
         }

@@ -1051,7 +1051,7 @@ mod tests {
         #[cfg(not(miri))]
         #[test]
         fn generated_leaf_accounts_all_thunks_and_releases_failed_images() {
-            use crate::jit::{backend, resources, work, JitConfig, JitError};
+            use crate::jit::{backend, resources, work, CompileError, JitConfig};
             use std::sync::atomic::Ordering;
             with_closure(|_ctx, closure| {
                 let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
@@ -1125,7 +1125,7 @@ mod tests {
                 ] {
                     assert!(matches!(
                         compile(backend::Failure::None, limits, 128 * 1024),
-                        Err(JitError::ResourceLimit(_))
+                        Err(CompileError::ResourceLimit(_))
                     ));
                     assert_eq!(total.load(Ordering::Relaxed), mapped_baseline);
                     assert_eq!(metadata_ledger.current(), metadata_baseline);
@@ -1136,7 +1136,7 @@ mod tests {
                 }
                 assert!(matches!(
                     compile(backend::Failure::None, limits, 1),
-                    Err(JitError::ResourceLimit(_))
+                    Err(CompileError::ResourceLimit(_))
                 ));
                 assert_eq!(total.load(Ordering::Relaxed), mapped_baseline);
                 assert_eq!(metadata_ledger.current(), metadata_baseline);

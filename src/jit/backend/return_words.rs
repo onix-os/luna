@@ -23,7 +23,13 @@ fn lowered_output_pointer_entry_preserves_native_call_contract() {
 
 fn check_native_return(transport: Transport) {
     let output = !matches!(transport, Transport::Words);
-    let module = JITModule::new(native_builder(cranelift_native::builder()).unwrap());
+    let module = JITModule::new(
+        native_builder(
+            cranelift_native::builder(),
+            crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20)),
+        )
+        .unwrap(),
+    );
     let mut function = cranelift_codegen::ir::Function::new();
     function.signature = module.make_signature();
     let pointer = module.target_config().pointer_type();

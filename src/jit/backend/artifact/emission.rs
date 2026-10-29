@@ -33,7 +33,7 @@ pub(in crate::jit) fn emit(
     limits: work::Limits,
     metadata: BudgetAllocator,
     output: BudgetAllocator,
-) -> Result<Bundle, JitError> {
+) -> Result<Bundle, CompileError> {
     let total = MappingCounter::new(metadata.0.clone());
     let (result, bundle) = without_native_memory(|| {
         capture(output, || {
@@ -120,8 +120,8 @@ pub(in crate::jit) fn emit(
         })
     })
     .map_err(|error| match error {
-        Error::Allocation | Error::Limit => JitError::ResourceLimit("compiler emission"),
-        _ => JitError::Compilation("compiler emission artifact".into()),
+        Error::Allocation | Error::Limit => CompileError::ResourceLimit("compiler emission"),
+        _ => CompileError::Compilation("compiler emission artifact".into()),
     })?;
     result?;
     assert_eq!(total.load(Ordering::Relaxed), 0);

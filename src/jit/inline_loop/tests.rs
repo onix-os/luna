@@ -126,7 +126,7 @@ fn aggregate_expansion_limits_are_not_relaxed_by_inlining_admission() {
         ] {
             assert!(matches!(
                 Plan::new(&caller, &callee, call, rejected),
-                Err(JitError::ResourceLimit(_))
+                Err(CompileError::ResourceLimit(_))
             ));
         }
     });

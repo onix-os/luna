@@ -340,7 +340,9 @@ impl Lua {
         &mut self,
         config: crate::jit::JitConfig,
     ) -> Result<(), crate::jit::JitError> {
-        config.validate()?;
+        config
+            .validate()
+            .map_err(|error| error.into_public(self.jit.0.borrow().metadata.clone()))?;
         if config.max_metadata_bytes < self.jit_config().max_metadata_bytes {
             self.arena.mutate(|mc, state| {
                 state.jit_registry.borrow_mut(mc).reset(state.ctx(mc));
@@ -378,37 +380,86 @@ impl Lua {
     /// Compile at most one queued source prototype outside the arena and VM slice.
     #[cfg(feature = "jit")]
     pub fn service_jit(&mut self) -> Result<usize, crate::jit::JitError> {
-        #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
-        self.jit.poll_compiler_jobs();
-        if !self.jit.active() {
+        if !self.begin_jit_service() {
             return Ok(0);
         }
+        self.with_jit_memory_limit(|lua| {
+            let result = lua.service_jit_operation();
+            lua.publish_jit_result(result)
+        })
+    }
+
+    #[cfg(feature = "jit")]
+    fn begin_jit_service(&mut self) -> bool {
+        #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+        self.jit.poll_compiler_jobs();
+        self.jit.active()
+    }
+
+    #[cfg(feature = "jit")]
+    fn service_jit_owned(&mut self) -> Result<usize, crate::jit::CompileError> {
+        if !self.begin_jit_service() {
+            return Ok(0);
+        }
+        self.with_jit_owned_memory_limit(Self::service_jit_operation)
+    }
+
+    #[cfg(feature = "jit")]
+    fn publish_jit_result<T>(
+        &self,
+        result: Result<T, crate::jit::CompileError>,
+    ) -> Result<T, crate::jit::JitError> {
+        let allocator = self.jit.0.borrow().metadata.clone();
+        result.map_err(|error| error.into_public(allocator))
+    }
+
+    #[cfg(feature = "jit")]
+    fn service_jit_operation(&mut self) -> Result<usize, crate::jit::CompileError> {
         #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
         {
-            self.with_jit_memory_limit(|lua| {
-                #[cfg(all(
-                    test,
-                    feature = "jit-worker-embedded",
-                    luna_jit_embedded_worker,
-                    not(miri)
-                ))]
-                let scope = lua.jit.compiler_jobs_scope()?;
-                let result = Self::service_jit_inner(lua);
-                #[cfg(all(
-                    test,
-                    feature = "jit-worker-embedded",
-                    luna_jit_embedded_worker,
-                    not(miri)
-                ))]
-                drop(scope);
-                #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
-                lua.jit.poll_compiler_jobs();
-                result
-            })
+            #[cfg(all(
+                test,
+                feature = "jit-worker-embedded",
+                luna_jit_embedded_worker,
+                not(miri)
+            ))]
+            let scope = self.jit.compiler_jobs_scope()?;
+            let result = Self::service_jit_inner(self);
+            #[cfg(all(
+                test,
+                feature = "jit-worker-embedded",
+                luna_jit_embedded_worker,
+                not(miri)
+            ))]
+            drop(scope);
+            #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
+            self.jit.poll_compiler_jobs();
+            result
         }
         #[cfg(not(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri))))]
         {
-            self.with_jit_memory_limit(Self::service_jit_inner)
+            Self::service_jit_inner(self)
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    fn with_jit_owned_memory_limit<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> Result<T, crate::jit::CompileError>,
+    ) -> Result<T, crate::jit::CompileError> {
+        if self.memory_limit.is_none() {
+            return operation(self);
+        }
+        self.refresh_jit_memory_limit();
+        let host = self.jit.0.borrow().host.clone();
+        let refusals = host.refusals();
+        let result = operation(self);
+        self.refresh_jit_memory_limit();
+        match result {
+            Err(crate::jit::CompileError::ResourceLimit(_)) if host.refusals() != refusals => {
+                Err(crate::jit::CompileError::ResourceLimit("host memory"))
+            }
+            other => other,
         }
     }
 
@@ -445,9 +496,9 @@ impl Lua {
     }
 
     #[cfg(feature = "jit")]
-    fn service_jit_inner(&mut self) -> Result<usize, crate::jit::JitError> {
+    fn service_jit_inner(&mut self) -> Result<usize, crate::jit::CompileError> {
         if !self.jit_capabilities().supported_target {
-            return Err(crate::jit::JitError::Unavailable(
+            return Err(crate::jit::CompileError::Unavailable(
                 "native backend unavailable on this target",
             ));
         }
@@ -511,7 +562,7 @@ impl Lua {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    fn service_jit_pair(&mut self) -> Result<usize, crate::jit::JitError> {
+    fn service_jit_pair(&mut self) -> Result<usize, crate::jit::CompileError> {
         let Some(key) = self.jit.next_pair_request() else {
             return self.service_jit_region();
         };
@@ -561,8 +612,8 @@ impl Lua {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    fn service_jit_region(&mut self) -> Result<usize, crate::jit::JitError> {
-        use crate::jit::JitError;
+    fn service_jit_region(&mut self) -> Result<usize, crate::jit::CompileError> {
+        use crate::jit::CompileError;
         let Some(key) = self.jit.next_region_request() else {
             return Ok(0);
         };
@@ -577,11 +628,14 @@ impl Lua {
             let request = request?;
             let pins = request.pin_dependencies();
             let mut compiled = request.compile(&self.jit);
-            if matches!(&compiled, Err(JitError::ResourceLimit("native mappings")))
-                && self.jit.retry_region_request(key)
+            if matches!(
+                &compiled,
+                Err(CompileError::ResourceLimit("native mappings"))
+            ) && self.jit.retry_region_request(key)
             {
-                let request = prepare(self)
-                    .ok_or_else(|| JitError::Compilation("region retry dependencies".into()))??;
+                let request = prepare(self).ok_or_else(|| {
+                    CompileError::Compilation("region retry dependencies".into())
+                })??;
                 compiled = request.compile(&self.jit);
             }
             drop(pins);
@@ -603,13 +657,16 @@ impl Lua {
         if !self.jit.active() {
             return Ok(0);
         }
-        self.with_jit_memory_limit(Self::prepare_jit_inner)
+        self.with_jit_memory_limit(|lua| {
+            let result = Self::prepare_jit_inner(lua);
+            lua.publish_jit_result(result)
+        })
     }
 
     #[cfg(feature = "jit")]
-    fn prepare_jit_inner(&mut self) -> Result<usize, crate::jit::JitError> {
+    fn prepare_jit_inner(&mut self) -> Result<usize, crate::jit::CompileError> {
         if !self.jit_capabilities().supported_target {
-            return Err(crate::jit::JitError::Unavailable(
+            return Err(crate::jit::CompileError::Unavailable(
                 "native backend unavailable on this target",
             ));
         }
@@ -628,7 +685,7 @@ impl Lua {
         let count = self.jit.0.borrow().stats.queued_requests;
         let mut installed = 0;
         for _ in 0..count {
-            installed += self.service_jit()?;
+            installed += self.service_jit_owned()?;
         }
         Ok(installed)
     }
@@ -714,8 +771,9 @@ impl Lua {
     ///
     /// JIT charges include bootstrap owners, metadata, snapshots, known compiler
     /// reservations and page-rounded native mappings. Without JIT this equals
-    /// `total_memory`. Unaccounted compiler buffers, diagnostic strings and allocator
-    /// overhead are excluded; this is not process RSS.
+    /// `total_memory`. Internal compilation reports are charged until publication.
+    /// Private compiler buffers, native-fault adapters, caller-owned errors and
+    /// allocator overhead are excluded; this is not process RSS.
     pub fn accounted_memory(&self) -> usize {
         let bytes = self.total_memory();
         #[cfg(feature = "jit")]
@@ -973,7 +1031,7 @@ impl Lua {
                 return Ok(());
             }
             #[cfg(feature = "jit")]
-            let _ = self.service_jit();
+            let _ = self.service_jit_owned();
             let mut fuel = Fuel::with(FUEL_PER_GC);
 
             let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
@@ -1151,7 +1209,7 @@ impl Lua {
                 return Ok(());
             }
             #[cfg(feature = "jit")]
-            let _ = self.service_jit();
+            let _ = self.service_jit_owned();
             let mut fuel = Fuel::with(FUEL_PER_GC);
             let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
 
@@ -1279,6 +1337,90 @@ impl<'gc> State<'gc> {
 
 #[cfg(test)]
 mod memory_tests {
+    #[cfg(feature = "jit")]
+    #[test]
+    fn diagnostic_publication_refusals_stay_inside_host_memory_classification() {
+        use crate::jit::{CompileError, JitError};
+        let mut lua = super::Lua::empty();
+        let baseline = lua.accounted_memory();
+        lua.set_memory_limit(Some(baseline));
+        let metadata = lua.jit.0.borrow().metadata.clone();
+        let metadata_before = metadata.0.current();
+        let result: Result<(), JitError> = lua.with_jit_memory_limit(|lua| {
+            lua.publish_jit_result(Err(CompileError::Compilation(
+                "diagnostic publication".into(),
+            )))
+        });
+        assert!(matches!(
+            result,
+            Err(JitError::ResourceLimit("host memory"))
+        ));
+        assert_eq!(lua.accounted_memory(), baseline);
+        assert_eq!(metadata.0.current(), metadata_before);
+        lua.set_memory_limit(Some(baseline + "diagnostic publication".len()));
+        let result: Result<(), JitError> = lua.with_jit_memory_limit(|lua| {
+            lua.publish_jit_result(Err(CompileError::Compilation(
+                "diagnostic publication".into(),
+            )))
+        });
+        let JitError::Compilation(text) = result.unwrap_err() else {
+            panic!("public class")
+        };
+        assert_eq!(text, "diagnostic publication");
+        assert_eq!(lua.accounted_memory(), baseline);
+        assert_eq!(metadata.0.current(), metadata_before);
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn diagnostic_owned_service_keeps_the_message_charged_until_actual_publication() {
+        use crate::jit::{resources::BudgetAllocator, CompileError, JitError};
+        let mut lua = super::Lua::empty();
+        let metadata = lua.jit.0.borrow().metadata.clone();
+        let metadata_before = metadata.0.current();
+        let baseline = lua.accounted_memory();
+        let result: Result<(), CompileError> = lua.with_jit_owned_memory_limit(|_| {
+            Err(CompileError::compilation(
+                format_args!("owned diagnostic {}", 42),
+                metadata.clone(),
+            ))
+        });
+        assert_eq!(
+            lua.accounted_memory(),
+            baseline + "owned diagnostic 42".len()
+        );
+        assert_eq!(
+            metadata.0.current(),
+            metadata_before + "owned diagnostic 42".len()
+        );
+        let denied = crate::jit::resources::Ledger::new(0);
+        let error = result.unwrap_err().into_public(BudgetAllocator(denied));
+        let JitError::Compilation(text) = error else {
+            panic!("ownership transfer must not allocate")
+        };
+        assert_eq!(text, "owned diagnostic 42");
+        assert_eq!(lua.accounted_memory(), baseline);
+        assert_eq!(metadata.0.current(), metadata_before);
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn diagnostic_indexed_frontend_failure_defers_allocation_until_publication() {
+        use crate::jit::{CompileError, JitError};
+        let mut lua = super::Lua::empty();
+        let baseline = lua.accounted_memory();
+        let error = CompileError::indexed("invalid source PC ", usize::MAX);
+        assert_eq!(lua.accounted_memory(), baseline);
+        let expected = format!("invalid source PC {}", usize::MAX);
+        lua.set_memory_limit(Some(baseline + expected.len()));
+        let result: Result<(), JitError> =
+            lua.with_jit_memory_limit(|lua| lua.publish_jit_result(Err(error)));
+        let JitError::Compilation(text) = result.unwrap_err() else {
+            panic!("public indexed class")
+        };
+        assert_eq!(text, expected);
+        assert_eq!(lua.accounted_memory(), baseline);
+    }
     use super::*;
 
     #[test]

@@ -5,7 +5,7 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use super::{Plan, MAX_REGISTERS};
-use crate::jit::{abi, leaf, JitError};
+use crate::jit::{abi, leaf, CompileError};
 use crate::opcode::Operation;
 
 const FINISHED: u32 = 0;
@@ -157,12 +157,14 @@ impl Plan<'_> {
         &self,
         config: TargetFrontendConfig,
         convention: CallConv,
-    ) -> Result<Function, JitError> {
+    ) -> Result<Function, CompileError> {
         self.verify(self.caller, self.callee)?;
         let function = usize::from(self.pair.function.0);
         let arguments = usize::from(self.pair.arguments);
         if arguments > self.callee.registers {
-            return Err(JitError::Compilation("invalid inline loop binding".into()));
+            return Err(CompileError::Compilation(
+                "invalid inline loop binding".into(),
+            ));
         }
         let mut result = Function::new();
         result.signature.call_conv = convention;
@@ -181,7 +183,7 @@ impl Plan<'_> {
             allocator_api2::vec::Vec::new_in(self.caller.operations.allocator().clone());
         blocks
             .try_reserve_exact(self.end - self.start + 1)
-            .map_err(|_| JitError::ResourceLimit("inline loop blocks"))?;
+            .map_err(|_| CompileError::ResourceLimit("inline loop blocks"))?;
         blocks.extend((self.start..=self.end).map(|_| b.create_block()));
         let mut e = Emitter { b, state, exits };
         for offset in [
@@ -347,9 +349,9 @@ impl Plan<'_> {
         function: &Function,
         config: TargetFrontendConfig,
         convention: CallConv,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if *function != self.function(config, convention)? {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "inline loop program differs from source".into(),
             ));
         }

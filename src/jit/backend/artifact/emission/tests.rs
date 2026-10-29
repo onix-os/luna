@@ -182,7 +182,7 @@ fn emission_output_refusal_is_fallible_and_does_not_reset_denial() {
                 successes += 1;
                 drop(bundle);
             }
-            Err(JitError::ResourceLimit(_)) => {
+            Err(CompileError::ResourceLimit(_)) => {
                 failures += 1;
                 assert!(BudgetVec::<u8, _>::new_in(output.clone())
                     .try_reserve_exact(1)

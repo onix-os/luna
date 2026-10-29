@@ -73,9 +73,9 @@ fn optional_retry_releases_keys_and_preserves_other_errors() {
                 if attempts == 1 {
                     assert!(source.prepared_keys.is_some());
                     if resource_error {
-                        Err(JitError::ResourceLimit("fixture"))
+                        Err(CompileError::ResourceLimit("fixture"))
                     } else {
-                        Err(JitError::Compilation("fixture".into()))
+                        Err(CompileError::Compilation("fixture".into()))
                     }
                 } else {
                     assert!(source.prepared_keys.is_none());
@@ -92,9 +92,12 @@ fn optional_retry_releases_keys_and_preserves_other_errors() {
         let mut attempts = 0;
         let result: Result<(), _> = snapshot.with_prepared_fallback(true, |_| {
             attempts += 1;
-            Err(JitError::ResourceLimit("persistent"))
+            Err(CompileError::ResourceLimit("persistent"))
         });
-        assert!(matches!(result, Err(JitError::ResourceLimit("persistent"))));
+        assert!(matches!(
+            result,
+            Err(CompileError::ResourceLimit("persistent"))
+        ));
         assert_eq!(attempts, 2);
         assert!(snapshot.prepared_keys.is_none());
     });
@@ -137,7 +140,10 @@ fn exact_workspace_limit_retains_ordinary_compilation() {
         let mut source =
             Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone())).unwrap();
         assert!(source.prepared_keys.is_some());
-        assert!(matches!(compile(&source), Err(JitError::ResourceLimit(_))));
+        assert!(matches!(
+            compile(&source),
+            Err(CompileError::ResourceLimit(_))
+        ));
         let mut attempts = 0;
         let code = source
             .with_prepared_fallback(true, |source| {
@@ -371,7 +377,7 @@ fn changed_prepared_abi_is_rejected_before_native_installation() {
         ] {
             let memory = MappingCounter::new(Ledger::new(usize::MAX));
             let result = backend::compile_in(&snapshot, memory.clone(), 8 << 20, BudgetAllocator(Ledger::new(2 << 20)), work::Limits::from(&crate::JitConfig::default()), backend::Failure::CorruptHelperFlow(fault));
-            assert!(matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid helper call data flow"));
+            assert!(matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid helper call data flow"));
             assert_eq!(memory.load(std::sync::atomic::Ordering::Relaxed), 0);
         }
     });

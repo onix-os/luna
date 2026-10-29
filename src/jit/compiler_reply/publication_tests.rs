@@ -26,7 +26,7 @@ fn every_class_and_stage_preserves_public_category_and_fixed_label() {
             }
             let fault = Fault { class, stage };
             assert!(fault.label().len() <= 32);
-            let error = Failure::Worker(fault).into_public(BudgetAllocator(ledger.clone()));
+            let error = Failure::Worker(fault).into_owned(BudgetAllocator(ledger.clone()));
             assert_eq!(
                 Fault::classify(&error, stage).class,
                 if class == Class::Rejected {
@@ -36,13 +36,24 @@ fn every_class_and_stage_preserves_public_category_and_fixed_label() {
                 }
             );
             let label = match &error {
-                JitError::Compilation(text) => text.as_str(),
-                JitError::ResourceLimit(text)
-                | JitError::Unavailable(text)
-                | JitError::InvalidConfiguration(text) => *text,
+                CompileError::Compilation(text) => text.as_str(),
+                CompileError::ResourceLimit(text)
+                | CompileError::Unavailable(text)
+                | CompileError::InvalidConfiguration(text) => *text,
+                CompileError::Indexed { .. } => panic!("indexed worker label"),
             };
             assert_eq!(label, fault.label());
+            assert_eq!(
+                ledger.current(),
+                if class == Class::Compilation {
+                    fault.label().len()
+                } else {
+                    0
+                }
+            );
+            let published = error.into_public(BudgetAllocator(ledger.clone()));
             assert_eq!(ledger.current(), 0);
+            drop(published);
             assert_eq!(
                 ledger.peak(),
                 if class == Class::Compilation {
@@ -73,16 +84,16 @@ fn publication_denial_is_a_fixed_resource_error_and_recovers_explicitly() {
             }
             for _ in 0..2 {
                 assert!(matches!(
-                    Failure::Worker(fault).into_public(BudgetAllocator(ledger.clone())),
-                    JitError::ResourceLimit("compiler error publication")
+                    Failure::Worker(fault).into_owned(BudgetAllocator(ledger.clone())),
+                    CompileError::ResourceLimit("compiler error publication")
                 ));
                 assert_eq!(ledger.current(), 0);
             }
             ledger.set_limit(32);
             ledger.fail_after(usize::MAX);
             assert!(
-                matches!(Failure::Worker(fault).into_public(BudgetAllocator(ledger.clone())),
-                JitError::Compilation(text) if text == fault.label())
+                matches!(Failure::Worker(fault).into_owned(BudgetAllocator(ledger.clone())),
+                CompileError::Compilation(text) if text == fault.label())
             );
             assert_eq!(ledger.current(), 0);
         }
@@ -101,8 +112,8 @@ fn protocol_refusals_never_allocate_or_become_worker_compilation_errors() {
         Error::Outcome,
     ] {
         assert!(matches!(
-            Failure::Protocol(fault).into_public(BudgetAllocator(ledger.clone())),
-            JitError::Unavailable("compiler response protocol")
+            Failure::Protocol(fault).into_owned(BudgetAllocator(ledger.clone())),
+            CompileError::Unavailable("compiler response protocol")
         ));
     }
     assert_eq!(ledger.peak(), 0);
@@ -127,16 +138,16 @@ fn authenticated_failure_storage_is_reclaimed_before_publication_and_corruption_
         let failure = Artifact::new(bytes, 42, &[7; 32]).err().unwrap();
         assert_eq!(wire.current(), 0);
         publication.fail_after(0);
-        let error = failure.into_public(BudgetAllocator(publication.clone()));
+        let error = failure.into_owned(BudgetAllocator(publication.clone()));
         if corrupt {
             assert!(matches!(
                 error,
-                JitError::Unavailable("compiler response protocol")
+                CompileError::Unavailable("compiler response protocol")
             ));
         } else {
             assert!(matches!(
                 error,
-                JitError::ResourceLimit("compiler error publication")
+                CompileError::ResourceLimit("compiler error publication")
             ));
         }
         assert_eq!(publication.current(), 0);

@@ -6,17 +6,17 @@ use cranelift_codegen::{
     },
 };
 
-use super::JitError;
+use super::CompileError;
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid native exit transport".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid native exit transport".into())
 }
 
 fn tail(
     function: &Function,
     block: Block,
     output: Value,
-) -> Result<([Inst; 4], [Value; 3]), JitError> {
+) -> Result<([Inst; 4], [Value; 3]), CompileError> {
     let mut tail = function.layout.block_insts(block).rev();
     let ret = tail.next().ok_or_else(invalid)?;
     if function.dfg.insts[ret].opcode() != Opcode::Return || !function.dfg.inst_args(ret).is_empty()
@@ -58,7 +58,7 @@ fn tail(
     Ok((stores, values))
 }
 
-fn verify_input(function: &Function) -> Result<Value, JitError> {
+fn verify_input(function: &Function) -> Result<Value, CompileError> {
     let entry = function.layout.entry_block().ok_or_else(invalid)?;
     let params = function.dfg.block_params(entry);
     let types = [types::I64, types::I64, types::I32, types::I64, types::I64];
@@ -115,7 +115,7 @@ fn verify_input(function: &Function) -> Result<Value, JitError> {
     Ok(output)
 }
 
-fn verify_tail(function: &Function, block: Block, values: [Value; 3]) -> Result<(), JitError> {
+fn verify_tail(function: &Function, block: Block, values: [Value; 3]) -> Result<(), CompileError> {
     let mut tail = function.layout.block_insts(block).rev();
     let ret = tail.next().ok_or_else(invalid)?;
     let packed = tail.next().ok_or_else(invalid)?;
@@ -123,7 +123,7 @@ fn verify_tail(function: &Function, block: Block, values: [Value; 3]) -> Result<
     let shift = tail.next().ok_or_else(invalid)?;
     let reason = tail.next().ok_or_else(invalid)?;
     let count = tail.next().ok_or_else(invalid)?;
-    let result = |inst| -> Result<Value, JitError> {
+    let result = |inst| -> Result<Value, CompileError> {
         match function.dfg.inst_results(inst) {
             &[value] if function.dfg.value_type(value) == types::I64 => Ok(value),
             _ => Err(invalid()),
@@ -159,7 +159,7 @@ fn verify_tail(function: &Function, block: Block, values: [Value; 3]) -> Result<
     Ok(())
 }
 
-pub(super) fn lower(function: &mut Function) -> Result<(), JitError> {
+pub(super) fn lower(function: &mut Function) -> Result<(), CompileError> {
     let output = verify_input(function)?;
     super::fill_signature(&mut function.signature.returns, [types::I64; 2])?;
     let mut block = function.layout.entry_block();

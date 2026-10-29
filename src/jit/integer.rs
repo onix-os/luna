@@ -3,7 +3,7 @@ use cranelift_codegen::ir::{
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
-use super::{abi, ir::Snapshot, leaf, JitError};
+use super::{abi, ir::Snapshot, leaf, CompileError};
 
 pub(super) struct Plan {
     pattern: leaf::Pattern,
@@ -371,15 +371,15 @@ mod tests {
 }
 
 impl Plan {
-    pub(super) fn new(snapshot: &Snapshot) -> Result<Self, JitError> {
+    pub(super) fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
         let pattern = leaf::Pattern::recognize(snapshot)
-            .ok_or_else(|| JitError::Compilation("invalid integer activation source".into()))?;
+            .ok_or_else(|| CompileError::Compilation("invalid integer activation source".into()))?;
         let constant = match pattern.right {
             leaf::Operand::Register(_) => None,
             leaf::Operand::Constant(index) => {
                 let slot = snapshot.constants[usize::from(index)];
                 if slot.tag != abi::INTEGER {
-                    return Err(JitError::Compilation(
+                    return Err(CompileError::Compilation(
                         "non-integer activation constant".into(),
                     ));
                 }
@@ -394,7 +394,7 @@ impl Plan {
         name: UserFuncName,
         signature: Signature,
         config: cranelift_codegen::isa::TargetFrontendConfig,
-    ) -> Result<Function, JitError> {
+    ) -> Result<Function, CompileError> {
         let pointer = config.pointer_type();
         let expected = [pointer, types::I64, types::I32, pointer, pointer];
         if signature.params.len() != 5
@@ -405,7 +405,7 @@ impl Plan {
                 .zip(expected)
                 .any(|(param, ty)| param.value_type != ty)
         {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "invalid integer activation signature".into(),
             ));
         }
@@ -520,10 +520,10 @@ impl Plan {
         function: &Function,
         signature: Signature,
         config: cranelift_codegen::isa::TargetFrontendConfig,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let expected = self.function(function.name.clone(), signature, config)?;
         if function != &expected {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "integer activation differs from source template".into(),
             ));
         }

@@ -3,7 +3,7 @@ use cranelift_codegen::{
     ir::{types, Block, Function, InstBuilder, Value},
 };
 
-use super::{IntCC, JitError, Paths};
+use super::{CompileError, IntCC, Paths};
 
 pub(in crate::jit) struct Rewrite {
     argument: usize,
@@ -18,7 +18,7 @@ impl Rewrite {
         function: &mut Function,
         paths: &Paths,
         fallback: Block,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         paths.points.get(pc as usize).ok_or_else(super::invalid)?;
         Self::bind(function, 1, u64::from(pc), fallback)
     }
@@ -27,7 +27,7 @@ impl Rewrite {
         budget: u32,
         function: &mut Function,
         fallback: Block,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         if budget > 64 {
             return Err(super::invalid());
         }
@@ -39,7 +39,7 @@ impl Rewrite {
         argument: usize,
         constant: u64,
         fallback: Block,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let entry = function.layout.entry_block().ok_or_else(super::invalid)?;
         let parameters: [Value; 5] = function
             .dfg
@@ -101,7 +101,7 @@ impl Rewrite {
         &self,
         original: &Function,
         function: &Function,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let entry = function.layout.entry_block().ok_or_else(super::invalid)?;
         let [literal, zero, comparison, branch] = super::instructions::<4>(function, entry)?;
         let parameters = function.dfg.block_params(entry);

@@ -1,7 +1,7 @@
 use allocator_api2::vec::Vec;
 use sha2::{Digest, Sha256};
 
-use super::{resources::BudgetAllocator, JitError};
+use super::{resources::BudgetAllocator, CompileError};
 
 #[cfg(test)]
 mod publication_tests;
@@ -38,13 +38,13 @@ pub(super) struct Fault {
 }
 
 impl Fault {
-    pub fn classify(error: &JitError, stage: Stage) -> Self {
+    pub fn classify(error: &CompileError, stage: Stage) -> Self {
         Self {
-            class: match error {
-                JitError::Unavailable(_) => Class::Unavailable,
-                JitError::ResourceLimit(_) => Class::Resource,
-                JitError::Compilation(_) => Class::Compilation,
-                JitError::InvalidConfiguration(_) => Class::Configuration,
+            class: match error.class() {
+                super::compile_error::Class::Unavailable => Class::Unavailable,
+                super::compile_error::Class::Resource => Class::Resource,
+                super::compile_error::Class::Compilation => Class::Compilation,
+                super::compile_error::Class::Configuration => Class::Configuration,
             },
             stage,
         }
@@ -185,22 +185,25 @@ pub(super) enum Failure {
 }
 
 impl Failure {
-    pub fn into_public(self, allocator: BudgetAllocator) -> JitError {
+    pub fn into_owned(self, allocator: BudgetAllocator) -> CompileError {
         match self {
-            Self::Protocol(_) => JitError::Unavailable("compiler response protocol"),
+            Self::Protocol(_) => CompileError::Unavailable("compiler response protocol"),
             Self::Worker(fault) => match fault.class {
-                Class::Resource => JitError::ResourceLimit(fault.label()),
-                Class::Unavailable | Class::Rejected => JitError::Unavailable(fault.label()),
-                Class::Configuration => JitError::InvalidConfiguration(fault.label()),
+                Class::Resource => CompileError::ResourceLimit(fault.label()),
+                Class::Unavailable | Class::Rejected => CompileError::Unavailable(fault.label()),
+                Class::Configuration => CompileError::InvalidConfiguration(fault.label()),
                 Class::Compilation => {
                     let (text, charge) =
                         match super::global_box::try_string(fault.label(), 32, allocator) {
                             Ok(value) => value,
-                            Err(_) => return JitError::ResourceLimit("compiler error publication"),
+                            Err(_) => {
+                                return CompileError::ResourceLimit("compiler error publication")
+                            }
                         };
-                    let error = JitError::Compilation(text);
-                    drop(charge);
-                    error
+                    match super::diagnostic::Message::from_owned(text, charge) {
+                        Ok(message) => CompileError::Compilation(message),
+                        Err(_) => CompileError::ResourceLimit("compiler error publication"),
+                    }
                 }
             },
         }

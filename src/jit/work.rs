@@ -1,6 +1,6 @@
 use crate::opcode::Operation;
 
-use super::{ir::Snapshot, JitConfig, JitError};
+use super::{ir::Snapshot, CompileError, JitConfig};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Limits {
@@ -26,7 +26,7 @@ pub(super) struct Expansion {
 }
 
 impl Expansion {
-    pub fn admit(snapshot: &Snapshot, limits: Limits) -> Result<Self, JitError> {
+    pub fn admit(snapshot: &Snapshot, limits: Limits) -> Result<Self, CompileError> {
         snapshot.verify()?;
         let mut expansion = Self {
             instructions: 256,
@@ -40,7 +40,7 @@ impl Expansion {
         Ok(expansion)
     }
 
-    fn add(&mut self, op: Operation) -> Result<(), JitError> {
+    fn add(&mut self, op: Operation) -> Result<(), CompileError> {
         use Operation::*;
         let extra = match op {
             LoadNil { count, .. } => 2 * usize::from(count),
@@ -90,30 +90,32 @@ impl Expansion {
             | ShiftRight { .. }
             | BitNot { .. } => 0,
         };
-        self.instructions = self
-            .instructions
-            .checked_add(256 + extra)
-            .ok_or(JitError::ResourceLimit("IR instruction expansion overflow"))?;
+        self.instructions =
+            self.instructions
+                .checked_add(256 + extra)
+                .ok_or(CompileError::ResourceLimit(
+                    "IR instruction expansion overflow",
+                ))?;
         self.blocks = self
             .blocks
             .checked_add(32)
-            .ok_or(JitError::ResourceLimit("IR block expansion overflow"))?;
+            .ok_or(CompileError::ResourceLimit("IR block expansion overflow"))?;
         Ok(())
     }
 
-    fn check(self, limits: Limits) -> Result<(), JitError> {
+    fn check(self, limits: Limits) -> Result<(), CompileError> {
         if self.instructions > limits.instructions {
-            Err(JitError::ResourceLimit("IR instructions"))
+            Err(CompileError::ResourceLimit("IR instructions"))
         } else if self.blocks > limits.blocks {
-            Err(JitError::ResourceLimit("IR blocks"))
+            Err(CompileError::ResourceLimit("IR blocks"))
         } else {
             Ok(())
         }
     }
 
-    pub fn verify_actual(self, instructions: usize, blocks: usize) -> Result<(), JitError> {
+    pub fn verify_actual(self, instructions: usize, blocks: usize) -> Result<(), CompileError> {
         if instructions > self.instructions || blocks > self.blocks {
-            Err(JitError::Compilation(
+            Err(CompileError::Compilation(
                 "IR expansion exceeds admitted bound".into(),
             ))
         } else {
@@ -187,7 +189,7 @@ mod tests {
                     ..Limits::from(&JitConfig::default())
                 }
             ),
-            Err(JitError::ResourceLimit("IR instructions"))
+            Err(CompileError::ResourceLimit("IR instructions"))
         ));
         assert!(matches!(
             Expansion::admit(
@@ -198,7 +200,7 @@ mod tests {
                     ..Limits::from(&JitConfig::default())
                 }
             ),
-            Err(JitError::ResourceLimit("IR blocks"))
+            Err(CompileError::ResourceLimit("IR blocks"))
         ));
     }
 
@@ -214,7 +216,9 @@ mod tests {
         };
         assert!(matches!(
             bound.add(op),
-            Err(JitError::ResourceLimit("IR instruction expansion overflow"))
+            Err(CompileError::ResourceLimit(
+                "IR instruction expansion overflow"
+            ))
         ));
         let mut bound = Expansion {
             instructions: 0,
@@ -222,7 +226,7 @@ mod tests {
         };
         assert!(matches!(
             bound.add(op),
-            Err(JitError::ResourceLimit("IR block expansion overflow"))
+            Err(CompileError::ResourceLimit("IR block expansion overflow"))
         ));
         let bound = Expansion {
             instructions: 100,
@@ -231,11 +235,11 @@ mod tests {
         bound.verify_actual(100, 10).unwrap();
         assert!(matches!(
             bound.verify_actual(101, 10),
-            Err(JitError::Compilation(_))
+            Err(CompileError::Compilation(_))
         ));
         assert!(matches!(
             bound.verify_actual(100, 11),
-            Err(JitError::Compilation(_))
+            Err(CompileError::Compilation(_))
         ));
     }
 
@@ -252,7 +256,10 @@ mod tests {
                     ..Limits::from(&JitConfig::default())
                 }
             ),
-            Err(JitError::Compilation(_))
+            Err(CompileError::Indexed {
+                label: "invalid operand at PC ",
+                index: 0
+            })
         ));
     }
 
@@ -262,7 +269,7 @@ mod tests {
         let before = source.operations.allocator().0.current();
         assert!(matches!(
             Expansion::admit(&source, Limits::from(&JitConfig::default())),
-            Err(JitError::ResourceLimit("IR instructions"))
+            Err(CompileError::ResourceLimit("IR instructions"))
         ));
         assert_eq!(source.operations.allocator().0.current(), before);
     }
@@ -303,7 +310,7 @@ mod tests {
                     limits,
                     backend::Failure::None,
                 ),
-                Err(JitError::ResourceLimit(reason)) if reason == expected
+                Err(CompileError::ResourceLimit(reason)) if reason == expected
             ));
             assert_eq!(
                 (storage.current(), storage.peak(), storage.refusals()),

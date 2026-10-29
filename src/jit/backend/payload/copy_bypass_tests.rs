@@ -403,7 +403,7 @@ fn bypass_expansion_and_workspace_refusals_leave_source_unchanged() {
                 generous,
                 Contract::FrameBound
             ),
-            Err(JitError::ResourceLimit(_))
+            Err(CompileError::ResourceLimit(_))
         ));
         assert_eq!(output, f.f);
         assert_eq!(memory.0.current(), 0);

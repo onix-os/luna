@@ -39,7 +39,7 @@ fn source() -> Snapshot {
     }
 }
 
-fn compile_source(source: &Snapshot, failure: Failure) -> Result<Code, JitError> {
+fn compile_source(source: &Snapshot, failure: Failure) -> Result<Code, CompileError> {
     let root = Ledger::new(8 * 1024 * 1024);
     compile_selected_rooted(
         source,

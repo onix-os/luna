@@ -6,7 +6,7 @@ mod tests;
 #[derive(Debug)]
 pub(in crate::jit) enum InstallError {
     Packet(Error),
-    Native(JitError),
+    Native(CompileError),
 }
 
 pub(super) struct Loaded {
@@ -53,7 +53,7 @@ pub(in crate::jit) fn install(
     let mut modules = BudgetVec::new_in(metadata.clone());
     modules
         .try_reserve_exact(bundle.modules.len())
-        .map_err(|_| InstallError::Native(JitError::ResourceLimit("artifact module owners")))?;
+        .map_err(|_| InstallError::Native(CompileError::ResourceLimit("artifact module owners")))?;
     for image in &bundle.modules {
         modules.push(
             load_in(
@@ -79,7 +79,7 @@ pub(super) fn load_in(
     workspace: BudgetAllocator,
     failure: Failure,
     protection: BranchProtection,
-) -> Result<Loaded, JitError> {
+) -> Result<Loaded, CompileError> {
     native_fault::bounded(|| {
         load(
             image, total, limit, metadata, workspace, failure, protection,
@@ -95,31 +95,31 @@ fn load(
     workspace: BudgetAllocator,
     failure: Failure,
     protection: BranchProtection,
-) -> Result<Loaded, JitError> {
+) -> Result<Loaded, CompileError> {
     let architecture = link::Architecture::native();
     let mut layouts = BudgetVec::new_in(workspace.clone());
     layouts
         .try_reserve_exact(image.functions.len())
-        .map_err(|_| JitError::ResourceLimit("artifact layouts"))?;
+        .map_err(|_| CompileError::ResourceLimit("artifact layouts"))?;
     for function in &image.functions {
         layouts.push(
             link::Layout::new(function.bytes.len(), &function.relocations, architecture)
-                .map_err(|_| JitError::Unavailable("artifact relocation layout"))?,
+                .map_err(|_| CompileError::Unavailable("artifact relocation layout"))?,
         );
     }
     let mut entries = BudgetVec::new_in(workspace);
     entries
         .try_reserve_exact(image.functions.len())
-        .map_err(|_| JitError::ResourceLimit("artifact entries"))?;
+        .map_err(|_| CompileError::ResourceLimit("artifact entries"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
     let fail = || {
         status
             .error()
-            .unwrap_or(JitError::Unavailable("artifact native memory"))
+            .unwrap_or(CompileError::Unavailable("artifact native memory"))
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -153,13 +153,13 @@ fn load(
             architecture,
             entry.expose_provenance() as u64,
         )
-        .map_err(|_| JitError::Unavailable("artifact relocation address"))?;
+        .map_err(|_| CompileError::Unavailable("artifact relocation address"))?;
         for relocation in &function.relocations {
             let target = target(image, &entries, relocation)
-                .ok_or(JitError::Unavailable("artifact relocation target"))?;
-            patcher
-                .apply(relocation, target)
-                .map_err(|_| JitError::Unavailable("artifact relocation cannot be installed"))?;
+                .ok_or(CompileError::Unavailable("artifact relocation target"))?;
+            patcher.apply(relocation, target).map_err(|_| {
+                CompileError::Unavailable("artifact relocation cannot be installed")
+            })?;
         }
     }
     memory.finalize_checked(protection).map_err(|_| fail())?;

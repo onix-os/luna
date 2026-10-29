@@ -16,7 +16,7 @@ pub(super) fn emit(f: &mut Function, slots: IrValue, read: Read) {
     c.func.replace(read.inst).iadd(base, displacement);
 }
 
-pub(super) fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), CompileError> {
     let displacement = f.layout.prev_inst(read.inst).ok_or_else(invalid)?;
     let base = f.layout.prev_inst(displacement).ok_or_else(invalid)?;
     let base = reads::load(
@@ -51,7 +51,7 @@ pub(super) fn verify_plan(
     slots: IrValue,
     records: &[Read],
     analysis: &mut same_tag::Analysis,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     for &read in records {
         if read.numeric && !analysis.verify_numeric(source, slots, read.inst, read.index as u32) {
             return Err(invalid());

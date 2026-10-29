@@ -196,7 +196,7 @@ fn ordinary_constructor_refuses_the_distinct_entry_and_releases_ownership() {
             integer_activation: false,
             failure: Failure::None,
         });
-        assert!(matches!(result,Err(JitError::Compilation(message)) if message=="non-ordinary native entry ABI"));
+        assert!(matches!(result,Err(CompileError::Compilation(message)) if message=="non-ordinary native entry ABI"));
         assert_eq!(maps.load(Ordering::Relaxed),0);
         assert_eq!(maps.requested(),0);
         assert_eq!(ledger.current(),0);
@@ -231,7 +231,7 @@ fn readonly_selection_rejects_incompatible_lowering_without_retained_ownership()
                     failure,
                 },
             );
-            assert!(matches!(result, Err(JitError::Compilation(_))));
+            assert!(matches!(result, Err(CompileError::Compilation(_))));
             assert_eq!(maps.load(Ordering::Relaxed), 0);
             assert_eq!(maps.requested(), 0);
             assert_eq!(ledger.current(), 0);
@@ -652,7 +652,7 @@ fn distinct_image_resource_refusals_leave_live_ordinary_code_owned() {
                 work,
             );
             assert!(
-                matches!(result, Err(JitError::ResourceLimit(_))),
+                matches!(result, Err(CompileError::ResourceLimit(_))),
                 "resource case {case}"
             );
             assert_eq!(

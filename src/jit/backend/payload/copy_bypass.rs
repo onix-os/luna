@@ -111,7 +111,7 @@ pub(super) fn apply(
     writes: &[Write],
     records: &mut BudgetVec<Bypass, BudgetAllocator>,
     remaining: &mut usize,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     for (write_index, write) in writes.iter().enumerate() {
         let Write::Checked(write) = write else {
             continue;
@@ -182,7 +182,7 @@ pub(super) fn verify(
     record: &Bypass,
     predecessors: &crate::jit::preds::Predecessors,
     remaining: &mut usize,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let Some(Read::Scalar(read)) = reads.get(record.read) else {
         return Err(invalid());
     };

@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn integer_loop_verifier_rejects_mutations_before_mapping() {
-        use super::super::{backend, resources, work, JitConfig, JitError};
+        use super::super::{backend, resources, work, CompileError, JitConfig};
         for program in [
             &b"local s=0 for i=1,100 do s=s+i end return s"[..],
             &b"local s=0 for i=10,1,-1 do s=s*3-i end return s"[..],
@@ -362,7 +362,7 @@ mod tests {
                 backend::Failure::AuditIntegerLoop,
             );
             assert!(
-                matches!(result, Err(JitError::Compilation(message)) if message == "integer loop audit complete")
+                matches!(result, Err(CompileError::Compilation(message)) if message == "integer loop audit complete")
             );
             assert_eq!(memory.load(Ordering::Relaxed), 0);
             assert_eq!(memory.requested(), 0);

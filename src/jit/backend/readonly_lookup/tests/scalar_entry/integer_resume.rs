@@ -25,7 +25,7 @@ fn canonical_resume_refusal_preserves_peers_and_releases_temporary_storage() {
                 BudgetAllocator(ledger.clone()),
                 limits
             ),
-            Err(crate::jit::JitError::ResourceLimit(_))
+            Err(crate::jit::CompileError::ResourceLimit(_))
         ));
         assert!(matches!(
             crate::jit::backend::integer_resume::compile(
@@ -35,7 +35,7 @@ fn canonical_resume_refusal_preserves_peers_and_releases_temporary_storage() {
                 BudgetAllocator(ledger.clone()),
                 (&JitConfig::default()).into()
             ),
-            Err(crate::jit::JitError::ResourceLimit(_))
+            Err(crate::jit::CompileError::ResourceLimit(_))
         ));
         assert_eq!(maps.load(Ordering::Relaxed), mapped);
         assert_eq!(ledger.current(), retained);

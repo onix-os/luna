@@ -302,7 +302,7 @@ pub(in crate::jit) fn validate_identity(features: &str, environment: &[u8]) -> R
 
 pub(in crate::jit) fn apply_target(
     builder: &mut cranelift_codegen::isa::Builder,
-) -> Result<(), crate::jit::JitError> {
+) -> Result<(), crate::jit::CompileError> {
     if let Some(features) = REQUESTED.get() {
         for (index, &name) in features.names().iter().enumerate() {
             builder
@@ -314,7 +314,9 @@ pub(in crate::jit) fn apply_target(
                         "false"
                     },
                 )
-                .map_err(|_| crate::jit::JitError::Unavailable("compiler target feature schema"))?;
+                .map_err(|_| {
+                    crate::jit::CompileError::Unavailable("compiler target feature schema")
+                })?;
         }
     }
     Ok(())

@@ -3,14 +3,14 @@ use super::*;
 pub(crate) fn with_projection_probe(
     function: cranelift_codegen::ir::Function,
     call: impl FnOnce(*const u8),
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let ledger = super::super::resources::Ledger::new(2 * 1024 * 1024);
     let allocator = BudgetAllocator(ledger.clone());
     let total = MappingCounter::new(super::super::resources::Ledger::new(2 * 1024 * 1024));
     let status = MemoryStatus::try_new(allocator.clone())?;
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -25,13 +25,15 @@ pub(crate) fn with_projection_probe(
         },
         allocator.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("projection probe metadata"))?;
-    let (provider, charge) = global_box::try_new(Provider(memory.clone()), allocator)
-        .map_err(|_| JitError::ResourceLimit("projection probe provider"))?;
-    let mut builder = native_builder(cranelift_native::builder())?;
+    .map_err(|_| CompileError::ResourceLimit("projection probe metadata"))?;
+    let (provider, charge) = global_box::try_new(Provider(memory.clone()), allocator.clone())
+        .map_err(|_| CompileError::ResourceLimit("projection probe provider"))?;
+    let mut builder = native_builder(cranelift_native::builder(), allocator.clone())?;
     builder.memory_provider(provider);
     let mut module = JITModule::new(builder);
-    let fail = |error: cranelift_module::ModuleError| JitError::Compilation(error.to_string());
+    let fail = |error: cranelift_module::ModuleError| {
+        CompileError::compilation(format_args!("{error}"), allocator.clone())
+    };
     let declaration = module
         .declare_anonymous_function(&function.signature)
         .map_err(fail)?;

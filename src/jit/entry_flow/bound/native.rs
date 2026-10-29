@@ -215,8 +215,8 @@ fn invalid_entries_and_ir_limits_release_resources() {
             ),
         );
         match fault {
-            0 | 1 => assert!(matches!(result, Err(super::JitError::ResourceLimit(_)))),
-            2 | 3 | 5 | 6 => assert!(matches!(result, Err(super::JitError::Compilation(_)))),
+            0 | 1 => assert!(matches!(result, Err(super::CompileError::ResourceLimit(_)))),
+            2 | 3 | 5 | 6 => assert!(matches!(result, Err(super::CompileError::Compilation(_)))),
             _ => assert!(result.is_ok(), "{:?}", result.as_ref().err()),
         }
         drop(result);

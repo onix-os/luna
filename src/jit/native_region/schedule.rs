@@ -187,7 +187,7 @@ impl Runtime {
         &self,
         ctx: crate::Context<'gc>,
         key: Key,
-    ) -> Option<Result<super::Request, crate::jit::JitError>> {
+    ) -> Option<Result<super::Request, crate::jit::CompileError>> {
         let caller = ctx.jit_registry().borrow().resolve(ctx, key.caller)?;
         ctx.jit_registry().borrow().resolve(ctx, key.callee)?;
         let pair = PreparedPair {

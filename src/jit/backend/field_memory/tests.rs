@@ -82,7 +82,11 @@ fn bound(f: &Function) -> Expansion {
     }
 }
 
-fn apply(f: &mut Function, roots: Roots, quota: BudgetAllocator) -> Result<Reservation, JitError> {
+fn apply(
+    f: &mut Function,
+    roots: Roots,
+    quota: BudgetAllocator,
+) -> Result<Reservation, CompileError> {
     lower(f, roots.slots, roots.exit, roots.registers, quota, bound(f))
 }
 

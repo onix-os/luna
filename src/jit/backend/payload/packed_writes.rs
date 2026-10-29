@@ -37,7 +37,7 @@ pub(super) fn admit(
     host: IrValue,
     registers: usize,
     terminal: bool,
-) -> Result<Input, JitError> {
+) -> Result<Input, CompileError> {
     let InstructionData::Store {
         opcode: Opcode::Store,
         args,
@@ -189,7 +189,7 @@ pub(super) fn failure_block(write: &Write) -> Block {
 pub(super) fn fragment<'a>(
     f: &Function,
     write: &'a Write,
-) -> Result<packed_lower::Fragment<'a>, JitError> {
+) -> Result<packed_lower::Fragment<'a>, CompileError> {
     Ok(packed_lower::Fragment {
         source: write.input.tag_store,
         first: f
@@ -210,7 +210,7 @@ pub(super) fn verify_source(
     host: IrValue,
     registers: usize,
     terminal: &mut terminal::Analysis<'_>,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let input = write.input;
     let actual = admit(f, input.tag_store, slots, host, registers, input.terminal)?;
     if actual.bits_store != input.bits_store
@@ -226,7 +226,7 @@ pub(super) fn verify_source(
     Ok(())
 }
 
-pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, write: &Write) -> Result<(), CompileError> {
     let input = write.input;
     let [before, after, fast, slow, failed] = write.blocks;
     if input.index >= 256

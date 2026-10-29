@@ -6,7 +6,7 @@ use crate::{
 use super::{
     abi::{self, Slot},
     resources::BudgetAllocator,
-    JitError,
+    CompileError,
 };
 use allocator_api2::vec::Vec;
 
@@ -48,7 +48,13 @@ mod tests {
             base: RegisterIndex(0),
             count: VarCount::constant(3),
         };
-        assert!(matches!(snapshot.verify(), Err(JitError::Compilation(_))));
+        assert!(matches!(
+            snapshot.verify(),
+            Err(CompileError::Indexed {
+                label: "invalid operand at PC ",
+                index: 0
+            })
+        ));
     }
 }
 
@@ -58,7 +64,7 @@ impl Snapshot {
         proto: &FunctionPrototype<'_>,
         max_instructions: usize,
         max_bytes: usize,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         Self::new_in(
             proto,
             max_instructions,
@@ -70,7 +76,7 @@ impl Snapshot {
         proto: &FunctionPrototype<'_>,
         max_instructions: usize,
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let bytes = proto
             .opcodes
             .len()
@@ -83,22 +89,22 @@ impl Snapshot {
                         .checked_mul(std::mem::size_of::<Slot>())?,
                 )
             })
-            .ok_or(JitError::ResourceLimit("snapshot size overflow"))?;
+            .ok_or(CompileError::ResourceLimit("snapshot size overflow"))?;
         if proto.opcodes.len() > max_instructions
             || proto.stack_size > 256
             || !allocator.0.fits(bytes)
         {
-            return Err(JitError::ResourceLimit("prototype snapshot"));
+            return Err(CompileError::ResourceLimit("prototype snapshot"));
         }
         let mut operations = Vec::new_in(allocator.clone());
         operations
             .try_reserve_exact(proto.opcodes.len())
-            .map_err(|_| JitError::ResourceLimit("prototype snapshot"))?;
+            .map_err(|_| CompileError::ResourceLimit("prototype snapshot"))?;
         operations.extend(proto.opcodes.iter().map(|op| op.decode()));
         let mut constants = Vec::new_in(allocator);
         constants
             .try_reserve_exact(proto.constants.len())
-            .map_err(|_| JitError::ResourceLimit("prototype snapshot"))?;
+            .map_err(|_| CompileError::ResourceLimit("prototype snapshot"))?;
         constants.extend(proto.constants.iter().copied().map(Slot::from_constant));
         let mut snapshot = Self {
             prepared_keys: None,
@@ -113,13 +119,15 @@ impl Snapshot {
         Ok(snapshot)
     }
 
-    pub(super) fn verify(&self) -> Result<(), JitError> {
+    pub(super) fn verify(&self) -> Result<(), CompileError> {
         use Operation::*;
         if let Some(keys) = &self.prepared_keys {
             keys.verify(self)?;
         }
         if self.registers > 256 || self.operations.len() > u32::MAX as usize {
-            return Err(JitError::Compilation("invalid snapshot capacity".into()));
+            return Err(CompileError::Compilation(
+                "invalid snapshot capacity".into(),
+            ));
         }
         for (index, slot) in self.constants.iter().enumerate() {
             let valid = match slot.tag {
@@ -129,9 +137,7 @@ impl Snapshot {
                 _ => false,
             };
             if !valid {
-                return Err(JitError::Compilation(format!(
-                    "invalid constant at index {index}"
-                )));
+                return Err(CompileError::indexed("invalid constant at index ", index));
             }
         }
         let reg = |index: u8| usize::from(index) < self.registers;
@@ -215,12 +221,12 @@ impl Snapshot {
                 | ShiftRight { dest, left, right } => reg(dest.0) && rc(left) && rc(right),
             };
             if !valid {
-                return Err(JitError::Compilation(format!("invalid operand at PC {pc}")));
+                return Err(CompileError::indexed("invalid operand at PC ", pc));
             }
             super::flow::successors(op, pc, self.operations.len())?;
         }
         if self.operations.is_empty() {
-            return Err(JitError::Compilation("empty prototype".into()));
+            return Err(CompileError::Compilation("empty prototype".into()));
         }
         Ok(())
     }

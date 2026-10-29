@@ -42,7 +42,7 @@ pub(super) fn lower(
     host: IrValue,
     allocator: BudgetAllocator,
     expansion: crate::jit::work::Expansion,
-) -> Result<Option<Copy>, JitError> {
+) -> Result<Option<Copy>, CompileError> {
     let mut calls = false;
     let mut uses = 0usize;
     for block in f.layout.blocks() {
@@ -91,12 +91,12 @@ pub(super) fn lower(
         .checked_add(1)
         .and_then(|n| n.checked_mul(2))
         .and_then(|n| n.checked_add(instructions))
-        .ok_or(JitError::ResourceLimit("payload host copy work"))?;
+        .ok_or(CompileError::ResourceLimit("payload host copy work"))?;
     expansion.verify_actual(expected, blocks)?;
     let mut reloads = BudgetVec::new_in(allocator);
     reloads
         .try_reserve_exact(uses)
-        .map_err(|_| JitError::ResourceLimit("payload host copy records"))?;
+        .map_err(|_| CompileError::ResourceLimit("payload host copy records"))?;
     let slot = f.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
     let mut block = f.layout.entry_block();
     while let Some(current) = block {
@@ -150,7 +150,7 @@ pub(super) fn lower(
     }))
 }
 
-fn address(f: &Function, inst: Inst, slot: StackSlot, value: IrValue) -> Result<(), JitError> {
+fn address(f: &Function, inst: Inst, slot: StackSlot, value: IrValue) -> Result<(), CompileError> {
     if !matches!(f.dfg.insts[inst], InstructionData::StackAddr { opcode: Opcode::StackAddr, stack_slot, offset }
         if stack_slot == slot && i32::from(offset) == 0)
         || f.dfg.inst_results(inst) != [value]
@@ -161,7 +161,7 @@ fn address(f: &Function, inst: Inst, slot: StackSlot, value: IrValue) -> Result<
     Ok(())
 }
 
-pub(super) fn verify(f: &Function, copy: &Copy) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, copy: &Copy) -> Result<(), CompileError> {
     if copy.reloads.windows(2).any(|r| {
         r[0].address_value.as_u32() >= r[1].address_value.as_u32()
             || r[0].value.as_u32() >= r[1].value.as_u32()

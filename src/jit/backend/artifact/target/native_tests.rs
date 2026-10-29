@@ -8,7 +8,13 @@ fn allocator() -> BudgetAllocator {
 }
 
 fn reference() -> JITModule {
-    JITModule::new(native_builder(cranelift_native::builder()).unwrap())
+    JITModule::new(
+        native_builder(
+            cranelift_native::builder(),
+            crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20)),
+        )
+        .unwrap(),
+    )
 }
 
 #[test]
@@ -22,8 +28,13 @@ fn complete_native_schema_defaults_and_identity_match_the_actual_compiler() {
         assert_eq!(flag.name, name);
         assert_eq!(flag.as_bool(), Some(detected.value(index)));
     }
-    let defaults =
-        JITModule::new(native_builder(cranelift_native::builder_with_options(false)).unwrap());
+    let defaults = JITModule::new(
+        native_builder(
+            cranelift_native::builder_with_options(false),
+            crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20)),
+        )
+        .unwrap(),
+    );
     assert!(defaults
         .isa()
         .isa_flags()
@@ -73,10 +84,11 @@ fn all_feature_bits_and_mixed_scopes_preserve_exact_compiler_environment() {
 #[test]
 fn bounded_identity_forbids_compiler_construction_and_reclaims_budget_refusals() {
     assert_compiler_allowed();
-    assert!(
-        std::panic::catch_unwind(|| identity(|| native_builder(Err("identity guard probe"))))
-            .is_err()
-    );
+    assert!(std::panic::catch_unwind(|| identity(|| native_builder(
+        Err("identity guard probe"),
+        crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20))
+    )))
+    .is_err());
     assert_compiler_allowed();
     let denied = allocator();
     denied.0.fail_after(0);

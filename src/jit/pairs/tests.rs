@@ -340,7 +340,7 @@ fn pair_pressure_evicts_lru_and_bounds_retries_without_resetting_victim_attempts
     lua.enter(|ctx| ctx.jit().observe_pair(second));
     assert!(matches!(
         lua.service_jit(),
-        Err(JitError::ResourceLimit("native mappings"))
+        Err(crate::jit::JitError::ResourceLimit("native mappings"))
     ));
     lua.enter(|ctx| {
         let manager = ctx.jit().0.borrow();
@@ -444,7 +444,7 @@ fn pinned_pair_leases_refuse_eviction_then_recover_without_resetting_attempts() 
     lua.enter(|ctx| ctx.jit().observe_pair(next));
     assert!(matches!(
         lua.service_jit(),
-        Err(JitError::ResourceLimit("native mappings"))
+        Err(crate::jit::JitError::ResourceLimit("native mappings"))
     ));
     assert_eq!(lua.jit_stats().cache_eviction_refusals, 1);
     assert_eq!(lua.jit_stats().cache_evictions, 0);
@@ -487,7 +487,7 @@ fn exhausted_pair_retry_budget_preserves_an_unpinned_peer() {
     lua.enter(|ctx| ctx.jit().observe_pair(next));
     assert!(matches!(
         lua.service_jit(),
-        Err(JitError::ResourceLimit("native mappings"))
+        Err(crate::jit::JitError::ResourceLimit("native mappings"))
     ));
     lua.enter(|ctx| {
         let manager = ctx.jit().0.borrow();
@@ -551,7 +551,7 @@ fn retry_owner_refusal_releases_mappings_without_resetting_victim_attempts() {
     lua.enter(|ctx| ctx.jit().observe_pair(next));
     assert!(matches!(
         lua.service_jit(),
-        Err(JitError::ResourceLimit("JIT metadata"))
+        Err(crate::jit::JitError::ResourceLimit("JIT metadata"))
     ));
     lua.enter(|ctx| {
         let manager = ctx.jit().0.borrow();
@@ -1006,7 +1006,7 @@ fn mapping_quota_refusal_preserves_and_executes_an_existing_peer_lease() {
     lua.enter(|ctx| ctx.jit().observe_pair(key));
     assert!(matches!(
         lua.service_jit(),
-        Err(JitError::ResourceLimit("native mappings"))
+        Err(crate::jit::JitError::ResourceLimit("native mappings"))
     ));
     assert_eq!(
         (
@@ -1069,7 +1069,10 @@ fn second_snapshot_refusal_releases_the_first_snapshot_and_consumes_one_attempt(
     config.max_snapshot_bytes = caller_bytes + 1;
     lua.set_jit_config(config).unwrap();
     lua.enter(|ctx| ctx.jit().observe_pair(key));
-    assert!(matches!(lua.service_jit(), Err(JitError::ResourceLimit(_))));
+    assert!(matches!(
+        lua.service_jit(),
+        Err(crate::jit::JitError::ResourceLimit(_))
+    ));
     assert_eq!(lua.jit_stats().snapshot_bytes, 0);
     assert_eq!(lua.jit_stats().code_bytes, 0);
     assert_eq!(lua.jit_stats().compilation_failures, 1);

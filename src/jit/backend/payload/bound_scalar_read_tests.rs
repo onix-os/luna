@@ -5,7 +5,7 @@ fn allocator(limit: usize) -> BudgetAllocator {
     BudgetAllocator(crate::jit::resources::Ledger::new(limit))
 }
 
-fn check(f: &Function, read: &Read, slots: IrValue) -> Result<(), JitError> {
+fn check(f: &Function, read: &Read, slots: IrValue) -> Result<(), CompileError> {
     cranelift_codegen::verify_function(f, &settings::Flags::new(settings::builder())).unwrap();
     let predecessors = Predecessors::new(f, allocator(1 << 20)).unwrap();
     verify_contract(f, read, slots, Contract::FrameBound, Some(&predecessors))

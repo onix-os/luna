@@ -618,7 +618,7 @@ fn numeric_read_graph_quota_refusal_preserves_source_and_releases_storage() {
             result.unwrap();
             valid(&f);
         } else {
-            assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+            assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
             assert_eq!(f, source);
         }
     }

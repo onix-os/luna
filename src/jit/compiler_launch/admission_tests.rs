@@ -1,7 +1,7 @@
 use super::*;
 use crate::jit::{
     resources::{BudgetAllocator, Ledger, LedgerRef},
-    JitError,
+    CompileError,
 };
 
 fn fixture() -> (LedgerRef, BudgetAllocator, Owner) {
@@ -43,7 +43,7 @@ fn one_byte_host_refusal_rolls_back_and_only_explicit_headroom_recovers() {
     for _ in 0..2 {
         assert!(matches!(
             Admission::new(image.clone(), 65536),
-            Err(JitError::ResourceLimit("compiler workspace"))
+            Err(CompileError::ResourceLimit("compiler workspace"))
         ));
         assert_eq!(host.accounted(), baseline);
     }
@@ -63,13 +63,13 @@ fn invalid_and_overflowing_limits_never_publish_an_admission() {
     for limit in [0, libc::RLIM_INFINITY] {
         assert!(matches!(
             Admission::new(image.clone(), limit),
-            Err(JitError::InvalidConfiguration("compiler workspace"))
+            Err(CompileError::InvalidConfiguration("compiler workspace"))
         ));
         assert_eq!(host.accounted(), baseline);
     }
     assert!(matches!(
         Admission::new(image.clone(), libc::RLIM_INFINITY - 1),
-        Err(JitError::ResourceLimit("compiler workspace"))
+        Err(CompileError::ResourceLimit("compiler workspace"))
     ));
     assert_eq!(host.accounted(), baseline);
 }

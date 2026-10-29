@@ -8,6 +8,8 @@ use hashbrown::HashMap;
 use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
+pub(crate) use compile_error::Error as CompileError;
+
 #[cfg(any(
     test,
     all(
@@ -97,6 +99,7 @@ pub(crate) mod chains;
     )
 ))]
 mod code_index;
+mod compile_error;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
     not(miri),
@@ -118,6 +121,7 @@ mod compiler_jobs;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod compiler_launch;
+mod diagnostic;
 #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
 mod embedded_worker;
 
@@ -211,10 +215,6 @@ mod flow;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod fuzz;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
 mod global_box;
 mod global_owner;
 #[cfg(all(
@@ -367,9 +367,9 @@ impl Default for JitConfig {
 }
 
 impl JitConfig {
-    pub(crate) fn validate(&self) -> Result<(), JitError> {
+    pub(crate) fn validate(&self) -> Result<(), CompileError> {
         if self.hot_threshold == 0 {
-            return Err(JitError::InvalidConfiguration(
+            return Err(CompileError::InvalidConfiguration(
                 "hot_threshold must be positive",
             ));
         }
@@ -383,7 +383,7 @@ impl JitConfig {
             || self.max_metadata_bytes == 0
             || self.max_compile_attempts == 0
         {
-            return Err(JitError::InvalidConfiguration(
+            return Err(CompileError::InvalidConfiguration(
                 "resource limits must be positive",
             ));
         }
@@ -1556,7 +1556,7 @@ impl Drop for InterpreterStats<'_> {
 
 impl Runtime {
     #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
-    pub(crate) fn compiler_jobs(&self) -> Result<compiler_jobs::Supervisor, JitError> {
+    pub(crate) fn compiler_jobs(&self) -> Result<compiler_jobs::Supervisor, CompileError> {
         let mut manager = self.0.borrow_mut();
         if let Some(jobs) = &manager.compiler_jobs {
             jobs.configure(manager.config.max_queue_entries)?;
@@ -1588,7 +1588,7 @@ impl Runtime {
         luna_jit_embedded_worker,
         not(miri)
     ))]
-    pub(crate) fn compiler_jobs_scope(&self) -> Result<compiler_jobs::Scope, JitError> {
+    pub(crate) fn compiler_jobs_scope(&self) -> Result<compiler_jobs::Scope, CompileError> {
         let jobs = if backend::artifact::runtime::enabled() {
             Some(self.compiler_jobs()?)
         } else {
@@ -1808,7 +1808,7 @@ impl Runtime {
         self.0.borrow().memory.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn compile(&self, id: u64, mut snapshot: ir::Snapshot) -> Result<(), JitError> {
+    pub(crate) fn compile(&self, id: u64, mut snapshot: ir::Snapshot) -> Result<(), CompileError> {
         #[cfg(test)]
         {
             let hook = self.0.borrow_mut().before_compile.take();
@@ -1981,7 +1981,7 @@ impl Runtime {
                 )
             };
             let mut result = snapshot.with_prepared_fallback(retry_prepared, compile);
-            if matches!(&result, Err(JitError::ResourceLimit("native mappings"))) {
+            if matches!(&result, Err(CompileError::ResourceLimit("native mappings"))) {
                 let retry = {
                     let mut manager = self.0.borrow_mut();
                     manager.evict_for_retry(id)
@@ -2038,7 +2038,7 @@ impl Runtime {
                         if reserved.is_err() {
                             manager.stats.compilation_failures =
                                 manager.stats.compilation_failures.saturating_add(1);
-                            return Err(JitError::ResourceLimit("JIT metadata"));
+                            return Err(CompileError::ResourceLimit("JIT metadata"));
                         }
                         #[cfg(test)]
                         match failure {
@@ -2059,7 +2059,7 @@ impl Runtime {
                             Err(_) => {
                                 manager.stats.compilation_failures =
                                     manager.stats.compilation_failures.saturating_add(1);
-                                return Err(JitError::ResourceLimit("JIT metadata"));
+                                return Err(CompileError::ResourceLimit("JIT metadata"));
                             }
                         };
                         manager.clock = manager.clock.saturating_add(1);
@@ -2091,7 +2091,7 @@ impl Runtime {
         )))]
         {
             let _ = (id, snapshot);
-            Err(JitError::Unavailable(
+            Err(CompileError::Unavailable(
                 "native backend unavailable on this target",
             ))
         }
@@ -3150,7 +3150,7 @@ mod eviction_tests {
                 work::Limits::from(&JitConfig::default()),
                 backend::Failure::None,
             ),
-            Err(JitError::ResourceLimit("native mappings"))
+            Err(CompileError::ResourceLimit("native mappings"))
         ));
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
         assert_eq!(counter.requested(), requested);
@@ -3384,7 +3384,7 @@ mod eviction_tests {
         })
     }
 
-    fn request(runtime: &Runtime, id: u64) -> Result<(), JitError> {
+    fn request(runtime: &Runtime, id: u64) -> Result<(), CompileError> {
         {
             let mut manager = runtime.0.borrow_mut();
             manager.tracked.entry(id).or_default();
@@ -3643,7 +3643,7 @@ mod eviction_tests {
         );
         assert!(matches!(
             result,
-            Err(JitError::ResourceLimit("native image size"))
+            Err(CompileError::ResourceLimit("native image size"))
         ));
         assert_eq!(runtime.usage(), bytes);
         {
@@ -3697,7 +3697,7 @@ mod eviction_tests {
         assert_executable(&runtime.lookup(3).unwrap());
         assert!(matches!(
             request(&runtime, 2),
-            Err(JitError::ResourceLimit("native mappings"))
+            Err(CompileError::ResourceLimit("native mappings"))
         ));
         let mut manager = runtime.0.borrow_mut();
         assert_eq!(manager.tracked[&2].attempts, 2);
@@ -3721,7 +3721,7 @@ mod eviction_tests {
         let second = runtime.lookup(2).unwrap();
         assert!(matches!(
             request(&runtime, 3),
-            Err(JitError::ResourceLimit("native mappings"))
+            Err(CompileError::ResourceLimit("native mappings"))
         ));
         {
             let manager = runtime.0.borrow();
@@ -3766,7 +3766,7 @@ mod eviction_tests {
         runtime.0.borrow_mut().config.max_compile_attempts = 1;
         assert!(matches!(
             request(&runtime, 3),
-            Err(JitError::ResourceLimit("native mappings"))
+            Err(CompileError::ResourceLimit("native mappings"))
         ));
         assert_eq!(runtime.usage(), 2 * bytes);
         let manager = runtime.0.borrow();
@@ -3793,7 +3793,7 @@ mod eviction_tests {
         });
         assert!(matches!(
             runtime.compile(3, snapshot),
-            Err(JitError::ResourceLimit("native image size"))
+            Err(CompileError::ResourceLimit("native image size"))
         ));
         assert_eq!(runtime.usage(), 2 * bytes);
         let manager = runtime.0.borrow();
@@ -3821,7 +3821,7 @@ mod eviction_tests {
         }
         assert!(matches!(
             runtime.compile(3, snapshot()),
-            Err(JitError::ResourceLimit("JIT metadata"))
+            Err(CompileError::ResourceLimit("JIT metadata"))
         ));
         assert_eq!(runtime.usage(), 2 * bytes);
         let manager = runtime.0.borrow();

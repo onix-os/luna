@@ -386,7 +386,7 @@ fn packed_whole_lowers_original_workloads_before_native_publication() {
             Failure::AuditPackedLowering,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "packed lowering audit complete"),
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "packed lowering audit complete"),
             "{:?}",
             result.as_ref().err()
         );

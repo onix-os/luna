@@ -439,6 +439,7 @@ jit-miri:
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-request-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_request-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-reply-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_reply-tests.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-error-publication-miri 2>&1 | tee '$(MIRI_DIR)/jit-error-publication.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-diagnostics-miri jit-compile-errors-miri jit-diagnostic-boundaries-miri 2>&1 | tee '$(MIRI_DIR)/jit-diagnostics.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-worker-workspace-miri 2>&1 | tee '$(MIRI_DIR)/jit-worker-workspace.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compaction-delta-miri 2>&1 | tee '$(MIRI_DIR)/jit-compaction-delta.log'
 	@set -o pipefail; $(MAKE) --no-print-directory jit-compiler-stream-miri 2>&1 | tee '$(MIRI_DIR)/jit-compiler_stream-tests.log'
@@ -2594,6 +2595,27 @@ jit-deps:
 
 jit-check:
 	@$(CARGO) check --workspace --all-targets --features luna/jit $(TARGET_ARG)
+
+.PHONY: jit-diagnostics jit-diagnostics-miri
+jit-diagnostics:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::diagnostic::tests -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-diagnostics-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::diagnostic::tests -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-compile-errors jit-compile-errors-miri
+jit-compile-errors:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::compile_error::tests -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-compile-errors-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::compile_error::tests -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-diagnostic-boundaries jit-diagnostic-boundaries-miri
+jit-diagnostic-boundaries:
+	@set -eu -o pipefail; for spec in 'lua::memory_tests::diagnostic_:3' 'jit::backend::lifetime_tests::diagnostic_:2'; do filter=$${spec%:*}; count=$${spec##*:}; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) "$$filter" -- --test-threads=1 | awk -v expected="$$count" '/^test result: ok[.] / { if ($$4==expected && $$6==0 && $$8==0) valid=1 } { print } END { exit !valid }'; done
+
+jit-diagnostic-boundaries-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' lua::memory_tests::diagnostic_ -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
 
 jit-test:
 	@case "$(JIT_MODE)" in off|auto|force) ;; *) echo "Invalid JIT_MODE: $(JIT_MODE)" >&2; exit 2;; esac

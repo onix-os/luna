@@ -17,7 +17,7 @@ pub(super) fn verify_wide(
     f: &Function,
     instructions: [Inst; 4],
     tag: IrValue,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let [mask, masked, integer, predicate] = instructions;
     let mask = constant(f, mask, -2)?;
     let masked = value(f, masked, Opcode::Band, &[tag, mask], types::I64)?;
@@ -45,7 +45,7 @@ pub(super) fn copy_exit(read: &Read) -> Block {
     read.blocks[1]
 }
 
-pub(super) fn split_copy_entry(f: &mut Function, read: &mut Read) -> Result<Block, JitError> {
+pub(super) fn split_copy_entry(f: &mut Function, read: &mut Read) -> Result<Block, CompileError> {
     let prefix = read.blocks[0];
     let count = if read.contract == Contract::Checked {
         10
@@ -146,7 +146,7 @@ pub(super) fn bitcast(
     inst: Inst,
     input: IrValue,
     ty: cranelift_codegen::ir::Type,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let result = value(f, inst, Opcode::Bitcast, &[input], ty)?;
     let InstructionData::LoadNoOffset { flags, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
@@ -163,7 +163,7 @@ pub(super) fn value(
     opcode: Opcode,
     args: &[IrValue],
     ty: cranelift_codegen::ir::Type,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     if f.dfg.insts[inst].opcode() != opcode
         || f.dfg.inst_args(inst) != args
         || f.dfg.inst_results(inst).len() != 1
@@ -183,7 +183,7 @@ pub(super) fn load(
     base: IrValue,
     offset: i32,
     ty: cranelift_codegen::ir::Type,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let result = value(f, inst, Opcode::Load, &[base], ty)?;
     let InstructionData::Load {
         flags,
@@ -199,7 +199,7 @@ pub(super) fn load(
     Ok(result)
 }
 
-pub(super) fn constant(f: &Function, inst: Inst, expected: i64) -> Result<IrValue, JitError> {
+pub(super) fn constant(f: &Function, inst: Inst, expected: i64) -> Result<IrValue, CompileError> {
     let result = value(f, inst, Opcode::Iconst, &[], types::I64)?;
     let InstructionData::UnaryImm { imm, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
@@ -215,7 +215,7 @@ pub(super) fn compare(
     inst: Inst,
     cc: IntCC,
     args: [IrValue; 2],
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let result = value(f, inst, Opcode::Icmp, &args, types::I8)?;
     let InstructionData::IntCompare { cond, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
@@ -232,7 +232,7 @@ pub(super) fn branch(
     condition: IrValue,
     yes: Block,
     no: Block,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let InstructionData::Brif { arg, blocks, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -248,7 +248,12 @@ pub(super) fn branch(
     Ok(())
 }
 
-pub(super) fn jump(f: &Function, inst: Inst, target: Block, arg: IrValue) -> Result<(), JitError> {
+pub(super) fn jump(
+    f: &Function,
+    inst: Inst,
+    target: Block,
+    arg: IrValue,
+) -> Result<(), CompileError> {
     let InstructionData::Jump { destination, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -263,7 +268,7 @@ pub(super) fn jump(f: &Function, inst: Inst, target: Block, arg: IrValue) -> Res
 }
 
 #[cfg(test)]
-pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), CompileError> {
     verify_contract(f, read, slots, Contract::Checked, None)
 }
 
@@ -273,7 +278,7 @@ pub(super) fn verify_contract(
     slots: IrValue,
     contract: Contract,
     predecessors: Option<&crate::jit::preds::Predecessors>,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let [before, after, wide, other, boolean, zero] = read.blocks;
     if read.contract != contract
         || f.dfg.block_params(after) != [read.result]
@@ -366,7 +371,7 @@ fn verify_bound_edges(
     f: &Function,
     read: &Read,
     predecessors: &crate::jit::preds::Predecessors,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let [before, after, wide, other, boolean, zero] = read.blocks;
     for (index, block) in read.blocks.iter().enumerate() {
         if read.blocks[..index].contains(block) {

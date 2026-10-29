@@ -69,7 +69,7 @@ pub(super) fn verify_source(
     f: &Function,
     write: &Write,
     analysis: &mut same_tag::Analysis,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if !numeric(f, write.tag)
         || !write.proof.matches(write.index, write.tag)
         || !analysis.verify(f, write.slots, write.proof)
@@ -84,7 +84,7 @@ pub(super) fn verify(
     write: &Write,
     predecessors: &crate::jit::preds::Predecessors,
     remaining: &mut usize,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let [before, after] = write.blocks;
     if !numeric(f, write.tag)
         || !write.proof.matches(write.index, write.tag)

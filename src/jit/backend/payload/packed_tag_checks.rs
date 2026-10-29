@@ -157,7 +157,7 @@ impl Check {
         slots: IrValue,
         registers: usize,
         snapshot: (Inst, IrValue),
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if source(f, self.source.inst, slots, registers) != Some(self.source)
             || snapshot != (self.source.tag, self.packed)
         {
@@ -166,12 +166,15 @@ impl Check {
         Ok(())
     }
 
-    pub(super) fn fragment(&self, f: &Function) -> Result<packed_lower::Fragment<'_>, JitError> {
+    pub(super) fn fragment(
+        &self,
+        f: &Function,
+    ) -> Result<packed_lower::Fragment<'_>, CompileError> {
         let mut cursor = Some(self.first);
         let mut take = || {
             let inst = cursor.ok_or_else(invalid)?;
             cursor = f.layout.next_inst(inst);
-            Ok::<_, JitError>(inst)
+            Ok::<_, CompileError>(inst)
         };
         let result = match self.source.kind {
             Kind::Exact(abi::NIL | abi::REFERENCE) => {

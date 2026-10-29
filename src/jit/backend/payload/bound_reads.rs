@@ -42,7 +42,7 @@ pub(super) fn verify_source(
     read: &Read,
     slots: IrValue,
     analysis: &mut same_tag::Analysis,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if !matches!(read.ty, types::I64 | types::F64)
         || reads::load(f, read.inst, slots, read.index as i32 * 16 + 8, read.ty)? != read.result
         || !analysis.verify_numeric(f, slots, read.inst, read.index)
@@ -58,7 +58,7 @@ pub(super) fn verify(
     slots: IrValue,
     predecessors: &crate::jit::preds::Predecessors,
     remaining: &mut usize,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if !matches!(read.ty, types::I64 | types::F64)
         || f.layout.next_inst(read.pointer) != Some(read.inst)
         || !same_tag::numeric_bound_at(f, predecessors, slots, read.pointer, read.index, remaining)

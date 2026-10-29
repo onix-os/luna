@@ -35,7 +35,7 @@ fn required_route_refuses_ineligible_sources_without_retained_resources() {
         work::Limits::from(&JitConfig::default()),
         Failure::RequirePreferredEntry,
     );
-    assert!(matches!(result, Err(JitError::Compilation(ref message))
+    assert!(matches!(result, Err(CompileError::Compilation(ref message))
         if message == "preferred entry unavailable"));
     drop(result);
     assert_eq!(metadata.current(), 0);
@@ -210,7 +210,7 @@ fn preferred_compiler_workspace_boundary_refuses_and_recovers_without_leaks() {
                     assert!(result.is_ok(), "{:?}", result.as_ref().err());
                     assert!(memory.load(Ordering::Relaxed) > 0);
                 } else {
-                    assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                    assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
                     assert!(workspace.refusals() > 0);
                 }
                 drop(result);
@@ -258,9 +258,12 @@ fn preferred_compilation_preserves_ir_admission_limits() {
         match fault {
             0 => assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit("IR instructions"))
+                Err(CompileError::ResourceLimit("IR instructions"))
             )),
-            1 => assert!(matches!(result, Err(JitError::ResourceLimit("IR blocks")))),
+            1 => assert!(matches!(
+                result,
+                Err(CompileError::ResourceLimit("IR blocks"))
+            )),
             _ => assert!(result.is_ok(), "{:?}", result.as_ref().err()),
         }
         drop(result);

@@ -11,7 +11,7 @@ pub(in crate::jit::backend) fn run(
     helpers: &[(u32, FuncRef)],
     headers: &[Block],
     allocator: BudgetAllocator,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let requirements = binding_requirements::Requirements::new(
         function,
         slots,
@@ -85,7 +85,7 @@ fn original_workload_reads() {
             Failure::AuditPayloadReads,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "payload read audit complete")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "payload read audit complete")
         );
         assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
         assert_eq!(metadata.0.current(), 0);

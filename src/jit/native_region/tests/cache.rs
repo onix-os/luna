@@ -33,7 +33,7 @@ fn real_compile_pressure_evicts_cached_region_and_recovers_after_lease_release()
             if pin {
                 assert!(matches!(
                     compile(),
-                    Err(JitError::ResourceLimit("native mappings"))
+                    Err(CompileError::ResourceLimit("native mappings"))
                 ));
                 assert_eq!(memory.requested(), requested);
                 assert_eq!(ctx.jit().0.borrow().stats.cache_evictions, 0);
@@ -76,7 +76,7 @@ fn foreign_and_stale_cache_admission_preserves_existing_regions() {
         metadata.fail_after(0);
         assert!(matches!(
             ctx.jit().install_region(replacement),
-            Err(JitError::ResourceLimit("region owner metadata"))
+            Err(CompileError::ResourceLimit("region owner metadata"))
         ));
         metadata.fail_after(usize::MAX);
         assert!(Shared::ptr_eq(
@@ -102,7 +102,7 @@ fn foreign_and_stale_cache_admission_preserves_existing_regions() {
         assert_eq!(foreign_region.pair.program.key(), key);
         assert!(matches!(
             ctx.jit().install_region(foreign_region),
-            Err(JitError::Compilation(_))
+            Err(CompileError::Compilation(_))
         ));
         assert!(Shared::ptr_eq(
             &original,
@@ -324,7 +324,7 @@ fn region_cache_allocation_failures_preserve_installed_dependencies() {
             let clock = ctx.jit().0.borrow().clock;
             metadata.fail_after(allowance);
             let error = ctx.jit().install_region(region).unwrap_err();
-            assert!(matches!(error, JitError::ResourceLimit(found) if found == label));
+            assert!(matches!(error, CompileError::ResourceLimit(found) if found == label));
             metadata.fail_after(usize::MAX);
             assert_eq!(ctx.jit().0.borrow().clock, clock);
             assert!(ctx.jit().region_lease(key).is_none());
@@ -365,7 +365,7 @@ fn cache_owner_and_table_require_exact_metadata_headroom() {
             } else {
                 assert!(matches!(
                     result,
-                    Err(JitError::ResourceLimit("region caller index metadata"))
+                    Err(CompileError::ResourceLimit("region caller index metadata"))
                 ));
                 assert!(ctx.jit().region_lease(key).is_none());
             }

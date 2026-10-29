@@ -125,7 +125,7 @@ fn universal_memory_rejects_uncovered_memory_and_large_tables() {
     let before = full.clone();
     assert!(matches!(
         lower(&mut full, quota.clone(), bound(&before)),
-        Err(JitError::ResourceLimit("universal memory source flags"))
+        Err(CompileError::ResourceLimit("universal memory source flags"))
     ));
     assert_eq!(full, before);
 

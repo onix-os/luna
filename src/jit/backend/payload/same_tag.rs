@@ -94,12 +94,12 @@ impl Analysis {
             })
     }
 
-    pub(super) fn new(f: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
+    pub(super) fn new(f: &Function, allocator: BudgetAllocator) -> Result<Self, CompileError> {
         let (instructions, blocks) = size(f);
         let remaining = instructions
             .checked_add(blocks)
             .and_then(|n| n.checked_mul(64))
-            .ok_or(JitError::ResourceLimit("payload tag proof work"))?;
+            .ok_or(CompileError::ResourceLimit("payload tag proof work"))?;
         Ok(Self {
             predecessors: Predecessors::new(f, allocator)?,
             remaining,
@@ -110,7 +110,10 @@ impl Analysis {
         })
     }
 
-    pub(super) fn with_cycles(f: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
+    pub(super) fn with_cycles(
+        f: &Function,
+        allocator: BudgetAllocator,
+    ) -> Result<Self, CompileError> {
         let mut analysis = Self::new(f, allocator)?;
         analysis.cycles = true;
         Ok(analysis)
@@ -119,11 +122,11 @@ impl Analysis {
     pub(super) fn with_source_stores(
         f: &Function,
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let mut stores = BudgetVec::new_in(allocator.clone());
         stores
             .try_reserve_exact(f.dfg.num_insts())
-            .map_err(|_| JitError::ResourceLimit("payload source store effects"))?;
+            .map_err(|_| CompileError::ResourceLimit("payload source store effects"))?;
         stores.resize(f.dfg.num_insts(), false);
         let mut analysis = Self::with_cycles(f, allocator)?;
         analysis.effects = Effects::SourceSlots;
@@ -131,7 +134,7 @@ impl Analysis {
         Ok(analysis)
     }
 
-    pub(super) fn record_bound_write(&mut self, tag: Inst, bits: Inst) -> Result<(), JitError> {
+    pub(super) fn record_bound_write(&mut self, tag: Inst, bits: Inst) -> Result<(), CompileError> {
         let stores = self.stores.as_mut().ok_or_else(invalid)?;
         let tag = tag.as_u32() as usize;
         let bits = bits.as_u32() as usize;
@@ -146,7 +149,7 @@ impl Analysis {
     pub(super) fn with_bound_stores(
         f: &Function,
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let mut analysis = Self::with_cycles(f, allocator)?;
         analysis.effects = Effects::BoundMetadata;
         Ok(analysis)

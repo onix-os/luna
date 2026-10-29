@@ -136,7 +136,7 @@ fn source_pair_uses_one_instruction_and_allocation_budget() {
         let ledger = Ledger::new(1 << 20);
         assert!(matches!(
             Input::new(&parent, 0, count - 1, BudgetAllocator(ledger.clone())),
-            Err(JitError::ResourceLimit("fused source instructions"))
+            Err(CompileError::ResourceLimit("fused source instructions"))
         ));
         assert_eq!(ledger.current(), 0);
         let input = Input::new(&parent, 0, count, BudgetAllocator(ledger.clone()))
@@ -149,7 +149,7 @@ fn source_pair_uses_one_instruction_and_allocation_budget() {
         let constrained = Ledger::new(bytes - 1);
         assert!(matches!(
             Input::new(&parent, 0, count, BudgetAllocator(constrained.clone())),
-            Err(JitError::ResourceLimit(_))
+            Err(CompileError::ResourceLimit(_))
         ));
         assert_eq!(constrained.current(), 0);
         for allocations in 0..3 {
@@ -157,7 +157,7 @@ fn source_pair_uses_one_instruction_and_allocation_budget() {
             failing.fail_after(allocations);
             assert!(matches!(
                 Input::new(&parent, 0, count, BudgetAllocator(failing.clone())),
-                Err(JitError::ResourceLimit(_))
+                Err(CompileError::ResourceLimit(_))
             ));
             assert_eq!(failing.current(), 0);
         }

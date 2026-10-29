@@ -23,7 +23,7 @@ fn compile(
     snapshot: &Snapshot,
     failure: Failure,
     memory: MappingCounter,
-) -> Result<backend::Code, JitError> {
+) -> Result<backend::Code, CompileError> {
     backend::compile_in(
         snapshot,
         memory,
@@ -66,7 +66,7 @@ fn wide_compiler_rejects_corruption_before_installation() {
         ] {
             let result = compile(&source, Failure::WidePrepared(Some(fault)), memory.clone());
             assert!(
-                matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid helper call data flow"),
+                matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid helper call data flow"),
                 "fault={}", fault as u8
             );
             assert_eq!(memory.load(Ordering::Relaxed), 0);
@@ -223,7 +223,7 @@ fn wide_compiler_workspace_refusal_releases_charges() {
             if limit == peak {
                 assert!(result.is_ok());
             } else {
-                assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
             }
             drop(result);
             drop(snapshot);
@@ -238,6 +238,6 @@ fn wide_compiler_workspace_refusal_releases_charges() {
             Failure::WidePrepared(None),
             MappingCounter::new(Ledger::new(usize::MAX)),
         );
-        assert!(matches!(result, Err(JitError::Compilation(ref message)) if message == "wide prepared helper unavailable"));
+        assert!(matches!(result, Err(CompileError::Compilation(ref message)) if message == "wide prepared helper unavailable"));
     });
 }

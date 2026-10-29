@@ -13,9 +13,9 @@ pub(in crate::jit) fn verify(
     candidate: &Function,
     target: TargetFrontendConfig,
     convention: CallConv,
-) -> Result<(), crate::jit::JitError> {
+) -> Result<(), crate::jit::CompileError> {
     if candidate != &function(plan, target, convention) {
-        return Err(crate::jit::JitError::Compilation(
+        return Err(crate::jit::CompileError::Compilation(
             "canonical resume differs from source template".into(),
         ));
     }

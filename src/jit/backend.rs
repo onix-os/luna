@@ -22,7 +22,7 @@ use super::{
     native_fault::{self, Fault, Operation as NativeOperation},
     resources::{BudgetAllocator, MappingCounter, Reservation},
     segments::{Request, Segment},
-    JitError,
+    CompileError,
 };
 use crate::opcode::{Operation, RCIndex};
 
@@ -456,6 +456,7 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    CompilerDiagnostic,
     #[cfg(not(miri))]
     RefuseReadonlyOwnerStorage,
     #[cfg(not(miri))]
@@ -566,7 +567,7 @@ pub(super) fn compile(
     snapshot: &Snapshot,
     total: MappingCounter,
     limit: usize,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_in(
         snapshot,
         total,
@@ -585,7 +586,7 @@ pub(super) fn compile_continuations_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     let mut code = compile_in(snapshot, total, limit, metadata.clone(), work, failure)?;
     let Ok(_owner) = Reservation::new(
         metadata.0.clone(),
@@ -615,7 +616,7 @@ pub(super) fn compile_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     #[cfg(test)] failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     #[cfg(all(test, not(miri)))]
     if failure == Failure::PreferBoundPair {
         return bound_pair::compile(snapshot, total, limit, metadata, work);
@@ -652,7 +653,7 @@ pub(super) fn compile_projected_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_selected(
         snapshot,
         total,
@@ -681,7 +682,7 @@ pub(super) fn compile_leaf_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_selected(
         snapshot,
         total,
@@ -710,7 +711,7 @@ pub(super) fn compile_leaf_kernel_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_selected(
         snapshot,
         total,
@@ -737,7 +738,7 @@ pub(super) fn compile_leaf_pair_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_leaf_pair_selected(snapshot, total, limit, metadata, work, failure, false)
 }
 
@@ -749,7 +750,7 @@ pub(super) fn compile_integer_leaf_pair_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_leaf_pair_selected(snapshot, total, limit, metadata, work, failure, true)
 }
 
@@ -762,7 +763,7 @@ fn compile_leaf_pair_selected(
     work: super::work::Limits,
     failure: Failure,
     integer_activation: bool,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let mut ordinary = compile_in(
         snapshot,
@@ -845,7 +846,7 @@ pub(super) fn compile_scoped_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     rooted_moves: bool,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_selected_rooted(
         snapshot,
         total,
@@ -877,7 +878,7 @@ fn compile_selected(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     selection: Selection,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_selected_rooted(snapshot, total, limit, metadata, work, selection, false)
 }
 
@@ -889,7 +890,7 @@ fn compile_selected_rooted(
     work: super::work::Limits,
     selection: Selection,
     rooted_moves: bool,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_image(
         snapshot,
         total,
@@ -930,19 +931,21 @@ struct ImageOptions {
 }
 
 impl<T> Compilation<T> {
-    fn installed(self) -> Result<T, JitError> {
+    fn installed(self) -> Result<T, CompileError> {
         match self {
             Self::Installed(value) => Ok(value),
             #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
-            Self::Emitted { .. } => Err(JitError::Compilation("expected installed code".into())),
+            Self::Emitted { .. } => {
+                Err(CompileError::Compilation("expected installed code".into()))
+            }
         }
     }
 
     #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
-    fn emitted(self) -> Result<usize, JitError> {
+    fn emitted(self) -> Result<usize, CompileError> {
         match self {
             Self::Emitted { relocations } => Ok(relocations),
-            Self::Installed(_) => Err(JitError::Compilation("expected emitted code".into())),
+            Self::Installed(_) => Err(CompileError::Compilation("expected emitted code".into())),
         }
     }
 }
@@ -955,7 +958,7 @@ fn compile_image(
     work: super::work::Limits,
     selection: Selection,
     rooted_moves: bool,
-) -> Result<Image, JitError> {
+) -> Result<Image, CompileError> {
     compile_image_to(
         snapshot,
         total,
@@ -978,7 +981,7 @@ fn compile_image_to(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     options: ImageOptions,
-) -> Result<Compilation<Image>, JitError> {
+) -> Result<Compilation<Image>, CompileError> {
     let ImageOptions {
         selection,
         rooted_moves,
@@ -1022,7 +1025,7 @@ fn compile_image_to(
         #[cfg(not(miri))]
         let incompatible = incompatible || selection.scoped_helpers;
         if incompatible {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 if failure == Failure::RequirePreferredEntry {
                     "preferred entry requires ordinary lowering"
                 } else if matches!(
@@ -1062,7 +1065,7 @@ fn compile_image_to(
         #[cfg(not(miri))]
         let incompatible = incompatible || selection.scoped_helpers;
         if incompatible {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "payload transport requires ordinary lowering".into(),
             ));
         }
@@ -1071,7 +1074,7 @@ fn compile_image_to(
     let leaf_pattern = if selection.leaf {
         Some(
             super::leaf::Pattern::recognize(snapshot)
-                .ok_or_else(|| JitError::Compilation("invalid scalar-cell leaf".into()))?,
+                .ok_or_else(|| CompileError::Compilation("invalid scalar-cell leaf".into()))?,
         )
     } else {
         None
@@ -1087,13 +1090,14 @@ fn compile_image_to(
             || selection.integer_activation
             || failure != Failure::None;
         if incompatible {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "read-only lookup requires ordinary lowering".into(),
             ));
         }
         Some(
-            super::readonly_lookup::Plan::recognize(snapshot)
-                .ok_or_else(|| JitError::Compilation("invalid read-only lookup source".into()))?,
+            super::readonly_lookup::Plan::recognize(snapshot).ok_or_else(|| {
+                CompileError::Compilation("invalid read-only lookup source".into())
+            })?,
         )
     } else {
         None
@@ -1130,7 +1134,7 @@ fn compile_image_to(
     let preferred_entry = if failure == Failure::RequirePreferredEntry {
         Some(
             super::entry_flow::preferred::Plan::new(snapshot, &graph)
-                .ok_or_else(|| JitError::Compilation("preferred entry unavailable".into()))?,
+                .ok_or_else(|| CompileError::Compilation("preferred entry unavailable".into()))?,
         )
     } else {
         None
@@ -1147,7 +1151,7 @@ fn compile_image_to(
     let mut blocks = BudgetVec::new_in(snapshot.operations.allocator().clone());
     blocks
         .try_reserve_exact(snapshot.operations.len())
-        .map_err(|_| JitError::ResourceLimit("frontend block map"))?;
+        .map_err(|_| CompileError::ResourceLimit("frontend block map"))?;
     let mut paths = super::entry_flow::Paths::new(snapshot)?;
     let entries = super::entry_bytes::EntryBytes::try_new(
         graph.nodes.iter().map(|node| node.lowering.native()),
@@ -1158,16 +1162,21 @@ fn compile_image_to(
     let status = MemoryStatus::try_new(metadata.clone())?;
     #[cfg(test)]
     if failure == Failure::DetectHostSetup {
-        return Err(JitError::Compilation("injected host setup probe".into()));
+        return Err(CompileError::Compilation(
+            "injected host setup probe".into(),
+        ));
     }
     let fail = |error: cranelift_module::ModuleError| {
-        status
-            .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+        status.error().unwrap_or_else(|| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -1183,16 +1192,16 @@ fn compile_image_to(
         },
         metadata.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
     let provider_charge;
     let provider;
     #[cfg(test)]
     let binding_metadata = metadata.clone();
     (provider, provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
-        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+        .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
     #[cfg(test)]
     if failure == Failure::DetectProviderSetup {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "injected provider setup probe".into(),
         ));
     }
@@ -1234,7 +1243,7 @@ fn compile_image_to(
             Failure::CorruptHelperFlow(_) | Failure::RequireStrided | Failure::LegacyPreparedRead
         );
     if wide_prepared && !prepare_keys {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "wide prepared helper unavailable".into(),
         ));
     }
@@ -1274,7 +1283,7 @@ fn compile_image_to(
         ledger.set_limit(ledger.current());
     }
     let symbol_charge = Reservation::new(snapshot.operations.allocator().0.clone(), symbol_bytes)
-        .map_err(|_| JitError::ResourceLimit("native symbols"))?;
+        .map_err(|_| CompileError::ResourceLimit("native symbols"))?;
     #[cfg(test)]
     let native_isa = if failure == Failure::NativeIsaUnavailable {
         Err("injected unsupported host instruction set")
@@ -1283,7 +1292,7 @@ fn compile_image_to(
     };
     #[cfg(not(test))]
     let native_isa = cranelift_native::builder();
-    let mut jit = native_builder(native_isa)?;
+    let mut jit = native_builder(native_isa, snapshot.operations.allocator().clone())?;
     for (kind, name, entry) in helper_symbols {
         let _ = kind;
         let address = entry as *const u8;
@@ -1311,6 +1320,18 @@ fn compile_image_to(
     #[cfg(test)]
     let universal_memory_charge;
     let mut module = JITModule::new(jit);
+    #[cfg(test)]
+    if failure == Failure::CompilerDiagnostic {
+        let mut signature = module.make_signature();
+        module
+            .declare_function("diagnostic_probe", Linkage::Import, &signature)
+            .map_err(fail)?;
+        signature.returns.push(AbiParam::new(types::I32));
+        let error = module
+            .declare_function("diagnostic_probe", Linkage::Import, &signature)
+            .expect_err("incompatible diagnostic signature");
+        return Err(fail(error));
+    }
     #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
     let artifact_capture = artifact::begin(if selection.readonly_scope {
         artifact::Kind::Readonly
@@ -1349,16 +1370,16 @@ fn compile_image_to(
         } else {
             0
         })
-        .ok_or(JitError::ResourceLimit("read-only signature size"))?;
+        .ok_or(CompileError::ResourceLimit("read-only signature size"))?;
     let signature_bytes = signature_bytes
         .checked_add(if wide_prepared {
             Layout::array::<AbiParam>(5)
-                .map_err(|_| JitError::ResourceLimit("wide helper signature size"))?
+                .map_err(|_| CompileError::ResourceLimit("wide helper signature size"))?
                 .size()
         } else {
             0
         })
-        .ok_or(JitError::ResourceLimit("wide helper signature size"))?;
+        .ok_or(CompileError::ResourceLimit("wide helper signature size"))?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
         .checked_add(
@@ -1373,42 +1394,42 @@ fn compile_image_to(
                     | Failure::RequireWriteBoundPayload
             ) {
                 Layout::array::<AbiParam>(5)
-                    .map_err(|_| JitError::ResourceLimit("payload signature size"))?
+                    .map_err(|_| CompileError::ResourceLimit("payload signature size"))?
                     .size()
             } else {
                 0
             },
         )
-        .ok_or(JitError::ResourceLimit("native signature size"))?;
+        .ok_or(CompileError::ResourceLimit("native signature size"))?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
         .checked_add(if leaf_pattern.is_some() {
             Layout::array::<AbiParam>(
                 (helper_types.len() + helper_returns.len()) * projection_count,
             )
-            .map_err(|_| JitError::ResourceLimit("inline signature size"))?
+            .map_err(|_| CompileError::ResourceLimit("inline signature size"))?
             .size()
         } else {
             0
         })
-        .ok_or(JitError::ResourceLimit("native signature size"))?;
+        .ok_or(CompileError::ResourceLimit("native signature size"))?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
         .checked_add(if failure == Failure::RequirePackedPayload {
             Layout::array::<AbiParam>(2)
-                .map_err(|_| JitError::ResourceLimit("packed declaration size"))?
+                .map_err(|_| CompileError::ResourceLimit("packed declaration size"))?
                 .size()
         } else {
             0
         })
-        .ok_or(JitError::ResourceLimit("native signature size"))?;
+        .ok_or(CompileError::ResourceLimit("native signature size"))?;
     #[cfg(test)]
     if failure == Failure::RefuseSignatures {
         let ledger = &snapshot.operations.allocator().0;
         ledger.set_limit(ledger.current());
     }
     signature_charge = Reservation::new(snapshot.operations.allocator().0.clone(), signature_bytes)
-        .map_err(|_| JitError::ResourceLimit("native signatures"))?;
+        .map_err(|_| CompileError::ResourceLimit("native signatures"))?;
     let mut signature = module.make_signature();
     #[cfg(not(miri))]
     if readonly_plan.is_some() {
@@ -1505,7 +1526,7 @@ fn compile_image_to(
         let arguments: [IrValue; 5] = builder
             .block_params(entry)
             .try_into()
-            .map_err(|_| JitError::Compilation("invalid native entry parameters".into()))?;
+            .map_err(|_| CompileError::Compilation("invalid native entry parameters".into()))?;
         blocks.extend((0..snapshot.operations.len()).map(|_| builder.create_block()));
         for block in &blocks {
             builder.append_block_param(*block, types::I32);
@@ -1690,7 +1711,7 @@ fn compile_image_to(
         .dfg
         .block_params(context.func.layout.entry_block().unwrap())
         .try_into()
-        .map_err(|_| JitError::Compilation("invalid native entry parameters".into()))?;
+        .map_err(|_| CompileError::Compilation("invalid native entry parameters".into()))?;
     #[cfg(test)]
     if failure == Failure::RefusePredecessors {
         let ledger = &snapshot.operations.allocator().0;
@@ -1804,7 +1825,9 @@ fn compile_image_to(
     #[cfg(test)]
     if failure == Failure::AuditIntegerLoop {
         integer_loop::audit::run(&context.func, snapshot, &blocks, exhausted, expansion)?;
-        return Err(JitError::Compilation("integer loop audit complete".into()));
+        return Err(CompileError::Compilation(
+            "integer loop audit complete".into(),
+        ));
     }
     #[cfg(test)]
     let mut packed_checkpoints = None;
@@ -1878,11 +1901,17 @@ fn compile_image_to(
                     | Failure::RequirePayloadLoop
             )
         {
-            return Err(JitError::Compilation("integer loop was not applied".into()));
+            return Err(CompileError::Compilation(
+                "integer loop was not applied".into(),
+            ));
         }
         if applied {
-            cranelift_codegen::verify_function(&context.func, module.isa())
-                .map_err(|error| JitError::Compilation(error.to_string()))?;
+            cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+                CompileError::compilation(
+                    format_args!("{error}"),
+                    snapshot.operations.allocator().clone(),
+                )
+            })?;
             let instructions = context
                 .func
                 .layout
@@ -1901,12 +1930,16 @@ fn compile_image_to(
     #[cfg(test)]
     let (instructions, block_count) = if failure == Failure::BranchLoopDirection {
         if direction::rewrite(&mut context.func) == 0 {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "no integer direction selection".into(),
             ));
         }
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         let actual = context
             .func
             .layout
@@ -1948,12 +1981,16 @@ fn compile_image_to(
             )?
         };
         if !applied && failure != Failure::PreferReadEffects {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "scalar read cache was not applied".into(),
             ));
         }
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         let actual = context
             .func
             .layout
@@ -1976,9 +2013,13 @@ fn compile_image_to(
             snapshot.operations.allocator().clone(),
             expansion,
         )?;
-        cranelift_codegen::verify_function(&candidate.function, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
-        return Err(JitError::Compilation(
+        cranelift_codegen::verify_function(&candidate.function, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
+        return Err(CompileError::Compilation(
             "packed lowering audit complete".into(),
         ));
     }
@@ -1993,7 +2034,9 @@ fn compile_image_to(
             &blocks,
             snapshot.operations.allocator().clone(),
         )?;
-        return Err(JitError::Compilation("payload read audit complete".into()));
+        return Err(CompileError::Compilation(
+            "payload read audit complete".into(),
+        ));
     }
     #[cfg(test)]
     let binding_requirements = if matches!(
@@ -2052,7 +2095,9 @@ fn compile_image_to(
             },
         )?;
         if failure == Failure::RequirePayloadTags && proven_writes == 0 {
-            return Err(JitError::Compilation("no proven payload tag writes".into()));
+            return Err(CompileError::Compilation(
+                "no proven payload tag writes".into(),
+            ));
         }
         if failure == Failure::RequireStrided {
             payload::strided::lower(
@@ -2063,8 +2108,12 @@ fn compile_image_to(
                 expansion,
             )?;
         }
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         let actual = context
             .func
             .layout
@@ -2098,10 +2147,14 @@ fn compile_image_to(
             packed_checkpoints.as_ref(),
         )?;
         packed_signature_charge = Some(candidate.install(&mut context.func));
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         if context.func.signature != module.declarations().get_function_decl(function).signature {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "packed declaration signature mismatch".into(),
             ));
         }
@@ -2129,8 +2182,12 @@ fn compile_image_to(
                 super::entry_flow::bound::Rewrite::budget(budget, &mut context.func, fallback)?;
             rewrite.verify(&before_budget, &context.func)?;
         }
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         expansion.verify_actual(
             context
                 .func
@@ -2147,7 +2204,7 @@ fn compile_image_to(
         let call = stores
             .helper_calls
             .at(plan.helper_pc() as usize)
-            .ok_or_else(|| JitError::Compilation("missing read-only helper".into()))?;
+            .ok_or_else(|| CompileError::Compilation("missing read-only helper".into()))?;
         readonly_lookup::lower(
             &mut context.func,
             snapshot,
@@ -2157,10 +2214,14 @@ fn compile_image_to(
             parameters[3],
             snapshot.operations.allocator().clone(),
         )?;
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         if context.func.signature != module.declarations().get_function_decl(function).signature {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "read-only declaration signature mismatch".into(),
             ));
         }
@@ -2227,7 +2288,7 @@ fn compile_image_to(
             builder.finalize(module.isa().frontend_config());
         }
         if projection.func.signature != module.declarations().get_function_decl(id).signature {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "invalid projection helper signature".into(),
             ));
         }
@@ -2253,8 +2314,12 @@ fn compile_image_to(
         #[cfg(not(test))]
         super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
         #[cfg(test)]
-        cranelift_codegen::verify_function(&projection.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&projection.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         projection_instructions += projection
             .func
             .layout
@@ -2296,16 +2361,23 @@ fn compile_image_to(
             }),
             counts: [0, 0],
         };
-        context
-            .inline(&mut inliner)
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        context.inline(&mut inliner).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         if inliner.counts != [1, 1] {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "invalid scalar-cell inline sites".into(),
             ));
         }
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         if selection.cell_kernel
             && context.func.layout.blocks().any(|block| {
                 context.func.layout.block_insts(block).any(|inst| {
@@ -2319,7 +2391,7 @@ fn compile_image_to(
                 })
             })
         {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "scalar kernel contains a call".into(),
             ));
         }
@@ -2338,7 +2410,7 @@ fn compile_image_to(
     if selection.integer_activation {
         let plan = super::integer::Plan::new(snapshot)?;
         let _workspace = Reservation::new(snapshot.operations.allocator().0.clone(), 16 * 1024)
-            .map_err(|_| JitError::ResourceLimit("integer template workspace"))?;
+            .map_err(|_| CompileError::ResourceLimit("integer template workspace"))?;
         let previous_instructions = context
             .func
             .layout
@@ -2353,8 +2425,12 @@ fn compile_image_to(
             module.target_config(),
         )?;
         plan.verify(&context.func, signature, module.target_config())?;
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                snapshot.operations.allocator().clone(),
+            )
+        })?;
         let instructions = context
             .func
             .layout
@@ -2366,10 +2442,10 @@ fn compile_image_to(
                 .checked_add(
                     instructions
                         .checked_mul(2)
-                        .ok_or(JitError::ResourceLimit("integer template instructions"))?,
+                        .ok_or(CompileError::ResourceLimit("integer template instructions"))?,
                 )
                 .and_then(|count| count.checked_add(projection_instructions))
-                .ok_or(JitError::ResourceLimit("integer template instructions"))?,
+                .ok_or(CompileError::ResourceLimit("integer template instructions"))?,
             previous_blocks
                 .checked_add(
                     context
@@ -2378,10 +2454,10 @@ fn compile_image_to(
                         .blocks()
                         .count()
                         .checked_mul(2)
-                        .ok_or(JitError::ResourceLimit("integer template blocks"))?,
+                        .ok_or(CompileError::ResourceLimit("integer template blocks"))?,
                 )
                 .and_then(|count| count.checked_add(projection_blocks))
-                .ok_or(JitError::ResourceLimit("integer template blocks"))?,
+                .ok_or(CompileError::ResourceLimit("integer template blocks"))?,
         )?;
         for pc in 0..entries.len() {
             entries.set(pc, pc == 0);
@@ -2425,7 +2501,10 @@ fn compile_image_to(
                 failure,
                 Failure::RequireUniversalMemory | Failure::RequireFieldMemory
             ) {
-                return JitError::Compilation(format!("memory region compilation: {error:?}"));
+                return CompileError::compilation(
+                    format_args!("memory region compilation: {error:?}"),
+                    snapshot.operations.allocator().clone(),
+                );
             }
             fail(error.into())
         })?;
@@ -2437,10 +2516,10 @@ fn compile_image_to(
             .map_err(|error| fail(error.into()))?;
         relocations = relocations
             .checked_add(projection.compiled_code().unwrap().buffer.relocs().len())
-            .ok_or(JitError::ResourceLimit("native relocations"))?;
+            .ok_or(CompileError::ResourceLimit("native relocations"))?;
     }
     if relocations > work.relocations {
-        return Err(JitError::ResourceLimit("native relocations"));
+        return Err(CompileError::ResourceLimit("native relocations"));
     }
     #[cfg(test)]
     if let Failure::RefuseRelocationStorage(allocation) = failure {
@@ -2454,7 +2533,7 @@ fn compile_image_to(
     let mut module_relocations = BudgetVec::new_in(snapshot.operations.allocator().clone());
     module_relocations
         .try_reserve_exact(compiled.buffer.relocs().len())
-        .map_err(|_| JitError::ResourceLimit("native relocation staging"))?;
+        .map_err(|_| CompileError::ResourceLimit("native relocation staging"))?;
     module_relocations.extend(
         compiled
             .buffer
@@ -2478,7 +2557,7 @@ fn compile_image_to(
         &module,
     );
     let relocation_copy_bytes = Layout::array::<ModuleReloc>(compiled.buffer.relocs().len())
-        .map_err(|_| JitError::ResourceLimit("native relocation copy size"))?
+        .map_err(|_| CompileError::ResourceLimit("native relocation copy size"))?
         .size();
     #[cfg(test)]
     if failure == Failure::RefuseRelocationCopy {
@@ -2489,7 +2568,7 @@ fn compile_image_to(
         snapshot.operations.allocator().0.clone(),
         relocation_copy_bytes,
     )
-    .map_err(|_| JitError::ResourceLimit("native relocation copy"))?;
+    .map_err(|_| CompileError::ResourceLimit("native relocation copy"))?;
     #[cfg(test)]
     if let Failure::RequireRelocationCopy(baseline) = failure {
         assert_eq!(
@@ -2536,7 +2615,7 @@ fn compile_image_to(
         let mut relocations = BudgetVec::new_in(snapshot.operations.allocator().clone());
         relocations
             .try_reserve_exact(count)
-            .map_err(|_| JitError::ResourceLimit("projection relocation staging"))?;
+            .map_err(|_| CompileError::ResourceLimit("projection relocation staging"))?;
         relocations.extend(
             compiled
                 .buffer
@@ -2545,10 +2624,10 @@ fn compile_image_to(
                 .map(|relocation| ModuleReloc::from_mach_reloc(relocation, &projection.func, id)),
         );
         let bytes = Layout::array::<ModuleReloc>(count)
-            .map_err(|_| JitError::ResourceLimit("projection relocation copy size"))?
+            .map_err(|_| CompileError::ResourceLimit("projection relocation copy size"))?
             .size();
         let charge = Reservation::new(snapshot.operations.allocator().0.clone(), bytes)
-            .map_err(|_| JitError::ResourceLimit("projection relocation copy"))?;
+            .map_err(|_| CompileError::ResourceLimit("projection relocation copy"))?;
         #[cfg(all(any(test, feature = "jit-worker-bootstrap"), not(miri)))]
         artifact_capture.record(
             id,
@@ -2602,7 +2681,7 @@ fn compile_image_to(
         .len();
     let image = memory
         .take()
-        .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
+        .ok_or_else(|| CompileError::Compilation("missing finalized native memory".into()))?;
     drop(module);
     #[cfg(test)]
     drop(packed_signature_charge);
@@ -2715,10 +2794,11 @@ impl cranelift_codegen::inline::Inline for LeafInliner<'_> {
 
 fn native_builder(
     isa: Result<cranelift_codegen::isa::Builder, &'static str>,
-) -> Result<JITBuilder, JitError> {
+    allocator: BudgetAllocator,
+) -> Result<JITBuilder, CompileError> {
     #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact::assert_compiler_allowed();
-    let isa = isa.map_err(JitError::Unavailable)?;
+    let isa = isa.map_err(CompileError::Unavailable)?;
     #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     let mut isa = isa;
     #[cfg(any(test, feature = "jit-worker-bootstrap"))]
@@ -2737,17 +2817,17 @@ fn native_builder(
             },
         ),
     ] {
-        flags
-            .set(name, value)
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        flags.set(name, value).map_err(|error| {
+            CompileError::compilation(format_args!("{error}"), allocator.clone())
+        })?;
     }
     let isa = isa
         .finish(settings::Flags::new(flags))
-        .map_err(|error| JitError::Compilation(error.to_string()))?;
+        .map_err(|error| CompileError::compilation(format_args!("{error}"), allocator.clone()))?;
     Ok(JITBuilder::with_isa(isa, default_libcall_names()))
 }
 
-fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, JitError> {
+fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, CompileError> {
     let total = lengths
         .into_iter()
         .try_fold((0usize, 0usize), |(total, largest), length| {
@@ -2755,16 +2835,16 @@ fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usiz
             Some((total.checked_add(length)?, largest.max(length)))
         })
         .and_then(|(total, largest)| total.checked_mul(3)?.checked_add(largest));
-    total.ok_or(JitError::ResourceLimit("native symbol size"))
+    total.ok_or(CompileError::ResourceLimit("native symbol size"))
 }
 
-fn owned_symbol(name: &str) -> Result<String, JitError> {
+fn owned_symbol(name: &str) -> Result<String, CompileError> {
     let mut owned = String::new();
     owned
         .try_reserve_exact(name.len())
-        .map_err(|_| JitError::ResourceLimit("native symbol allocation"))?;
+        .map_err(|_| CompileError::ResourceLimit("native symbol allocation"))?;
     if owned.capacity() != name.len() {
-        return Err(JitError::ResourceLimit("native symbol capacity"));
+        return Err(CompileError::ResourceLimit("native symbol capacity"));
     }
     owned.push_str(name);
     Ok(owned)
@@ -2775,7 +2855,7 @@ fn signature_storage_bytes(
     helper_parameters: usize,
     helper_returns: usize,
     helpers: usize,
-) -> Result<usize, JitError> {
+) -> Result<usize, CompileError> {
     let bytes = |count| {
         Layout::array::<AbiParam>(count)
             .ok()
@@ -2788,21 +2868,21 @@ fn signature_storage_bytes(
             .checked_mul(2)?
             .checked_add(helper.checked_mul(copies)?)
     });
-    total.ok_or(JitError::ResourceLimit("native signature size"))
+    total.ok_or(CompileError::ResourceLimit("native signature size"))
 }
 
 fn fill_signature<const N: usize>(
     parameters: &mut Vec<AbiParam>,
     types: [cranelift_codegen::ir::Type; N],
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if !parameters.is_empty() {
-        return Err(JitError::ResourceLimit("native signature capacity"));
+        return Err(CompileError::ResourceLimit("native signature capacity"));
     }
     parameters
         .try_reserve_exact(N)
-        .map_err(|_| JitError::ResourceLimit("native signature allocation"))?;
+        .map_err(|_| CompileError::ResourceLimit("native signature allocation"))?;
     if parameters.capacity() != N {
-        return Err(JitError::ResourceLimit("native signature capacity"));
+        return Err(CompileError::ResourceLimit("native signature capacity"));
     }
     parameters.extend(types.map(AbiParam::new));
     Ok(())
@@ -3982,7 +4062,7 @@ mod comparison_tests {
         skip_if: bool,
         constants: bool,
         fault: Option<Fault>,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let left = if constants {
             RCIndex::Constant(C(0))
         } else {
@@ -4116,9 +4196,9 @@ mod comparison_tests {
         result
     }
 
-    fn refused(result: Result<(), JitError>) {
+    fn refused(result: Result<(), CompileError>) {
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
             "{result:?}"
         );
     }
@@ -4185,7 +4265,7 @@ mod loop_tests {
     use super::*;
     use crate::types::{RegisterIndex as R, VarCount};
 
-    fn fixture(prep: bool, base: u8, jump: i16, fault: Option<Fault>) -> Result<(), JitError> {
+    fn fixture(prep: bool, base: u8, jump: i16, fault: Option<Fault>) -> Result<(), CompileError> {
         let op = if prep {
             Operation::NumericForPrep {
                 base: R(base),
@@ -4298,9 +4378,9 @@ mod loop_tests {
         result
     }
 
-    fn refused(result: Result<(), JitError>) {
+    fn refused(result: Result<(), CompileError>) {
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
             "{result:?}"
         );
     }
@@ -4389,7 +4469,7 @@ mod transfer_tests {
     use super::*;
     use crate::types::{ConstantIndex16 as C, Opt254, RegisterIndex as R, VarCount};
 
-    fn fixture(op: Operation, slot: Slot, fault: Option<Fault>) -> Result<(), JitError> {
+    fn fixture(op: Operation, slot: Slot, fault: Option<Fault>) -> Result<(), CompileError> {
         let snapshot = Snapshot {
             prepared_keys: None,
             operations: super::super::resources::owned(&[
@@ -4510,7 +4590,7 @@ mod transfer_tests {
         result
     }
 
-    fn run(op: Operation, fault: Option<Fault>) -> Result<(), JitError> {
+    fn run(op: Operation, fault: Option<Fault>) -> Result<(), CompileError> {
         fixture(
             op,
             Slot {
@@ -4520,9 +4600,9 @@ mod transfer_tests {
             fault,
         )
     }
-    fn refused(result: Result<(), JitError>) {
+    fn refused(result: Result<(), CompileError>) {
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
             "{result:?}"
         );
     }
@@ -4816,7 +4896,7 @@ mod helper_flow_tests {
         }
     }
 
-    fn fixture(op: Operation, fault: Option<Fault>) -> Result<(), JitError> {
+    fn fixture(op: Operation, fault: Option<Fault>) -> Result<(), CompileError> {
         let snapshot = Snapshot {
             prepared_keys: None,
             operations: super::super::resources::owned(&[
@@ -4946,9 +5026,9 @@ mod helper_flow_tests {
         assert_eq!(ledger.current(), baseline);
         result
     }
-    fn refused(result: Result<(), JitError>) {
+    fn refused(result: Result<(), CompileError>) {
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid helper call data flow"),
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid helper call data flow"),
             "{result:?}"
         );
     }
@@ -5065,7 +5145,7 @@ mod ownership_tests {
         }
     }
 
-    fn fixture(op: Operation, fault: Option<BindingFault>) -> Result<(), JitError> {
+    fn fixture(op: Operation, fault: Option<BindingFault>) -> Result<(), CompileError> {
         let snapshot = Snapshot {
             prepared_keys: None,
             operations: super::super::resources::owned(&[
@@ -5326,7 +5406,7 @@ mod ownership_tests {
             #[test]
             fn $name() {
                 let result = fixture(operation(BindingFault::$fault), Some(BindingFault::$fault));
-                assert!(matches!(result, Err(JitError::Compilation(ref message))
+                assert!(matches!(result, Err(CompileError::Compilation(ref message))
                     if message == "invalid semantic source ownership"), "{result:?}");
             }
         };
@@ -5377,7 +5457,7 @@ mod memory_tests {
             Failure::CorruptBinding(fault),
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message))
+            matches!(result, Err(CompileError::Compilation(ref message))
             if message == "invalid semantic source ownership"),
             "{:?}",
             result.as_ref().err()
@@ -5476,7 +5556,7 @@ mod memory_tests {
             assert!(
                 matches!(
                     result,
-                    Err(JitError::ResourceLimit("source path verification"))
+                    Err(CompileError::ResourceLimit("source path verification"))
                 ),
                 "{:?}",
                 result.as_ref().err()
@@ -5484,7 +5564,7 @@ mod memory_tests {
             assert_eq!(ledger.refusals(), 1);
         } else {
             assert!(
-                matches!(result, Err(JitError::Compilation(ref message))
+                matches!(result, Err(CompileError::Compilation(ref message))
                 if message == "invalid source region data flow"),
                 "{:?}",
                 result.as_ref().err()
@@ -5624,7 +5704,7 @@ mod memory_tests {
         assert!(
             matches!(
                 result,
-                Err(JitError::ResourceLimit("frontend predecessor graph"))
+                Err(CompileError::ResourceLimit("frontend predecessor graph"))
             ),
             "{:?}",
             result.as_ref().err()
@@ -5657,7 +5737,7 @@ mod memory_tests {
             failure,
         );
         assert!(
-            matches!(result, Err(JitError::ResourceLimit(reason)) if reason == expected),
+            matches!(result, Err(CompileError::ResourceLimit(reason)) if reason == expected),
             "{:?}",
             result.as_ref().err()
         );
@@ -5708,7 +5788,7 @@ mod memory_tests {
         assert!(
             matches!(
                 result,
-                Err(JitError::ResourceLimit("entry path verification"))
+                Err(CompileError::ResourceLimit("entry path verification"))
             ),
             "{:?}",
             result.as_ref().err()
@@ -5735,7 +5815,7 @@ mod memory_tests {
             Failure::CorruptEntryFlow(fault),
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message))
+            matches!(result, Err(CompileError::Compilation(ref message))
             if message == "invalid entry or budget data flow"),
             "{:?}",
             result.as_ref().err()
@@ -5857,7 +5937,7 @@ mod memory_tests {
             Failure::CorruptExitFlow(fault),
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message))
+            matches!(result, Err(CompileError::Compilation(ref message))
             if message == "invalid shared exit data flow"),
             "{:?}",
             result.as_ref().err()
@@ -5962,7 +6042,7 @@ mod memory_tests {
             Failure::CorruptTag,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -5986,7 +6066,7 @@ mod memory_tests {
             Failure::OmitNumericGuards,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6273,7 +6353,10 @@ mod memory_tests {
             Failure::None,
         );
         assert!(
-            matches!(result, Err(JitError::ResourceLimit("frontend block map"))),
+            matches!(
+                result,
+                Err(CompileError::ResourceLimit("frontend block map"))
+            ),
             "{:?}",
             result.as_ref().err()
         );
@@ -6303,7 +6386,7 @@ mod memory_tests {
             Failure::CorruptHelperFlow(fault),
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid helper call data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid helper call data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6399,7 +6482,7 @@ mod memory_tests {
             Failure::CorruptTransfer(fault),
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6471,7 +6554,7 @@ mod memory_tests {
             Failure::CorruptLoop(prep, fault),
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6637,7 +6720,7 @@ mod memory_tests {
             failure,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6705,7 +6788,7 @@ mod memory_tests {
             failure,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6752,7 +6835,7 @@ mod memory_tests {
             failure,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -6798,7 +6881,7 @@ mod memory_tests {
             failure,
         );
         assert!(
-            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+            matches!(result, Err(CompileError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
     }
@@ -7415,7 +7498,7 @@ mod memory_tests {
                 .is_err());
             assert!(matches!(
                 memory.status.error(),
-                Some(JitError::ResourceLimit("native image size"))
+                Some(CompileError::ResourceLimit("native image size"))
             ));
             assert!(!memory.status.metadata_refused.load(Ordering::Relaxed));
             assert!(!memory.status.unavailable.load(Ordering::Relaxed));
@@ -7522,7 +7605,7 @@ mod memory_tests {
                 super::super::work::Limits::from(&super::super::JitConfig::default()),
                 Failure::None
             ),
-            Err(JitError::ResourceLimit("JIT metadata"))
+            Err(CompileError::ResourceLimit("JIT metadata"))
         ));
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.current(), 0);
@@ -7567,7 +7650,7 @@ mod memory_tests {
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
                     Failure::DetectHostSetup
                 ),
-                Err(JitError::ResourceLimit("JIT metadata"))
+                Err(CompileError::ResourceLimit("JIT metadata"))
             ));
             assert_eq!(
                 (
@@ -7619,7 +7702,7 @@ mod memory_tests {
             }
             assert!(matches!(
                 compile_module(Failure::DetectHostSetup),
-                Err(JitError::ResourceLimit("JIT metadata"))
+                Err(CompileError::ResourceLimit("JIT metadata"))
             ));
             assert_eq!(
                 (
@@ -7705,7 +7788,7 @@ mod memory_tests {
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
                     Failure::DetectProviderSetup
                 ),
-                Err(JitError::ResourceLimit("JIT metadata"))
+                Err(CompileError::ResourceLimit("JIT metadata"))
             ));
             assert_eq!(
                 (
@@ -7770,7 +7853,7 @@ mod memory_tests {
             }
             assert!(matches!(
                 compile_module(Failure::DetectProviderSetup),
-                Err(JitError::ResourceLimit("JIT metadata"))
+                Err(CompileError::ResourceLimit("JIT metadata"))
             ));
             assert_eq!(
                 (
@@ -7857,7 +7940,7 @@ mod memory_tests {
             let metadata_loaded = lua.jit_stats().metadata_bytes;
             assert!(matches!(
                 lua.prepare_jit(),
-                Err(JitError::Unavailable(
+                Err(crate::jit::JitError::Unavailable(
                     "native memory allocation or protection denied"
                 ))
             ));
@@ -7946,9 +8029,9 @@ struct Image {
 }
 
 impl Image {
-    fn ordinary(self) -> Result<Code, JitError> {
+    fn ordinary(self) -> Result<Code, CompileError> {
         if self.entry_arity != 5 {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "non-ordinary native entry ABI".into(),
             ));
         }

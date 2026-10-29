@@ -1,6 +1,6 @@
 use crate::opcode::Operation;
 
-use super::{calls, ir::Snapshot, work, JitError};
+use super::{calls, ir::Snapshot, work, CompileError};
 
 const MAX_REGISTERS: usize = 16;
 const MAX_OPERATIONS: usize = 32;
@@ -28,7 +28,7 @@ pub(super) struct Plan<'a> {
 }
 
 impl<'a> Plan<'a> {
-    pub(super) fn descriptor(&self) -> Result<Descriptor, JitError> {
+    pub(super) fn descriptor(&self) -> Result<Descriptor, CompileError> {
         self.verify(self.caller, self.callee)?;
         let Operation::Return { start, .. } = self.callee.operations[3] else {
             unreachable!()
@@ -77,10 +77,10 @@ impl<'a> Plan<'a> {
         callee: &'a Snapshot,
         call: usize,
         limits: work::Limits,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let pair = calls::Plan::new(caller, callee, call, limits)?;
         let (start, end, base) = Self::region(caller, callee, call)
-            .ok_or_else(|| JitError::Compilation("unsupported inline loop region".into()))?;
+            .ok_or_else(|| CompileError::Compilation("unsupported inline loop region".into()))?;
         Ok(Self {
             pair,
             caller,
@@ -92,11 +92,13 @@ impl<'a> Plan<'a> {
         })
     }
 
-    pub(super) fn verify(&self, caller: &Snapshot, callee: &Snapshot) -> Result<(), JitError> {
+    pub(super) fn verify(&self, caller: &Snapshot, callee: &Snapshot) -> Result<(), CompileError> {
         self.pair.verify(caller, callee)?;
         self.pair.verify(self.caller, self.callee)?;
         if Self::region(caller, callee, self.call) != Some((self.start, self.end, self.base)) {
-            return Err(JitError::Compilation("inline loop source mismatch".into()));
+            return Err(CompileError::Compilation(
+                "inline loop source mismatch".into(),
+            ));
         }
         Ok(())
     }

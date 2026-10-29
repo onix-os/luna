@@ -5,13 +5,13 @@ use cranelift_codegen::{
     },
 };
 
-use super::super::JitError;
+use super::super::CompileError;
 
 const MAX_WORDS: usize = 32;
 const MAX_VALUES: usize = 8192;
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid scalar read cache".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid scalar read cache".into())
 }
 
 fn word(
@@ -19,7 +19,7 @@ fn word(
     inst: Inst,
     slots: Value,
     words: usize,
-) -> Result<Option<usize>, JitError> {
+) -> Result<Option<usize>, CompileError> {
     let (address, offset, ty, flags) = match function.dfg.insts[inst] {
         InstructionData::Load {
             opcode: Opcode::Load,
@@ -72,7 +72,7 @@ fn append(
     values: &[Option<Value>],
     states: &[Live],
     lists: &mut cranelift_codegen::ir::instructions::ValueListPool,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let mask = states[call.block(lists).as_u32() as usize].incoming;
     for (index, value) in values.iter().enumerate() {
         if mask & (1 << index) != 0 {
@@ -88,7 +88,7 @@ pub(super) fn promote(
     exit: Value,
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
-) -> Result<bool, JitError> {
+) -> Result<bool, CompileError> {
     promote_mode(function, slots, exit, registers, allocator, false, |_| {
         u32::MAX
     })
@@ -100,7 +100,7 @@ pub(super) fn promote_writeback(
     exit: Value,
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
-) -> Result<bool, JitError> {
+) -> Result<bool, CompileError> {
     promote_mode(function, slots, exit, registers, allocator, true, |_| {
         u32::MAX
     })
@@ -113,7 +113,7 @@ pub(super) fn promote_preserving(
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
     clobbers: impl Fn(Inst) -> u32,
-) -> Result<bool, JitError> {
+) -> Result<bool, CompileError> {
     if !function.layout.blocks().any(|block| {
         function
             .layout
@@ -133,7 +133,7 @@ fn promote_mode(
     allocator: super::super::resources::BudgetAllocator,
     writeback: bool,
     clobbers: impl Fn(Inst) -> u32,
-) -> Result<bool, JitError> {
+) -> Result<bool, CompileError> {
     use allocator_api2::vec::Vec;
     let words = registers.checked_mul(2).ok_or_else(invalid)?;
     if words == 0 || words > MAX_WORDS {
@@ -211,7 +211,7 @@ fn promote_mode(
     if writeback {
         selected |= selected >> 1;
     }
-    let refused = || JitError::ResourceLimit("scalar read-cache liveness");
+    let refused = || CompileError::ResourceLimit("scalar read-cache liveness");
     let mut states = Vec::new_in(allocator.clone());
     states.try_reserve_exact(blocks).map_err(|_| refused())?;
     states.resize(blocks, Live::default());
@@ -581,7 +581,7 @@ mod tests {
             ledger.fail_after(after);
             assert!(matches!(
                 promote(&mut function, slots, exit, 1, allocator),
-                Err(JitError::ResourceLimit("scalar read-cache liveness"))
+                Err(CompileError::ResourceLimit("scalar read-cache liveness"))
             ));
             assert_eq!(ledger.current(), 0);
             assert_eq!(ledger.refusals(), 1);

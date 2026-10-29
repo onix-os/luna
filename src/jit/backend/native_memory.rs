@@ -77,9 +77,13 @@ mod tests {
                     _ => "native mappings",
                 };
                 if case == 4 {
-                    assert!(matches!(error, JitError::Unavailable(message) if message == reason));
+                    assert!(
+                        matches!(error, CompileError::Unavailable(message) if message == reason)
+                    );
                 } else {
-                    assert!(matches!(error, JitError::ResourceLimit(message) if message == reason));
+                    assert!(
+                        matches!(error, CompileError::ResourceLimit(message) if message == reason)
+                    );
                 }
                 assert_eq!(
                     (
@@ -131,7 +135,7 @@ mod tests {
             }
             assert!(matches!(
                 memory.status.error(),
-                Some(JitError::Unavailable(_))
+                Some(CompileError::Unavailable(_))
             ));
             assert!(memory.finalize(BranchProtection::None).is_err());
             drop(memory);
@@ -212,7 +216,7 @@ mod native {
             }
             assert!(matches!(
                 memory.status.error(),
-                Some(JitError::Unavailable(_))
+                Some(CompileError::Unavailable(_))
             ));
             assert_eq!(
                 (total.load(Ordering::Relaxed), total.requested()),

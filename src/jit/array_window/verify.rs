@@ -10,15 +10,15 @@ use cranelift_codegen::{
 
 use super::{native::View, plan::Plan, *};
 use crate::{
-    jit::{ir::Snapshot, JitError},
+    jit::{ir::Snapshot, CompileError},
     opcode::{Operation, RCIndex},
 };
 
-fn invalid() -> JitError {
-    JitError::Compilation("array loop translation".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("array loop translation".into())
 }
 
-fn require(valid: bool) -> Result<(), JitError> {
+fn require(valid: bool) -> Result<(), CompileError> {
     if valid {
         Ok(())
     } else {
@@ -41,7 +41,7 @@ impl<'a> Scan<'a> {
         }
     }
 
-    fn take(&mut self, opcode: Opcode, outputs: &[Type]) -> Result<Inst, JitError> {
+    fn take(&mut self, opcode: Opcode, outputs: &[Type]) -> Result<Inst, CompileError> {
         let inst = self.next.ok_or_else(invalid)?;
         require(
             self.function.dfg.insts[inst].opcode() == opcode
@@ -60,14 +60,14 @@ impl<'a> Scan<'a> {
         Ok(inst)
     }
 
-    fn next_block(&self) -> Result<Block, JitError> {
+    fn next_block(&self) -> Result<Block, CompileError> {
         self.function
             .layout
             .next_block(self.block)
             .ok_or_else(invalid)
     }
 
-    fn advance(&mut self, block: Block, types: &[Type]) -> Result<(), JitError> {
+    fn advance(&mut self, block: Block, types: &[Type]) -> Result<(), CompileError> {
         require(self.next.is_none() && self.next_block()? == block)?;
         params(self.function, block, types)?;
         self.block = block;
@@ -75,7 +75,7 @@ impl<'a> Scan<'a> {
         Ok(())
     }
 
-    fn constant(&mut self, ty: Type, bits: i64) -> Result<IrValue, JitError> {
+    fn constant(&mut self, ty: Type, bits: i64) -> Result<IrValue, CompileError> {
         let inst = self.take(Opcode::Iconst, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::UnaryImm { imm, .. } if imm.bits() == bits),
@@ -89,7 +89,7 @@ impl<'a> Scan<'a> {
         ty: Type,
         a: IrValue,
         b: IrValue,
-    ) -> Result<IrValue, JitError> {
+    ) -> Result<IrValue, CompileError> {
         let inst = self.take(opcode, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Binary { args, .. } if args == [a, b]),
@@ -102,13 +102,13 @@ impl<'a> Scan<'a> {
         opcode: Opcode,
         value: IrValue,
         bits: i64,
-    ) -> Result<IrValue, JitError> {
+    ) -> Result<IrValue, CompileError> {
         let ty = self.function.dfg.value_type(value);
         let constant = self.constant(ty, bits)?;
         self.binary(opcode, ty, value, constant)
     }
 
-    fn compare(&mut self, cond: IntCC, a: IrValue, b: IrValue) -> Result<IrValue, JitError> {
+    fn compare(&mut self, cond: IntCC, a: IrValue, b: IrValue) -> Result<IrValue, CompileError> {
         let inst = self.take(Opcode::Icmp, &[types::I8])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::IntCompare { cond: actual, args, .. } if actual == cond && args == [a,b]),
@@ -116,12 +116,17 @@ impl<'a> Scan<'a> {
         Ok(self.function.dfg.first_result(inst))
     }
 
-    fn compare_imm(&mut self, cond: IntCC, value: IrValue, bits: i64) -> Result<IrValue, JitError> {
+    fn compare_imm(
+        &mut self,
+        cond: IntCC,
+        value: IrValue,
+        bits: i64,
+    ) -> Result<IrValue, CompileError> {
         let constant = self.constant(self.function.dfg.value_type(value), bits)?;
         self.compare(cond, value, constant)
     }
 
-    fn load(&mut self, ty: Type, pointer: IrValue, offset: i32) -> Result<IrValue, JitError> {
+    fn load(&mut self, ty: Type, pointer: IrValue, offset: i32) -> Result<IrValue, CompileError> {
         let inst = self.take(Opcode::Load, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Load { arg, offset: actual, flags, .. } if arg == pointer && i32::from(actual) == offset && self.function.dfg.mem_flags[flags] == MemFlagsData::new()),
@@ -129,14 +134,14 @@ impl<'a> Scan<'a> {
         Ok(self.function.dfg.first_result(inst))
     }
 
-    fn store(&mut self, pointer: IrValue, offset: i32, value: IrValue) -> Result<(), JitError> {
+    fn store(&mut self, pointer: IrValue, offset: i32, value: IrValue) -> Result<(), CompileError> {
         let inst = self.take(Opcode::Store, &[])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Store { args, offset: actual, flags, .. } if args == [value, pointer] && i32::from(actual) == offset && self.function.dfg.mem_flags[flags] == MemFlagsData::new()),
         )
     }
 
-    fn unary(&mut self, opcode: Opcode, ty: Type, value: IrValue) -> Result<IrValue, JitError> {
+    fn unary(&mut self, opcode: Opcode, ty: Type, value: IrValue) -> Result<IrValue, CompileError> {
         let inst = self.take(opcode, &[ty])?;
         require(match self.function.dfg.insts[inst] {
             InstructionData::Unary { arg, .. } => opcode != Opcode::Bitcast && arg == value,
@@ -155,13 +160,13 @@ impl<'a> Scan<'a> {
         condition: IrValue,
         yes: IrValue,
         no: IrValue,
-    ) -> Result<IrValue, JitError> {
+    ) -> Result<IrValue, CompileError> {
         let inst = self.take(Opcode::Select, &[self.function.dfg.value_type(yes)])?;
         require(self.function.dfg.inst_args(inst) == [condition, yes, no])?;
         Ok(self.function.dfg.first_result(inst))
     }
 
-    fn edges(&mut self, condition: IrValue) -> Result<[BlockCall; 2], JitError> {
+    fn edges(&mut self, condition: IrValue) -> Result<[BlockCall; 2], CompileError> {
         let inst = self.take(Opcode::Brif, &[])?;
         let InstructionData::Brif { arg, blocks, .. } = self.function.dfg.insts[inst] else {
             return Err(invalid());
@@ -170,7 +175,7 @@ impl<'a> Scan<'a> {
         Ok(blocks)
     }
 
-    fn edge(&self, edge: BlockCall, block: Block, values: &[IrValue]) -> Result<(), JitError> {
+    fn edge(&self, edge: BlockCall, block: Block, values: &[IrValue]) -> Result<(), CompileError> {
         require(
             edge.block(&self.function.dfg.value_lists) == block
                 && edge
@@ -179,7 +184,7 @@ impl<'a> Scan<'a> {
         )
     }
 
-    fn jump(&mut self, block: Block, args: &[IrValue]) -> Result<(), JitError> {
+    fn jump(&mut self, block: Block, args: &[IrValue]) -> Result<(), CompileError> {
         let inst = self.take(Opcode::Jump, &[])?;
         let InstructionData::Jump { destination, .. } = self.function.dfg.insts[inst] else {
             return Err(invalid());
@@ -188,7 +193,7 @@ impl<'a> Scan<'a> {
         self.edge(destination, block, args)
     }
 
-    fn guard(&mut self, condition: IrValue, decline: Block) -> Result<(), JitError> {
+    fn guard(&mut self, condition: IrValue, decline: Block) -> Result<(), CompileError> {
         let edges = self.edges(condition)?;
         let next = self.next_block()?;
         self.edge(edges[0], next, &[])?;
@@ -202,19 +207,23 @@ impl<'a> Scan<'a> {
         value: IrValue,
         bits: i64,
         decline: Block,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let predicate = self.compare_imm(cond, value, bits)?;
         self.guard(predicate, decline)
     }
 
-    fn register(&mut self, slots: IrValue, register: u8) -> Result<(IrValue, IrValue), JitError> {
+    fn register(
+        &mut self,
+        slots: IrValue,
+        register: u8,
+    ) -> Result<(IrValue, IrValue), CompileError> {
         Ok((
             self.load(types::I64, slots, i32::from(register) * 16)?,
             self.load(types::I64, slots, i32::from(register) * 16 + 8)?,
         ))
     }
 
-    fn literal(&mut self, slot: Slot) -> Result<(IrValue, IrValue), JitError> {
+    fn literal(&mut self, slot: Slot) -> Result<(IrValue, IrValue), CompileError> {
         Ok((
             self.constant(types::I64, slot.tag as i64)?,
             self.constant(types::I64, slot.bits as i64)?,
@@ -226,7 +235,7 @@ impl<'a> Scan<'a> {
         source: &Snapshot,
         slots: IrValue,
         operand: RCIndex,
-    ) -> Result<(IrValue, IrValue), JitError> {
+    ) -> Result<(IrValue, IrValue), CompileError> {
         match operand {
             RCIndex::Register(index) => self.register(slots, index.0),
             RCIndex::Constant(index) => self.literal(source.constants[usize::from(index.0)]),
@@ -239,13 +248,13 @@ impl<'a> Scan<'a> {
         register: u8,
         tag: IrValue,
         bits: IrValue,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         self.store(slots, i32::from(register) * 16, tag)?;
         self.store(slots, i32::from(register) * 16 + 8, bits)
     }
 }
 
-fn params(function: &Function, block: Block, expected: &[Type]) -> Result<(), JitError> {
+fn params(function: &Function, block: Block, expected: &[Type]) -> Result<(), CompileError> {
     let actual = function.dfg.block_params(block);
     require(actual.len() == expected.len())?;
     for (index, (&value, &ty)) in actual.iter().zip(expected).enumerate() {
@@ -258,7 +267,7 @@ fn params(function: &Function, block: Block, expected: &[Type]) -> Result<(), Ji
     Ok(())
 }
 
-fn binding(source: &Snapshot, plan: Plan) -> Result<(), JitError> {
+fn binding(source: &Snapshot, plan: Plan) -> Result<(), CompileError> {
     source.verify()?;
     require(
         plan.start < plan.end
@@ -325,7 +334,7 @@ fn scalar_guard(
     tag: IrValue,
     bits: IrValue,
     decline: Block,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     s.guarded_imm(IntCC::UnsignedLessThanOrEqual, tag, 3, decline)?;
     let numeric = s.compare_imm(IntCC::UnsignedGreaterThanOrEqual, tag, 2)?;
     let payload = s.compare(IntCC::UnsignedLessThanOrEqual, bits, tag)?;
@@ -341,7 +350,7 @@ fn table_access(
     write: Option<(IrValue, IrValue)>,
     decline: Block,
     validated: IrValue,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let edges = s.edges(validated)?;
     let ready = edges[0].block(&s.function.dfg.value_lists);
     let check = s.next_block()?;
@@ -423,14 +432,14 @@ fn table_access(
     Ok(validated)
 }
 
-fn numeric(s: &mut Scan<'_>, tag: IrValue, decline: Block) -> Result<(), JitError> {
+fn numeric(s: &mut Scan<'_>, tag: IrValue, decline: Block) -> Result<(), CompileError> {
     let integer = s.compare_imm(IntCC::Equal, tag, 2)?;
     let number = s.compare_imm(IntCC::Equal, tag, 3)?;
     let valid = s.binary(Opcode::Bor, types::I8, integer, number)?;
     s.guard(valid, decline)
 }
 
-fn float(s: &mut Scan<'_>, tag: IrValue, bits: IrValue) -> Result<IrValue, JitError> {
+fn float(s: &mut Scan<'_>, tag: IrValue, bits: IrValue) -> Result<IrValue, CompileError> {
     let integer = s.compare_imm(IntCC::Equal, tag, 2)?;
     let converted = s.unary(Opcode::FcvtFromSint, types::F64, bits)?;
     let original = s.unary(Opcode::Bitcast, types::F64, bits)?;
@@ -443,7 +452,7 @@ fn arithmetic(
     slots: IrValue,
     operation: Operation,
     decline: Block,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let (dest, left, right, int_op, float_op) = match operation {
         Operation::Add { dest, left, right } => (dest, left, right, Opcode::Iadd, Opcode::Fadd),
         Operation::Sub { dest, left, right } => (dest, left, right, Opcode::Isub, Opcode::Fsub),
@@ -491,7 +500,7 @@ fn operation(
     op: Operation,
     decline: Block,
     validated: IrValue,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     match op {
         Operation::GetTable { dest, key, .. } => {
             let (tag, key) = s.operand(source, slots, key)?;
@@ -530,7 +539,7 @@ fn for_loop(
     header: Block,
     count: IrValue,
     validated: IrValue,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let (it, index) = s.register(slots, plan.base)?;
     let (lt, limit) = s.register(slots, plan.base + 1)?;
     let (st, step) = s.register(slots, plan.base + 2)?;
@@ -564,7 +573,7 @@ pub(in crate::jit) fn verify(
     plan: Plan,
     function: &Function,
     isa: &dyn TargetIsa,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     binding(source, plan)?;
     let count = plan.end - plan.start + 1;
     let blocks = function.layout.blocks().count();

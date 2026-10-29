@@ -246,7 +246,7 @@ fn foreign_metadata_workspace_and_mapping_roots_refuse_before_allocation() {
                     Limits::from(&manager.config),
                     Failure::None
                 ),
-                Err(JitError::Compilation(_))
+                Err(CompileError::Compilation(_))
             ));
             assert_eq!(
                 (

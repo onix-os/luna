@@ -16,15 +16,17 @@ pub(super) struct Admission {
 }
 
 impl Admission {
-    pub fn new(image: Owner, address_space: libc::rlim_t) -> Result<Self, super::JitError> {
+    pub fn new(image: Owner, address_space: libc::rlim_t) -> Result<Self, super::CompileError> {
         if address_space == 0 || address_space == libc::RLIM_INFINITY {
-            return Err(super::JitError::InvalidConfiguration("compiler workspace"));
+            return Err(super::CompileError::InvalidConfiguration(
+                "compiler workspace",
+            ));
         }
         let bytes = usize::try_from(address_space)
-            .map_err(|_| super::JitError::InvalidConfiguration("compiler workspace"))?;
+            .map_err(|_| super::CompileError::InvalidConfiguration("compiler workspace"))?;
         let workspace = image
             .reserve_workspace(bytes)
-            .map_err(|_| super::JitError::ResourceLimit("compiler workspace"))?;
+            .map_err(|_| super::CompileError::ResourceLimit("compiler workspace"))?;
         Ok(Self {
             image,
             address_space,

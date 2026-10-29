@@ -32,18 +32,18 @@ impl Read {
 pub(in crate::jit::backend) fn expansion(
     source: &Snapshot,
     limits: crate::jit::work::Limits,
-) -> Result<crate::jit::work::Expansion, JitError> {
+) -> Result<crate::jit::work::Expansion, CompileError> {
     let mut expansion = super::expansion(source, limits)?;
     for operation in &source.operations {
         if let Operation::LoadNil { count, .. } = operation {
             expansion.instructions = expansion
                 .instructions
                 .checked_add(17 * usize::from(*count))
-                .ok_or(JitError::ResourceLimit("strided expansion overflow"))?;
+                .ok_or(CompileError::ResourceLimit("strided expansion overflow"))?;
         }
     }
     if expansion.instructions > limits.instructions {
-        return Err(JitError::ResourceLimit("IR instructions"));
+        return Err(CompileError::ResourceLimit("IR instructions"));
     }
     Ok(expansion)
 }
@@ -100,7 +100,12 @@ fn emit(f: &mut Function, slots: IrValue, read: Read) {
     c.func.replace(read.inst).select(scalar, address, null);
 }
 
-fn verify_tag(f: &Function, inst: Inst, slots: IrValue, index: usize) -> Result<IrValue, JitError> {
+fn verify_tag(
+    f: &Function,
+    inst: Inst,
+    slots: IrValue,
+    index: usize,
+) -> Result<IrValue, CompileError> {
     let InstructionData::Load { offset, flags, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -112,7 +117,7 @@ fn verify_tag(f: &Function, inst: Inst, slots: IrValue, index: usize) -> Result<
     reads::value(f, inst, Opcode::Uload8, &[slots], types::I64)
 }
 
-fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
+fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), CompileError> {
     if read.numeric {
         if !read.pointer || read.uniform.is_none() || read.uniform != Header::uniform_offset() {
             return Err(invalid());
@@ -188,7 +193,7 @@ pub(in crate::jit::backend) fn lower(
     registers: usize,
     allocator: BudgetAllocator,
     expansion: crate::jit::work::Expansion,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if registers == 0 || registers > 256 {
         return Err(invalid());
     }
@@ -235,10 +240,10 @@ pub(in crate::jit::backend) fn lower(
                     };
                     instructions = instructions
                         .checked_add(read.extra())
-                        .ok_or(JitError::ResourceLimit("strided expansion overflow"))?;
+                        .ok_or(CompileError::ResourceLimit("strided expansion overflow"))?;
                     records
                         .try_reserve(1)
-                        .map_err(|_| JitError::ResourceLimit("strided read records"))?;
+                        .map_err(|_| CompileError::ResourceLimit("strided read records"))?;
                     records.push(read);
                 }
                 InstructionData::CallIndirect {

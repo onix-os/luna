@@ -19,14 +19,14 @@ fn invalid() -> InstallError {
     InstallError::Packet(Error::Module)
 }
 
-fn relocations(image: &ModuleImage) -> Result<usize, JitError> {
+fn relocations(image: &ModuleImage) -> Result<usize, CompileError> {
     image
         .functions
         .iter()
         .try_fold(0usize, |sum, function| {
             sum.checked_add(function.relocations.len())
         })
-        .ok_or(JitError::ResourceLimit("native relocations"))
+        .ok_or(CompileError::ResourceLimit("native relocations"))
 }
 
 pub(in crate::jit) fn assemble(
@@ -58,7 +58,7 @@ pub(in crate::jit) fn assemble(
     )
     .map_err(|error| match error {
         compiler_wire::Error::Allocation => {
-            InstallError::Native(JitError::ResourceLimit("artifact source binding"))
+            InstallError::Native(CompileError::ResourceLimit("artifact source binding"))
         }
         _ => InstallError::Packet(Error::Identity),
     })?;
@@ -87,9 +87,9 @@ pub(in crate::jit) fn assemble(
     {
         for end in 0..source.operations.len() {
             if let Some(plan) = array_window::Plan::new(source, end) {
-                arrays
-                    .try_reserve(1)
-                    .map_err(|_| InstallError::Native(JitError::ResourceLimit("array plans")))?;
+                arrays.try_reserve(1).map_err(|_| {
+                    InstallError::Native(CompileError::ResourceLimit("array plans"))
+                })?;
                 arrays.push(plan);
             }
         }
@@ -115,7 +115,7 @@ pub(in crate::jit) fn assemble(
     let bound = work::Expansion::admit(source, work).map_err(InstallError::Native)?;
     let ordinary_relocations = relocations(ordinary).map_err(InstallError::Native)?;
     if ordinary_relocations > work.relocations {
-        return Err(InstallError::Native(JitError::ResourceLimit(
+        return Err(InstallError::Native(CompileError::ResourceLimit(
             "native relocations",
         )));
     }

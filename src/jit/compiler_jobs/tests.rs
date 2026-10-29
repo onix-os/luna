@@ -70,7 +70,7 @@ fn budget_exact_slots_headers_ticket_rollback_and_reconfiguration() {
     let two = supervisor.reserve().unwrap();
     assert!(matches!(
         supervisor.reserve(),
-        Err(JitError::ResourceLimit("compiler job capacity"))
+        Err(CompileError::ResourceLimit("compiler job capacity"))
     ));
     supervisor.configure(1).unwrap();
     drop(one);
@@ -79,7 +79,7 @@ fn budget_exact_slots_headers_ticket_rollback_and_reconfiguration() {
     metadata.0.fail_after(0);
     assert!(matches!(
         supervisor.configure(8),
-        Err(JitError::ResourceLimit("compiler jobs metadata"))
+        Err(CompileError::ResourceLimit("compiler jobs metadata"))
     ));
     assert_eq!(supervisor.occupied(), 0);
     let ticket = supervisor.reserve().unwrap();
@@ -117,7 +117,7 @@ fn budget_allocator_and_host_refusals_have_no_partial_supervisor() {
         }
         assert!(matches!(
             Supervisor::new(2, metadata.clone()),
-            Err(JitError::ResourceLimit("compiler jobs metadata"))
+            Err(CompileError::ResourceLimit("compiler jobs metadata"))
         ));
         assert_eq!(host.accounted(), baseline);
         assert_eq!(metadata.0.current(), 0);
@@ -131,11 +131,11 @@ fn budget_allocator_and_host_refusals_have_no_partial_supervisor() {
     let (_, metadata) = allocators();
     assert!(matches!(
         Supervisor::new(0, metadata.clone()),
-        Err(JitError::InvalidConfiguration(_))
+        Err(CompileError::InvalidConfiguration(_))
     ));
     assert!(matches!(
         Supervisor::new(usize::MAX, metadata),
-        Err(JitError::ResourceLimit(_))
+        Err(CompileError::ResourceLimit(_))
     ));
 }
 
@@ -312,7 +312,7 @@ fn budget_completion_start_refusal_rolls_back_then_recovers() {
     for _ in 0..2 {
         assert!(matches!(
             supervisor.reserve(),
-            Err(JitError::ResourceLimit("compiler completion service"))
+            Err(CompileError::ResourceLimit("compiler completion service"))
         ));
         assert_eq!(host.accounted(), admitted);
         assert_eq!(supervisor.occupied(), 0);
@@ -415,7 +415,7 @@ fn native_blocked_cleanup_keeps_capacity_without_holding_the_queue_or_caller() {
         let occupied = supervisor.poll();
         let refused = matches!(
             supervisor.reserve(),
-            Err(JitError::ResourceLimit("compiler job capacity"))
+            Err(CompileError::ResourceLimit("compiler job capacity"))
         );
         drop(supervisor);
         let _ = send.send((occupied, refused));

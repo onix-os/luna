@@ -1,4 +1,4 @@
-use super::{backend, JitConfig, JitError, JitMode};
+use super::{backend, JitConfig, JitMode};
 use crate::{Closure, Executor, Lua, StashedClosure};
 
 #[path = "../../examples/jit_support/resource_workloads.rs"]
@@ -100,7 +100,7 @@ fn strided_runtime_resource_refusal_releases_and_recovers() {
             let result = lua.prepare_jit();
             if limit < minimum {
                 assert!(
-                    matches!(result, Err(JitError::ResourceLimit(_))),
+                    matches!(result, Err(crate::jit::JitError::ResourceLimit(_))),
                     "{result:?}"
                 );
                 recover(&mut lua, &closure);
@@ -116,7 +116,7 @@ fn strided_runtime_resource_refusal_releases_and_recovers() {
             let closure = source(&mut lua, script);
             assert!(matches!(
                 lua.prepare_jit(),
-                Err(JitError::ResourceLimit("native relocations"))
+                Err(crate::jit::JitError::ResourceLimit("native relocations"))
             ));
             recover(&mut lua, &closure);
         }
@@ -132,7 +132,7 @@ fn minimum_workspace(selection: backend::Failure, script: &[u8], peak: usize) ->
         let _closure = source(&mut lua, script);
         match lua.prepare_jit() {
             Ok(1) => high = limit,
-            Err(JitError::ResourceLimit(_)) => low = limit + 1,
+            Err(crate::jit::JitError::ResourceLimit(_)) => low = limit + 1,
             result => panic!("unexpected workspace admission: {result:?}"),
         }
     }
@@ -172,7 +172,10 @@ fn relocation_admission_matches_emitted_count_for_both_transports() {
                 let prepared = lua.prepare_jit();
                 if relocations > limit {
                     assert!(
-                        matches!(prepared, Err(JitError::ResourceLimit("native relocations"))),
+                        matches!(
+                            prepared,
+                            Err(crate::jit::JitError::ResourceLimit("native relocations"))
+                        ),
                         "{kind:?} relocations={relocations} limit={limit}: {prepared:?}"
                     );
                     recover(&mut lua, &closure);
@@ -223,7 +226,7 @@ fn workspace_refusal_preserves_source_and_retry_for_both_transports() {
                         "scalar tag verification"
                     };
                     assert!(
-                        matches!(prepared, Err(JitError::ResourceLimit(reason)) if reason == expected),
+                        matches!(prepared, Err(crate::jit::JitError::ResourceLimit(reason)) if reason == expected),
                         "{kind:?} limit={limit}: {prepared:?}"
                     );
                     recover(&mut lua, &closure);
@@ -251,7 +254,7 @@ fn relocation_refusal_preserves_installed_peer_for_both_transports() {
         let candidate = source(&mut lua, workloads::RELOCATIONS);
         assert!(matches!(
             lua.prepare_jit(),
-            Err(JitError::ResourceLimit("native relocations"))
+            Err(crate::jit::JitError::ResourceLimit("native relocations"))
         ));
         let refused = lua.jit_stats();
         assert_eq!(refused.code_bytes, baseline.code_bytes);

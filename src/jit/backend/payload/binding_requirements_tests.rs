@@ -218,7 +218,7 @@ fn entry_write_binding_is_a_charged_superset_of_read_requirements() {
                             &headers,
                             allocator.clone()
                         ),
-                        Err(JitError::ResourceLimit(_))
+                        Err(CompileError::ResourceLimit(_))
                     ));
                     assert_eq!(allocator.0.current(), 0);
                 }
@@ -273,7 +273,7 @@ fn entry_binding_analysis_refuses_invalid_source_and_releases_workspace() {
         let allocator = BudgetAllocator(crate::jit::resources::Ledger::new(limit));
         assert!(matches!(
             Requirements::new(&f, slots, host, 1, &[], &headers, allocator.clone()),
-            Err(JitError::ResourceLimit(_))
+            Err(CompileError::ResourceLimit(_))
         ));
         assert_eq!(allocator.0.current(), 0);
         assert_eq!(f.display().to_string(), original);
@@ -286,7 +286,7 @@ fn entry_binding_analysis_refuses_invalid_source_and_releases_workspace() {
     let mut remaining = 0;
     assert!(matches!(
         charge(&mut remaining),
-        Err(JitError::ResourceLimit(_))
+        Err(CompileError::ResourceLimit(_))
     ));
     assert_eq!(allocator.0.current(), 0);
 }

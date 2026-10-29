@@ -282,7 +282,7 @@ fn packed_publication_refusals_reclaim_resources_and_preserve_live_code() {
                 limits,
                 Failure::RequirePackedPayload,
             );
-            assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+            assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
         }
         let exact = crate::jit::work::Limits {
             instructions: bound.instructions,
@@ -308,7 +308,7 @@ fn packed_publication_refusals_reclaim_resources_and_preserve_live_code() {
             work,
             Failure::RequirePackedPayload,
         );
-        assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+        assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
         let mut failures = 0;
         let mut success = false;
         for count in 0..128 {
@@ -324,7 +324,7 @@ fn packed_publication_refusals_reclaim_resources_and_preserve_live_code() {
             failures += usize::from(result.is_err());
             success |= result.is_ok();
             if let Err(error) = &result {
-                assert!(matches!(error, JitError::ResourceLimit(_)), "{error:?}");
+                assert!(matches!(error, CompileError::ResourceLimit(_)), "{error:?}");
             }
             drop(result);
             snapshot.operations.allocator().0.fail_after(usize::MAX);

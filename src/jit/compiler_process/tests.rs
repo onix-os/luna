@@ -659,7 +659,7 @@ fn request_and_storage_refusals_precede_process_creation() {
                 false,
                 work::Limits::from(&crate::JitConfig::default()),
             ),
-            Err(crate::JitError::ResourceLimit(_))
+            Err(crate::jit::CompileError::ResourceLimit(_))
         ));
         assert_eq!(COMMANDS.get(), commands);
         assert_eq!(workspace.0.current(), baseline);
@@ -793,7 +793,7 @@ pub(in crate::jit) fn request_packet(
     route: backend::artifact::Route,
     resume: bool,
     requested_work: work::Limits,
-) -> Result<Packet, crate::JitError> {
+) -> Result<Packet, crate::jit::CompileError> {
     request_packet_inner(snapshot, route, resume, requested_work, None, None)
 }
 
@@ -805,7 +805,7 @@ pub(in crate::jit) fn request_packet_in(
     host: crate::jit::resources::LedgerRef,
     metadata: BudgetAllocator,
     supervisor: Option<crate::jit::compiler_jobs::Supervisor>,
-) -> Result<Packet, crate::JitError> {
+) -> Result<Packet, crate::jit::CompileError> {
     request_packet_inner(
         snapshot,
         route,
@@ -823,7 +823,7 @@ fn request_packet_inner(
     requested_work: work::Limits,
     host: Option<(crate::jit::resources::LedgerRef, BudgetAllocator)>,
     supervisor: Option<crate::jit::compiler_jobs::Supervisor>,
-) -> Result<Packet, crate::JitError> {
+) -> Result<Packet, crate::jit::CompileError> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let request = NEXT
         .fetch_update(
@@ -831,26 +831,26 @@ fn request_packet_inner(
             std::sync::atomic::Ordering::Relaxed,
             |id| id.checked_add(1),
         )
-        .map_err(|_| crate::JitError::ResourceLimit("compiler request identities"))?;
+        .map_err(|_| crate::jit::CompileError::ResourceLimit("compiler request identities"))?;
     let workspace = snapshot.operations.allocator().clone();
     let publication = host
         .as_ref()
         .map_or_else(|| workspace.clone(), |(_, metadata)| metadata.clone());
     let source = wire::encode(snapshot, wire_limits(), workspace.clone())
-        .map_err(|_| crate::JitError::ResourceLimit("compiler request snapshot"))?;
+        .map_err(|_| crate::jit::CompileError::ResourceLimit("compiler request snapshot"))?;
     let environment =
         backend::artifact::environment_in(workspace.clone()).map_err(|error| match error {
             backend::artifact::Error::Allocation | backend::artifact::Error::Limit => {
-                crate::JitError::ResourceLimit("compiler target environment")
+                crate::jit::CompileError::ResourceLimit("compiler target environment")
             }
-            _ => crate::JitError::Unavailable("compiler target environment"),
+            _ => crate::jit::CompileError::Unavailable("compiler target environment"),
         })?;
     let features =
         backend::artifact::target_features_in(workspace.clone()).map_err(|error| match error {
             backend::artifact::Error::Allocation | backend::artifact::Error::Limit => {
-                crate::JitError::ResourceLimit("compiler target features")
+                crate::jit::CompileError::ResourceLimit("compiler target features")
             }
-            _ => crate::JitError::Unavailable("compiler target features"),
+            _ => crate::jit::CompileError::Unavailable("compiler target features"),
         })?;
     use crate::jit::compiler_request as protocol;
     let descriptor: Option<(&'static [u8], &'static [u8; 32], &'static str)> = {
@@ -867,7 +867,8 @@ fn request_packet_inner(
     let identity = if let Some((_, identity, _)) = descriptor {
         *identity
     } else {
-        compiler_identity().map_err(|_| crate::JitError::Unavailable("compiler image identity"))?
+        compiler_identity()
+            .map_err(|_| crate::jit::CompileError::Unavailable("compiler image identity"))?
     };
     let abi = protocol::abi_identity();
     let frame = protocol::encode(
@@ -890,21 +891,25 @@ fn request_packet_inner(
     )
     .map_err(|error| match error {
         protocol::Error::Allocation | protocol::Error::Limit => {
-            crate::JitError::ResourceLimit("compiler request packet")
+            crate::jit::CompileError::ResourceLimit("compiler request packet")
         }
-        _ => crate::JitError::Unavailable("compiler request packet"),
+        _ => crate::jit::CompileError::Unavailable("compiler request packet"),
     })?;
     let build = protocol::binding(&frame)
-        .map_err(|_| crate::JitError::Unavailable("compiler request binding"))?;
+        .map_err(|_| crate::jit::CompileError::Unavailable("compiler request binding"))?;
     let ticket = if descriptor.is_some() {
         supervisor
             .as_ref()
-            .ok_or(crate::JitError::Unavailable("compiler supervisor scope"))?
+            .ok_or(crate::jit::CompileError::Unavailable(
+                "compiler supervisor scope",
+            ))?
             .ensure_host(&host.as_ref().unwrap().0)?;
         Some(
             supervisor
                 .as_ref()
-                .ok_or(crate::JitError::Unavailable("compiler supervisor scope"))?
+                .ok_or(crate::jit::CompileError::Unavailable(
+                    "compiler supervisor scope",
+                ))?
                 .reserve()?,
         )
     } else {
@@ -916,9 +921,9 @@ fn request_packet_inner(
                 .map_err(|error| match error {
                 crate::jit::compiler_image::Error::Allocation
                 | crate::jit::compiler_image::Error::Limit => {
-                    crate::JitError::ResourceLimit("compiler image")
+                    crate::jit::CompileError::ResourceLimit("compiler image")
                 }
-                _ => crate::JitError::Unavailable("compiler image"),
+                _ => crate::jit::CompileError::Unavailable("compiler image"),
             })?,
         ),
         _ => None,
@@ -942,15 +947,15 @@ fn request_packet_inner(
     )
     .map_err(|failure| match failure.cause {
         Cause::Allocation | Cause::RequestLimit | Cause::ResponseLimit => {
-            crate::JitError::ResourceLimit("compiler transport")
+            crate::jit::CompileError::ResourceLimit("compiler transport")
         }
-        _ => crate::JitError::Unavailable("compiler worker failed"),
+        _ => crate::jit::CompileError::Unavailable("compiler worker failed"),
     })?;
     reaped(receipt.pid);
     Ok(Packet {
         source,
         bytes: crate::jit::compiler_reply::Artifact::new(receipt.bytes, request, &build)
-            .map_err(|failure| failure.into_public(publication))?,
+            .map_err(|failure| failure.into_owned(publication))?,
         environment,
         request,
         build,
@@ -1009,7 +1014,7 @@ fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers
     lua.set_memory_limit(Some(lua.accounted_memory() + (128 << 10)));
     assert!(matches!(
         request(),
-        Err(crate::JitError::ResourceLimit("compiler image"))
+        Err(crate::jit::CompileError::ResourceLimit("compiler image"))
     ));
     assert_eq!(COMMANDS.get(), commands);
     assert_eq!(host.accounted(), baseline);
@@ -1023,7 +1028,7 @@ fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers
     metadata.0.fail_after(0);
     assert!(matches!(
         request(),
-        Err(crate::JitError::ResourceLimit("compiler image"))
+        Err(crate::jit::CompileError::ResourceLimit("compiler image"))
     ));
     assert_eq!(COMMANDS.get(), commands);
     assert_eq!(host.accounted(), baseline);
@@ -1031,7 +1036,9 @@ fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers
     metadata.0.fail_after(usize::MAX);
     assert!(matches!(
         request(),
-        Err(crate::JitError::ResourceLimit("compiler workspace"))
+        Err(crate::jit::CompileError::ResourceLimit(
+            "compiler workspace"
+        ))
     ));
     assert_eq!(COMMANDS.get(), commands);
     assert_eq!(host.accounted(), baseline);
@@ -1063,7 +1070,7 @@ fn worker_resource_refusals_reach_the_parent_without_becoming_crashes() {
         let commands = COMMANDS.get();
         assert!(matches!(
             request_packet(&snapshot, backend::artifact::Route::Ordinary, false, work),
-            Err(crate::JitError::ResourceLimit(
+            Err(crate::jit::CompileError::ResourceLimit(
                 "compiler worker compilation"
             ))
         ));
@@ -1087,8 +1094,8 @@ fn successful_but_malformed_workers_are_not_valid_compiler_refusals() {
             .unwrap();
         assert!(matches!(fault, reply::Failure::Protocol(_)));
         assert!(matches!(
-            fault.into_public(output.clone()),
-            crate::JitError::Unavailable("compiler response protocol")
+            fault.into_owned(output.clone()),
+            crate::jit::CompileError::Unavailable("compiler response protocol")
         ));
         assert_eq!(ledger.current(), 0);
     }

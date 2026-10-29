@@ -3,15 +3,15 @@ use cranelift_codegen::ir::{
     MemFlags, Opcode, Value,
 };
 
-use super::{BudgetAllocator, BudgetVec, JitError, Reservation};
+use super::{BudgetAllocator, BudgetVec, CompileError, Reservation};
 use crate::jit::work::Expansion;
 
 const FIRST_FIELD: u32 = 0x4c550000;
 const EXIT_REGION: u32 = FIRST_FIELD + 512;
 const DESCRIPTION: &str = "Luna scratch field or exit";
 
-fn invalid() -> JitError {
-    JitError::Compilation("field memory translation".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("field memory translation".into())
 }
 
 #[derive(Clone, Copy)]
@@ -21,7 +21,7 @@ struct Roots {
     registers: usize,
 }
 
-fn classify(function: &Function, inst: Inst, roots: Roots) -> Result<Option<u32>, JitError> {
+fn classify(function: &Function, inst: Inst, roots: Roots) -> Result<Option<u32>, CompileError> {
     let data = &function.dfg.insts[inst];
     let opcode = data.opcode();
     if !opcode.can_load() && !opcode.can_store() || opcode.is_call() {
@@ -76,7 +76,7 @@ fn verify(
     candidate: &mut Function,
     roots: Roots,
     allocator: BudgetAllocator,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if candidate.dfg.num_insts() != source.dfg.num_insts() {
         return Err(invalid());
     }
@@ -103,7 +103,7 @@ fn verify(
                 }
                 records
                     .try_reserve(1)
-                    .map_err(|_| JitError::ResourceLimit("field memory records"))?;
+                    .map_err(|_| CompileError::ResourceLimit("field memory records"))?;
                 records.push((inst, new));
                 *candidate.dfg.insts[inst]
                     .memflags_mut()
@@ -143,7 +143,7 @@ pub(super) fn lower(
     registers: usize,
     allocator: BudgetAllocator,
     expansion: Expansion,
-) -> Result<Reservation, JitError> {
+) -> Result<Reservation, CompileError> {
     expansion.verify_actual(function.dfg.num_insts(), function.layout.blocks().count())?;
     let roots = Roots {
         slots: function.dfg.resolve_aliases(slots),
@@ -161,7 +161,7 @@ pub(super) fn lower(
         return Err(invalid());
     }
     if function.dfg.mem_flags.is_valid(MemFlags::from_bits(32)) {
-        return Err(JitError::ResourceLimit("field memory source flags"));
+        return Err(CompileError::ResourceLimit("field memory source flags"));
     }
     let mut accesses = 0usize;
     for index in 0..function.dfg.num_insts() {
@@ -178,9 +178,9 @@ pub(super) fn lower(
     let bytes = accesses
         .checked_mul(384)
         .and_then(|n| n.checked_add(16 * 1024))
-        .ok_or(JitError::ResourceLimit("field memory table size"))?;
+        .ok_or(CompileError::ResourceLimit("field memory table size"))?;
     let charge = Reservation::new(allocator.0.clone(), bytes)
-        .map_err(|_| JitError::ResourceLimit("field memory tables"))?;
+        .map_err(|_| CompileError::ResourceLimit("field memory tables"))?;
     let mut candidate = function.clone();
     for index in 0..function.dfg.num_insts() {
         let inst = Inst::from_u32(index as u32);
@@ -196,7 +196,7 @@ pub(super) fn lower(
             .dfg
             .mem_flags
             .insert(function.dfg.mem_flags[old].with_alias_region(Some(region)))
-            .map_err(|_| JitError::ResourceLimit("field memory flags"))?;
+            .map_err(|_| CompileError::ResourceLimit("field memory flags"))?;
         *candidate.dfg.insts[inst]
             .memflags_mut()
             .ok_or_else(invalid)? = flags;

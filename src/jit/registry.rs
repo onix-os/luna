@@ -4,7 +4,7 @@ use ottavino_gc_arena::{lock::RefLock, Collect, Gc, GcWeak};
 use super::{
     metadata_map,
     resources::{BudgetAllocator, Compactor},
-    JitError, MetadataMap,
+    CompileError, MetadataMap,
 };
 use crate::{Context, FunctionPrototype};
 
@@ -294,10 +294,10 @@ impl<'gc> Registrations<'gc> {
         }
     }
 
-    pub fn ids(&self, ctx: Context<'gc>) -> Result<Vec<u64, BudgetAllocator>, JitError> {
+    pub fn ids(&self, ctx: Context<'gc>) -> Result<Vec<u64, BudgetAllocator>, CompileError> {
         let mut ids = Vec::new_in(ctx.jit().0.borrow().metadata.clone());
         ids.try_reserve_exact(self.entries.len())
-            .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+            .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
         ids.extend(self.entries.values().map(|entry| entry.id));
         Ok(ids)
     }

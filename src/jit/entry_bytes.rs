@@ -5,7 +5,7 @@ use std::{
 
 use allocator_api2::vec::Vec;
 
-use super::{resources::BudgetAllocator, JitError};
+use super::{resources::BudgetAllocator, CompileError};
 
 #[derive(Debug)]
 pub(super) struct EntryBytes {
@@ -41,12 +41,12 @@ impl EntryBytes {
     pub(super) fn try_new(
         flags: impl ExactSizeIterator<Item = bool>,
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let count = flags.len();
         let mut bytes = Vec::new_in(allocator);
         bytes
             .try_reserve_exact(count)
-            .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+            .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
         bytes.extend(flags.map(|flag| AtomicU8::new(u8::from(flag))));
         Ok(Self { bytes })
     }

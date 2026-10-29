@@ -7,7 +7,7 @@ pub(in crate::jit::backend) fn run(
     headers: &[Block],
     exhausted: Block,
     expansion: super::super::super::work::Expansion,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let plan = Plan::new(source).expect("eligible audit source");
     let mut candidate = original.clone();
     let region = emit(&mut candidate, source, headers, exhausted, false, plan)?;

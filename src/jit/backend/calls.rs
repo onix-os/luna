@@ -72,16 +72,18 @@ pub(crate) enum LinkFault {
     Signature,
 }
 
-fn imports(function: &Function) -> Result<[cranelift_codegen::ir::FuncRef; 3], JitError> {
+fn imports(function: &Function) -> Result<[cranelift_codegen::ir::FuncRef; 3], CompileError> {
     let mut keys = function.dfg.ext_funcs.keys();
     let references = [keys.next(), keys.next(), keys.next()];
     if references.iter().any(Option::is_none) || keys.next().is_some() {
-        return Err(JitError::Compilation("aggregate import cardinality".into()));
+        return Err(CompileError::Compilation(
+            "aggregate import cardinality".into(),
+        ));
     }
     Ok(references.map(Option::unwrap))
 }
 
-fn bind(function: &mut Function, ids: [cranelift_module::FuncId; 3]) -> Result<(), JitError> {
+fn bind(function: &mut Function, ids: [cranelift_module::FuncId; 3]) -> Result<(), CompileError> {
     for reference in imports(function)? {
         let declaration = &function.dfg.ext_funcs[reference];
         let index = if declaration.name == ExternalName::testcase("activation_enter") {
@@ -91,7 +93,7 @@ fn bind(function: &mut Function, ids: [cranelift_module::FuncId; 3]) -> Result<(
         } else if declaration.name == ExternalName::testcase("activation_leave") {
             2
         } else {
-            return Err(JitError::Compilation("unknown aggregate import".into()));
+            return Err(CompileError::Compilation("unknown aggregate import".into()));
         };
         let name = function.declare_imported_user_function(UserExternalName {
             namespace: 0,
@@ -107,11 +109,11 @@ fn verify_bound(
     program: &Program,
     module: &JITModule,
     ids: [cranelift_module::FuncId; 3],
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let mut expected = plan.program(module.target_config(), module.isa().default_call_conv())?;
     bind(&mut expected.entry, ids)?;
     if program.entry != expected.entry || program.callee != expected.callee {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "aggregate linked source mismatch".into(),
         ));
     }
@@ -127,9 +129,9 @@ pub(crate) fn compile(
     limits: super::super::work::Limits,
     #[cfg(test)] failure: Failure,
     #[cfg(test)] fault: LinkFault,
-) -> Result<CallCode, JitError> {
+) -> Result<CallCode, CompileError> {
     if plan.expansion.instructions > limits.instructions || plan.expansion.blocks > limits.blocks {
-        return Err(JitError::ResourceLimit("aggregate IR"));
+        return Err(CompileError::ResourceLimit("aggregate IR"));
     }
     let workspace = plan.allocator();
     #[cfg(test)]
@@ -141,28 +143,28 @@ pub(crate) fn compile(
         .map(|parameters| parameters.max(4) + 4)
         .sum::<usize>();
     let signature_bytes = Layout::array::<AbiParam>((signature_slots + 5) * 3)
-        .map_err(|_| JitError::ResourceLimit("aggregate signature size"))?
+        .map_err(|_| CompileError::ResourceLimit("aggregate signature size"))?
         .size();
     let _signatures = Reservation::new(workspace.0.clone(), signature_bytes)
-        .map_err(|_| JitError::ResourceLimit("aggregate signatures"))?;
+        .map_err(|_| CompileError::ResourceLimit("aggregate signatures"))?;
     let symbol_bytes = symbol_storage_bytes(["activation_enter".len(), "activation_leave".len()])?;
     #[cfg(test)]
     if failure == Failure::RefuseSymbols {
         workspace.0.set_limit(workspace.0.current());
     }
     let _symbols = Reservation::new(workspace.0.clone(), symbol_bytes)
-        .map_err(|_| JitError::ResourceLimit("aggregate symbols"))?;
+        .map_err(|_| CompileError::ResourceLimit("aggregate symbols"))?;
     let _templates = Reservation::new(workspace.0.clone(), 32 * 1024)
-        .map_err(|_| JitError::ResourceLimit("aggregate template workspace"))?;
+        .map_err(|_| CompileError::ResourceLimit("aggregate template workspace"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
     let fail = |error: cranelift_module::ModuleError| {
-        status
-            .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+        status.error().unwrap_or_else(|| {
+            CompileError::compilation(format_args!("{error}"), workspace.clone())
+        })
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -178,10 +180,10 @@ pub(crate) fn compile(
         },
         metadata.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
     let (provider, _provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
-        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-    let mut jit = native_builder(cranelift_native::builder())?;
+        .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
+    let mut jit = native_builder(cranelift_native::builder(), workspace.clone())?;
     jit.symbol(owned_symbol("activation_enter")?, hooks.enter as *const u8);
     jit.symbol(owned_symbol("activation_leave")?, hooks.leave as *const u8);
     jit.memory_provider(provider);
@@ -189,7 +191,7 @@ pub(crate) fn compile(
     let mut program = plan.program(module.target_config(), module.isa().default_call_conv())?;
     let compact_binding = super::compact::Binding::new(plan.callee())?;
     let compact_program = compact_binding.program(module.isa());
-    compact_binding.verify(&compact_program, module.isa())?;
+    compact_binding.verify(&compact_program, module.isa(), workspace.clone())?;
     let functions = [&program.entry, &program.callee, &compact_program.function];
     plan.expansion.verify_actual(
         functions
@@ -213,7 +215,7 @@ pub(crate) fn compile(
         .declare_anonymous_function(&compact_program.function.signature)
         .map_err(fail)?;
     if entry.as_u32() != 0 || leaf.as_u32() != 1 || compact.as_u32() != 2 {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "aggregate function identities".into(),
         ));
     }
@@ -251,9 +253,9 @@ pub(crate) fn compile(
     }
     verify_bound(plan, &program, &module, ids)?;
     cranelift_codegen::verify_function(&program.entry, module.isa())
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
+        .map_err(|e| CompileError::compilation(format_args!("{e}"), workspace.clone()))?;
     cranelift_codegen::verify_function(&program.callee, module.isa())
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
+        .map_err(|e| CompileError::compilation(format_args!("{e}"), workspace.clone()))?;
     let mut entry_context = module.make_context();
     entry_context.func = program.entry;
     let mut leaf_context = module.make_context();
@@ -276,7 +278,7 @@ pub(crate) fn compile(
         .relocs()
         .is_empty()
     {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "compact unexpected relocation".into(),
         ));
     }
@@ -290,17 +292,17 @@ pub(crate) fn compile(
         .map(|(_, ctx)| ctx.compiled_code().unwrap().buffer.relocs().len())
         .sum::<usize>();
     if relocations > limits.relocations {
-        return Err(JitError::ResourceLimit("aggregate relocations"));
+        return Err(CompileError::ResourceLimit("aggregate relocations"));
     }
     let copy_bytes = Layout::array::<ModuleReloc>(relocations)
-        .map_err(|_| JitError::ResourceLimit("aggregate relocation copy size"))?
+        .map_err(|_| CompileError::ResourceLimit("aggregate relocation copy size"))?
         .size();
     #[cfg(test)]
     if failure == Failure::RefuseRelocationCopy {
         workspace.0.set_limit(workspace.0.current());
     }
     let _copies = Reservation::new(workspace.0.clone(), copy_bytes)
-        .map_err(|_| JitError::ResourceLimit("aggregate relocation copy"))?;
+        .map_err(|_| CompileError::ResourceLimit("aggregate relocation copy"))?;
     #[cfg(test)]
     let mut bytes = 0;
     for (id, context) in contexts {
@@ -308,7 +310,7 @@ pub(crate) fn compile(
         let mut staging = BudgetVec::new_in(workspace.clone());
         staging
             .try_reserve_exact(compiled.buffer.relocs().len())
-            .map_err(|_| JitError::ResourceLimit("aggregate relocation staging"))?;
+            .map_err(|_| CompileError::ResourceLimit("aggregate relocation staging"))?;
         staging.extend(
             compiled
                 .buffer
@@ -335,7 +337,7 @@ pub(crate) fn compile(
     let compact_pointer = module.get_finalized_function(compact);
     let image = memory
         .take()
-        .ok_or_else(|| JitError::Compilation("missing aggregate mappings".into()))?;
+        .ok_or_else(|| CompileError::Compilation("missing aggregate mappings".into()))?;
     drop(module);
     let entry = unsafe {
         std::mem::transmute::<*const u8, unsafe extern "C" fn(*mut c_void, u32) -> u32>(pointer)

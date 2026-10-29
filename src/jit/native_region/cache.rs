@@ -4,7 +4,7 @@ use crate::jit::{
     owner::Shared,
     pairs::Key,
     resources::{BudgetAllocator, Compaction, Compactor},
-    JitError, JitMode, MetadataMap, Runtime,
+    CompileError, JitMode, MetadataMap, Runtime,
 };
 
 struct Entry {
@@ -33,10 +33,10 @@ impl Cache {
         }
     }
 
-    fn insert(&mut self, region: Region, last_used: u64) -> Result<(), JitError> {
+    fn insert(&mut self, region: Region, last_used: u64) -> Result<(), CompileError> {
         let key = region.pair.program.key();
         let region = Shared::try_new(region, self.allocator.clone())
-            .map_err(|_| JitError::ResourceLimit("region owner metadata"))?;
+            .map_err(|_| CompileError::ResourceLimit("region owner metadata"))?;
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.region = region;
             entry.last_used = last_used;
@@ -44,10 +44,10 @@ impl Cache {
         }
         self.entries
             .try_reserve(1)
-            .map_err(|_| JitError::ResourceLimit("region cache metadata"))?;
+            .map_err(|_| CompileError::ResourceLimit("region cache metadata"))?;
         if !self.callers.contains_key(&key.caller) && self.callers.try_reserve(1).is_err() {
             self.release_empty();
-            return Err(JitError::ResourceLimit("region caller index metadata"));
+            return Err(CompileError::ResourceLimit("region caller index metadata"));
         }
         let next = self.callers.insert(key.caller, key);
         if let Some(next) = next {
@@ -178,13 +178,15 @@ impl Cache {
 }
 
 impl Runtime {
-    pub(crate) fn install_region(&self, region: Region) -> Result<(), JitError> {
+    pub(crate) fn install_region(&self, region: Region) -> Result<(), CompileError> {
         let mut manager = self.0.borrow_mut();
         if manager.config.mode != JitMode::Auto
             || manager.config != region.config
             || !region.installed(&manager)
         {
-            return Err(JitError::Compilation("region dependency admission".into()));
+            return Err(CompileError::Compilation(
+                "region dependency admission".into(),
+            ));
         }
         let last_used = manager.clock.saturating_add(1);
         let key = region.pair.program.key();

@@ -53,7 +53,7 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_allocation() 
         );
         assert!(matches!(
             result,
-            Err(JitError::ResourceLimit("native relocations"))
+            Err(CompileError::ResourceLimit("native relocations"))
         ));
         assert_eq!(
             (total.load(Ordering::Relaxed), metadata.0.current()),
@@ -77,7 +77,7 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_allocation() 
         snapshots.fail_after(usize::MAX);
         assert!(matches!(
             refused,
-            Err(JitError::ResourceLimit("native relocation staging"))
+            Err(CompileError::ResourceLimit("native relocation staging"))
         ));
         assert_eq!(
             (total.load(Ordering::Relaxed), metadata.0.current()),
@@ -93,7 +93,7 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_allocation() 
     snapshots.set_limit(2 * 1024 * 1024);
     assert!(matches!(
         refused,
-        Err(JitError::ResourceLimit("native relocation copy"))
+        Err(CompileError::ResourceLimit("native relocation copy"))
     ));
     assert_eq!(
         (total.load(Ordering::Relaxed), metadata.0.current()),
@@ -113,11 +113,11 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_allocation() 
     assert_eq!(snapshots.current(), snapshot_baseline);
     assert!(matches!(
         compile_source(exact, Failure::Allocate),
-        Err(JitError::Unavailable(_))
+        Err(CompileError::Unavailable(_))
     ));
     assert!(matches!(
         compile_source(exact, Failure::Protect),
-        Err(JitError::Unavailable(_))
+        Err(CompileError::Unavailable(_))
     ));
     let recovered = compile_source(exact, Failure::None).unwrap();
     assert_eq!(recovered.relocations, count);

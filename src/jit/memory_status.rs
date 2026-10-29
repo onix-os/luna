@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{atomic_owner::AtomicShared, resources::BudgetAllocator, JitError};
+use super::{atomic_owner::AtomicShared, resources::BudgetAllocator, CompileError};
 
 #[derive(Default)]
 pub(super) struct MemoryStatus {
@@ -11,20 +11,20 @@ pub(super) struct MemoryStatus {
 }
 
 impl MemoryStatus {
-    pub fn try_new(allocator: BudgetAllocator) -> Result<AtomicShared<Self>, JitError> {
+    pub fn try_new(allocator: BudgetAllocator) -> Result<AtomicShared<Self>, CompileError> {
         AtomicShared::try_new(Self::default(), allocator)
-            .map_err(|_| JitError::ResourceLimit("JIT metadata"))
+            .map_err(|_| CompileError::ResourceLimit("JIT metadata"))
     }
 
-    pub fn error(&self) -> Option<JitError> {
+    pub fn error(&self) -> Option<CompileError> {
         if self.metadata_refused.load(Ordering::Relaxed) {
-            Some(JitError::ResourceLimit("JIT metadata"))
+            Some(CompileError::ResourceLimit("JIT metadata"))
         } else if self.image_refused.load(Ordering::Relaxed) {
-            Some(JitError::ResourceLimit("native image size"))
+            Some(CompileError::ResourceLimit("native image size"))
         } else if self.quota_refused.load(Ordering::Relaxed) {
-            Some(JitError::ResourceLimit("native mappings"))
+            Some(CompileError::ResourceLimit("native mappings"))
         } else if self.unavailable.load(Ordering::Relaxed) {
-            Some(JitError::Unavailable(
+            Some(CompileError::Unavailable(
                 "native memory allocation or protection denied",
             ))
         } else {
@@ -49,7 +49,7 @@ mod tests {
         provider.quota_refused.store(true, Ordering::Relaxed);
         assert!(matches!(
             status.error(),
-            Some(JitError::ResourceLimit("native mappings"))
+            Some(CompileError::ResourceLimit("native mappings"))
         ));
         drop(status);
         assert_eq!((metadata.current(), host.current()), (bytes, bytes));
@@ -68,7 +68,7 @@ mod tests {
             }
             assert!(matches!(
                 MemoryStatus::try_new(BudgetAllocator(metadata.clone())),
-                Err(JitError::ResourceLimit("JIT metadata"))
+                Err(CompileError::ResourceLimit("JIT metadata"))
             ));
             assert_eq!((metadata.current(), host.current()), (0, 0));
             assert_eq!(metadata.refusals(), 1);
@@ -96,22 +96,22 @@ mod tests {
             if bits & 4 != 0 {
                 assert!(matches!(
                     error,
-                    Some(JitError::ResourceLimit("JIT metadata"))
+                    Some(CompileError::ResourceLimit("JIT metadata"))
                 ));
             } else if bits & 8 != 0 {
                 assert!(matches!(
                     error,
-                    Some(JitError::ResourceLimit("native image size"))
+                    Some(CompileError::ResourceLimit("native image size"))
                 ));
             } else if bits & 2 != 0 {
                 assert!(matches!(
                     error,
-                    Some(JitError::ResourceLimit("native mappings"))
+                    Some(CompileError::ResourceLimit("native mappings"))
                 ));
             } else if bits & 1 != 0 {
                 assert!(matches!(
                     error,
-                    Some(JitError::Unavailable(
+                    Some(CompileError::Unavailable(
                         "native memory allocation or protection denied"
                     ))
                 ));

@@ -151,31 +151,31 @@ pub(crate) fn compile(
     workspace: BudgetAllocator,
     limits: super::super::work::Limits,
     fault: Fault,
-) -> Result<Driver, JitError> {
+) -> Result<Driver, CompileError> {
     if limits.instructions < 64 || limits.blocks < 4 {
-        return Err(JitError::ResourceLimit("native region IR"));
+        return Err(CompileError::ResourceLimit("native region IR"));
     }
     let _templates = Reservation::new(workspace.0.clone(), 32 * 1024)
-        .map_err(|_| JitError::ResourceLimit("native region workspace"))?;
+        .map_err(|_| CompileError::ResourceLimit("native region workspace"))?;
     let _signatures = Reservation::new(
         workspace.0.clone(),
         Layout::array::<AbiParam>(96).unwrap().size(),
     )
-    .map_err(|_| JitError::ResourceLimit("native region signatures"))?;
+    .map_err(|_| CompileError::ResourceLimit("native region signatures"))?;
     let _symbols = Reservation::new(
         workspace.0.clone(),
         symbol_storage_bytes(["region_caller".len(), "region_boundary".len()])?,
     )
-    .map_err(|_| JitError::ResourceLimit("native region symbols"))?;
+    .map_err(|_| CompileError::ResourceLimit("native region symbols"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
     let fail = |error: cranelift_module::ModuleError| {
-        status
-            .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+        status.error().unwrap_or_else(|| {
+            CompileError::compilation(format_args!("{error}"), workspace.clone())
+        })
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -191,10 +191,10 @@ pub(crate) fn compile(
         },
         metadata.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
     let (provider, _charge) = global_box::try_new(Provider(image.clone()), metadata)
-        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-    let mut builder = native_builder(cranelift_native::builder())?;
+        .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
+    let mut builder = native_builder(cranelift_native::builder(), workspace.clone())?;
     builder.symbol(owned_symbol("region_caller")?, caller as *const u8);
     builder.symbol(owned_symbol("region_boundary")?, boundary as *const u8);
     builder.memory_provider(provider);
@@ -223,7 +223,7 @@ pub(crate) fn compile(
     let mut context = module.make_context();
     context.func = template(&module, [caller, boundary], fault);
     if context.func != template(&module, [caller, boundary], Fault::None) {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "native region source mismatch".into(),
         ));
     }
@@ -235,28 +235,28 @@ pub(crate) fn compile(
         .map(|block| context.func.layout.block_insts(block).count())
         .sum();
     if blocks > limits.blocks || instructions > limits.instructions {
-        return Err(JitError::ResourceLimit("native region IR"));
+        return Err(CompileError::ResourceLimit("native region IR"));
     }
     cranelift_codegen::verify_function(&context.func, module.isa())
-        .map_err(|e| JitError::Compilation(e.to_string()))?;
+        .map_err(|e| CompileError::compilation(format_args!("{e}"), workspace.clone()))?;
     context
         .compile(module.isa(), &mut Default::default())
         .map_err(|e| fail(e.into()))?;
     let compiled = context.compiled_code().unwrap();
     if compiled.buffer.relocs().len() > limits.relocations {
-        return Err(JitError::ResourceLimit("native region relocations"));
+        return Err(CompileError::ResourceLimit("native region relocations"));
     }
     let _copies = Reservation::new(
         workspace.0.clone(),
         Layout::array::<ModuleReloc>(compiled.buffer.relocs().len())
-            .map_err(|_| JitError::ResourceLimit("native region relocation size"))?
+            .map_err(|_| CompileError::ResourceLimit("native region relocation size"))?
             .size(),
     )
-    .map_err(|_| JitError::ResourceLimit("native region relocation copy"))?;
-    let mut relocations = BudgetVec::new_in(workspace);
+    .map_err(|_| CompileError::ResourceLimit("native region relocation copy"))?;
+    let mut relocations = BudgetVec::new_in(workspace.clone());
     relocations
         .try_reserve_exact(compiled.buffer.relocs().len())
-        .map_err(|_| JitError::ResourceLimit("native region relocation staging"))?;
+        .map_err(|_| CompileError::ResourceLimit("native region relocation staging"))?;
     relocations.extend(
         compiled
             .buffer
@@ -276,7 +276,7 @@ pub(crate) fn compile(
     let pointer = module.get_finalized_function(entry);
     let memory = image
         .take()
-        .ok_or_else(|| JitError::Compilation("missing native region mappings".into()))?;
+        .ok_or_else(|| CompileError::Compilation("missing native region mappings".into()))?;
     drop(module);
     Ok(Driver {
         _memory: memory,

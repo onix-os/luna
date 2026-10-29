@@ -214,12 +214,22 @@ fn compact_preparation_rejects_unreadable_inputs_but_allows_overwritten_values()
 #[test]
 fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
     use cranelift_codegen::ir::{InstructionData, Opcode};
-    let isa = native_builder(cranelift_native::builder()).unwrap();
+    let isa = native_builder(
+        cranelift_native::builder(),
+        crate::jit::resources::BudgetAllocator(crate::jit::resources::Ledger::new(2 << 20)),
+    )
+    .unwrap();
     let module = JITModule::new(isa);
     let source = source(1, 2, RCIndex::Register(RegisterIndex(0)), Arithmetic::Sub);
     let binding = Binding::new(&source).unwrap();
     let original = binding.program(module.isa());
-    binding.verify(&original, module.isa()).unwrap();
+    binding
+        .verify(
+            &original,
+            module.isa(),
+            source.operations.allocator().clone(),
+        )
+        .unwrap();
     let mut mutations = 0;
     for block in original.function.layout.blocks() {
         for inst in original.function.layout.block_insts(block) {
@@ -242,7 +252,13 @@ fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
             };
             if changed {
                 program.function.dfg.insts[inst] = instruction;
-                assert!(binding.verify(&program, module.isa()).is_err());
+                assert!(binding
+                    .verify(
+                        &program,
+                        module.isa(),
+                        source.operations.allocator().clone()
+                    )
+                    .is_err());
                 mutations += 1;
             }
         }
@@ -263,7 +279,13 @@ fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
             5 => program.binding.constant = Some(7),
             _ => unreachable!(),
         }
-        assert!(binding.verify(&program, module.isa()).is_err());
+        assert!(binding
+            .verify(
+                &program,
+                module.isa(),
+                source.operations.allocator().clone()
+            )
+            .is_err());
     }
 }
 

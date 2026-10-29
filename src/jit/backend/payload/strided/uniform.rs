@@ -25,7 +25,7 @@ pub(super) fn emit(f: &mut Function, slots: IrValue, read: Read) {
     c.func.replace(read.inst).select(scalar, address, null);
 }
 
-pub(super) fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), CompileError> {
     use reads::{constant, load, value};
     let mut previous = Some(read.inst);
     let backwards = std::iter::from_fn(|| {

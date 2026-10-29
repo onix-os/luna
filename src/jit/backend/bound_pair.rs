@@ -12,7 +12,7 @@ pub(super) fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     limits: work::Limits,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     let mut ordinary = compile_in(
         source,
         total.clone(),

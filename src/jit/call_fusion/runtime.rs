@@ -5,7 +5,7 @@ use super::{
     Region,
 };
 use crate::{
-    jit::{abi, backend, owner::Shared, work, JitError, Runtime, RuntimeOwner},
+    jit::{abi, backend, owner::Shared, work, CompileError, Runtime, RuntimeOwner},
     opcode::Operation,
     thread::LuaRegisters,
     Closure, Context,
@@ -45,7 +45,7 @@ impl Request {
     pub(crate) fn new<'gc>(
         ctx: Context<'gc>,
         caller: Closure<'gc>,
-    ) -> Result<Option<Self>, JitError> {
+    ) -> Result<Option<Self>, CompileError> {
         let Some(source) = ctx
             .jit_registry()
             .borrow()
@@ -70,7 +70,7 @@ impl Request {
         }))
     }
 
-    pub(crate) fn compile(self) -> Result<Lease, JitError> {
+    pub(crate) fn compile(self) -> Result<Lease, CompileError> {
         let (config, metadata, memory) = {
             let manager = self.runtime.0.borrow();
             (
@@ -139,7 +139,7 @@ impl Request {
             metadata,
         )
         .map(Lease)
-        .map_err(|_| JitError::ResourceLimit("fused prepared owner"))
+        .map_err(|_| CompileError::ResourceLimit("fused prepared owner"))
     }
 }
 

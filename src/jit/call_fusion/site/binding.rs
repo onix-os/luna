@@ -2,7 +2,7 @@ use ottavino_gc_arena::Gc;
 
 use super::{abi, Argument, Leaf, Site, Snapshot};
 use crate::{
-    jit::{projection::Origin, resources::BudgetAllocator, JitError},
+    jit::{projection::Origin, resources::BudgetAllocator, CompileError},
     thread::LuaRegisters,
     Closure, Function, FunctionPrototype, Value,
 };
@@ -32,7 +32,7 @@ impl Input {
         prototype: u8,
         max_instructions: usize,
         allocator: BudgetAllocator,
-    ) -> Result<Option<Self>, JitError> {
+    ) -> Result<Option<Self>, CompileError> {
         let Some(child) = parent.prototypes.get(usize::from(prototype)) else {
             return Ok(None);
         };
@@ -40,9 +40,9 @@ impl Input {
             .opcodes
             .len()
             .checked_add(child.opcodes.len())
-            .ok_or(JitError::ResourceLimit("fused source size overflow"))?;
+            .ok_or(CompileError::ResourceLimit("fused source size overflow"))?;
         if instructions > max_instructions {
-            return Err(JitError::ResourceLimit("fused source instructions"));
+            return Err(CompileError::ResourceLimit("fused source instructions"));
         }
         if parent.opcodes.len() > 256
             || parent.constants.len() > 256

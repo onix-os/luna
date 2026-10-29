@@ -13,7 +13,7 @@ use super::{
     atomic_owner::AtomicShared,
     compiler_launch::Child,
     resources::{BudgetAllocator, LedgerRef, MappingCounter},
-    JitError,
+    CompileError,
 };
 
 enum Slot {
@@ -159,14 +159,14 @@ impl Completion {
 }
 
 impl Supervisor {
-    pub fn new(maximum: usize, metadata: BudgetAllocator) -> Result<Self, JitError> {
+    pub fn new(maximum: usize, metadata: BudgetAllocator) -> Result<Self, CompileError> {
         if maximum == 0 {
-            return Err(JitError::InvalidConfiguration("compiler job capacity"));
+            return Err(CompileError::InvalidConfiguration("compiler job capacity"));
         }
         let mut slots = Vec::new_in(metadata.clone());
         slots
             .try_reserve_exact(maximum)
-            .map_err(|_| JitError::ResourceLimit("compiler jobs metadata"))?;
+            .map_err(|_| CompileError::ResourceLimit("compiler jobs metadata"))?;
         slots.resize_with(maximum, || Slot::Empty);
         let shared = AtomicShared::try_new(
             Shared {
@@ -180,7 +180,7 @@ impl Supervisor {
             },
             metadata,
         )
-        .map_err(|_| JitError::ResourceLimit("compiler jobs metadata"))?;
+        .map_err(|_| CompileError::ResourceLimit("compiler jobs metadata"))?;
         Ok(Self(shared))
     }
 
@@ -207,13 +207,15 @@ impl Supervisor {
         self.lock().occupied()
     }
 
-    pub fn ensure_host(&self, host: &LedgerRef) -> Result<(), JitError> {
+    pub fn ensure_host(&self, host: &LedgerRef) -> Result<(), CompileError> {
         if MappingCounter::new(self.lock().slots.allocator().0.clone())
             .same_root(&MappingCounter::new(host.clone()))
         {
             Ok(())
         } else {
-            Err(JitError::InvalidConfiguration("compiler supervisor host"))
+            Err(CompileError::InvalidConfiguration(
+                "compiler supervisor host",
+            ))
         }
     }
 
@@ -230,9 +232,9 @@ impl Supervisor {
         }
     }
 
-    pub fn configure(&self, maximum: usize) -> Result<(), JitError> {
+    pub fn configure(&self, maximum: usize) -> Result<(), CompileError> {
         if maximum == 0 {
-            return Err(JitError::InvalidConfiguration("compiler job capacity"));
+            return Err(CompileError::InvalidConfiguration("compiler job capacity"));
         }
         let mut queue = self.lock();
         if maximum > queue.slots.len() {
@@ -240,26 +242,26 @@ impl Supervisor {
             queue
                 .slots
                 .try_reserve_exact(additional)
-                .map_err(|_| JitError::ResourceLimit("compiler jobs metadata"))?;
+                .map_err(|_| CompileError::ResourceLimit("compiler jobs metadata"))?;
             queue.slots.resize_with(maximum, || Slot::Empty);
         }
         queue.limit = maximum;
         Ok(())
     }
 
-    pub(super) fn reserve(&self) -> Result<Ticket, JitError> {
+    pub(super) fn reserve(&self) -> Result<Ticket, CompileError> {
         let mut queue = self.lock();
         if queue.occupied() >= queue.limit {
-            return Err(JitError::ResourceLimit("compiler job capacity"));
+            return Err(CompileError::ResourceLimit("compiler job capacity"));
         }
         let index = queue
             .slots
             .iter()
             .position(|slot| matches!(slot, Slot::Empty))
-            .ok_or(JitError::ResourceLimit("compiler job capacity"))?;
+            .ok_or(CompileError::ResourceLimit("compiler job capacity"))?;
         if self.0.wake.get().is_none() {
             let handle = start(self.0.clone())
-                .map_err(|_| JitError::ResourceLimit("compiler completion service"))?;
+                .map_err(|_| CompileError::ResourceLimit("compiler completion service"))?;
             let wake = handle.thread().clone();
             *self
                 .0

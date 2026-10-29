@@ -227,7 +227,7 @@ fn metadata_refusal_at_every_stage_reclaims_images_without_resetting_failures() 
                 completed += 1;
                 drop(code);
             }
-            Err(InstallError::Native(JitError::ResourceLimit(_))) => {
+            Err(InstallError::Native(CompileError::ResourceLimit(_))) => {
                 refused += 1;
             }
             Err(error) => panic!("unexpected refusal {error:?}"),

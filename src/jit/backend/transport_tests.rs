@@ -85,10 +85,8 @@ fn transport_recognition_refuses_invalid_snapshots_before_planning() {
                 }
             }
         }
-        assert!(matches!(
-            integer_loop::has_source_plan(&source),
-            Err(JitError::Compilation(_))
-        ));
+        let error = integer_loop::has_source_plan(&source).unwrap_err();
+        assert_eq!(error.class(), crate::jit::compile_error::Class::Compilation);
     }
 }
 

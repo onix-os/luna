@@ -1100,7 +1100,9 @@ mod tests {
             assert!(!proto.constants.is_empty());
             assert!(matches!(
                 super::super::ir::Snapshot::new_in(&proto, 4096, BudgetAllocator(ledger.clone())),
-                Err(super::super::JitError::ResourceLimit("prototype snapshot"))
+                Err(super::super::CompileError::ResourceLimit(
+                    "prototype snapshot"
+                ))
             ));
         });
         assert_eq!(ledger.current(), 0);
@@ -1151,7 +1153,7 @@ mod tests {
         }
         assert!(matches!(
             runtime.compile(1, snapshot),
-            Err(super::super::JitError::ResourceLimit("JIT metadata"))
+            Err(super::super::CompileError::ResourceLimit("JIT metadata"))
         ));
         assert_eq!(runtime.usage(), 0);
         let manager = runtime.0.borrow();

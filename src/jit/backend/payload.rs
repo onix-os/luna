@@ -112,32 +112,32 @@ enum Rewrite {
     Helper(Inst, usize, FuncRef),
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid payload transport grammar".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid payload transport grammar".into())
 }
 
 pub(super) fn expansion(
     source: &Snapshot,
     limits: super::super::work::Limits,
-) -> Result<super::super::work::Expansion, JitError> {
+) -> Result<super::super::work::Expansion, CompileError> {
     let mut bound = super::super::work::Expansion::admit(source, limits)?;
     for operation in &source.operations {
         if let Operation::LoadNil { count, .. } = operation {
             bound.instructions = bound
                 .instructions
                 .checked_add(36 * usize::from(*count))
-                .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
+                .ok_or(CompileError::ResourceLimit("payload expansion overflow"))?;
             bound.blocks = bound
                 .blocks
                 .checked_add(7 * usize::from(*count))
-                .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
+                .ok_or(CompileError::ResourceLimit("payload expansion overflow"))?;
         }
     }
     if bound.instructions > limits.instructions {
-        return Err(JitError::ResourceLimit("IR instructions"));
+        return Err(CompileError::ResourceLimit("IR instructions"));
     }
     if bound.blocks > limits.blocks {
-        return Err(JitError::ResourceLimit("IR blocks"));
+        return Err(CompileError::ResourceLimit("IR blocks"));
     }
     Ok(bound)
 }
@@ -169,7 +169,7 @@ fn payload_nil_fanout_expansion_respects_original_host_limits() {
             if accepted {
                 assert_eq!(result.unwrap(), actual);
             } else {
-                assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
             }
         }
     });
@@ -181,8 +181,8 @@ fn scan(
     host: IrValue,
     registers: usize,
     helpers: &[(u32, FuncRef)],
-    mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
-) -> Result<(), JitError> {
+    mut visit: impl FnMut(Rewrite) -> Result<(), CompileError>,
+) -> Result<(), CompileError> {
     scan_with_tags(function, slots, host, registers, helpers, false, &mut visit)
 }
 
@@ -193,8 +193,8 @@ fn scan_with_tags(
     registers: usize,
     helpers: &[(u32, FuncRef)],
     tags: bool,
-    mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
-) -> Result<(), JitError> {
+    mut visit: impl FnMut(Rewrite) -> Result<(), CompileError>,
+) -> Result<(), CompileError> {
     if registers > 256 {
         return Err(invalid());
     }
@@ -298,7 +298,7 @@ fn scan_with_tags(
 
 fn shape<const N: usize>(
     mut instructions: impl Iterator<Item = Inst>,
-) -> Result<[Inst; N], JitError> {
+) -> Result<[Inst; N], CompileError> {
     let result = super::super::arrays::try_array(|_| instructions.next().ok_or_else(invalid))?;
     if instructions.next().is_some() {
         return Err(invalid());
@@ -334,7 +334,7 @@ fn plan(
     registers: usize,
     helpers: &[(u32, FuncRef)],
     expansion: super::super::work::Expansion,
-) -> Result<Plan, JitError> {
+) -> Result<Plan, CompileError> {
     let (original_instructions, original_blocks) = size(function);
     let mut plan = Plan {
         reads: 0,
@@ -347,7 +347,7 @@ fn plan(
     };
     let add = |left: usize, right: usize| {
         left.checked_add(right)
-            .ok_or(JitError::ResourceLimit("payload expansion overflow"))
+            .ok_or(CompileError::ResourceLimit("payload expansion overflow"))
     };
     let mut host_uses = function
         .layout
@@ -409,7 +409,7 @@ fn plan(
     if host_calls {
         plan.host_instructions = add(host_uses, 1)?
             .checked_mul(2)
-            .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
+            .ok_or(CompileError::ResourceLimit("payload expansion overflow"))?;
         plan.instructions = add(plan.instructions, plan.host_instructions)?;
     }
     expansion.verify_actual(
@@ -427,7 +427,7 @@ pub(super) fn lower(
     helpers: &[(u32, FuncRef)],
     allocator: BudgetAllocator,
     expansion: super::super::work::Expansion,
-) -> Result<usize, JitError> {
+) -> Result<usize, CompileError> {
     lower_contract(
         function,
         slots,
@@ -449,9 +449,9 @@ pub(super) fn lower_contract(
     allocator: BudgetAllocator,
     expansion: super::super::work::Expansion,
     contract: Contract,
-) -> Result<usize, JitError> {
+) -> Result<usize, CompileError> {
     let plan = plan(function, slots, host, registers, helpers, expansion)?;
-    let refused = || JitError::ResourceLimit("payload rewrite records");
+    let refused = || CompileError::ResourceLimit("payload rewrite records");
     let mut reads = BudgetVec::new_in(allocator.clone());
     reads.try_reserve_exact(plan.reads).map_err(|_| refused())?;
     let mut writes = BudgetVec::new_in(allocator.clone());
@@ -461,7 +461,7 @@ pub(super) fn lower_contract(
     let mut bypasses = BudgetVec::new_in(allocator.clone());
     bypasses
         .try_reserve_exact(plan.bypasses)
-        .map_err(|_| JitError::ResourceLimit("payload copy bypass records"))?;
+        .map_err(|_| CompileError::ResourceLimit("payload copy bypass records"))?;
     let mut terminal =
         terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
     let mut same_tag = if contract == Contract::FrameBound {
@@ -492,7 +492,7 @@ pub(super) fn lower_contract(
     write
         .params
         .try_reserve_exact(5)
-        .map_err(|_| JitError::ResourceLimit("payload signature"))?;
+        .map_err(|_| CompileError::ResourceLimit("payload signature"))?;
     write
         .params
         .extend([types::I64, types::I64, types::I32, types::I64, types::I64].map(AbiParam::new));
@@ -643,7 +643,7 @@ pub(super) fn lower_contract(
     let bypass_work = source_instructions
         .checked_add(source_blocks)
         .and_then(|n| n.checked_mul(64))
-        .ok_or(JitError::ResourceLimit("payload copy bypass work"))?;
+        .ok_or(CompileError::ResourceLimit("payload copy bypass work"))?;
     copy_bypass::apply(
         function,
         &mut candidate,
@@ -671,7 +671,7 @@ pub(super) fn lower_contract(
                 - 2 * (plan.bypasses - bypasses.len()),
         )
     {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "payload expansion differs from plan".into(),
         ));
     }
@@ -685,7 +685,9 @@ pub(super) fn lower_contract(
     let mut read_work = instructions
         .checked_add(blocks)
         .and_then(|n| n.checked_mul(64))
-        .ok_or(JitError::ResourceLimit("payload emitted read proof work"))?;
+        .ok_or(CompileError::ResourceLimit(
+            "payload emitted read proof work",
+        ))?;
     for read in &reads {
         match read {
             Read::Scalar(read) => {
@@ -715,7 +717,9 @@ pub(super) fn lower_contract(
     let mut tag_work = instructions
         .checked_add(blocks)
         .and_then(|n| n.checked_mul(64))
-        .ok_or(JitError::ResourceLimit("payload emitted tag proof work"))?;
+        .ok_or(CompileError::ResourceLimit(
+            "payload emitted tag proof work",
+        ))?;
     for write in &writes {
         match write {
             Write::Checked(write) => {
@@ -787,7 +791,7 @@ pub(super) fn lower_contract(
                 - 2 * (plan.bypasses - bypass_count),
         )
     {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "payload host expansion differs from plan".into(),
         ));
     }
@@ -944,7 +948,7 @@ fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
         } else {
             assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit(
+                Err(CompileError::ResourceLimit(
                     "payload rewrite records"
                         | "payload host copy records"
                         | "terminal liveness blocks"
@@ -999,7 +1003,7 @@ fn payload_expansion_is_admitted_before_workspace_or_source_changes() {
             assert_eq!(size(&function), (plan.instructions, plan.blocks));
         } else {
             assert!(
-                matches!(result, Err(JitError::Compilation(message)) if message == "IR expansion exceeds admitted bound")
+                matches!(result, Err(CompileError::Compilation(message)) if message == "IR expansion exceeds admitted bound")
             );
             assert_eq!(allocator.0.peak(), 0);
             assert_eq!(function, source);
@@ -1050,7 +1054,7 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
                     selection,
                     mode == 4,
                 );
-                assert!(matches!(result, Err(JitError::Compilation(message))
+                assert!(matches!(result, Err(CompileError::Compilation(message))
                     if message == "payload transport requires ordinary lowering"));
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(metadata.0.current(), 0);
@@ -1193,7 +1197,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
                         assert!(count > limit);
                         assert!(matches!(
                             error,
-                            JitError::ResourceLimit("native relocations")
+                            CompileError::ResourceLimit("native relocations")
                         ));
                     }
                 }

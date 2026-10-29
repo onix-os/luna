@@ -1,6 +1,6 @@
 use crate::{opcode::Operation, types::RegisterIndex};
 
-use super::{abi, ir::Snapshot, leaf, work, JitError};
+use super::{abi, ir::Snapshot, leaf, work, CompileError};
 
 pub(super) struct Plan<'a> {
     caller: &'a Snapshot,
@@ -59,7 +59,7 @@ impl Plan<'_> {
         &self,
         config: cranelift_codegen::isa::TargetFrontendConfig,
         convention: cranelift_codegen::isa::CallConv,
-    ) -> Result<Program, JitError> {
+    ) -> Result<Program, CompileError> {
         use cranelift_codegen::ir::{
             condcodes::IntCC, types, AbiParam, ExtFuncData, ExternalName, Function, InstBuilder,
             MemFlagsData, Signature, UserFuncName,
@@ -189,10 +189,10 @@ impl Plan<'_> {
         program: &Program,
         config: cranelift_codegen::isa::TargetFrontendConfig,
         convention: cranelift_codegen::isa::CallConv,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let expected = self.program(config, convention)?;
         if program.entry != expected.entry || program.callee != expected.callee {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "aggregate program differs from source".into(),
             ));
         }
@@ -210,11 +210,11 @@ impl<'a> Plan<'a> {
         callee: &'a Snapshot,
         pc: usize,
         limits: work::Limits,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         caller.verify()?;
         callee.verify()?;
         if limits.relocations < 3 {
-            return Err(JitError::ResourceLimit("aggregate relocation imports"));
+            return Err(CompileError::ResourceLimit("aggregate relocation imports"));
         }
         let Some(Operation::Call {
             func,
@@ -222,30 +222,34 @@ impl<'a> Plan<'a> {
             returns,
         }) = caller.operations.get(pc).copied()
         else {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "aggregate source is not a call".into(),
             ));
         };
         let Some(arguments) = args.to_constant() else {
-            return Err(JitError::Compilation("variable aggregate arguments".into()));
+            return Err(CompileError::Compilation(
+                "variable aggregate arguments".into(),
+            ));
         };
         if returns.to_constant() != Some(0) {
-            return Err(JitError::Compilation(
+            return Err(CompileError::Compilation(
                 "aggregate call returns values".into(),
             ));
         }
         let pattern = leaf::Pattern::recognize(callee)
-            .ok_or_else(|| JitError::Compilation("invalid aggregate callee".into()))?;
+            .ok_or_else(|| CompileError::Compilation("invalid aggregate callee".into()))?;
         let Operation::Return { count, .. } = callee.operations[3] else {
             unreachable!()
         };
         if count.to_constant().is_none() {
-            return Err(JitError::Compilation("variable aggregate return".into()));
+            return Err(CompileError::Compilation(
+                "variable aggregate return".into(),
+            ));
         }
         match pattern.right {
             leaf::Operand::Constant(index) => {
                 if callee.constants[usize::from(index)].tag != abi::INTEGER {
-                    return Err(JitError::Compilation(
+                    return Err(CompileError::Compilation(
                         "non-integer aggregate constant".into(),
                     ));
                 }
@@ -253,7 +257,7 @@ impl<'a> Plan<'a> {
             leaf::Operand::Register(register)
                 if register != pattern.read && register.0 >= arguments =>
             {
-                return Err(JitError::Compilation(
+                return Err(CompileError::Compilation(
                     "aggregate operand is not an argument".into(),
                 ));
             }
@@ -281,9 +285,11 @@ impl<'a> Plan<'a> {
         })
     }
 
-    pub fn verify(&self, caller: &Snapshot, callee: &Snapshot) -> Result<(), JitError> {
+    pub fn verify(&self, caller: &Snapshot, callee: &Snapshot) -> Result<(), CompileError> {
         if !std::ptr::eq(caller, self.caller) || !std::ptr::eq(callee, self.callee) {
-            return Err(JitError::Compilation("aggregate source mismatch".into()));
+            return Err(CompileError::Compilation(
+                "aggregate source mismatch".into(),
+            ));
         }
         let rebuilt = Plan::new(
             caller,
@@ -300,7 +306,7 @@ impl<'a> Plan<'a> {
             || rebuilt.pattern != self.pattern
             || rebuilt.expansion != self.expansion
         {
-            return Err(JitError::Compilation("aggregate plan mismatch".into()));
+            return Err(CompileError::Compilation("aggregate plan mismatch".into()));
         }
         Ok(())
     }

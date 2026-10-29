@@ -43,7 +43,7 @@ pub(in crate::jit) fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     work: crate::jit::work::Limits,
-) -> Result<ReadCode, JitError> {
+) -> Result<ReadCode, CompileError> {
     let plan = Plan::recognize(source).ok_or_else(invalid)?;
     let image = compile_image(
         source,
@@ -86,7 +86,7 @@ pub(in crate::jit) fn compile_pair(
     metadata: BudgetAllocator,
     work: crate::jit::work::Limits,
     #[cfg(test)] failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     let bound = crate::jit::work::Expansion::admit(source, work)?;
     let mut ordinary = compile_in(
         source,
@@ -162,24 +162,24 @@ pub(in crate::jit) fn compile_pair(
     Ok(ordinary)
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid read-only lookup lowering".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid read-only lookup lowering".into())
 }
 
 pub(super) fn expansion(
     mut bound: crate::jit::work::Expansion,
     limits: crate::jit::work::Limits,
-) -> Result<crate::jit::work::Expansion, JitError> {
+) -> Result<crate::jit::work::Expansion, CompileError> {
     bound.instructions = bound
         .instructions
         .checked_add(64)
-        .ok_or(JitError::ResourceLimit("read-only IR"))?;
+        .ok_or(CompileError::ResourceLimit("read-only IR"))?;
     bound.blocks = bound
         .blocks
         .checked_add(3)
-        .ok_or(JitError::ResourceLimit("read-only blocks"))?;
+        .ok_or(CompileError::ResourceLimit("read-only blocks"))?;
     if bound.instructions > limits.instructions || bound.blocks > limits.blocks {
-        return Err(JitError::ResourceLimit("read-only expansion"));
+        return Err(CompileError::ResourceLimit("read-only expansion"));
     }
     Ok(bound)
 }
@@ -204,7 +204,7 @@ pub(super) fn lower(
     slots: IrValue,
     exit: IrValue,
     allocator: BudgetAllocator,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if Plan::recognize(source) != Some(plan) || function.signature.params.len() != 5 {
         return Err(invalid());
     }
@@ -219,7 +219,7 @@ fn rewrite(
     call: Inst,
     slots: IrValue,
     exit: IrValue,
-) -> Result<Rewrite, JitError> {
+) -> Result<Rewrite, CompileError> {
     let original = function.layout.entry_block().ok_or_else(invalid)?;
     let ptr = function.dfg.value_type(slots);
     let root = function.dfg.make_block();
@@ -323,7 +323,7 @@ fn rewrite(
     })
 }
 
-fn value_inst(function: &Function, value: IrValue) -> Result<Inst, JitError> {
+fn value_inst(function: &Function, value: IrValue) -> Result<Inst, CompileError> {
     match function.dfg.value_def(value) {
         cranelift_codegen::ir::ValueDef::Result(inst, 0) => Ok(inst),
         _ => Err(invalid()),
@@ -336,7 +336,7 @@ fn verify(
     plan: Plan,
     rewrite: &Rewrite,
     witness: &witness::Witness,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if Plan::recognize(source) != Some(plan) || function.signature.params.len() != 6 {
         return Err(invalid());
     }
@@ -401,7 +401,7 @@ fn verify(
     verify_guard(function, plan, rewrite)
 }
 
-fn verify_guard(function: &Function, plan: Plan, rewrite: &Rewrite) -> Result<(), JitError> {
+fn verify_guard(function: &Function, plan: Plan, rewrite: &Rewrite) -> Result<(), CompileError> {
     if function.layout.entry_block() != Some(rewrite.root)
         || function.dfg.block_params(rewrite.root).len() != 6
         || function.dfg.block_params(rewrite.original).len() != 5
@@ -499,7 +499,7 @@ fn output(
     function: &Function,
     inst: Inst,
     ty: cranelift_codegen::ir::Type,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let values = function.dfg.inst_results(inst);
     if values.len() != 1 || function.dfg.value_type(values[0]) != ty {
         return Err(invalid());
@@ -511,7 +511,7 @@ fn constant(
     inst: Inst,
     ty: cranelift_codegen::ir::Type,
     expected: i64,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     match function.dfg.insts[inst] {
         InstructionData::UnaryImm {
             opcode: Opcode::Iconst,
@@ -525,7 +525,7 @@ fn load(
     inst: Inst,
     pointer: IrValue,
     expected: i32,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     match function.dfg.insts[inst] {
         InstructionData::Load {
             opcode: Opcode::Load,
@@ -547,7 +547,7 @@ fn store(
     value: IrValue,
     pointer: IrValue,
     expected: i32,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     match function.dfg.insts[inst] {
         InstructionData::Store {
             opcode: Opcode::Store,
@@ -569,7 +569,7 @@ fn compare(
     expected: IntCC,
     value: IrValue,
     immediate: i64,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let rhs = constant(
         function,
         nodes.next().ok_or_else(invalid)?,
@@ -586,7 +586,7 @@ fn compare(
         _ => Err(invalid()),
     }
 }
-fn and(function: &Function, inst: Inst, a: IrValue, b: IrValue) -> Result<IrValue, JitError> {
+fn and(function: &Function, inst: Inst, a: IrValue, b: IrValue) -> Result<IrValue, CompileError> {
     match function.dfg.insts[inst] {
         InstructionData::Binary {
             opcode: Opcode::Band,
@@ -602,7 +602,7 @@ fn branch(
     yes: Block,
     forwarded: &[IrValue],
     no: Block,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     match &function.dfg.insts[inst] {
         InstructionData::Brif {
             opcode: Opcode::Brif,

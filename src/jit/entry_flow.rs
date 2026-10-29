@@ -6,7 +6,8 @@ use cranelift_codegen::ir::{
 use cranelift_frontend::FunctionBuilder;
 
 use super::{
-    dominance::Dominators, ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, JitError,
+    dominance::Dominators, ir::Snapshot, preds::Predecessors, resources::BudgetAllocator,
+    CompileError,
 };
 
 #[derive(Clone, Copy)]
@@ -40,16 +41,16 @@ pub(super) struct Paths {
     overflowed: bool,
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid entry or budget data flow".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid entry or budget data flow".into())
 }
 
 impl Paths {
-    pub fn new(snapshot: &Snapshot) -> Result<Self, JitError> {
+    pub fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
         let mut points = Vec::new_in(snapshot.operations.allocator().clone());
         points
             .try_reserve_exact(snapshot.operations.len())
-            .map_err(|_| JitError::ResourceLimit("entry path verification"))?;
+            .map_err(|_| CompileError::ResourceLimit("entry path verification"))?;
         Ok(Self {
             points,
             expected: snapshot.operations.len(),
@@ -125,7 +126,7 @@ impl Paths {
         root: Root,
         fallback: Block,
         exhausted: Block,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let [reduce, table] = instructions::<2>(function, root.dispatch)?;
         self.verify_routing(
             function,
@@ -151,7 +152,7 @@ impl Paths {
         fallback: Block,
         exhausted: Block,
         routing: Routing,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if self.overflowed
             || self.points.len() != self.expected
             || self.expected != snapshot.operations.len()
@@ -329,7 +330,7 @@ impl Paths {
         headers: &[Block],
         root: Root,
         handlers: &[Block; 4],
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         self.verify_regions_with_table(function, graph, headers, root, handlers, None)
     }
 
@@ -341,8 +342,8 @@ impl Paths {
         root: Root,
         handlers: &[Block; 4],
         table_block: Option<Block>,
-    ) -> Result<(), JitError> {
-        let rejected = || JitError::Compilation("invalid source region data flow".into());
+    ) -> Result<(), CompileError> {
+        let rejected = || CompileError::Compilation("invalid source region data flow".into());
         if self.overflowed
             || self.expected != self.points.len()
             || self.expected != headers.len()
@@ -377,7 +378,7 @@ impl Paths {
         let mut effects = Vec::new_in(self.points.allocator().clone());
         effects
             .try_reserve_exact(function.dfg.num_blocks())
-            .map_err(|_| JitError::ResourceLimit("source path verification"))?;
+            .map_err(|_| CompileError::ResourceLimit("source path verification"))?;
         effects.resize(function.dfg.num_blocks(), 0u8);
         let cfg = Predecessors::new(function, self.points.allocator().clone())?;
         let dom = Dominators::new(function, &cfg, self.points.allocator().clone())?;
@@ -474,7 +475,10 @@ impl Paths {
     }
 }
 
-fn instructions<const N: usize>(function: &Function, block: Block) -> Result<[Inst; N], JitError> {
+fn instructions<const N: usize>(
+    function: &Function,
+    block: Block,
+) -> Result<[Inst; N], CompileError> {
     let mut instructions = function.layout.block_insts(block);
     let mut result = [Inst::from_u32(0); N];
     for slot in &mut result {
@@ -489,7 +493,7 @@ fn result(
     function: &Function,
     inst: Inst,
     ty: cranelift_codegen::ir::Type,
-) -> Result<Value, JitError> {
+) -> Result<Value, CompileError> {
     let [value] = function.dfg.inst_results(inst) else {
         return Err(invalid());
     };
@@ -523,7 +527,7 @@ fn conditional(
     function: &Function,
     inst: Inst,
     condition: Value,
-) -> Result<[BlockCall; 2], JitError> {
+) -> Result<[BlockCall; 2], CompileError> {
     match function.dfg.insts[inst] {
         InstructionData::Brif {
             opcode: Opcode::Brif,
@@ -533,7 +537,7 @@ fn conditional(
         _ => Err(invalid()),
     }
 }
-fn no_args(function: &Function, branch: BlockCall, block: Block) -> Result<(), JitError> {
+fn no_args(function: &Function, branch: BlockCall, block: Block) -> Result<(), CompileError> {
     destination(function, branch, block, &[])
 }
 fn destination(
@@ -541,7 +545,7 @@ fn destination(
     branch: BlockCall,
     block: Block,
     values: &[Value],
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if branch.block(&function.dfg.value_lists) != block {
         return Err(invalid());
     }
@@ -556,7 +560,12 @@ fn destination(
     }
     Ok(())
 }
-fn jump(function: &Function, inst: Inst, block: Block, values: &[Value]) -> Result<(), JitError> {
+fn jump(
+    function: &Function,
+    inst: Inst,
+    block: Block,
+    values: &[Value],
+) -> Result<(), CompileError> {
     match function.dfg.insts[inst] {
         InstructionData::Jump {
             opcode: Opcode::Jump,
@@ -565,7 +574,7 @@ fn jump(function: &Function, inst: Inst, block: Block, values: &[Value]) -> Resu
         _ => Err(invalid()),
     }
 }
-fn single_predecessor(cfg: &Predecessors, block: Block, inst: Inst) -> Result<(), JitError> {
+fn single_predecessor(cfg: &Predecessors, block: Block, inst: Inst) -> Result<(), CompileError> {
     let mut predecessors = cfg.pred_iter(block);
     if !predecessors
         .next()
@@ -925,7 +934,7 @@ mod region_tests {
     use cranelift_codegen::ir::{AbiParam, MemFlagsData};
     use cranelift_frontend::FunctionBuilderContext;
 
-    fn fixture(fault: Option<RegionFault>, quota: bool) -> Result<(), JitError> {
+    fn fixture(fault: Option<RegionFault>, quota: bool) -> Result<(), CompileError> {
         fixture_with_write(fault, quota, true)
     }
 
@@ -933,7 +942,7 @@ mod region_tests {
         fault: Option<RegionFault>,
         quota: bool,
         write: bool,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         fixture_inspect(fault, quota, write, |_, _, _, _, _, _, _| Ok(()))
     }
 
@@ -949,8 +958,8 @@ mod region_tests {
             &[Block],
             Root,
             &[Block; 4],
-        ) -> Result<(), JitError>,
-    ) -> Result<(), JitError> {
+        ) -> Result<(), CompileError>,
+    ) -> Result<(), CompileError> {
         let source = Snapshot {
             prepared_keys: None,
             operations: super::super::resources::owned(&[
@@ -1092,7 +1101,7 @@ mod region_tests {
         if quota {
             assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit("source path verification"))
+                Err(CompileError::ResourceLimit("source path verification"))
             ));
             assert_eq!(ledger.refusals(), 1);
         }
@@ -1125,7 +1134,7 @@ mod region_tests {
     fn workspace_quota_refusal_releases_storage() {
         assert!(matches!(
             fixture(None, true),
-            Err(JitError::ResourceLimit("source path verification"))
+            Err(CompileError::ResourceLimit("source path verification"))
         ));
     }
     macro_rules! rejected {
@@ -1133,7 +1142,7 @@ mod region_tests {
             #[test]
             fn $name() {
                 let result = fixture(Some(RegionFault::$fault), false);
-                assert!(matches!(result, Err(JitError::Compilation(ref message))
+                assert!(matches!(result, Err(CompileError::Compilation(ref message))
                     if message == "invalid source region data flow"), "{result:?}");
             }
         };
@@ -1181,7 +1190,7 @@ mod tests {
         source
     }
 
-    fn fixture(length: usize, fault: Option<Fault>) -> Result<(), JitError> {
+    fn fixture(length: usize, fault: Option<Fault>) -> Result<(), CompileError> {
         fixture_with(length, fault, |_, _, _, _, _, _, _| Ok(()))
     }
 
@@ -1196,8 +1205,8 @@ mod tests {
             Root,
             Block,
             Block,
-        ) -> Result<(), JitError>,
-    ) -> Result<(), JitError> {
+        ) -> Result<(), CompileError>,
+    ) -> Result<(), CompileError> {
         let source = snapshot(length);
         let ledger = source.operations.allocator().0.clone();
         let baseline = ledger.current();
@@ -1307,7 +1316,7 @@ mod tests {
         ledger.set_limit(baseline);
         assert!(matches!(
             Paths::new(&source),
-            Err(JitError::ResourceLimit("entry path verification"))
+            Err(CompileError::ResourceLimit("entry path verification"))
         ));
         assert_eq!(ledger.current(), baseline);
         assert_eq!(ledger.refusals(), 1);
@@ -1325,7 +1334,7 @@ mod tests {
             #[test]
             fn $name() {
                 let result = fixture(2, Some(Fault::$fault));
-                assert!(matches!(result, Err(JitError::Compilation(ref message))
+                assert!(matches!(result, Err(CompileError::Compilation(ref message))
                     if message == "invalid entry or budget data flow"), "{result:?}");
             }
         };

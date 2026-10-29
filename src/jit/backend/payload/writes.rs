@@ -163,7 +163,7 @@ pub(super) fn emit_contract(
     }
 }
 
-pub(super) fn jump(f: &Function, inst: Inst, after: Block) -> Result<(), JitError> {
+pub(super) fn jump(f: &Function, inst: Inst, after: Block) -> Result<(), CompileError> {
     let InstructionData::Jump { destination, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -180,7 +180,7 @@ pub(super) fn store(
     inst: Inst,
     bits: IrValue,
     pointer: IrValue,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let InstructionData::Store {
         opcode: Opcode::Store,
         args,
@@ -203,7 +203,7 @@ pub(super) fn verify_source(
     f: &Function,
     write: &Write,
     analysis: &mut same_tag::Analysis,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if let Some(proof) = write.input.known_tag {
         if !proof.matches(write.input.index, write.input.tag)
             || !analysis.verify(f, write.input.slots, proof)
@@ -220,7 +220,7 @@ pub(super) fn verify_guard(
     predecessors: Option<&crate::jit::preds::Predecessors>,
     remaining: &mut usize,
     contract: Contract,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if write.contract != contract {
         return Err(invalid());
     }
@@ -256,7 +256,7 @@ pub(super) fn verify_copy_source(
     write: &Write,
     analysis: &mut same_tag::Analysis,
     terminal: &mut terminal::Analysis<'_>,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if let Some(proof) = write.input.copy {
         if !write.input.terminal
             || !proof.matches(write.input.index, write.input.tag, write.input.bits)
@@ -268,7 +268,7 @@ pub(super) fn verify_copy_source(
     Ok(())
 }
 
-pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, write: &Write) -> Result<(), CompileError> {
     verify_contract(f, write, Contract::Checked)
 }
 
@@ -276,7 +276,7 @@ pub(super) fn verify_contract(
     f: &Function,
     write: &Write,
     contract: Contract,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     if write.contract != contract {
         return Err(invalid());
     }
@@ -603,7 +603,7 @@ fn frame_bound_generic_write_quota_refusal_preserves_source_and_ledger() {
                     result.unwrap();
                     assert_eq!(candidate, lowered);
                 } else {
-                    assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                    assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
                     assert_eq!(candidate, source);
                 }
             }

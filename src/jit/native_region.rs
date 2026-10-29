@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::{jit::JitError, Closure};
+use crate::{jit::CompileError, Closure};
 
 use super::{
     abi,
@@ -62,7 +62,7 @@ impl Region {
         ctx: Context<'gc>,
         caller: Closure<'gc>,
         pair: PreparedPair,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         Request::prepare(ctx, caller.prototype(), pair)?.compile(ctx.jit())
     }
 

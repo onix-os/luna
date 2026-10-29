@@ -37,7 +37,7 @@ const _: () = {
     assert!(std::mem::offset_of!(RegionView, exit) == 40);
 };
 #[cfg(not(miri))]
-use super::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
+use super::{backend, ir::Snapshot, resources::MappingCounter, work, CompileError};
 
 pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     (
@@ -109,12 +109,12 @@ pub(super) struct BoundCode<'code, 'gc> {
 #[cfg(not(miri))]
 impl Code {
     #[cfg(test)]
-    pub(super) fn new<'gc>(ctx: Context<'gc>, source: Closure<'gc>) -> Result<Self, JitError> {
+    pub(super) fn new<'gc>(ctx: Context<'gc>, source: Closure<'gc>) -> Result<Self, CompileError> {
         let identity = ctx
             .jit_registry()
             .borrow()
             .identity(ctx, source.prototype())
-            .ok_or_else(|| JitError::Compilation("unregistered scoped source".into()))?;
+            .ok_or_else(|| CompileError::Compilation("unregistered scoped source".into()))?;
         let (memory, metadata, snapshots, config) = {
             let manager = ctx.jit().0.borrow();
             (
@@ -139,7 +139,7 @@ impl Code {
         memory: MappingCounter,
         metadata: super::resources::BudgetAllocator,
         config: &super::JitConfig,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         Self::compile_selected(snapshot, identity, memory, metadata, config, false)
     }
 
@@ -149,7 +149,7 @@ impl Code {
         memory: MappingCounter,
         metadata: super::resources::BudgetAllocator,
         config: &super::JitConfig,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let rooted_moves = super::helper_flow::rooted_moves_admitted(snapshot);
         Self::compile_selected(snapshot, identity, memory, metadata, config, rooted_moves)
     }
@@ -161,7 +161,7 @@ impl Code {
         metadata: super::resources::BudgetAllocator,
         config: &super::JitConfig,
         rooted_moves: bool,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let code = backend::compile_scoped_in(
             snapshot,
             memory.clone(),

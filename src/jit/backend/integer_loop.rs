@@ -6,7 +6,7 @@ use cranelift_codegen::{
     },
 };
 
-use super::super::{abi, ir::Snapshot, JitError};
+use super::super::{abi, ir::Snapshot, CompileError};
 use crate::opcode::{Operation, RCIndex};
 
 const MAX_REGISTERS: usize = 16;
@@ -306,7 +306,7 @@ fn constant(cursor: &mut FuncCursor<'_>, slot: abi::Slot) -> Value {
 }
 
 #[cfg(test)]
-pub(super) fn has_source_plan(source: &Snapshot) -> Result<bool, JitError> {
+pub(super) fn has_source_plan(source: &Snapshot) -> Result<bool, CompileError> {
     source.verify()?;
     Ok(Plan::new(source).is_some())
 }
@@ -318,7 +318,7 @@ pub(super) fn augment(
     exhausted: Block,
     probe: bool,
     expansion: super::super::work::Expansion,
-) -> Result<bool, JitError> {
+) -> Result<bool, CompileError> {
     augment_region(function, source, headers, exhausted, probe, expansion).map(|r| r.is_some())
 }
 
@@ -329,7 +329,7 @@ fn augment_region(
     exhausted: Block,
     probe: bool,
     expansion: super::super::work::Expansion,
-) -> Result<Option<Region>, JitError> {
+) -> Result<Option<Region>, CompileError> {
     source.verify()?;
     let Some(plan) = Plan::new(source) else {
         return Ok(None);
@@ -392,7 +392,7 @@ pub(super) fn augment_checkpoints(
     headers: &[Block],
     exhausted: Block,
     expansion: super::super::work::Expansion,
-) -> Result<Option<Checkpoints>, JitError> {
+) -> Result<Option<Checkpoints>, CompileError> {
     let region = augment_region(function, source, headers, exhausted, false, expansion)?;
     Ok(region.map(|region| Checkpoints {
         next: headers[region.plan.end + 1],
@@ -407,7 +407,7 @@ impl Checkpoints {
         &self,
         function: &Function,
         inst: cranelift_codegen::ir::Inst,
-    ) -> Result<Option<Checkpoint>, JitError> {
+    ) -> Result<Option<Checkpoint>, CompileError> {
         verify::checkpoint(function, self, inst)
     }
 }
@@ -421,7 +421,7 @@ fn commit(
     region: &Region,
     probe: bool,
     expansion: super::super::work::Expansion,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     verify::check(
         function, &candidate, source, headers, exhausted, region, probe,
     )?;
@@ -448,16 +448,16 @@ fn emit(
     exhausted: Block,
     probe: bool,
     plan: Plan,
-) -> Result<Region, JitError> {
+) -> Result<Region, CompileError> {
     let entry = function
         .layout
         .entry_block()
-        .ok_or_else(|| JitError::Compilation("integer loop entry".into()))?;
+        .ok_or_else(|| CompileError::Compilation("integer loop entry".into()))?;
     let params: [Value; 5] = function
         .dfg
         .block_params(entry)
         .try_into()
-        .map_err(|_| JitError::Compilation("integer loop ABI".into()))?;
+        .map_err(|_| CompileError::Compilation("integer loop ABI".into()))?;
     let generic = block(function);
     while let Some(inst) = function.layout.first_inst(entry) {
         function.layout.remove_inst(inst);

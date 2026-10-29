@@ -125,7 +125,7 @@ fn dropping_request_and_snapshot_refusal_leave_dependencies_intact() {
                     program: ctx.jit().pair_lease(fixture.key).unwrap()
                 }
             ),
-            Err(JitError::ResourceLimit("prototype snapshot"))
+            Err(CompileError::ResourceLimit("prototype snapshot"))
         ));
     });
     assert_eq!(snapshots.current(), 0);
@@ -160,7 +160,7 @@ fn request_and_built_region_do_not_root_collected_sources() {
         } else {
             fixture.runtime.install_region(region.unwrap())
         };
-        assert!(matches!(result, Err(JitError::Compilation(_))));
+        assert!(matches!(result, Err(CompileError::Compilation(_))));
         assert_eq!(snapshots.current(), 0);
         assert_eq!(memory.requested(), 0);
         assert_eq!(memory.load(std::sync::atomic::Ordering::Relaxed), 0);
@@ -229,7 +229,7 @@ fn changed_configuration_or_dependencies_refuse_build_and_install() {
             } else {
                 fixture.runtime.install_region(region.unwrap())
             };
-            assert!(matches!(result, Err(JitError::Compilation(_))));
+            assert!(matches!(result, Err(CompileError::Compilation(_))));
             assert_eq!(fixture.runtime.0.borrow().clock, clock);
             assert_eq!(fixture.runtime.0.borrow().snapshots.0.current(), 0);
             if change != 5 {
@@ -255,7 +255,7 @@ fn foreign_runtime_refuses_prepared_request_before_native_allocation() {
     let foreign_before = foreign_memory.requested();
     assert!(matches!(
         request.compile(&foreign.runtime),
-        Err(JitError::Compilation(_))
+        Err(CompileError::Compilation(_))
     ));
     assert_eq!(memory.requested(), before);
     assert_eq!(foreign_memory.requested(), foreign_before);
@@ -298,10 +298,10 @@ fn failed_compilation_releases_snapshot_and_preserves_cached_region() {
         if fault == 4 {
             assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit("native region relocations"))
+                Err(CompileError::ResourceLimit("native region relocations"))
             ));
         } else {
-            assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+            assert!(matches!(result, Err(CompileError::ResourceLimit(_))));
         }
         snapshots.fail_after(usize::MAX);
         metadata.fail_after(usize::MAX);

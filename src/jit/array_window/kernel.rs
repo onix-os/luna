@@ -9,7 +9,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use super::{lowering, plan::Plan, *};
 use crate::{
-    jit::{exits::Kind, ir::Snapshot, JitError},
+    jit::{exits::Kind, ir::Snapshot, CompileError},
     opcode::{Operation, RCIndex},
 };
 
@@ -219,9 +219,11 @@ pub(in crate::jit) fn program(
     source: &Snapshot,
     plan: Plan,
     isa: &dyn TargetIsa,
-) -> Result<Function, JitError> {
+) -> Result<Function, CompileError> {
     if Plan::new(source, plan.end) != Some(plan) {
-        return Err(JitError::Compilation("array loop source mismatch".into()));
+        return Err(CompileError::Compilation(
+            "array loop source mismatch".into(),
+        ));
     }
     let mut signature = Signature::new(isa.default_call_conv());
     signature

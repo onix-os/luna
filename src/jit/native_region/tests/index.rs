@@ -380,7 +380,7 @@ fn caller_index_growth_refusal_preserves_existing_heads_and_recovers() {
         metadata.fail_after(2);
         assert!(matches!(
             ctx.jit().install_region(region),
-            Err(JitError::ResourceLimit("region caller index metadata"))
+            Err(CompileError::ResourceLimit("region caller index metadata"))
         ));
         metadata.fail_after(usize::MAX);
         assert_eq!(ctx.jit().0.borrow().clock, clock);

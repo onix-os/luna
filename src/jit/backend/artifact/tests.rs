@@ -37,7 +37,7 @@ fn source_packet(snapshot: &Snapshot) -> BudgetVec<u8, BudgetAllocator> {
     .unwrap()
 }
 
-pub(in crate::jit) fn selected(snapshot: &Snapshot) -> Result<Code, JitError> {
+pub(in crate::jit) fn selected(snapshot: &Snapshot) -> Result<Code, CompileError> {
     let metadata = allocator();
     let total = MappingCounter::new(metadata.0.clone());
     let work = work::Limits::from(&crate::JitConfig::default());
@@ -375,7 +375,7 @@ fn installation_refusals_release_partial_images_and_preserve_external_refusal() 
         ) {
             Err(InstallError::Native(error)) => assert!(matches!(
                 error,
-                JitError::ResourceLimit(_) | JitError::Unavailable(_)
+                CompileError::ResourceLimit(_) | CompileError::Unavailable(_)
             )),
             _ => panic!("expected typed native refusal"),
         }
@@ -405,7 +405,7 @@ fn installation_refusals_release_partial_images_and_preserve_external_refusal() 
             Err(error) => {
                 match error {
                     InstallError::Packet(Error::Allocation)
-                    | InstallError::Native(JitError::ResourceLimit(_)) => {}
+                    | InstallError::Native(CompileError::ResourceLimit(_)) => {}
                     _ => panic!("unexpected allocation refusal: {error:?}"),
                 }
                 failures += 1;

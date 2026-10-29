@@ -19,24 +19,24 @@ impl<'f> Analysis<'f> {
         registers: usize,
         helpers: &'f [(u32, FuncRef)],
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         scan(function, slots, host, registers, helpers, |_| Ok(()))?;
         let blocks = function.dfg.num_blocks();
         let mut visited = BudgetVec::new_in(allocator.clone());
         let mut pending = BudgetVec::new_in(allocator);
         visited
             .try_reserve_exact(blocks)
-            .map_err(|_| JitError::ResourceLimit("terminal liveness blocks"))?;
+            .map_err(|_| CompileError::ResourceLimit("terminal liveness blocks"))?;
         pending
             .try_reserve_exact(blocks)
-            .map_err(|_| JitError::ResourceLimit("terminal liveness queue"))?;
+            .map_err(|_| CompileError::ResourceLimit("terminal liveness queue"))?;
         visited.resize(blocks, false);
         let remaining = function
             .dfg
             .num_insts()
             .checked_add(blocks)
             .and_then(|n| n.checked_mul(64))
-            .ok_or(JitError::ResourceLimit("terminal liveness work"))?;
+            .ok_or(CompileError::ResourceLimit("terminal liveness work"))?;
         Ok(Self {
             function,
             slots,

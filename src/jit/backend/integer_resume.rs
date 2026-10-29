@@ -20,7 +20,7 @@ pub(in crate::jit) fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     limits: crate::jit::work::Limits,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     compile_to(source, total, limit, metadata, limits, Destination::Install)?.installed()
 }
 
@@ -31,32 +31,35 @@ pub(super) fn compile_to(
     metadata: BudgetAllocator,
     limits: crate::jit::work::Limits,
     destination: Destination,
-) -> Result<Compilation<Code>, JitError> {
+) -> Result<Compilation<Code>, CompileError> {
     let plan = Plan::recognize(source)
-        .ok_or_else(|| JitError::Compilation("canonical resume source".into()))?;
+        .ok_or_else(|| CompileError::Compilation("canonical resume source".into()))?;
     let expansion = crate::jit::work::Expansion {
         instructions: 512,
         blocks: 32,
     };
     if limits.instructions < expansion.instructions || limits.blocks < expansion.blocks {
-        return Err(JitError::ResourceLimit("canonical resume expansion"));
+        return Err(CompileError::ResourceLimit("canonical resume expansion"));
     }
     let _templates = Reservation::new(source.operations.allocator().0.clone(), 192 * 1024)
-        .map_err(|_| JitError::ResourceLimit("canonical resume templates"))?;
+        .map_err(|_| CompileError::ResourceLimit("canonical resume templates"))?;
     let _signatures = Reservation::new(
         source.operations.allocator().0.clone(),
         9 * Layout::new::<AbiParam>().size(),
     )
-    .map_err(|_| JitError::ResourceLimit("canonical resume signatures"))?;
+    .map_err(|_| CompileError::ResourceLimit("canonical resume signatures"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
     let fail = |error: cranelift_module::ModuleError| {
-        status
-            .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+        status.error().unwrap_or_else(|| {
+            CompileError::compilation(
+                format_args!("{error}"),
+                source.operations.allocator().clone(),
+            )
+        })
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -72,10 +75,13 @@ pub(super) fn compile_to(
         },
         metadata.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("canonical resume handoff"))?;
+    .map_err(|_| CompileError::ResourceLimit("canonical resume handoff"))?;
     let (provider, _charge) = global_box::try_new(Provider(memory.clone()), metadata)
-        .map_err(|_| JitError::ResourceLimit("canonical resume provider"))?;
-    let mut jit = native_builder(cranelift_native::builder())?;
+        .map_err(|_| CompileError::ResourceLimit("canonical resume provider"))?;
+    let mut jit = native_builder(
+        cranelift_native::builder(),
+        source.operations.allocator().clone(),
+    )?;
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     #[cfg(any(test, feature = "jit-worker-bootstrap"))]
@@ -92,8 +98,12 @@ pub(super) fn compile_to(
         module.target_config(),
         module.isa().default_call_conv(),
     )?;
-    cranelift_codegen::verify_function(&context.func, module.isa())
-        .map_err(|error| JitError::Compilation(error.to_string()))?;
+    cranelift_codegen::verify_function(&context.func, module.isa()).map_err(|error| {
+        CompileError::compilation(
+            format_args!("{error}"),
+            source.operations.allocator().clone(),
+        )
+    })?;
     expansion.verify_actual(
         context
             .func
@@ -111,7 +121,9 @@ pub(super) fn compile_to(
         .map_err(|error| fail(error.into()))?;
     let compiled = context.compiled_code().unwrap();
     if !compiled.buffer.relocs().is_empty() {
-        return Err(JitError::Compilation("canonical resume relocations".into()));
+        return Err(CompileError::Compilation(
+            "canonical resume relocations".into(),
+        ));
     }
     #[cfg(any(test, feature = "jit-worker-bootstrap"))]
     artifact_capture.record(
@@ -141,7 +153,7 @@ pub(super) fn compile_to(
     let pointer = module.get_finalized_function(id);
     let image = memory
         .take()
-        .ok_or_else(|| JitError::Compilation("canonical resume mappings".into()))?;
+        .ok_or_else(|| CompileError::Compilation("canonical resume mappings".into()))?;
     drop(module);
     Ok(Compilation::Installed(Code {
         _memory: image,

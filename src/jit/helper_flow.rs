@@ -4,7 +4,7 @@ use cranelift_codegen::ir::{
     Opcode, Type, Value, ValueDef,
 };
 
-use super::{abi, ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, JitError};
+use super::{abi, ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, CompileError};
 use crate::opcode::{Operation, RCIndex};
 
 #[derive(Clone, Copy)]
@@ -63,11 +63,11 @@ pub(super) enum Fault {
     ExtraStore,
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid helper call data flow".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid helper call data flow".into())
 }
-fn refused() -> JitError {
-    JitError::ResourceLimit("helper call verification")
+fn refused() -> CompileError {
+    CompileError::ResourceLimit("helper call verification")
 }
 
 #[cfg(not(miri))]
@@ -191,7 +191,7 @@ impl Calls {
         &self,
         function: &Function,
         paths: &super::entry_flow::Paths,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         for record in &self.records {
             if [
                 record.call,
@@ -202,7 +202,7 @@ impl Calls {
             .into_iter()
             .any(|inst| !paths.owns_inst(function, record.pc, inst))
             {
-                return Err(JitError::Compilation(
+                return Err(CompileError::Compilation(
                     "invalid semantic source ownership".into(),
                 ));
             }
@@ -210,7 +210,7 @@ impl Calls {
         Ok(())
     }
 
-    pub fn new(snapshot: &Snapshot) -> Result<Self, JitError> {
+    pub fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
         let mut count = 0usize;
         for &op in &snapshot.operations {
             if expected(op, snapshot).is_some() {
@@ -231,7 +231,7 @@ impl Calls {
         })
     }
 
-    pub fn rooted(snapshot: &Snapshot) -> Result<Self, JitError> {
+    pub fn rooted(snapshot: &Snapshot) -> Result<Self, CompileError> {
         if !rooted_moves_admitted(snapshot) {
             return Err(invalid());
         }
@@ -536,7 +536,7 @@ impl Calls {
         function: &Function,
         snapshot: &Snapshot,
         boundary: Boundary<'_>,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if (self.rooted_moves && !rooted_moves_admitted(snapshot))
             || self.overflowed
             || self
@@ -888,7 +888,7 @@ fn single_predecessor(cfg: &Predecessors, block: Block, inst: Inst) -> bool {
         .is_some_and(|predecessor| predecessor.inst == inst)
         && predecessors.next().is_none()
 }
-fn no_stores(function: &Function, block: Block) -> Result<(), JitError> {
+fn no_stores(function: &Function, block: Block) -> Result<(), CompileError> {
     if function
         .layout
         .block_insts(block)

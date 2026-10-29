@@ -5,7 +5,7 @@ use cranelift_codegen::ir::{
 use cranelift_frontend::FunctionBuilder;
 
 use super::{native::VERSION, *};
-use crate::jit::JitError;
+use crate::jit::CompileError;
 #[cfg(test)]
 use crate::opcode::Operation;
 
@@ -38,8 +38,8 @@ struct Program {
     fallback: Option<FuncRef>,
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid scalar projection flow".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid scalar projection flow".into())
 }
 
 impl Program {
@@ -79,7 +79,7 @@ impl Program {
     }
 
     #[cfg(test)]
-    fn new(operation: Operation) -> Result<Self, JitError> {
+    fn new(operation: Operation) -> Result<Self, CompileError> {
         let (write, register, binding) = match operation {
             Operation::GetUpValue { dest, source } => (false, dest.0, source.0),
             Operation::SetUpValue { dest, source } => (true, source.0, dest.0),
@@ -88,7 +88,7 @@ impl Program {
         Self::build(write, Some((register, binding)), None)
     }
 
-    fn helper(kind: u32, fallback: FuncRef) -> Result<Self, JitError> {
+    fn helper(kind: u32, fallback: FuncRef) -> Result<Self, CompileError> {
         let write = match kind {
             abi::HELPER_GET_UPVALUE => false,
             abi::HELPER_SET_UPVALUE => true,
@@ -102,12 +102,15 @@ impl Program {
         kind: u32,
         fallback: FuncRef,
         pattern: crate::jit::leaf::Pattern,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         Self::leaf_program(kind, Some(fallback), pattern, false)
     }
 
     #[cfg(test)]
-    fn leaf_cell_helper(kind: u32, pattern: crate::jit::leaf::Pattern) -> Result<Self, JitError> {
+    fn leaf_cell_helper(
+        kind: u32,
+        pattern: crate::jit::leaf::Pattern,
+    ) -> Result<Self, CompileError> {
         Self::leaf_program(kind, None, pattern, true)
     }
 
@@ -117,7 +120,7 @@ impl Program {
         fallback: Option<FuncRef>,
         pattern: crate::jit::leaf::Pattern,
         direct_view: bool,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let (write, a, b, pc) = match kind {
             abi::HELPER_GET_UPVALUE => (false, pattern.read.0, pattern.upvalue, 0),
             abi::HELPER_SET_UPVALUE => (true, pattern.upvalue, pattern.result.0, 2),
@@ -204,7 +207,7 @@ impl Program {
         write: bool,
         indices: Option<(u8, u8)>,
         fallback: Option<FuncRef>,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let mut p = Self {
             steps: [Step::Guard(0); STEPS],
             length: 0,
@@ -386,7 +389,7 @@ impl Program {
         builder.ins().return_(&[declined]);
     }
 
-    fn verify(&self, function: &Function) -> Result<(), JitError> {
+    fn verify(&self, function: &Function) -> Result<(), CompileError> {
         let entry = function.layout.entry_block().ok_or_else(invalid)?;
         let declined = function.layout.blocks().last().ok_or_else(invalid)?;
         let parameters: &[Type] = if self.parameters == 6 {
@@ -554,7 +557,7 @@ pub(crate) fn emit_helper(
     builder: &mut FunctionBuilder<'_>,
     kind: u32,
     fallback: FuncRef,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     Program::helper(kind, fallback)?.emit(builder);
     Ok(())
 }
@@ -563,7 +566,7 @@ pub(crate) fn verify_helper(
     function: &Function,
     kind: u32,
     fallback: FuncRef,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     Program::helper(kind, fallback)?.verify(function)
 }
 
@@ -573,7 +576,7 @@ pub(crate) fn emit_leaf_helper(
     kind: u32,
     fallback: FuncRef,
     pattern: crate::jit::leaf::Pattern,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     Program::leaf_helper(kind, fallback, pattern)?.emit(builder);
     Ok(())
 }
@@ -584,7 +587,7 @@ pub(crate) fn verify_leaf_helper(
     kind: u32,
     fallback: FuncRef,
     pattern: crate::jit::leaf::Pattern,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     Program::leaf_helper(kind, fallback, pattern)?.verify(function)
 }
 
@@ -593,7 +596,7 @@ pub(crate) fn emit_leaf_cell_helper(
     builder: &mut FunctionBuilder<'_>,
     kind: u32,
     pattern: crate::jit::leaf::Pattern,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     Program::leaf_cell_helper(kind, pattern)?.emit(builder);
     Ok(())
 }
@@ -603,7 +606,7 @@ pub(crate) fn verify_leaf_cell_helper(
     function: &Function,
     kind: u32,
     pattern: crate::jit::leaf::Pattern,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     Program::leaf_cell_helper(kind, pattern)?.verify(function)
 }
 

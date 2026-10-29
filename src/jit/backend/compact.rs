@@ -46,21 +46,21 @@ pub(in crate::jit) struct Entry {
 }
 
 impl Binding {
-    pub(super) fn new(source: &Snapshot) -> Result<Self, JitError> {
+    pub(super) fn new(source: &Snapshot) -> Result<Self, CompileError> {
         let pattern = Pattern::recognize(source)
-            .ok_or_else(|| JitError::Compilation("compact callee source".into()))?;
+            .ok_or_else(|| CompileError::Compilation("compact callee source".into()))?;
         let Operation::Return { start, count } = source.operations[3] else {
             unreachable!()
         };
         let count = count
             .to_constant()
-            .ok_or_else(|| JitError::Compilation("compact variable return".into()))?;
+            .ok_or_else(|| CompileError::Compilation("compact variable return".into()))?;
         let constant = match pattern.right {
             Operand::Register(_) => None,
             Operand::Constant(index) => {
                 let slot = source.constants[usize::from(index)];
                 if slot.tag != abi::INTEGER {
-                    return Err(JitError::Compilation("compact constant type".into()));
+                    return Err(CompileError::Compilation("compact constant type".into()));
                 }
                 Some(slot.bits as i64)
             }
@@ -107,12 +107,13 @@ impl Binding {
         self,
         program: &Program,
         isa: &dyn cranelift_codegen::isa::TargetIsa,
-    ) -> Result<(), JitError> {
+        allocator: BudgetAllocator,
+    ) -> Result<(), CompileError> {
         if program.binding != self || program.function != self.program(isa).function {
-            return Err(JitError::Compilation("compact source binding".into()));
+            return Err(CompileError::Compilation("compact source binding".into()));
         }
         cranelift_codegen::verify_function(&program.function, isa)
-            .map_err(|error| JitError::Compilation(error.to_string()))
+            .map_err(|error| CompileError::compilation(format_args!("{error}"), allocator.clone()))
     }
 
     fn aliases(&self, capture: Option<usize>) -> (bool, bool) {
@@ -245,7 +246,7 @@ impl Entry {
             .prepare_aliases(registers, capture, upper, aliases)
     }
 
-    pub(in crate::jit) fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, JitError> {
+    pub(in crate::jit) fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, CompileError> {
         invoke(self.entry, &self.binding, frame)
     }
 }
@@ -254,9 +255,11 @@ fn invoke(
     entry: CompactEntry,
     binding: &Binding,
     frame: &mut Frame<'_>,
-) -> Result<Outputs, JitError> {
+) -> Result<Outputs, CompileError> {
     if !std::ptr::eq(frame.binding, binding) {
-        return Err(JitError::Compilation("compact invocation binding".into()));
+        return Err(CompileError::Compilation(
+            "compact invocation binding".into(),
+        ));
     }
     let capture = frame.capture;
     let result = unsafe { (entry)(capture, frame.right) };
@@ -273,7 +276,7 @@ fn invoke(
 
 #[cfg(test)]
 impl Code {
-    fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, JitError> {
+    fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, CompileError> {
         invoke(self.entry, &self.binding, frame)
     }
 }
@@ -286,26 +289,26 @@ fn compile(
     metadata: BudgetAllocator,
     limits: crate::jit::work::Limits,
     failure: Failure,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     let expansion = crate::jit::work::Expansion::admit(source, limits)?;
     let binding = Binding::new(source)?;
     let workspace = source.operations.allocator().clone();
     let _templates = Reservation::new(workspace.0.clone(), 32 * 1024)
-        .map_err(|_| JitError::ResourceLimit("compact template workspace"))?;
+        .map_err(|_| CompileError::ResourceLimit("compact template workspace"))?;
     let _signatures = Reservation::new(
         workspace.0.clone(),
         13 * 3 * Layout::new::<AbiParam>().size(),
     )
-    .map_err(|_| JitError::ResourceLimit("compact signatures"))?;
+    .map_err(|_| CompileError::ResourceLimit("compact signatures"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
     let fail = |error: cranelift_module::ModuleError| {
-        status
-            .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+        status.error().unwrap_or_else(|| {
+            CompileError::compilation(format_args!("{error}"), workspace.clone())
+        })
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -320,14 +323,14 @@ fn compile(
         },
         metadata.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
     let (provider, _provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
-        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-    let mut jit = native_builder(cranelift_native::builder())?;
+        .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
+    let mut jit = native_builder(cranelift_native::builder(), workspace.clone())?;
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     let program = binding.program(module.isa());
-    binding.verify(&program, module.isa())?;
+    binding.verify(&program, module.isa(), workspace.clone())?;
     expansion.verify_actual(
         program
             .function
@@ -341,7 +344,9 @@ fn compile(
         .declare_anonymous_function(&program.function.signature)
         .map_err(fail)?;
     if id.as_u32() != 0 {
-        return Err(JitError::Compilation("compact function identity".into()));
+        return Err(CompileError::Compilation(
+            "compact function identity".into(),
+        ));
     }
     let mut context = module.make_context();
     context.func = program.function;
@@ -350,7 +355,7 @@ fn compile(
         .map_err(|error| fail(error.into()))?;
     let compiled = context.compiled_code().unwrap();
     if !compiled.buffer.relocs().is_empty() {
-        return Err(JitError::Compilation(
+        return Err(CompileError::Compilation(
             "compact unexpected relocation".into(),
         ));
     }
@@ -366,7 +371,7 @@ fn compile(
     let pointer = module.get_finalized_function(id);
     let image = memory
         .take()
-        .ok_or_else(|| JitError::Compilation("missing compact mappings".into()))?;
+        .ok_or_else(|| CompileError::Compilation("missing compact mappings".into()))?;
     drop(module);
     Ok(Code {
         _memory: image,

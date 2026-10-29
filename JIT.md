@@ -737,8 +737,24 @@ three retained name payloads and one largest-name sequential lookup temporary,
 before builder construction and through module destruction. Initial strings use
 fallible exact reservation; refusal reports `native symbols` without eviction.
 Private symbol/declaration map capacities and dynamic libcall names are not
-covered. Returned `JitError::Compilation` strings and diagnostic formatting are
-also outside the ledger; Manager/cache do not retain these caller-owned errors.
+covered. Ordinary frontend/backend compilation reports use private owned errors:
+dynamic descriptions render into a fixed 4096-byte UTF-8 stack buffer before one
+fallible, admitted output allocation. The String and charge remain together
+through internal propagation, module/snapshot cleanup and owned worker replies.
+Literal and indexed frontend descriptions can defer allocation until publication.
+Public `JitError` signatures and variants remain unchanged; caller ownership is
+established only at the public service/preparation/configuration boundary.
+Public publication participates in the Lua host-limit/refusal interval. Nested
+preparation and automatic service operations do not export their internal errors.
+Size refusal reports `native diagnostic bytes`, allocation refusal reports
+`native diagnostic allocation`, and formatting refusal reports unavailable
+`native diagnostic formatting`. Partial messages are not exported. Published
+caller-owned errors remain outside the ledger and can outlive the Lua state.
+This output bound does not bound upstream Display implementation allocations or
+CPU work. Explicit native-fault io/anyhow adapters and upstream-private diagnostic
+allocations remain outside this reporting-owner accounting. Manager/cache do not
+retain published errors. This is not complete compiler working-memory or RSS
+accounting, nor does it satisfy the independent original acceptance gates.
 Earlier destruction reduces overlapping lifetimes; it does not account for or
 bound all Cranelift transient allocations.
 At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446

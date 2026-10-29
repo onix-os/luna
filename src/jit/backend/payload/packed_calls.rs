@@ -26,7 +26,7 @@ pub(super) fn admit(
     slots: IrValue,
     host: IrValue,
     imports: &[(u32, FuncRef)],
-) -> Result<Input, JitError> {
+) -> Result<Input, CompileError> {
     let InstructionData::Call {
         opcode: Opcode::Call,
         func_ref,
@@ -142,7 +142,7 @@ pub(super) fn failure_block(call: &Call) -> Block {
 pub(super) fn fragment<'a>(
     f: &Function,
     call: &'a Call,
-) -> Result<packed_lower::Fragment<'a>, JitError> {
+) -> Result<packed_lower::Fragment<'a>, CompileError> {
     Ok(packed_lower::Fragment {
         source: call.input.call,
         first: f
@@ -162,7 +162,7 @@ pub(super) fn verify_source(
     slots: IrValue,
     host: IrValue,
     imports: &[(u32, FuncRef)],
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let actual = admit(f, call.input.call, slots, host, imports)?;
     if actual.reference != call.input.reference
         || actual.kind != call.input.kind
@@ -174,7 +174,7 @@ pub(super) fn verify_source(
     Ok(())
 }
 
-pub(super) fn verify(f: &Function, call: &Call) -> Result<(), JitError> {
+pub(super) fn verify(f: &Function, call: &Call) -> Result<(), CompileError> {
     if !(1..=10).contains(&call.input.kind) {
         return Err(invalid());
     }

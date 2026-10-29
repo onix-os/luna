@@ -1,7 +1,7 @@
 use crate::opcode::Operation;
 
 use super::super::{flow::FlowGraph, ir::Snapshot};
-use super::{Block, Function, Inst, IntCC, JitError, Paths, Root};
+use super::{Block, CompileError, Function, Inst, IntCC, Paths, Root};
 use cranelift_codegen::{
     cursor::{Cursor, FuncCursor},
     ir::{types, InstBuilder, InstructionData, Opcode},
@@ -19,7 +19,7 @@ impl Rewrite {
         function: &mut Function,
         paths: &Paths,
         root: Root,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let point = paths
             .points
             .get(plan.resume as usize)
@@ -66,7 +66,7 @@ impl Rewrite {
         function: &Function,
         paths: &Paths,
         root: Root,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         self.routing(function, paths, root)?;
         let [_, literal, compare, branch] = super::instructions::<4>(function, root.dispatch)?;
         let mut restored = function.clone();
@@ -87,7 +87,7 @@ impl Rewrite {
         function: &Function,
         paths: &Paths,
         root: Root,
-    ) -> Result<super::Routing, JitError> {
+    ) -> Result<super::Routing, CompileError> {
         let point = paths
             .points
             .get(self.resume as usize)
@@ -125,7 +125,7 @@ impl Rewrite {
         root: Root,
         fallback: Block,
         exhausted: Block,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         paths.verify_routing(
             function,
             source,
@@ -145,7 +145,7 @@ impl Rewrite {
         headers: &[Block],
         root: Root,
         handlers: &[Block; 4],
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         self.routing(function, paths, root)?;
         paths.verify_regions_with_table(function, graph, headers, root, handlers, Some(self.slow))
     }
@@ -469,12 +469,12 @@ mod tests {
                             handlers[0],
                             handlers[2]
                         ),
-                        Err(JitError::ResourceLimit("frontend predecessor graph"))
+                        Err(CompileError::ResourceLimit("frontend predecessor graph"))
                     ));
                     assert_eq!(ledger.current(), baseline);
                     assert!(matches!(
                         rewrite.verify_regions(function, graph, paths, headers, root, handlers),
-                        Err(JitError::ResourceLimit("source path verification"))
+                        Err(CompileError::ResourceLimit("source path verification"))
                     ));
                     assert_eq!(ledger.current(), baseline);
                     ledger.set_limit(usize::MAX);
@@ -528,7 +528,7 @@ mod tests {
                         paths.corrupt_region(function, headers, root, handlers, fault);
                     }
                     assert!(matches!(rewrite.verify_regions(function, graph, paths, headers, root, handlers),
-                        Err(JitError::Compilation(ref message)) if message == "invalid source region data flow"));
+                        Err(CompileError::Compilation(ref message)) if message == "invalid source region data flow"));
                     Ok(())
                 }).unwrap();
         }

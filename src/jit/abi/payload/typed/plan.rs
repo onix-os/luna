@@ -1,7 +1,7 @@
 use allocator_api2::vec::Vec;
 
 use crate::{
-    jit::{abi, ir::Snapshot, resources::BudgetAllocator, JitError},
+    jit::{abi, ir::Snapshot, resources::BudgetAllocator, CompileError},
     opcode::{Operation, RCIndex},
 };
 
@@ -43,12 +43,12 @@ struct Plan {
     steps: Vec<Step, BudgetAllocator>,
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid typed canonical region".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid typed canonical region".into())
 }
 
 impl Plan {
-    fn new(source: &Snapshot, start: usize, end: usize) -> Result<Self, JitError> {
+    fn new(source: &Snapshot, start: usize, end: usize) -> Result<Self, CompileError> {
         source.verify()?;
         if start >= end || end > source.operations.len() || end - start > MAX_STEPS {
             return Err(invalid());
@@ -62,13 +62,13 @@ impl Plan {
         };
         plan.bindings
             .try_reserve_exact(source.registers)
-            .map_err(|_| JitError::ResourceLimit("typed region bindings"))?;
+            .map_err(|_| CompileError::ResourceLimit("typed region bindings"))?;
         plan.steps
             .try_reserve_exact(end - start)
-            .map_err(|_| JitError::ResourceLimit("typed region steps"))?;
+            .map_err(|_| CompileError::ResourceLimit("typed region steps"))?;
         let mut values = [None; 256];
         for operation in &source.operations[start..end] {
-            let mut input = |operand: RCIndex| -> Result<Input, JitError> {
+            let mut input = |operand: RCIndex| -> Result<Input, CompileError> {
                 match operand {
                     RCIndex::Register(register) => {
                         let index = usize::from(register.0);
@@ -131,7 +131,7 @@ impl Plan {
         Ok(plan)
     }
 
-    fn verify(&self, source: &Snapshot) -> Result<(), JitError> {
+    fn verify(&self, source: &Snapshot) -> Result<(), CompileError> {
         source.verify()?;
         let start = self.start as usize;
         let end = start.checked_add(self.steps.len()).ok_or_else(invalid)?;

@@ -8,7 +8,7 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use super::{abi, Argument, Input, Leaf, Site};
-use crate::jit::{exits::Kind, resources::BudgetAllocator, work, JitError};
+use crate::jit::{exits::Kind, resources::BudgetAllocator, work, CompileError};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -32,7 +32,7 @@ pub(in crate::jit) struct Plan<'source> {
 }
 
 impl<'source> Plan<'source> {
-    pub(in crate::jit) fn new(input: &'source Input) -> Result<Self, JitError> {
+    pub(in crate::jit) fn new(input: &'source Input) -> Result<Self, CompileError> {
         let (parent, child, site) = input.sources();
         let capture = crate::types::UpValueDescriptor::ParentLocal(crate::types::RegisterIndex(
             site.leaf.parent,
@@ -83,13 +83,13 @@ impl<'source> Plan<'source> {
     pub(in crate::jit) fn expansion(
         &self,
         limits: work::Limits,
-    ) -> Result<work::Expansion, JitError> {
+    ) -> Result<work::Expansion, CompileError> {
         let expansion = work::Expansion {
             instructions: 128 + 6 * (self.registers() - usize::from(self.site.temporary)),
             blocks: 5,
         };
         if expansion.instructions > limits.instructions || expansion.blocks > limits.blocks {
-            return Err(JitError::ResourceLimit("fused call IR"));
+            return Err(CompileError::ResourceLimit("fused call IR"));
         }
         Ok(expansion)
     }
@@ -250,7 +250,7 @@ impl<'source> Plan<'source> {
         function: &Function,
         target: TargetFrontendConfig,
         convention: CallConv,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         if *function != self.program(target, convention) {
             return Err(invalid());
         }
@@ -258,8 +258,8 @@ impl<'source> Plan<'source> {
     }
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("fused call source binding".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("fused call source binding".into())
 }
 
 const _: () = assert!(std::mem::size_of::<View>() == 40);

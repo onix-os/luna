@@ -15,7 +15,7 @@ pub(super) fn verify(
     f: &Function,
     instructions: [Inst; 4],
     tag: IrValue,
-) -> Result<IrValue, JitError> {
+) -> Result<IrValue, CompileError> {
     let [first, offset, width, scalar] = instructions;
     let first = reads::constant(f, first, abi::BOOLEAN as i64)?;
     let offset = reads::value(f, offset, Opcode::Isub, &[tag, first], types::I64)?;

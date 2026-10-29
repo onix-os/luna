@@ -20,7 +20,7 @@ impl Site {
         headers: &[Block],
         kind: u32,
         checkpoints: Option<&Checkpoints>,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         if !matches!(kind, entry::STORE_FAILURE | entry::HELPER_FAILURE) {
             return Err(invalid());
         }
@@ -65,7 +65,7 @@ impl Site {
         headers: &[Block],
         kind: u32,
         checkpoints: Option<&Checkpoints>,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let expected = Self::new(source, inst, paths, headers, kind, checkpoints)?;
         if self.source != inst
             || self.pc != expected.pc
@@ -78,7 +78,7 @@ impl Site {
         Ok(())
     }
 
-    pub(super) fn emit(&self, f: &mut Function, block: Block) -> Result<(), JitError> {
+    pub(super) fn emit(&self, f: &mut Function, block: Block) -> Result<(), CompileError> {
         let [ret] = shape(f.layout.block_insts(block))?;
         if f.dfg.insts[ret].opcode() != Opcode::Return {
             return Err(invalid());
@@ -195,7 +195,7 @@ pub(super) fn verify(
     block: Block,
     site: Option<&Site>,
     kind: u32,
-) -> Result<Inst, JitError> {
+) -> Result<Inst, CompileError> {
     let Some(site) = site else {
         let [ret] = shape(f.layout.block_insts(block))?;
         return Ok(ret);

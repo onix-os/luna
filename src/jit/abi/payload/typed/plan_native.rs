@@ -44,7 +44,7 @@ fn pointer(
 }
 
 impl<'p> Code<'p> {
-    fn new(source: &Snapshot, plan: &'p Plan) -> Result<Self, JitError> {
+    fn new(source: &Snapshot, plan: &'p Plan) -> Result<Self, CompileError> {
         Self::inspect(source, plan, |_, _| {})
     }
 
@@ -52,7 +52,7 @@ impl<'p> Code<'p> {
         source: &Snapshot,
         plan: &'p Plan,
         inspect: impl FnOnce(&cranelift_codegen::ir::Function, &dyn cranelift_codegen::isa::TargetIsa),
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         plan.verify(source)?;
         let mut code = Self {
             module: Some(JITModule::new(

@@ -15,9 +15,9 @@ impl Code {
         pc: u64,
         budget: u32,
         view: Option<&mut View>,
-    ) -> Result<Exit, JitError> {
+    ) -> Result<Exit, CompileError> {
         if slots.len() != self.registers {
-            return Err(JitError::Compilation("fused scratch width".into()));
+            return Err(CompileError::Compilation("fused scratch width".into()));
         }
         let mut exit = Exit::default();
         let view = view.map_or(std::ptr::null_mut(), |view| view as *mut View);
@@ -41,28 +41,28 @@ pub(in crate::jit) fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     limits: crate::jit::work::Limits,
-) -> Result<Code, JitError> {
+) -> Result<Code, CompileError> {
     let expansion = plan.expansion(limits)?;
     let workspace = plan.allocator();
     let _templates = Reservation::new(
         workspace.0.clone(),
         64 * 1024 + expansion.instructions * 256,
     )
-    .map_err(|_| JitError::ResourceLimit("fused template workspace"))?;
+    .map_err(|_| CompileError::ResourceLimit("fused template workspace"))?;
     let _signatures = Reservation::new(
         workspace.0.clone(),
         24 * 3 * Layout::new::<AbiParam>().size(),
     )
-    .map_err(|_| JitError::ResourceLimit("fused signatures"))?;
+    .map_err(|_| CompileError::ResourceLimit("fused signatures"))?;
     let status = MemoryStatus::try_new(metadata.clone())?;
     let fail = |error: cranelift_module::ModuleError| {
-        status
-            .error()
-            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
+        status.error().unwrap_or_else(|| {
+            CompileError::compilation(format_args!("{error}"), workspace.clone())
+        })
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
-        return Err(JitError::Unavailable(
+        return Err(CompileError::Unavailable(
             "cannot determine native memory page size",
         ));
     }
@@ -77,10 +77,10 @@ pub(in crate::jit) fn compile(
         },
         metadata.clone(),
     )
-    .map_err(|_| JitError::ResourceLimit("fused memory handoff"))?;
+    .map_err(|_| CompileError::ResourceLimit("fused memory handoff"))?;
     let (provider, _provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
-        .map_err(|_| JitError::ResourceLimit("fused memory provider"))?;
-    let mut jit = native_builder(cranelift_native::builder())?;
+        .map_err(|_| CompileError::ResourceLimit("fused memory provider"))?;
+    let mut jit = native_builder(cranelift_native::builder(), workspace.clone())?;
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     let mut context = module.make_context();
@@ -91,7 +91,7 @@ pub(in crate::jit) fn compile(
         module.isa().default_call_conv(),
     )?;
     cranelift_codegen::verify_function(&context.func, module.isa())
-        .map_err(|error| JitError::Compilation(error.to_string()))?;
+        .map_err(|error| CompileError::compilation(format_args!("{error}"), workspace.clone()))?;
     expansion.verify_actual(
         context
             .func
@@ -105,14 +105,16 @@ pub(in crate::jit) fn compile(
         .declare_anonymous_function(&context.func.signature)
         .map_err(fail)?;
     if id.as_u32() != 0 {
-        return Err(JitError::Compilation("fused function identity".into()));
+        return Err(CompileError::Compilation("fused function identity".into()));
     }
     context
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| fail(error.into()))?;
     let compiled = context.compiled_code().unwrap();
     if !compiled.buffer.relocs().is_empty() {
-        return Err(JitError::Compilation("fused unexpected relocation".into()));
+        return Err(CompileError::Compilation(
+            "fused unexpected relocation".into(),
+        ));
     }
     let bytes = compiled.code_buffer().len();
     module
@@ -127,7 +129,7 @@ pub(in crate::jit) fn compile(
     let pointer = module.get_finalized_function(id);
     let image = memory
         .take()
-        .ok_or_else(|| JitError::Compilation("missing fused mappings".into()))?;
+        .ok_or_else(|| CompileError::Compilation("missing fused mappings".into()))?;
     drop(module);
     Ok(Code {
         _memory: image,

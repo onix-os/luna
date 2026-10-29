@@ -336,7 +336,7 @@ fn typed_source_plan_refuses_unsupported_ranges_and_releases_charges() {
         ledger.set_limit(before + available);
         assert!(matches!(
             Plan::new(&source, 0, 6),
-            Err(JitError::ResourceLimit(_))
+            Err(CompileError::ResourceLimit(_))
         ));
         assert_eq!(ledger.current(), before);
     }

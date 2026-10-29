@@ -40,22 +40,22 @@ pub(in crate::jit::backend) struct Requirements {
     entries: BudgetVec<Mask, BudgetAllocator>,
 }
 
-fn refused() -> JitError {
-    JitError::ResourceLimit("payload entry binding analysis")
+fn refused() -> CompileError {
+    CompileError::ResourceLimit("payload entry binding analysis")
 }
 
 fn workspace<T: Clone>(
     count: usize,
     value: T,
     allocator: BudgetAllocator,
-) -> Result<BudgetVec<T, BudgetAllocator>, JitError> {
+) -> Result<BudgetVec<T, BudgetAllocator>, CompileError> {
     let mut result = BudgetVec::new_in(allocator);
     result.try_reserve_exact(count).map_err(|_| refused())?;
     result.resize(count, value);
     Ok(result)
 }
 
-fn work(f: &Function, entries: usize) -> Result<usize, JitError> {
+fn work(f: &Function, entries: usize) -> Result<usize, CompileError> {
     f.dfg
         .num_insts()
         .checked_add(f.dfg.num_blocks())
@@ -64,12 +64,12 @@ fn work(f: &Function, entries: usize) -> Result<usize, JitError> {
         .ok_or_else(refused)
 }
 
-fn charge(remaining: &mut usize) -> Result<(), JitError> {
+fn charge(remaining: &mut usize) -> Result<(), CompileError> {
     *remaining = remaining.checked_sub(1).ok_or_else(refused)?;
     Ok(())
 }
 
-fn edges(f: &Function, block: Block) -> Result<&[cranelift_codegen::ir::BlockCall], JitError> {
+fn edges(f: &Function, block: Block) -> Result<&[cranelift_codegen::ir::BlockCall], CompileError> {
     if !f.layout.is_block_inserted(block) {
         return Err(invalid());
     }
@@ -93,7 +93,7 @@ fn propagate(
     facts: &mut [Facts],
     boundaries: Option<&[bool]>,
     remaining: &mut usize,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     loop {
         let mut changed = false;
         for block in std::iter::successors(f.layout.last_block(), |&b| f.layout.prev_block(b)) {
@@ -122,7 +122,7 @@ impl Requirements {
     pub(in crate::jit::backend) fn into_metadata(
         self,
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let mut entries = BudgetVec::new_in(allocator);
         entries
             .try_reserve_exact(self.entries.len())
@@ -139,7 +139,7 @@ impl Requirements {
         helpers: &[(u32, FuncRef)],
         headers: &[Block],
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         Self::build(
             f, slots, host, registers, helpers, headers, allocator, false,
         )
@@ -153,7 +153,7 @@ impl Requirements {
         helpers: &[(u32, FuncRef)],
         headers: &[Block],
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         Self::build(f, slots, host, registers, helpers, headers, allocator, true)
     }
 
@@ -166,7 +166,7 @@ impl Requirements {
         headers: &[Block],
         allocator: BudgetAllocator,
         retain_writes: bool,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let mut facts = workspace(f.dfg.num_blocks(), Facts::default(), allocator.clone())?;
         scan_with_tags(f, slots, host, registers, helpers, true, |rewrite| {
             match rewrite {
@@ -233,7 +233,7 @@ impl Requirements {
         helpers: &[(u32, FuncRef)],
         headers: &[Block],
         allocator: BudgetAllocator,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let mut reads = Mask::default();
         scan_with_tags(f, slots, host, registers, helpers, true, |rewrite| {
             if let Rewrite::Read(_, index) = rewrite {

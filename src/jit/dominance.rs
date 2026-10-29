@@ -1,7 +1,7 @@
 use allocator_api2::vec::Vec;
 use cranelift_codegen::ir::{Block, Function};
 
-use super::{preds::Predecessors, resources::BudgetAllocator, JitError};
+use super::{preds::Predecessors, resources::BudgetAllocator, CompileError};
 
 #[derive(Clone, Copy, Default)]
 struct Node {
@@ -18,14 +18,14 @@ pub(super) struct Dominators {
     nodes: Vec<Node, BudgetAllocator>,
 }
 
-fn invalid() -> JitError {
-    JitError::Compilation("invalid frontend dominance graph".into())
+fn invalid() -> CompileError {
+    CompileError::Compilation("invalid frontend dominance graph".into())
 }
 
-fn charge(remaining: &mut usize) -> Result<(), JitError> {
+fn charge(remaining: &mut usize) -> Result<(), CompileError> {
     *remaining = remaining
         .checked_sub(1)
-        .ok_or(JitError::ResourceLimit("frontend dominance work"))?;
+        .ok_or(CompileError::ResourceLimit("frontend dominance work"))?;
     Ok(())
 }
 
@@ -43,14 +43,14 @@ impl Dominators {
         function: &Function,
         graph: &Predecessors,
         allocator: BudgetAllocator,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let work = function
             .dfg
             .num_blocks()
             .checked_add(graph.raw_capacity())
             .and_then(|count| count.checked_add(1))
             .and_then(|count| count.checked_mul(64))
-            .ok_or(JitError::ResourceLimit("frontend dominance work"))?;
+            .ok_or(CompileError::ResourceLimit("frontend dominance work"))?;
         Self::with_limit(function, graph, allocator, work)
     }
 
@@ -59,12 +59,12 @@ impl Dominators {
         graph: &Predecessors,
         allocator: BudgetAllocator,
         mut work: usize,
-    ) -> Result<Self, JitError> {
+    ) -> Result<Self, CompileError> {
         let count = function.dfg.num_blocks();
         if count >= u32::MAX as usize {
             return Err(invalid());
         }
-        let refused = |_| JitError::ResourceLimit("frontend dominance storage");
+        let refused = |_| CompileError::ResourceLimit("frontend dominance storage");
         let mut nodes = Vec::new_in(allocator.clone());
         nodes.try_reserve_exact(count).map_err(refused)?;
         nodes.resize(count, Node::default());
@@ -151,7 +151,7 @@ impl Dominators {
         mut left: Block,
         mut right: Block,
         work: &mut usize,
-    ) -> Result<Block, JitError> {
+    ) -> Result<Block, CompileError> {
         while left != right {
             charge(work)?;
             let a = nodes[left.as_u32() as usize];
@@ -322,7 +322,7 @@ mod tests {
             ledger.fail_after(allocation);
             assert!(matches!(
                 Dominators::new(&function, &graph, BudgetAllocator(ledger.clone())),
-                Err(JitError::ResourceLimit("frontend dominance storage"))
+                Err(CompileError::ResourceLimit("frontend dominance storage"))
             ));
             assert_eq!(ledger.current(), baseline);
         }
@@ -339,7 +339,7 @@ mod tests {
         );
         assert!(matches!(
             Dominators::new(&function, &graph, BudgetAllocator(ledger.clone())),
-            Err(JitError::ResourceLimit("frontend dominance storage"))
+            Err(CompileError::ResourceLimit("frontend dominance storage"))
         ));
         assert_eq!(ledger.current(), baseline);
     }
@@ -352,7 +352,7 @@ mod tests {
         let baseline = ledger.current();
         assert!(matches!(
             Dominators::with_limit(&function, &graph, BudgetAllocator(ledger.clone()), 0),
-            Err(JitError::ResourceLimit("frontend dominance work"))
+            Err(CompileError::ResourceLimit("frontend dominance work"))
         ));
         assert_eq!(ledger.current(), baseline);
     }
@@ -389,7 +389,7 @@ mod tests {
             } else {
                 assert!(matches!(
                     result,
-                    Err(JitError::ResourceLimit("frontend dominance storage"))
+                    Err(CompileError::ResourceLimit("frontend dominance storage"))
                 ));
                 assert_eq!(ledger.refusals(), 1);
             }
@@ -411,7 +411,7 @@ mod tests {
         let baseline = ledger.current();
         assert!(matches!(
             Dominators::new(&function, &graph, BudgetAllocator(ledger.clone())),
-            Err(JitError::Compilation(reason)) if reason == "invalid frontend dominance graph"
+            Err(CompileError::Compilation(reason)) if reason == "invalid frontend dominance graph"
         ));
         assert_eq!(ledger.current(), baseline);
     }
@@ -448,7 +448,7 @@ mod tests {
         let mut accepted = None;
         for work in 0..256 {
             match Dominators::with_limit(&function, &graph, BudgetAllocator(ledger.clone()), work) {
-                Err(JitError::ResourceLimit("frontend dominance work")) => {}
+                Err(CompileError::ResourceLimit("frontend dominance work")) => {}
                 Ok(dominators) => {
                     assert_eq!(dominators.idom(blocks[3]), Some(blocks[0]));
                     assert_eq!(dominators.idom(blocks[5]), Some(blocks[3]));

@@ -44,7 +44,7 @@ impl Candidate {
         helpers: &[(u32, FuncRef)],
         expansion: Expansion,
         checkpoints: Option<&super::super::integer_loop::Checkpoints>,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         let allocator = self.records.allocator().clone();
         let mut sites = BudgetVec::new_in(allocator.clone());
         let count = self
@@ -54,7 +54,7 @@ impl Candidate {
             .count();
         sites
             .try_reserve_exact(count)
-            .map_err(|_| JitError::ResourceLimit("packed failure progress sites"))?;
+            .map_err(|_| CompileError::ResourceLimit("packed failure progress sites"))?;
         let (source_i, source_b) = size(source);
         let (candidate_i, candidate_b) = size(&self.function);
         for (index, record) in self.records.iter().enumerate() {
@@ -108,7 +108,7 @@ impl Candidate {
         paths: &crate::jit::entry_flow::Paths,
         headers: &[Block],
         checkpoints: Option<&super::super::integer_loop::Checkpoints>,
-    ) -> Result<(), JitError> {
+    ) -> Result<(), CompileError> {
         for (index, record) in self.records.iter().enumerate() {
             let (site, kind) = match record {
                 Some(Record::Write(w)) => (w.progress.as_ref(), entry::STORE_FAILURE),
@@ -139,9 +139,9 @@ impl Candidate {
     }
 }
 
-fn add(left: usize, right: usize) -> Result<usize, JitError> {
+fn add(left: usize, right: usize) -> Result<usize, CompileError> {
     left.checked_add(right)
-        .ok_or(JitError::ResourceLimit("packed expansion overflow"))
+        .ok_or(CompileError::ResourceLimit("packed expansion overflow"))
 }
 
 fn plan(
@@ -151,7 +151,7 @@ fn plan(
     registers: usize,
     helpers: &[(u32, FuncRef)],
     expansion: Expansion,
-) -> Result<Plan, JitError> {
+) -> Result<Plan, CompileError> {
     let params = [types::I64, types::I64, types::I32, types::I64, types::I64];
     let block = source.layout.entry_block().ok_or_else(invalid)?;
     if source
@@ -266,22 +266,25 @@ fn null_test(f: &Function, inst: Inst, host: IrValue) -> bool {
     reads::constant(f, constant, 0).is_ok_and(|value| value == other)
 }
 
-fn signature(f: &mut Function, params: &[cranelift_codegen::ir::Type]) -> Result<SigRef, JitError> {
+fn signature(
+    f: &mut Function,
+    params: &[cranelift_codegen::ir::Type],
+) -> Result<SigRef, CompileError> {
     let mut signature = Signature::new(f.signature.call_conv);
     signature
         .params
         .try_reserve_exact(params.len())
-        .map_err(|_| JitError::ResourceLimit("packed signature"))?;
+        .map_err(|_| CompileError::ResourceLimit("packed signature"))?;
     signature
         .returns
         .try_reserve_exact(1)
-        .map_err(|_| JitError::ResourceLimit("packed signature"))?;
+        .map_err(|_| CompileError::ResourceLimit("packed signature"))?;
     signature
         .params
         .extend(params.iter().copied().map(AbiParam::new));
     signature.returns.push(AbiParam::new(types::I32));
     if signature.params.capacity() != params.len() || signature.returns.capacity() != 1 {
-        return Err(JitError::ResourceLimit("packed signature capacity"));
+        return Err(CompileError::ResourceLimit("packed signature capacity"));
     }
     Ok(f.import_signature(signature))
 }
@@ -294,19 +297,19 @@ pub(in crate::jit::backend) fn lower(
     helpers: &[(u32, FuncRef)],
     allocator: BudgetAllocator,
     expansion: Expansion,
-) -> Result<Candidate, JitError> {
+) -> Result<Candidate, CompileError> {
     let plan = plan(source, slots, host, registers, helpers, expansion)?;
     let mut records = BudgetVec::new_in(allocator.clone());
     records
         .try_reserve_exact(source.dfg.num_insts())
-        .map_err(|_| JitError::ResourceLimit("packed rewrite records"))?;
+        .map_err(|_| CompileError::ResourceLimit("packed rewrite records"))?;
     records.resize_with(source.dfg.num_insts(), || None);
     let signature_bytes =
         Layout::array::<AbiParam>(1 + 5 * usize::from(plan.writes) + 6 * usize::from(plan.calls))
-            .map_err(|_| JitError::ResourceLimit("packed signature size"))?
+            .map_err(|_| CompileError::ResourceLimit("packed signature size"))?
             .size();
     let signatures = Reservation::new(allocator.0.clone(), signature_bytes)
-        .map_err(|_| JitError::ResourceLimit("packed signatures"))?;
+        .map_err(|_| CompileError::ResourceLimit("packed signatures"))?;
     let mut terminal =
         terminal::Analysis::new(source, slots, host, registers, helpers, allocator.clone())?;
     let mut function = source.clone();
@@ -314,10 +317,12 @@ pub(in crate::jit::backend) fn lower(
         .signature
         .returns
         .try_reserve_exact(1)
-        .map_err(|_| JitError::ResourceLimit("packed entry signature"))?;
+        .map_err(|_| CompileError::ResourceLimit("packed entry signature"))?;
     function.signature.returns.push(AbiParam::new(types::I32));
     if function.signature.returns.capacity() != 1 {
-        return Err(JitError::ResourceLimit("packed entry signature capacity"));
+        return Err(CompileError::ResourceLimit(
+            "packed entry signature capacity",
+        ));
     }
     let writer = plan
         .writes
@@ -411,7 +416,7 @@ pub(in crate::jit::backend) fn lower(
     Ok(candidate)
 }
 
-fn unchanged(source: &Function, f: &Function, inst: Inst) -> Result<(), JitError> {
+fn unchanged(source: &Function, f: &Function, inst: Inst) -> Result<(), CompileError> {
     if source.dfg.insts[inst] != f.dfg.insts[inst]
         || source.dfg.inst_args(inst) != f.dfg.inst_args(inst)
         || source.dfg.inst_results(inst) != f.dfg.inst_results(inst)
@@ -457,7 +462,7 @@ fn verify(
     helpers: &[(u32, FuncRef)],
     allocator: BudgetAllocator,
     expansion: Expansion,
-) -> Result<(), JitError> {
+) -> Result<(), CompileError> {
     let mut plan = plan(source, slots, host, registers, helpers, expansion)?;
     let tracked = candidate
         .records
@@ -506,9 +511,9 @@ fn verify(
     let mut owned = BudgetVec::new_in(allocator);
     owned
         .try_reserve_exact(f.dfg.num_blocks())
-        .map_err(|_| JitError::ResourceLimit("packed block coverage"))?;
+        .map_err(|_| CompileError::ResourceLimit("packed block coverage"))?;
     owned.resize(f.dfg.num_blocks(), false);
-    let mut claim = |block: Block| -> Result<(), JitError> {
+    let mut claim = |block: Block| -> Result<(), CompileError> {
         let taken = owned.get_mut(block.index()).ok_or_else(invalid)?;
         if std::mem::replace(taken, true) {
             return Err(invalid());

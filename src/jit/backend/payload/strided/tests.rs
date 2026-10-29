@@ -66,7 +66,7 @@ fn strided_expansion_accounts_nil_fanout_without_changing_limits() {
                     ..limits
                 }
             ),
-            Err(JitError::ResourceLimit("IR instructions"))
+            Err(CompileError::ResourceLimit("IR instructions"))
         ));
         assert_eq!(
             expansion(
