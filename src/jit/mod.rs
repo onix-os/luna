@@ -2193,6 +2193,10 @@ impl Runtime {
             if code.registers > 256 {
                 return 0;
             }
+            #[cfg(not(miri))]
+            if let Some(completed) = self.invoke_integer_resume(code, closure, registers, budget) {
+                return completed;
+            }
             match code.registers {
                 0 => self.invoke::<8, false>(code, ctx, closure, registers, budget),
                 1 => self.invoke::<1, true>(code, ctx, closure, registers, budget),
@@ -2247,20 +2251,33 @@ impl Runtime {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[inline(always)]
-    fn invoke_lookup_transport<'gc, const CAPACITY: usize, const EXACT: bool>(
+    fn invoke_integer_resume<'gc>(
         &self,
         code: &backend::Code,
-        ctx: crate::Context<'gc>,
         closure: crate::Closure<'gc>,
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
         budget: u32,
-        binding: (
-            &backend::readonly_lookup::ReadCode,
-            readonly_lookup::scalar_entry::Source,
-        ),
-    ) -> u32 {
-        if let Some((plan, kernel)) = &binding.0.integer_resume {
+    ) -> Option<u32> {
+        if code.projected_upvalues {
+            return None;
+        }
+        #[cfg(test)]
+        if code.entry_kind.needs_canonical_frame()
+            || !readonly_lookup::scalar_entry::enabled()
+            || code
+                .scalar_kernel
+                .as_ref()
+                .is_some_and(|kernel| !kernel.integer_activation)
+        {
+            return None;
+        }
+        let child = code.readonly_lookup.as_ref()?;
+        if child.registers != code.registers
+            || readonly_lookup::scalar_entry::Source::from_plan(child.plan).is_none()
+        {
+            return None;
+        }
+        if let Some((plan, kernel)) = &child.integer_resume {
             if let Some(outcome) = unsafe {
                 plan.invoke(
                     kernel.entry,
@@ -2285,9 +2302,30 @@ impl Runtime {
                 let mut manager = self.0.borrow_mut();
                 record_helper_counts!(manager.stats, counts);
                 manager.stats.record_native_exit(&outcome.exit);
-                return outcome.exit.instructions;
+                return Some(outcome.exit.instructions);
             }
         }
+        None
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[inline(always)]
+    fn invoke_lookup_transport<'gc, const CAPACITY: usize, const EXACT: bool>(
+        &self,
+        code: &backend::Code,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        budget: u32,
+        binding: (
+            &backend::readonly_lookup::ReadCode,
+            readonly_lookup::scalar_entry::Source,
+        ),
+    ) -> u32 {
         let register_count = if EXACT { CAPACITY } else { code.registers };
         let mut scratch = [std::mem::MaybeUninit::<abi::Slot>::uninit(); CAPACITY];
         let mut inputs = abi::transport_inputs::Inputs::marshal::<true>(

@@ -9,7 +9,73 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Constant-global interpreter improvement — 2026-10-29
+### Native callback entry improvement — 2026-10-29
+
+Existing integer-resume code is now selected after the original PC/frame checks
+and before generic capacity/transport dispatch. The old late attempt is removed,
+so a decline falls back once through the same ordinary transport. Source
+eligibility, fresh binding/lease/policy checks, typed loans, native ABI, budget,
+PC/exit validation and physical counters are unchanged; no cache, persistent
+field, compiler flag or forced-inline attribute is added.
+
+The qualified snapshot passes complete local `jit-verify`: **12,622 passing
+executions / 565 summaries / 149 reported existing ignores / zero failures**.
+Focused checks pass 100 executions; both scoped Miri models pass 19 each, with
+actual source/seed/borrow flags verified. Miri covers the unchanged loan/index/
+publication models, not the `cfg(not(miri))` selector or generated instructions;
+native integration exercises callback rebinding, yields, GC, fuel and selector
+enabled/disabled behavior.
+
+Root integration matches all **529 runtime/dependency/example inputs** of that
+snapshot. Root format/all-feature checks and 100 focused executions pass; Miri
+and default-Make wrapper regressions pass. All **six freshly built root
+canonical binaries are full-byte-identical** to the measured candidate. The
+previous head's CI receipts do not substitute for this changed source's CI.
+
+Two unchanged ORIGINAL full elapsed cohorts finish with every threshold and
+sample/control retained, 28,512 native executions / 570,240 cost iterations,
+zero independent 27-field/resource/native-proof mismatches, raw medians and
+paired dispersion checked, and 16 reader corruptions rejected per cohort:
+
+| Original gate | First cohort | Planned unchanged repeat |
+| --- | ---: | ---: |
+| Native callback | **24/24 passed** | **24/24 passed** |
+| Native array | **24/24 passed** | **24/24 passed** |
+| All scored native | 184/192 passed | 185/192 passed |
+| All compiled-Off costs | 209/216 passed | 211/216 passed |
+
+Actual callback Auto control/candidate medians improve in all eight CPU/profile/
+cohort groups: **1.04356–1.09522**, against near-one a/b placebo medians.
+Instruction work saves 4.70% at opt3 and 3.25% shipping. Both NoFeature binaries
+are **full-byte-identical** to controls; no slower default denominator is used.
+
+The stricter experimental instruction-growth screen still **fails 12/24**:
+callback Off adds 0.23–0.28%, native array adds 0.13–0.38%. Its self-imposed
+discard rule was explicitly revised, not silently relabeled a pass: original
+sections 9/14 require elapsed 2x/1.25x/20%/15%/5% gates, not a universal 0.1%
+instruction-growth rule. The same frozen source then underwent full original
+qualification, with no source/layout/inline/ABI rescue or numerical waiver.
+
+**Full acceptance is still false: 27/816 original gates fail** (15 native
+polymorphic, 11 compiled-Off cold, one compiled-Off Oslo). Native polymorphic
+passes 33/48; cold cost 37/48; Oslo cost 47/48. All other scored native and cost
+cases pass 48/48 each. No trade or aggregate pass cancels a failed gate.
+CPU0 speed cold Off remains modestly worse versus controls (.990723/.987383);
+CPU16 shipping polymorphic's first .936170 ratio is retained, while its repeat
+is 1.001277, not a stable reproduced loss. Faster Off polymorphic work can also
+make native/Off acceptance harder; do not slow the interpreter to hide failures.
+
+Remaining work targets real polymorphic/cold overhead and original controlled-
+resource, current-source platform, feature-size and release qualification.
+Sections 4.5/12 make supervised isolation/background workers conditional and
+separately reviewed extensions, not an invented universal hard RSS/wall-time
+requirement; this does not approve actual resource-policy exclusions.
+Evidence: `target/jit-evidence/native-resume-dispatch/`, especially
+`INTEGRATION-DECISION.md`, `SCREEN-SCOPE-REVIEW.md`, `timing-first/` and
+`timing-repeat/`. Earlier 59/816, 69/816 and rejected-decoder 78/816 receipts
+remain separate and unchanged. No third unchanged cohort or release publication.
+
+### Constant-global interpreter improvement at 8123fae7 — 2026-10-29
 
 The interpreter's constant-name `GetUpTable` operation now uses the existing
 prepared-string lookup for successful table hits. Missing/nil values, other
@@ -25,7 +91,7 @@ Scoped default and Tree Borrows Miri each pass 12 tests. Hosted Miri now
 explicitly selects the two fixtures and refuses an empty selection; its wrapper
 checks 68 logs, 28 injected failures and 14 zero-model rejections.
 
-Root integration matches the qualified snapshot across all 529 selected
+Root integration at `8123fae7` matches the qualified snapshot across all 529 selected
 runtime/dependency/example inputs. Root format/all-feature checks and 94 focused
 tests pass with zero failures/ignores. All six freshly built root canonical
 binaries (speed/shipping native benchmark, NoFeature and compiled-Off) are

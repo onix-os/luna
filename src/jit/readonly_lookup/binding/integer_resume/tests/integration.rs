@@ -122,6 +122,32 @@ fn canonical_resume_preserves_actual_callback_slices_gc_and_binding_changes() {
 }
 
 #[test]
+fn canonical_resume_dispatch_respects_scalar_transport_selection() {
+    for enabled in [false, true] {
+        let (((result, native), _), entries) = routed(true, || {
+            crate::jit::readonly_lookup::scalar_entry::with_enabled(enabled, || {
+                let mut lua = state(0);
+                let executor = lua.enter(|ctx| {
+                    let closure = Closure::load(
+                        ctx,
+                        None,
+                        b"local sum=0 for i=1,31 do sum=sum+host_increment(i) end return sum",
+                    )
+                    .unwrap();
+                    ctx.stash(Executor::start(ctx, closure.into(), ()))
+                });
+                lua.prepare_jit().unwrap();
+                let result = lua.execute::<i64>(&executor).unwrap();
+                (result, lua.jit_stats().native_instructions)
+            })
+        });
+        assert_eq!(result, 527);
+        assert!(native > 0);
+        assert_eq!(entries > 0, enabled);
+    }
+}
+
+#[test]
 fn canonical_resume_preserves_callback_yield_and_gc_before_resumption() {
     for fuel in [1, 2, 64, 1024] {
         let run = |enabled| {
