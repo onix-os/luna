@@ -9,6 +9,34 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Completed retained-runtime platform run — 2026-10-29
+
+Exact-runtime CI run `40761540332` at
+`be5b5b1477d52842afb823f993dbdd78368f1482` has completed successfully:
+verify, GNU x86-64, musl x86-64, GNU ARM64, both hosted Miri seeds and i686
+interpreter fallback. The same run was observed to completion; no restart or
+retry-until-pass. GNU/musl artifacts are downloaded, server SHA-256 checked,
+ZIP-tested, and independently checked against exact source selections.
+
+Each newly audited GNU/musl native log has 12,778 passing executions across
+582 summaries and 149 reported existing ignores. The reader verifies five
+broad fixture lanes, six resource lanes, all 13 compiler-supervisor cases in
+seven lanes, actual native example execution, eight native payload hashes,
+and both manifest-bound shipping ELF files. ARM64 was separately qualified
+with the same test/lane coverage. These are platform/correctness receipts,
+not native speedup, disabled-tier overhead, or universal resource-policy proof.
+
+Performance work continues separately. An isolated paired table-entry
+prototype reduced diagnostic instructions by only 0.18% and was rejected.
+A distinct one-statement constant-decoder specialization passes focused
+semantic tests and both local Miri modes; its diagnostic prefix saves 5.47%
+instructions in three balanced pairs. It is not integrated or accepted:
+actual canonical-production profiles and broader qualification are pending.
+No original gate is relaxed; retained 69/816 performance failures remain.
+Evidence: `target/jit-evidence/constant-read-decode/retained-ci/reports/`,
+`target/jit-evidence/pidfd-memcheck/arm/reports/`, and
+`target/jit-evidence/paired-table-helper/DECISION.md`.
+
 ### Native supervisor memory qualification — 2026-10-28
 
 The retained exact supervisor executable now passes all 13 cases, including
