@@ -26,16 +26,30 @@ and both manifest-bound shipping ELF files. ARM64 was separately qualified
 with the same test/lane coverage. These are platform/correctness receipts,
 not native speedup, disabled-tier overhead, or universal resource-policy proof.
 
-Performance work continues separately. An isolated paired table-entry
-prototype reduced diagnostic instructions by only 0.18% and was rejected.
-A distinct one-statement constant-decoder specialization passes focused
-semantic tests and both local Miri modes; its diagnostic prefix saves 5.47%
-instructions in three balanced pairs. It is not integrated or accepted:
-actual canonical-production profiles and broader qualification are pending.
-No original gate is relaxed; retained 69/816 performance failures remain.
+Performance work continues separately; neither new isolated trial is adopted.
+A paired table-entry prototype saved only 0.18% diagnostic instructions and
+was rejected before compiler integration. A distinct one-statement decoder
+specialization saved 5.47% in the prefix probe, but only about 0.26–0.55% of
+complete production step instructions across speed/shipping polymorphic runs.
+Complete local `jit-verify` passes 12,627 executions/565 summaries, with 154
+reported diagnostic/existing ignores; both scoped Miri modes pass five tests.
+Six canonical images verify, both NoFeature images byte-identical to controls.
+
+Two original-protocol elapsed cohorts then finish and independently audit:
+28,512 native executions, 570,240 cost iterations, zero 27-field/resource/proof
+mismatches, raw medians/dispersion checked, and 16 reader mutations per cohort.
+Candidate scores 191/192 native gates in each; arrays/callbacks pass 48/48
+each, polymorphic 46/48. One CPU0 shipping polymorphic gate fails in each
+cohort, while compiled-Off fails 41/216 then 35/216. Shipping polymorphic
+direct control/candidate medians on CPU16 are .985638 then .978754; CPU0's
+large first loss is not stable (.788173 then .992340), and is not discarded.
+The smaller instruction count does not establish an accepted elapsed gain.
+Reject the decoder candidate rather than promoting a probe-only optimization;
+no third retry or hint/layout/inline/ABI rescue. The original retained 69/816
+failures remain separate and unchanged, not overwritten by these new cohorts.
 Evidence: `target/jit-evidence/constant-read-decode/retained-ci/reports/`,
 `target/jit-evidence/pidfd-memcheck/arm/reports/`, and
-`target/jit-evidence/paired-table-helper/DECISION.md`.
+`target/jit-evidence/constant-read-decode/{RESULTS.md,timing-first/,timing-repeat/}`.
 
 ### Native supervisor memory qualification — 2026-10-28
 
