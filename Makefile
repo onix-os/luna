@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+.DEFAULT_GOAL := build
 
 # Parsed out of Cargo.toml rather than kept in a second place that can disagree with it. `name` is
 # unique to [package]; `version` is the first bare assignment, which is [workspace.package].
@@ -2894,7 +2895,11 @@ clean:
 # Clippy is deliberately not in the gate yet: the code inherited from upstream carries 135
 # warnings and 2 deny-by-default `never_loop` errors in src/meta_ops.rs, so a `verify` that
 # included it would be red on arrival and stop being run. Put it back once that is cleared.
-verify: fmt-check check check-all test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests
+.PHONY: make-default-tests
+make-default-tests:
+	@bash tests/test-make-default.sh
+
+verify: fmt-check check check-all test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests make-default-tests
 
 # Order matters: luna depends on luna-derive and luna-util depends on luna, so each has to be in
 # the registry before the one that needs it.
