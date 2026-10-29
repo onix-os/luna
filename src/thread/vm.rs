@@ -21,6 +21,8 @@ mod constant_add;
 #[cfg(test)]
 mod constants;
 mod dispatch;
+#[cfg(feature = "jit")]
+mod global_index;
 #[cfg(test)]
 mod hook_resume;
 #[cfg(test)]
@@ -651,8 +653,23 @@ fn run_vm_slice<'gc>(
 
             Operation::GetUpTable { dest, table, key } => {
                 let table = registers.get_upvalue(&ctx, current_upvalues[table.0 as usize].get());
-                let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
-                match meta_ops::index(ctx, table, key)? {
+                #[cfg(feature = "jit")]
+                let lookup = match key {
+                    RCIndex::Register(index) => {
+                        meta_ops::index(ctx, table, registers.stack_frame[index.0 as usize])
+                    }
+                    RCIndex::Constant(index) => global_index::constant(
+                        ctx,
+                        table,
+                        current_prototype.constants[index.0 as usize],
+                    ),
+                };
+                #[cfg(not(feature = "jit"))]
+                let lookup = {
+                    let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
+                    meta_ops::index(ctx, table, key)
+                };
+                match lookup? {
                     MetaResult::Value(v) => {
                         registers.stack_frame[dest.0 as usize] = v;
                     }

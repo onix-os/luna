@@ -9,6 +9,62 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Constant-global interpreter improvement — 2026-10-29
+
+The interpreter's constant-name `GetUpTable` operation now uses the existing
+prepared-string lookup for successful table hits. Missing/nil values, other
+key types and non-table receivers retain the generic metamethod path. Register
+keys and ordinary `GetTable` operations are unchanged. There is no new cache,
+unsafe code, native ABI, policy exclusion or reduced source eligibility.
+
+The frozen candidate passes complete local `jit-verify`: 12,617 executions,
+565 summaries, zero failures and 149 reported existing ignores. Two new
+differential fixtures compare 472 outcomes, including mutation, weak modes,
+metamethod calls/errors, cycles, equal-content strings, NaN and signed zero.
+Scoped default and Tree Borrows Miri each pass 12 tests. Hosted Miri now
+explicitly selects the two fixtures and refuses an empty selection; its wrapper
+checks 68 logs, 28 injected failures and 14 zero-model rejections.
+
+Root integration matches the qualified snapshot across all 529 selected
+runtime/dependency/example inputs. Root format/all-feature checks and 94 focused
+tests pass with zero failures/ignores. All six freshly built root canonical
+binaries (speed/shipping native benchmark, NoFeature and compiled-Off) are
+byte-for-byte identical to the measured candidate. This establishes artifact
+identity, not new platform CI or elapsed acceptance.
+
+Three balanced instruction-profile pairs show 9.57% less callback work in
+compiled-Off at opt3. Native callback work is unchanged. Two unchanged full
+elapsed cohorts preserve all original thresholds and counter/resource checks:
+
+| Original gate | First cohort | Planned repeat |
+| --- | ---: | ---: |
+| Native | 174/192 passed | 173/192 passed |
+| Compiled-Off cost | 207/216 passed | 203/216 passed |
+| Callback compiled-Off cost | 24/24 passed | 24/24 passed |
+
+These are **59 failed gates out of 816**, not full acceptance. Native callbacks
+pass 22/48 and polymorphic cases 37/48; native array, integer, float, upvalue,
+allocation and cold gates each pass 48/48. Faster Off makes the native speedup
+ratio harder to meet: do not retain a slower interpreter to manufacture a win.
+The remaining cost failures are allocation, cold and polymorphic cases.
+
+NoFeature images are not byte-identical to their retained controls. Source
+review and direct work comparisons therefore accompany the original same-source
+cost checks. Two additional original-producer interleaved comparisons against
+retained-old NoFeature pass 201/216 and 205/216, with callbacks 48/48 combined.
+Their 26 failed checks remain visible; these mixed-origin diagnostics replace
+neither the original cost gates nor native cohorts. The earlier retained 69/816
+and rejected-decoder 78/816 failures remain separate historical receipts.
+
+This is an incremental interpreter improvement, **not a native speedup claim or
+finished JIT**. Full acceptance still requires native callback/polymorphic
+performance, remaining disabled-tier overhead, controlled-resource/optional
+worker integration and release qualification. The previous platform receipts
+below cover the old runtime, not this source revision. Evidence:
+`target/jit-evidence/constant-global-read/`, particularly `WORK-RESULT.md`,
+`INTEGRATION-DECISION.md`, both original timing cohorts and both
+`legacy-paired-*/report.json` files.
+
 ### Completed retained-runtime platform run — 2026-10-29
 
 Exact-runtime CI run `40761540332` at

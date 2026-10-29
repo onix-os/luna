@@ -454,6 +454,7 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::provider_box_refusal_precedes_host_setup_and_releases_entry_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/provider-box-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::segment_record_underlying_refusal_precedes_mapping -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/segment-record-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::specialized::tests -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)/jit-backend-specialized-tests.log'
+	@set -o pipefail; $(MAKE) --no-print-directory jit-constant-global-miri 2>&1 | tee '$(MIRI_DIR)/thread-vm-global_index.log'
 	@set -e -o pipefail; for filter in jit::handoff::tests jit::arrays::tests jit::array_window:: jit::runtime_owner_tests jit::global_owner::tests jit::resources::bootstrap_tests jit::resources::mapping_tests jit::abi::tests jit::abi::transport_inputs::tests jit::entry_admission::tests jit::readonly_lookup::tests jit::readonly_lookup::scalar_entry jit::readonly_lookup::binding::tests jit::readonly_lookup::binding::integer_resume::tests table::raw::code_read_hint_tests::strong_peek jit::helpers::tests jit::helpers::existing_entry_tests jit::scoped_helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::global_box::tests jit::segments::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$${filter//::/-}".log; \
 	done
@@ -2648,6 +2649,14 @@ repl:
 .PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri jit-integer-table jit-integer-table-miri
 .PHONY: jit-operand-sources jit-operand-sources-miri
 .PHONY: jit-constant-keys jit-constant-keys-miri
+.PHONY: jit-constant-global jit-constant-global-miri
+
+jit-constant-global:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::global_index -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+jit-constant-global-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::global_index -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed; 0 ignored;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: string-key-hash string-key-hash-miri
 string-key-hash:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) key_hash_tests $(ARGS)
@@ -2934,6 +2943,7 @@ help:
 	@echo "  test-all     Run all tests with every feature enabled"
 	@echo "  numeric-conversions Check numeric coercion and arithmetic in all runtime modes"
 	@echo "  jit-vm-dispatch Check per-slice dispatch selection and code ownership"
+	@echo "  jit-constant-global Check constant global read semantics"
 	@echo "  jit-set-list Check fixed-list native writes, fuel, and fallback"
 	@echo "  jit-frame-view Check current-frame views and bounds guards"
 	@echo "  jit-integer-table Check integer reads, weak values, and fallback"
