@@ -162,13 +162,17 @@ gates are unchanged. Six current canonical/symbol-image pairs are ready; no new
 full elapsed cohort has been captured while Miri is active. A separate test-only
 fixture removes a redundant frame snapshot without dropping any checked slot;
 12,994,992 native checker-equivalence decisions per feature configuration pass.
-Its default-borrow NoFeature and JIT Miri runs now each pass both tests and all
-41,472 VM cases, with actual overlay source/seed/policy independently checked.
+All four NoFeature/JIT and default/Tree Borrows Miri configurations of that
+test-only fixture now pass both tests and all 41,472 VM cases each. Independent
+auditing verifies eight test executions/four summaries, actual overlay source,
+feature, seed, borrow flags, policy and unchanged production files.
 A separately frozen completion-line reader rejects twenty corruptions, including
 an incomplete VM result that the earlier name-and-total reader accepted; actual
-completed logs remain unchanged. Tree Borrows and original single-context stress
-remain pending. A guarded continuation now waits for actual primary receipts and
-owned-compute completion before fresh preflight, profiles and the original first
+completed logs remain unchanged. A relative-manifest/CWD error in the original
+all-configuration Make wrapper is preserved as an orchestration failure; a
+separately frozen corrected driver passes the full audit. Original single-context
+stress runs remain pending. A guarded continuation waits for actual primary
+receipts and owned-compute completion before fresh preflight, profiles and the original first
 elapsed cohort plus one repeat. These pending stages are not declared passes;
 this is not whole-JIT acceptance or a production performance result.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
