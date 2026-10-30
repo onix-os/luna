@@ -47,8 +47,48 @@ retry load from the admitted path; its complete work screen shows identical
 numeric instruction costs, so that hypothesis is rejected without another
 full-suite/elapsed campaign. Neither experiment changes the retained runtime.
 
-Next work targets the remaining retry-admission fast-path cost and original
-cold/callback gates. Final-source platform/release qualification and approval
+An isolated lazy snapshot-owner trial now removes one unused allocation from
+never-compiled states without growing the production Manager or RuntimeOwner.
+Independent non-test layout and 24 public lifecycle observations verify the
+bootstrap floor **1,528 -> 1,424 bytes**, recovery after refusal, and retained
+ownership/peaks after preparation and cache clearing. An obsolete detached-lease
+fixture was corrected to assert its two actual surviving ledger owners; the
+original failure is retained. The corrected source passes **2,466 executions /
+95 summaries / 29 existing ignores** in workspace/all-target/all-feature tests,
+plus 21 focused executions. Focused Miri passes nine tests per borrow model;
+actual i686 focused checks pass 19. This is not full `jit-verify` qualification.
+
+Six canonical images, 72 independent 27-field rows and 36 native proof rows
+verify. NoFeature differs from the retained control only in seven source-line
+records; source-derived mapping, ELF/full-other-byte checks and four corruption
+controls per profile enforce that existing exception. Whole-context diagnostic
+screens cover 84 warm profiles / 2,268 partitions / 1,848 steady executions and
+24 cold profiles / 480 lifecycles. Numeric work is unchanged or within 0.003%;
+upvalue work varies in sign through the existing registry resolver. These are
+diagnostics, not elapsed acceptance or a newly proven cache/layout explanation.
+
+A **cost-only** elapsed screen uses both CPUs/profiles, all six balanced A/trial/B
+orders, the original 11 samples / 20 iterations, and the original 5% gate.
+Across 285,120 verified cost iterations, the trial passes **215/216** gates;
+baseline A/B pass **204/216 and 198/216**. One shipping cold gate fails at
+**1.050586823 > 1.05**. Direct healthy-path comparisons also contain repeatable
+slowdowns, including roughly 5% shipping numeric on CPU16 and 7.5% speed float
+on CPU0; they are not hidden by the higher gate count. Independent raw timing,
+dispersion, proof and launch checks agree; the reader accepts two valid/restored
+fixtures and rejects 11 corruptions. Native benchmark interleaving, the original
+full 144-command protocol/repeat and final qualification are absent here.
+**No lazy-owner runtime change is merged or fully accepted.**
+
+The next isolated candidate combines this allocation deferral with the prior
+V5 guard policy, rather than repeating either unchanged failed experiment.
+Combined-source formatting/type checks and 56 focused tests pass; broader
+source-specific correctness/artifact work remains in progress. No additive
+speedup or final acceptance is inferred from its parents. Evidence:
+`target/jit-evidence/lazy-snapshot-ledger/`, including `revision-2/`,
+`cost-screen-report-v2.json`, the retained failures and `revision-3/DESIGN.md`.
+
+Next work targets the remaining original cold/callback gates and the combined
+candidate's healthy paths. Final-source platform/release qualification and approval
 of outstanding exclusions remain separate. Original sections 4.5/4.6 distinguish
 controlled accounting from conditional hard isolation; no universal RSS, GPU,
 mandatory-worker or new numerical acceptance requirement is introduced.
