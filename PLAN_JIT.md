@@ -22,7 +22,7 @@ existing ignores. These receipts certify that retained source, not a newer
 performance prototype. Its real packaged shipping consumer also passes all
 21 cases in three empty-environment lanes, with one initial execve and no helper.
 
-The latest isolated guard-feedback candidate, `guard-feedback/revision-5/`,
+A qualified isolated guard-feedback candidate, `guard-feedback/revision-5/`,
 passes full active-policy native verification (**12,757 / 565 / 149**), actual
 i686 (**3,662 / 373 / eight**), focused Miri in both borrow models, standalone
 static GNU producer conformance, fresh offline registry consumers, and exact
@@ -38,6 +38,14 @@ elapsed regressions remain and must not be concealed by target-only gains.
 All 28,512 native benchmark executions / 570,240 cost iterations reconcile
 with zero counter/resource/proof mismatches; that validates data, not acceptance.
 No third unchanged campaign is planned.
+
+The subsequent dynamic-admission-bit candidate (`revision-6/`) also passes
+source-specific correctness/deployment qualification, but fails **31/816**
+original elapsed gates and retains repeatable healthy numeric losses. It is
+rejected for promotion. A bounded follow-up (`revision-7/`) separates the
+retry load from the admitted path; its complete work screen shows identical
+numeric instruction costs, so that hypothesis is rejected without another
+full-suite/elapsed campaign. Neither experiment changes the retained runtime.
 
 Next work targets the remaining retry-admission fast-path cost and original
 cold/callback gates. Final-source platform/release qualification and approval
