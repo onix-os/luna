@@ -155,6 +155,14 @@ benchmark programs/build scripts remain byte-unchanged. Counter validation
 matches 36 current candidate rows and 36 immutable baseline rows against the
 27-field oracle; this is not a new elapsed result or cost-worker proof campaign.
 Original performance acceptance and final-source hosted CI remain open.
+The original elapsed harness's artifact-only staging now verifies with matching
+source-specific NoFeature controls; its new reader accepts three valid datasets
+and rejects eleven corruptions. Workloads, controls, sample counts and numerical
+gates are unchanged. Six current canonical/symbol-image pairs are ready; no new
+full elapsed cohort has been captured while Miri is active. A separate test-only
+fixture removes a redundant frame snapshot without dropping any checked slot;
+12,994,992 native checker-equivalence decisions per feature configuration pass,
+but its full Miri outcome is not yet claimed.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
