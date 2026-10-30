@@ -9,6 +9,44 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Current acceptance checkpoint — 2026-10-30
+
+The retained runtime at `d901e66` now has all seven successful jobs in
+[run 40970444441](https://github.com/onix-os/luna/actions/runs/40970444441).
+Independently verified GNU, musl and ARM archives each contain **12,888 passing
+executions / 582 summaries / 149 existing reported ignores**, with actual
+matching-host native execution and verified artifact/image identities. Hosted
+default-borrow Miri seeds 0/1 each pass 488 executions / 70 summaries; local
+full Tree Borrows also passes. Actual i686 fallback passes 3,644 / 373 / eight
+existing ignores. These receipts certify that retained source, not a newer
+performance prototype. Its real packaged shipping consumer also passes all
+21 cases in three empty-environment lanes, with one initial execve and no helper.
+
+The latest isolated guard-feedback candidate, `guard-feedback/revision-5/`,
+passes full active-policy native verification (**12,757 / 565 / 149**), actual
+i686 (**3,662 / 373 / eight**), focused Miri in both borrow models, standalone
+static GNU producer conformance, fresh offline registry consumers, and exact
+independent runtime/resource predictions. It is **not merged or fully accepted**.
+
+Both original elapsed campaigns completed without changing thresholds, controls
+or samples: **11/408 then 6/408 gates failed, 17/816 combined**. All 48
+polymorphic gates pass; direct polymorphic medians improve 2.8–9.6% across both
+CPUs, profiles and cohorts. Remaining failures are three native callback,
+eleven compiled-Off cold, and three compiled-Off allocation gates. Numeric
+instruction overhead fell from roughly 3% to 0.3–0.7%, but small healthy-path
+elapsed regressions remain and must not be concealed by target-only gains.
+All 28,512 native benchmark executions / 570,240 cost iterations reconcile
+with zero counter/resource/proof mismatches; that validates data, not acceptance.
+No third unchanged campaign is planned.
+
+Next work targets the remaining retry-admission fast-path cost and original
+cold/callback gates. Final-source platform/release qualification and approval
+of outstanding exclusions remain separate. Original sections 4.5/4.6 distinguish
+controlled accounting from conditional hard isolation; no universal RSS, GPU,
+mandatory-worker or new numerical acceptance requirement is introduced.
+Evidence: `target/jit-evidence/current-release-qualification/RESULTS.md` and
+`target/jit-evidence/guard-feedback/revision-5/`, including raw failed cohorts.
+
 ### Bounded compiler-report ownership — 2026-10-29
 
 Internal compilation errors now retain an admitted String/Charge owner until
