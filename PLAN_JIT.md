@@ -131,9 +131,17 @@ A new isolated shared-VM numeric Less/LessEq trial reuses the existing exact
 mixed comparator and preserves the original nonnumeric metamethod/error route.
 Both feature configurations pass numeric edge-case and single-step operand-form,
 PC, budget, stack and error checks, plus metamethod integration checks in
-Off/Auto/Force. Fresh NoFeature controls contain the same optimization. Benchmark
-images are being qualified; no speedup, full acceptance or runtime adoption is
-claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
+Off/Auto/Force. Six fresh images include matching changed NoFeature controls.
+A 128-process pinned, four-order screen verifies fully scheduled cycles and
+instructions, source/image identity and worker proofs; its reader rejects ten
+corruptions. Predicate instruction work falls about **2% in both builds**.
+Speed-build compiled-Off elapsed improves **1.7–2.1%**; shipping compiled-Off
+is essentially flat. Callback elapsed results have both signs and are not
+declared fixed. Full workspace/all-feature tests pass **2,477 / 95 / 29**;
+actual i686 full fallback passes **3,689 / 373 / eight**, plus 41 focused
+executions. Broader GNU verification and both-model Miri remain in progress;
+original performance acceptance and final-source deployment/CI remain open.
+No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
 Next work targets the remaining original cold/callback gates and the combined
