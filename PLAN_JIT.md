@@ -139,8 +139,22 @@ Speed-build compiled-Off elapsed improves **1.7–2.1%**; shipping compiled-Off
 is essentially flat. Callback elapsed results have both signs and are not
 declared fixed. Full workspace/all-feature tests pass **2,477 / 95 / 29**;
 actual i686 full fallback passes **3,689 / 373 / eight**, plus 41 focused
-executions. Broader GNU verification and both-model Miri remain in progress;
-original performance acceptance and final-source deployment/CI remain open.
+executions. Full GNU `jit-verify` now passes **12,810 / 565 / 149** with no
+new ignores. Both borrow models pass 31 scoped owner/guard checks plus two
+numeric-oracle executions, with actual source/flags/policy verified. The full
+unchanged exhaustive VM transport matrix is still running across both feature
+configurations/models; those incomplete runs are not declared passes.
+
+Fresh static GNU producer conformance passes **76 / five**. Offline packaged
+consumers pass all **21 cases** across three empty-environment lanes, with 700
+first-party source files checked, one initial execve and no helper; the reader
+rejects 15 corruptions. Source-specific layout/lifecycle and feature-size/default
+dependency-isolation checks also pass. All six measured canonical images are
+full-byte-identical to separate fresh first-party rebuilds, and the original
+benchmark programs/build scripts remain byte-unchanged. Counter validation
+matches 36 current candidate rows and 36 immutable baseline rows against the
+27-field oracle; this is not a new elapsed result or cost-worker proof campaign.
+Original performance acceptance and final-source hosted CI remain open.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
