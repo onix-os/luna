@@ -161,8 +161,11 @@ and rejects eleven corruptions. Workloads, controls, sample counts and numerical
 gates are unchanged. Six current canonical/symbol-image pairs are ready; no new
 full elapsed cohort has been captured while Miri is active. A separate test-only
 fixture removes a redundant frame snapshot without dropping any checked slot;
-12,994,992 native checker-equivalence decisions per feature configuration pass,
-but its full Miri outcome is not yet claimed.
+12,994,992 native checker-equivalence decisions per feature configuration pass.
+Its default-borrow/NoFeature Miri run now passes both tests and all 41,472 VM
+cases, with actual overlay source/seed/policy independently checked. The other
+feature/model configurations and original single-context stress remain pending;
+this is not whole-JIT acceptance or a production performance result.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
