@@ -79,13 +79,37 @@ fixtures and rejects 11 corruptions. Native benchmark interleaving, the original
 full 144-command protocol/repeat and final qualification are absent here.
 **No lazy-owner runtime change is merged or fully accepted.**
 
-The next isolated candidate combines this allocation deferral with the prior
-V5 guard policy, rather than repeating either unchanged failed experiment.
-Combined-source formatting/type checks and 56 focused tests pass; broader
-source-specific correctness/artifact work remains in progress. No additive
-speedup or final acceptance is inferred from its parents. Evidence:
+The combined allocation-deferral/V5 candidate now passes full source-specific
+verification: **12,792 / 565 / 149**, actual i686 **3,677 / 373 / eight**, focused
+Miri **31 / four** per borrow model, static GNU producer **76 / five**, fresh
+four-crate packaged consumers in 21 empty-environment cases, traced no-helper
+execution, size/dependency checks and independent resource/work/image audits.
+Its original full elapsed protocol and planned repeat both complete, but fail
+**9/408 then 11/408: 20/816 gates**. Eight are native (six callback, two array);
+twelve are compiled-Off (four cold, five Oslo, one each callback/integer/float).
+All 48 polymorphic gates pass, with direct gains of 2.3–7.3%. Both baseline
+controls also retain failures; they do not waive the candidate's. Raw medians,
+dispersion and 28,512 native executions / 570,240 cost iterations reconcile;
+18 reader corruptions per cohort are rejected. No third unchanged run or
+runtime promotion follows.
+
+Post-run descriptive six-window medians meet the original limits in 135/136
+CPU/profile/workload/cohort groups. The remaining speed/CPU16 compiled-Off Oslo
+group is **1.051258792 > 1.05**. These are estimates, not confidence intervals
+or revised acceptance rules: all 20 failed original windows remain failures.
+Exact-image predicate attribution measures less than 0.4% extra instructions
+in speed builds and fewer instructions in shipping builds, so instruction count
+alone does not explain or certify that elapsed-time budget.
+
+A bounded hint-arithmetic follow-up preserves the full atomic word and all
+bitfields, checks all 65,536 raw values, and passes focused native/i686 and both
+Miri models. Its whole-callback work reduction is real but only **0.05–0.064%**,
+identical across three balanced rounds. This is insufficient to close the
+remaining failures; no broad/elapsed campaign is justified by that result alone.
+Neither new source is adopted. Evidence:
 `target/jit-evidence/lazy-snapshot-ledger/`, including `revision-2/`,
-`cost-screen-report-v2.json`, the retained failures and `revision-3/DESIGN.md`.
+`cost-screen-report-v2.json`, `revision-3/RESULTS.md`, both original cohorts,
+`revision-3/oslo-attribution/` and `revision-4/RESULTS.md`.
 
 Next work targets the remaining original cold/callback gates and the combined
 candidate's healthy paths. Final-source platform/release qualification and approval
