@@ -111,6 +111,31 @@ Neither new source is adopted. Evidence:
 `cost-screen-report-v2.json`, `revision-3/RESULTS.md`, both original cohorts,
 `revision-3/oslo-attribution/` and `revision-4/RESULTS.md`.
 
+An additional 72-process selected-predicate PMU screen records all 288 hardware
+events at full scheduling. On CPU16/speed, compiled-Off has about **2.4% more
+cycles despite fewer instructions and branch misses**; the other three
+CPU/profile groups favor compiled-Off in this diagnostic. GNU time's worker
+accounting records involuntary context switches even when filtered perf switch
+counts are zero. The long-run selected-worker scope is not the original elapsed
+protocol, and neither establishes absence of contention nor erases failed gates.
+
+Nine matching-image cycle samples contain **28,786 samples**. A separate reader
+checks event/header, image identity, address-to-mapping offsets, capture order,
+lost/throttle records and worker proofs, and rejects nine corruptions. Two
+unresolved samples remain explicitly counted. Descriptive VM sample shares are
+**5.95% NoFeature / 7.86% compiled-Off**; collector plus GC-step shares are
+**26.09% / 26.74%**. Sampling skid, inlining and different total weights prevent
+treating these fractions as causal instruction-latency or cache-layout proof.
+
+A new isolated shared-VM numeric Less/LessEq trial reuses the existing exact
+mixed comparator and preserves the original nonnumeric metamethod/error route.
+Both feature configurations pass numeric edge-case and single-step operand-form,
+PC, budget, stack and error checks, plus metamethod integration checks in
+Off/Auto/Force. Fresh NoFeature controls contain the same optimization. Benchmark
+images are being qualified; no speedup, full acceptance or runtime adoption is
+claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
+and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
+
 Next work targets the remaining original cold/callback gates and the combined
 candidate's healthy paths. Final-source platform/release qualification and approval
 of outstanding exclusions remain separate. Original sections 4.5/4.6 distinguish
