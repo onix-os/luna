@@ -188,7 +188,12 @@ An inherited final-summary receipt-name error returned outer status2 after both
 successful audits; an explicit, separately identified verification/summary adapter
 fixes reporting without repeating captures or inventing qualified/campaign status.
 These are pre-acceptance measurements, not original-stress or whole-JIT acceptance.
-Actual-image cold/warm profiling, final-source qualification and release remain open.
+Actual-image work attribution now completes: cold **24 profiles / 276 partitions /
+480 lifecycles**; warm **84 / 2,268 / 1,848 steady executions**, zero counter/resource
+mismatches. Cold Off/NoFeature instruction overhead is about 0.9–1.3%; polymorphic
+Auto uses about 3.7–4.4% fewer instructions than the retained control. These are
+work measurements, not elapsed fixes; mixed/cold failure causes still need analysis.
+Final-source qualification and release remain open.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
