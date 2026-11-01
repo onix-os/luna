@@ -142,8 +142,9 @@ actual i686 full fallback passes **3,689 / 373 / eight**, plus 41 focused
 executions. Full GNU `jit-verify` now passes **12,810 / 565 / 149** with no
 new ignores. Both borrow models pass 31 scoped owner/guard checks plus two
 numeric-oracle executions, with actual source/flags/policy verified. The full
-unchanged exhaustive VM transport matrix is still running across both feature
-configurations/models; those incomplete runs are not declared passes.
+unchanged exhaustive single-context VM transport runs were interrupted before
+complete summaries. Two zero-valued signal-handler status files were misleading;
+independent log validation rejects them. No original-stress pass is claimed.
 
 Fresh static GNU producer conformance passes **76 / five**. Offline packaged
 consumers pass all **21 cases** across three empty-environment lanes, with 700
@@ -152,8 +153,9 @@ rejects 15 corruptions. Source-specific layout/lifecycle and feature-size/defaul
 dependency-isolation checks also pass. All six measured canonical images are
 full-byte-identical to separate fresh first-party rebuilds, and the original
 benchmark programs/build scripts remain byte-unchanged. Counter validation
-matches 36 current candidate rows and 36 immutable baseline rows against the
-27-field oracle; this is not a new elapsed result or cost-worker proof campaign.
+initially matched 36 candidate and 36 immutable baseline rows. Fresh preflight
+now independently matches all 72 rows against the 27-field oracle and all 36
+native-cost proofs, with zero mismatches; this is not elapsed acceptance.
 Original performance acceptance and final-source hosted CI remain open.
 The original elapsed harness's artifact-only staging now verifies with matching
 source-specific NoFeature controls; its new reader accepts three valid datasets
@@ -171,10 +173,14 @@ an incomplete VM result that the earlier name-and-total reader accepted; actual
 completed logs remain unchanged. A relative-manifest/CWD error in the original
 all-configuration Make wrapper is preserved as an orchestration failure; a
 separately frozen corrected driver passes the full audit. Original single-context
-stress runs remain pending. A guarded continuation waits for actual primary
-receipts and owned-compute completion before fresh preflight, profiles and the original first
-elapsed cohort plus one repeat. These pending stages are not declared passes;
-this is not whole-JIT acceptance or a production performance result.
+stress qualification remains incomplete. Interrupted results and kernel SIGTERM
+evidence are preserved. A new signal-aware runner passes seven isolated exit,
+signal and child-cleanup cases in the pinned worker shell. With owned test
+processes now terminal, performance measurement proceeds before restarting
+expensive stress qualification: the original first 144-command elapsed cohort
+plus one repeat, with unchanged gates, workloads and controls. This is explicitly
+pre-acceptance measurement, not a fabricated primary-Miri/qualified receipt.
+Profiles, final-source qualification and whole-JIT acceptance remain open.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
