@@ -205,8 +205,16 @@ borrow model**, with actual source/flags verified. Workspace checks pass
 The Miri aggregate fixture verifies 70 logs, 32 propagated failures and 18 empty
 model refusals. Six fresh images are built; both NoFeature images are full-byte
 identical to the previous candidate. Source proof limits production changes to
-one registration method and its imports. Work/performance comparison is pending;
-this trial is not adopted and does not erase the seven prior failed gates.
+one registration method and its imports. Fresh 72-row/36-proof preflight matches
+with zero mismatches; its source-specific NoFeature reader accepts three datasets
+and rejects eleven corruptions. Twenty-four cold work profiles show only modest
+instruction changes. Both original elapsed cohorts now complete and audit:
+**781/816 pass, 35 fail** (18 first / 17 repeat), zero counter/resource mismatches.
+Array 1.25x remains 48/48, but mixed and Off-cost gates still fail. Baseline
+controls also fail; cross-campaign counts do not prove a causal regression.
+The trial is not adopted, no third unchanged cohort will run, and the previous
+candidate's seven failures remain unresolved. Next changes must target the hot
+callback/native-entry path rather than rely on this cold micro-optimization.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
