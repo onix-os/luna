@@ -194,6 +194,19 @@ mismatches. Cold Off/NoFeature instruction overhead is about 0.9–1.3%; polymor
 Auto uses about 3.7–4.4% fewer instructions than the retained control. These are
 work measurements, not elapsed fixes; mixed/cold failure causes still need analysis.
 Final-source qualification and release remain open.
+
+An isolated registration-hash reuse trial now computes the ordinary map hash once,
+preserving weak identity, stale-ID retirement, fallible reservation order and child
+registration. No persistent field, cache, owner or container layout changes.
+Differential tests compare the old algorithm across growth, duplicates, refusal,
+reset and overflow. Registry checks pass **21 GNU / 21 executed i686 / 21 per Miri
+borrow model**, with actual source/flags verified. Workspace checks pass
+**2,480 / 95 / 29** and GNU `jit-verify` **12,825 / 565 / 149**, no new ignores.
+The Miri aggregate fixture verifies 70 logs, 32 propagated failures and 18 empty
+model refusals. Six fresh images are built; both NoFeature images are full-byte
+identical to the previous candidate. Source proof limits production changes to
+one registration method and its imports. Work/performance comparison is pending;
+this trial is not adopted and does not erase the seven prior failed gates.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
