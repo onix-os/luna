@@ -161,7 +161,7 @@ The original elapsed harness's artifact-only staging now verifies with matching
 source-specific NoFeature controls; its new reader accepts three valid datasets
 and rejects eleven corruptions. Workloads, controls, sample counts and numerical
 gates are unchanged. Six current canonical/symbol-image pairs are ready; no new
-full elapsed cohort has been captured while Miri is active. A separate test-only
+elapsed captures overlapped active owned Miri. A separate test-only
 fixture removes a redundant frame snapshot without dropping any checked slot;
 12,994,992 native checker-equivalence decisions per feature configuration pass.
 All four NoFeature/JIT and default/Tree Borrows Miri configurations of that
@@ -176,11 +176,19 @@ separately frozen corrected driver passes the full audit. Original single-contex
 stress qualification remains incomplete. Interrupted results and kernel SIGTERM
 evidence are preserved. A new signal-aware runner passes seven isolated exit,
 signal and child-cleanup cases in the pinned worker shell. With owned test
-processes now terminal, performance measurement proceeds before restarting
-expensive stress qualification: the original first 144-command elapsed cohort
-plus one repeat, with unchanged gates, workloads and controls. This is explicitly
-pre-acceptance measurement, not a fabricated primary-Miri/qualified receipt.
-Profiles, final-source qualification and whole-JIT acceptance remain open.
+processes terminal, the original 144-command elapsed cohort and one repeat now
+both complete and independently audit: **28,512 native executions / 570,240 cost
+iterations**, zero counter/resource mismatches, raw medians/dispersion recomputed
+and 18 reader mutations rejected per cohort. Candidate passes **809/816 gates**:
+406/408 first, 403/408 repeat. Array-table **48/48 pass 1.25x**, minima
+**1.331026 / 1.349379**; closure/upvalue also 48/48. Rust callback mixed floor
+passes 47/48. Seven cold/Off and mixed-workload failures remain and are not
+averaged away. No third unchanged campaign will run.
+An inherited final-summary receipt-name error returned outer status2 after both
+successful audits; an explicit, separately identified verification/summary adapter
+fixes reporting without repeating captures or inventing qualified/campaign status.
+These are pre-acceptance measurements, not original-stress or whole-JIT acceptance.
+Actual-image cold/warm profiling, final-source qualification and release remain open.
 No runtime adoption is claimed. Evidence: `revision-3/predicate-pmu/`, `revision-3/predicate-samples/`
 and `revision-5/` under `target/jit-evidence/lazy-snapshot-ledger/`.
 
