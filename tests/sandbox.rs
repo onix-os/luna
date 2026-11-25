@@ -36,6 +36,23 @@ fn rawset_cannot_bypass_a_freeze() -> Result<(), ExternError> {
     Ok(())
 }
 
+/// `table.insert` and `table.remove` have array fast paths that must still honour a freeze.
+#[test]
+fn table_insert_and_remove_cannot_bypass_a_freeze() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local t = table.freeze({ 1, 2, 3 })
+        local inserted = pcall(table.insert, t, 4)
+        local shifted = pcall(table.insert, t, 1, 0)
+        local removed = pcall(table.remove, t)
+        local front = pcall(table.remove, t, 1)
+        return not inserted and not shifted and not removed and not front
+            and #t == 3 and t[1] == 1 and t[3] == 3
+    "#
+    )?);
+    Ok(())
+}
+
 #[test]
 fn freezing_is_reportable() -> Result<(), ExternError> {
     assert!(eval(
