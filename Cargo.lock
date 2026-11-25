@@ -461,6 +461,7 @@ dependencies = [
  "cranelift-native",
  "hashbrown 0.14.5",
  "libc",
+ "libm",
  "luna-derive",
  "luna-jit-embed",
  "memmap2",

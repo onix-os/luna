@@ -40,6 +40,49 @@ assert_eq!(lua.execute::<i64>(&ex)?, 2);
 
 A REPL and two larger examples live in [`examples/`](examples); run one with `make repl`.
 
+## Functional states
+
+`Lua::functional()` is for configuration that has to be pure: the same inputs always give the
+same result, and nothing a config produces can change after it is evaluated. It follows
+Starlark's model, not Nix's: evaluation is strict, a chunk may build and mutate its own tables,
+and the host freezes the results when the chunk finishes.
+
+| Guarantee | Mechanism |
+| --- | --- |
+| No ambient inputs or effects | No `io`, `os`, `debug`, `package`, `coroutine`, `print`, `collectgarbage`, `dofile`, `loadfile`, `math.random(seed)`, `string.dump` |
+| Shared state cannot change | Globals and every library table, including the string metatable, are frozen |
+| Results cannot change | `luna::functional::freeze` deep-freezes tables, metatables and closure captures |
+| Closures carry no hidden state | Assigning to a captured variable is a compile error |
+| Same traversal every run | `pairs`/`next` visit booleans, numbers, then strings by bytes; other key types are refused |
+| Output does not depend on memory layout | `tostring` and `%s` print `table`/`function` without addresses; `%p` is refused |
+| Only checked code runs | Binary chunks are refused; `load` is text-only |
+| GC timing is unobservable | Metatables with `__gc` or `__mode` are refused |
+| Same numbers on every target | `math.exp`, `log`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan` use the portable `libm` crate; the `^` operator still uses the platform `pow` |
+| Files are pure inputs | `functional::import_environment` adds `import(name)`: the host's loader supplies the text, each name is evaluated once and its result frozen and cached, and cycles are refused |
+
+```rust
+use luna::{functional, Closure, Executor, Lua, RuntimeError, Value};
+
+let mut lua = Lua::functional();
+let (ex, env) = lua.try_enter(|ctx| {
+    let env = functional::environment(ctx);
+    let source = &b"name = 'luna' return { name = name }"[..];
+    let closure = Closure::load_with_env(ctx, None, source, env)?;
+    Ok((ctx.stash(Executor::start(ctx, closure.into(), ())), ctx.stash(env)))
+})?;
+lua.finish(&ex).map_err(RuntimeError::new)?;
+lua.try_enter(|ctx| {
+    let config: Value = ctx.fetch(&ex).take_result(ctx)??;
+    functional::freeze(ctx, config);
+    functional::freeze(ctx, ctx.fetch(&env).into());
+    Ok(())
+})?;
+```
+
+`functional::environment` gives each chunk its own globals over the frozen library. Host
+callbacks are opaque to the runtime: a host that registers one is responsible for keeping it
+pure, for example by recording declarations and applying them after evaluation.
+
 ## Status
 
 Pre-1.0 and experimental. Expect frequent breaking changes on minor version bumps.

@@ -58,6 +58,8 @@ pub enum CompileErrorKind {
     JumpOverflow,
     #[error("cannot assign to a const variable")]
     AssignToConst,
+    #[error("cannot assign to a captured variable in functional mode")]
+    AssignToCaptured,
     #[error("multiple to-be-closed variables in local list")]
     MultipleClose,
 }
@@ -181,10 +183,20 @@ pub fn compile_chunk<S: StringInterner>(
     chunk: &Chunk<S::String>,
     create_string: S,
 ) -> Result<CompiledPrototype<S::String>, CompileError> {
+    compile_chunk_with(chunk, create_string, false)
+}
+
+/// Compile a chunk, rejecting assignment to captured variables when `functional` is set.
+pub fn compile_chunk_with<S: StringInterner>(
+    chunk: &Chunk<S::String>,
+    create_string: S,
+    functional: bool,
+) -> Result<CompiledPrototype<S::String>, CompileError> {
     let mut compiler = Compiler {
         string_interner: create_string,
         current_function: CompilerFunction::start(FunctionRef::Chunk, &[], true).unwrap(),
         upper_functions: Vec::new(),
+        functional,
     };
     compiler.block(&chunk.block).map_err(|kind| CompileError {
         kind,
@@ -202,6 +214,7 @@ struct Compiler<S: StringInterner> {
     string_interner: S,
     current_function: CompilerFunction<S::String>,
     upper_functions: Vec<CompilerFunction<S::String>>,
+    functional: bool,
 }
 
 struct CompilerFunction<S> {
@@ -914,6 +927,9 @@ impl<S: StringInterner> Compiler<S> {
                     if attrs.is_const() {
                         return Err(CompileErrorKind::AssignToConst);
                     }
+                    if self.functional {
+                        return Err(CompileErrorKind::AssignToCaptured);
+                    }
 
                     let source = self.expr_discharge(
                         ExprDescriptor::Closure(proto),
@@ -1091,6 +1107,9 @@ impl<S: StringInterner> Compiler<S> {
                     VariableDescriptor::UpValue(dest, attrs) => {
                         if attrs.is_const() {
                             return Err(CompileErrorKind::AssignToConst);
+                        }
+                        if this.functional {
+                            return Err(CompileErrorKind::AssignToCaptured);
                         }
                         let (source, source_is_temp) = this.expr_any_register(expr)?;
                         this.current_function

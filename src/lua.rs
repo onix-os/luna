@@ -128,6 +128,18 @@ impl<'gc> Context<'gc> {
         self.state.debug_locals.set(keep);
     }
 
+    /// Whether this state was created by [`Lua::functional`].
+    ///
+    /// Functional states reject assignment to captured variables at compile time, iterate tables
+    /// in a canonical key order and print reference values without their addresses.
+    pub fn functional(self) -> bool {
+        self.state.functional.get()
+    }
+
+    pub(crate) fn set_functional(self) {
+        self.state.functional.set(true);
+    }
+
     /// Whether a debug hook is installed and not currently running.
     ///
     /// A hook that runs Lua would otherwise trigger itself, so it is suppressed for the duration of
@@ -319,6 +331,32 @@ impl Lua {
     pub fn core() -> Self {
         let mut lua = Self::empty();
         lua.load_core();
+        lua
+    }
+
+    /// Create a pure, deterministic `Lua` instance for configuration code.
+    ///
+    /// Loads `base`, `math`, `string`, `table` and `utf8` without anything that observes or
+    /// changes the outside world: no `io`, `os`, `debug`, `package`, `coroutine`,
+    /// `collectgarbage`, `dofile`, `loadfile`, `math.random`, `math.randomseed` or `string.dump`.
+    /// The globals and every library table are frozen, so global assignment is an error.
+    ///
+    /// Code may mutate the tables it creates. Hand each result to [`crate::functional::freeze`]
+    /// once a chunk finishes so nothing it produced can change afterwards. Every chunk compiled
+    /// in this state rejects assignment to captured variables, so frozen closures cannot carry
+    /// hidden state. `pairs` and `next` visit keys in canonical order: booleans, numbers, then
+    /// strings by bytes. Metatables with `__gc` or `__mode` are refused.
+    pub fn functional() -> Self {
+        let mut lua = Self::empty();
+        lua.enter(|ctx| {
+            ctx.set_functional();
+            load_base(ctx);
+            load_math(ctx);
+            load_string(ctx);
+            load_table(ctx);
+            load_utf8(ctx);
+            crate::functional::install(ctx);
+        });
         lua
     }
 
@@ -1281,6 +1319,8 @@ struct State<'gc> {
     // measurably not free: +47% prototype memory on a locals-dense script, so a host that never
     // debugs can turn it off.
     debug_locals: Gc<'gc, Cell<bool>>,
+    // Functional states compile without upvalue assignment and print reference values by type.
+    functional: Gc<'gc, Cell<bool>>,
     hook_line: Gc<'gc, Cell<bool>>,
     // The (frame depth, line) the line hook last fired for. Persisted across VM slices — a
     // per-slice value would re-fire the same line every time the hook returned, forever — and
@@ -1323,6 +1363,7 @@ impl<'gc> State<'gc> {
             hook: Gc::new(mc, Lock::new(Value::Nil)),
             hook_depth: Gc::new(mc, Cell::new(usize::MAX)),
             debug_locals: Gc::new(mc, Cell::new(true)),
+            functional: Gc::new(mc, Cell::new(false)),
             hook_line: Gc::new(mc, Cell::new(false)),
             hook_last: Gc::new(mc, Cell::new((usize::MAX, u64::MAX))),
             hook_count: Gc::new(mc, Cell::new(0)),

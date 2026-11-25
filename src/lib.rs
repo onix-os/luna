@@ -10,6 +10,7 @@ pub mod error;
 pub mod finalizers;
 pub mod fuel;
 pub mod function;
+pub mod functional;
 pub mod io;
 #[cfg(feature = "jit")]
 pub mod jit;

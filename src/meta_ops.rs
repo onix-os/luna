@@ -469,6 +469,15 @@ pub fn tostring<'gc>(
 
     Ok(match v {
         v @ Value::String(_) => MetaResult::Value(v),
+        Value::Table(_) | Value::Function(_) | Value::Thread(_) | Value::UserData(_)
+            if ctx.functional() =>
+        {
+            let name = match get_metamethod(ctx, v, MetaMethod::Name) {
+                Some(Value::String(name)) => name,
+                _ => ctx.intern(v.type_name().as_bytes()),
+            };
+            MetaResult::Value(name.into())
+        }
         v => {
             // With no `__tostring`, a `__name` still improves on "userdata: 0x…" — it is the only
             // way a bound Rust type prints as itself.
