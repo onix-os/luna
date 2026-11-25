@@ -387,7 +387,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "luna"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "ahash",
  "allocator-api2",
@@ -396,8 +396,10 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-jit",
  "cranelift-module",
+ "cranelift-native",
  "hashbrown 0.14.5",
  "libc",
+ "libm",
  "memmap2",
  "ottavino-gc-arena",
  "rand",
