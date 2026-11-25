@@ -3,10 +3,10 @@
 //! The environment argument in particular: a chunk loaded into a restricted table must not be able
 //! to reach the real globals, or sandboxing through `load` is not sandboxing at all.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -92,7 +92,7 @@ fn text_modes_are_accepted() -> Result<(), ExternError> {
 /// rather than discarded, which is what a traceback will need.
 #[test]
 fn the_chunk_name_is_recorded_on_the_prototype() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.try_enter(|ctx| {
         let loaded: luna::Function = ctx.globals().get::<_, luna::Function>(ctx, "load").unwrap();
         let executor = Executor::start(
@@ -114,6 +114,8 @@ fn the_chunk_name_is_recorded_on_the_prototype() -> Result<(), ExternError> {
     });
     Ok(())
 }
+
+mod common;
 
 /// A bad chunk still reports a compile error through `load`'s two-value return.
 #[test]

@@ -58,6 +58,8 @@ pub enum CompileErrorKind {
     JumpOverflow,
     #[error("cannot assign to a const variable")]
     AssignToConst,
+    #[error("cannot assign to a captured variable in functional mode")]
+    AssignToCaptured,
     #[error("multiple to-be-closed variables in local list")]
     MultipleClose,
 }
@@ -181,10 +183,20 @@ pub fn compile_chunk<S: StringInterner>(
     chunk: &Chunk<S::String>,
     create_string: S,
 ) -> Result<CompiledPrototype<S::String>, CompileError> {
+    compile_chunk_with(chunk, create_string, false)
+}
+
+/// Compile a chunk, rejecting assignment to captured variables when `functional` is set.
+pub fn compile_chunk_with<S: StringInterner>(
+    chunk: &Chunk<S::String>,
+    create_string: S,
+    functional: bool,
+) -> Result<CompiledPrototype<S::String>, CompileError> {
     let mut compiler = Compiler {
         string_interner: create_string,
         current_function: CompilerFunction::start(FunctionRef::Chunk, &[], true).unwrap(),
         upper_functions: Vec::new(),
+        functional,
     };
     compiler.block(&chunk.block).map_err(|kind| CompileError {
         kind,
@@ -202,6 +214,7 @@ struct Compiler<S: StringInterner> {
     string_interner: S,
     current_function: CompilerFunction<S::String>,
     upper_functions: Vec<CompilerFunction<S::String>>,
+    functional: bool,
 }
 
 struct CompilerFunction<S> {
@@ -577,16 +590,20 @@ impl<S: StringInterner> Compiler<S> {
                 close_upvalues: Opt254::try_some(0).ok_or(CompileErrorKind::Registers)?,
             });
         }
-        self.current_function.operations.push(Operation::Return {
-            start: RegisterIndex(
+        let start = if count.to_constant() == Some(0) {
+            RegisterIndex(0)
+        } else {
+            RegisterIndex(
                 self.current_function
                     .register_allocator
                     .stack_top()
                     .try_into()
-                    .unwrap(),
-            ),
-            count,
-        });
+                    .map_err(|_| CompileErrorKind::Registers)?,
+            )
+        };
+        self.current_function
+            .operations
+            .push(Operation::Return { start, count });
 
         Ok(())
     }
@@ -910,6 +927,9 @@ impl<S: StringInterner> Compiler<S> {
                     if attrs.is_const() {
                         return Err(CompileErrorKind::AssignToConst);
                     }
+                    if self.functional {
+                        return Err(CompileErrorKind::AssignToCaptured);
+                    }
 
                     let source = self.expr_discharge(
                         ExprDescriptor::Closure(proto),
@@ -1087,6 +1107,9 @@ impl<S: StringInterner> Compiler<S> {
                     VariableDescriptor::UpValue(dest, attrs) => {
                         if attrs.is_const() {
                             return Err(CompileErrorKind::AssignToConst);
+                        }
+                        if this.functional {
+                            return Err(CompileErrorKind::AssignToCaptured);
                         }
                         let (source, source_is_temp) = this.expr_any_register(expr)?;
                         this.current_function
@@ -2678,9 +2701,25 @@ impl<S: Clone> CompilerFunction<S> {
 }
 
 fn jump_offset(source: usize, target: usize) -> Option<i16> {
-    if target > source {
-        (target - (source + 1)).try_into().ok()
-    } else {
-        ((source + 1) - target).try_into().ok().map(|i: i16| -i)
+    let next = i128::try_from(source).ok()?.checked_add(1)?;
+    let offset = i128::try_from(target).ok()?.checked_sub(next)?;
+    offset.try_into().ok()
+}
+
+#[cfg(test)]
+mod jump_offset_tests {
+    use super::jump_offset;
+
+    #[test]
+    fn signed_jump_boundaries_are_symmetric() {
+        assert_eq!(jump_offset(32767, 0), Some(i16::MIN));
+        assert_eq!(jump_offset(32768, 0), None);
+        assert_eq!(jump_offset(0, 32768), Some(i16::MAX));
+        assert_eq!(jump_offset(0, 32769), None);
+        assert_eq!(jump_offset(0, 1), Some(0));
+        for offset in i16::MIN..=i16::MAX {
+            let target = usize::try_from(32768_i64 + i64::from(offset)).unwrap();
+            assert_eq!(jump_offset(32767, target), Some(offset));
+        }
     }
 }

@@ -3,16 +3,18 @@
 //! There is no C loader and there never will be, so `package.cpath` and `package.loadlib` are
 //! absent by design.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<bool>(&executor)
 }
+
+mod common;
 
 #[test]
 fn preload_is_consulted_first() -> Result<(), ExternError> {

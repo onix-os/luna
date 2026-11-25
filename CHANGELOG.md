@@ -1,5 +1,298 @@
 # Changelog
 
+## [0.6.0] - 2026-11-25
+
+### <!-- 0 -->⛰️  Features
+
+- Add pure Starlark-style states
+- Hand off compiler job completion
+- Reserve worker address space
+- Add fallible string publication
+- Retain owned compiler jobs
+- Account shared compiler images
+- Add identity-safe worker launch
+- Embed source-built compiler images
+- Seal verified compiler images
+- Bootstrap standalone compiler worker
+- Integrate readonly lookup runtime
+- Integrate packed runtime dispatch
+- Lower packed scalar reads
+- Enable verified array loop kernels
+- Model atomic calls in rooted slots
+- Lower fixed table lists natively
+- Enable scoped caller regions
+- Split region compilation requests
+- Route native caller chains in Auto
+- Queue source-bound call programs
+- Add scoped activation hosts
+- Admit frame-free scalar entries
+- Lend stable scalar projection buffers
+- Report every native exit reason
+- Detach finalized compiler images
+- Budget cached code owner allocations
+- Verify source regions and retry effects
+- Verify scalar transfer source semantics
+- Verify arithmetic source operands
+- Validate scalar tag SSA stores
+- Validate canonical exit snapshots
+- Observe coroutine and async slices
+- Measure cold and scheduling costs
+- Add optional native execution tier
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Honour freeze in insert and remove
+- Retain charged compiler diagnostics
+- Restore default make target
+- Isolate compaction byte accounting
+- Bound compiler error publication
+- Support special cost cases
+- Avoid borrowing an active Oslo VM
+- Lock shared reproducible build caches
+- Enforce frozen elapsed thresholds
+- Accept elided zero event totals
+- Reject overflowing relative indices
+- Resume instructions after debug hooks
+- Withdraw regressing window constructor
+- Bind optimized dispatch prefix reads
+- Bound callback dispatch iteration
+- Avoid duplicate PGO stress training
+- Share PGO build paths
+- Withdraw atomic counter publication
+- Withdraw regressing constant fast path
+- Pin matched profiles to one cpu
+- Preserve profiled invocation paths
+- Retain native calls across fallback
+- Recover failed resident returns
+- Release chain leases on native unwind
+- Classify pair calls before queuing
+- Handle unavailable JIT preparation
+- Verify benchmark artifact hashes
+- Collect complete executor profiles
+- Return host ISA detection refusals
+- Account for ABI signature storage
+- Account for module relocation copies
+- Validate full-range Lua indices
+- Preserve Lua integers on 32-bit
+- Make Miri evidence uploads portable
+- Avoid allocations in unmapping proof
+- Forward heap campaign case limits
+- Retire ephemerons on kv reattachment
+
+### <!-- 2 -->🚜 Refactor
+
+- Extract owned compiler service
+- Separate native memory faults
+- Restore admission inlining
+- Bound preferred entry checks
+- Combine caller admission views
+- Borrow activation frames
+
+### <!-- 3 -->📚 Documentation
+
+- Retain failed hash reuse results
+- Checkpoint hash reuse validation
+- Record completed work profiles
+- Record 809 passing benchmark gates
+- Record interrupted stress recovery
+- Record four full Miri matrices
+- Record both default Miri matrices
+- Record complete VM matrix proof
+- Record shared-control verification
+- Record comparison validation
+- Record comparison work reduction
+- Record predicate cycle findings
+- Record combined timing failures
+- Record cold-state cost trial
+- Retain failed feedback experiments
+- Record current acceptance evidence
+- Record decoder qualification
+- Record completed platform gates
+- Record packaged consumer proof
+- Record resume and size qualification
+- Record typed lookup timing rejection
+- Record verified native platforms
+- Record full acceptance matrix results
+- Record lookup benchmark tradeoffs
+- Record frontend bandwidth loss
+- Record counter Force validation
+- Record outlined fusion tradeoffs
+- Record equality recovery and gaps
+- Record paired scan measurements
+- Record canonical timing regressions
+
+### <!-- 4 -->⚡ Performance
+
+- Adopt lazy snapshot ledger runtime
+- Dispatch integer resumes directly
+- Specialize constant global reads
+- Resume integer callbacks in place
+- Optimize table reads and windows
+- Read only the snapshot limit
+- Fuse scalar lookup input admission
+- Specialize scalar callback entries
+- Bound array mirrors by fuel
+- Compact scalar array validation
+- Reuse loaded callback hint
+- Scope native callback lookups
+- Bound fused scratch initialization
+- Release fused source snapshots
+- Fuse fresh lookup capture and entry
+- Classify roots without scalar encoding
+- Group zero write-counter publication
+- Pack canonical reads without hashes
+- Withdraw known-frame entry trials
+- Withdraw counter storage trials
+- Inline cached string comparison
+- Share binary metamethod resolution
+- Reuse report storage for progress
+- Inline native slot conversion
+- Trial optional bound-entry runtime pair
+- Trial thread-local prepared bucket hint
+- Restore shared array-aware entry
+- Inline cached source hash lookup
+- Restore identity inlining
+- Restore prepared key matching
+- Validate known inline source roots
+- Outline non-integer slot conversion
+- Isolate hook checks from plain dispatch
+- Outline the hook resume predicate
+- Keep hook resume dispatch immutable
+- Restore measured register view layout
+- Outline prepared string fallback
+- Retain preflight callee binding
+- Fuse byte tag loads and extension
+- Prove tags across effect-free cycles
+- Classify disjoint scratch fields
+- Track strided helper writes
+- Streamline strided mask traversal
+- Integrate charged inline loop batches
+- Split prepared and generic entries
+- Construct array windows in scope
+- Preserve array kernel transport
+- Avoid full set-list rebinding
+- Isolate integer payload binding
+- Withdraw inline control trial
+- Bypass reference payload rebinding
+- Simplify experimental tag decoding
+- Add packed C helper bridge
+- Gate handoffs before frame probes
+- Refresh upvalue destinations only
+- Preserve bindings across table writes
+- Refresh local table destinations only
+- Load proven bound numeric fields
+- Bind proven scalar write entries
+- Share payload gateway table
+- Withdraw regressing combined guards
+- Combine numeric loop tag guards
+- Share inline key hash construction
+- Specialize constant upvalue reads
+- Streamline native callback setup
+- Admit fuel before bounded subtraction
+- Keep nil payload binding inline
+- Share payload helper table
+- Specialize scalar materialization
+- Narrow closed table helper borrows
+- Localize payload materialization
+- Withdraw shared callback setup trials
+- Withdraw deferred region release
+- Withdraw owner-release trial
+- Withdraw bucket cache trials
+- Cache checked string bucket offsets
+- Specialize suffix consumption
+- Withdraw slower invoker table
+- Withdraw regressing projection trials
+- Outline projection bridge setup
+- Use register-return exit transport
+- Cache compact code bucket offsets
+- Use one unwind-safe progress counter
+- Short-circuit identical string keys
+- Read rooted integer inputs directly
+- Stage small rooted frame publication
+- Reuse table borrows in stable loops
+- Separate array access from hashing
+- Specialize floating loop bodies
+- Branch numeric loop limit checks
+- Inline JIT operand resolution
+- Reuse fixed call stack capacity
+- Scope compact call writeback
+- Bypass admitted call callbacks
+- Restore full generic import set
+- Restore transition register views
+- Lease sources across native regions
+- Admit pair sites once per region
+- Gate scopes on installed call pairs
+- Retain scoped native caller slots
+- Restore return transition checks
+- Isolate test resume entry state
+- Isolate bound pair invocation
+- Isolate scoped activation entry
+- Reuse scoped pair leases
+- Specialize nonprojected runtime exits
+- Specialize small native frames
+- Skip redundant plain-table key reads
+- Hash metadata with seeded AHash
+- Update LRU recency in one cache probe
+
+### <!-- 6 -->🧪 Testing
+
+- Verify raw compiler job memory
+- Verify packaged release consumers
+- Share compiler cleanup fault controls
+- Gate owned worker workspace
+- Isolate descriptor leak checks
+- Preserve jobs through Lua cleanup
+- Admit images against Lua budgets
+- Require sealed startup conformance
+- Bound compiler stream transport
+- Preserve typed compiler outcomes
+- Bind owned compiler requests
+- Bound compiler target identity
+- Install artifacts with bounded linker
+- Emit worker code without linking
+- Verify worker-backed runtime owners
+- Transfer and install worker artifacts
+- Exercise bounded compiler workers
+- Verify owned compiler snapshots
+- Cover callback resume publication
+- Avoid formatting scalar snapshots
+- Add fresh scalar entry bridge
+- Cover callback source registration
+- Cover Off continuation boundaries
+- Verify native array reference roots
+- Cover reference-valued environments
+- Cover memory limit fast-path contracts
+- Isolate Oslo row lifecycle profiles
+- Bound callable width portably
+- Cover numeric add operand aliases
+- Preserve supplied prepared hashes
+- Cover closure argument layouts
+- Cover native call successor traces
+- Add warmed cycle profiling
+- Cover weak prepared-key collisions
+- Verify wide helper compiler path
+- Use host ISA in direction fixtures
+- Require batched PGO coverage
+- Measure prepared table key hashes
+- Execute payloads through runtime
+- Cover nested outcome ownership
+- Cover executor mode handoffs
+- Model bounded exit write sets
+- Cover rejected call observations
+- Bound Rust-only Miri validation
+- Verify bounded native tail recursion
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Bump version and internal deps to 0.6.0
+- Require static GNU producers
+- Verify standalone producer conformance
+
+### Build
+
+- Add compiler image bootstrap tool
+- Add headless worker toolchain
+
 ## [0.5.1] - 2026-08-16
 
 ### <!-- 0 -->⛰️  Features

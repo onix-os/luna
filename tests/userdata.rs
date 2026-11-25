@@ -1,4 +1,4 @@
-use luna::{Callback, CallbackReturn, Closure, Executor, Lua, UserData, Value};
+use luna::{Callback, CallbackReturn, Closure, Executor, UserData, Value};
 use ottavino_gc_arena::{lock::Lock, Collect, Gc, Rootable};
 
 #[derive(Collect)]
@@ -7,7 +7,7 @@ struct MyUserData<'gc>(Gc<'gc, Lock<i32>>);
 
 #[test]
 fn userdata() -> Result<(), anyhow::Error> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let userdata = UserData::new::<Rootable![MyUserData<'_>]>(
@@ -62,3 +62,5 @@ fn userdata() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+mod common;

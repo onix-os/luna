@@ -2,7 +2,7 @@
 
 #![cfg(feature = "derive")]
 
-use luna::{Closure, Executor, ExternError, FromValue, IntoValue, Lua, Table, Value};
+use luna::{Closure, Executor, ExternError, FromValue, IntoValue, Table, Value};
 
 #[derive(FromValue, IntoValue, Debug, PartialEq)]
 struct Point {
@@ -34,7 +34,7 @@ struct Pair<T> {
 
 #[test]
 fn a_struct_becomes_a_table_keyed_by_field_name() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let value = Point { x: 3, y: 4 }.into_value(ctx);
         let Value::Table(table) = value else {
@@ -47,7 +47,7 @@ fn a_struct_becomes_a_table_keyed_by_field_name() {
 
 #[test]
 fn a_table_becomes_a_struct() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let table = Table::new(&ctx);
         table.set_field(ctx, "x", 7);
@@ -59,7 +59,7 @@ fn a_table_becomes_a_struct() {
 
 #[test]
 fn the_round_trip_is_lossless() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let original = Config {
             name: "luna".to_owned(),
@@ -80,7 +80,7 @@ fn the_round_trip_is_lossless() {
 /// error the host can see.
 #[test]
 fn a_missing_field_is_an_error() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let table = Table::new(&ctx);
         table.set_field(ctx, "x", 1);
@@ -90,7 +90,7 @@ fn a_missing_field_is_an_error() {
 
 #[test]
 fn a_wrong_type_is_an_error() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         assert!(Point::from_value(ctx, Value::Integer(5)).is_err());
 
@@ -103,7 +103,7 @@ fn a_wrong_type_is_an_error() {
 
 #[test]
 fn a_fieldless_enum_is_its_variant_name() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let value = Level::Warn.into_value(ctx);
         let Value::String(name) = value else {
@@ -122,7 +122,7 @@ fn a_fieldless_enum_is_its_variant_name() {
 /// The point of the derive: values cross into a script without the host writing conversions.
 #[test]
 fn derived_values_cross_into_lua() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         ctx.set_global("point", Point { x: 2, y: 5 });
         ctx.set_global("level", Level::Debug);
@@ -140,7 +140,7 @@ fn derived_values_cross_into_lua() -> Result<(), ExternError> {
 /// And back out again, through the same `FromMultiValue` path every callback uses.
 #[test]
 fn derived_values_come_back_from_lua() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), b"return { x = 11, y = 13 }")?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -151,7 +151,7 @@ fn derived_values_come_back_from_lua() -> Result<(), ExternError> {
 
 #[test]
 fn a_generic_struct_round_trips() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let value = Pair {
             first: 3_i64,
@@ -182,3 +182,5 @@ fn a_generic_struct_round_trips() {
         assert_eq!(back.second.first, 3);
     });
 }
+
+mod common;

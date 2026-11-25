@@ -61,7 +61,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let (string, i, j) = stack.consume::<(String, Option<i64>, Option<i64>)>(ctx)?;
             let i = i.unwrap_or(1);
-            let substr = sub_bytes(string.as_bytes(), i, j.or(Some(i)))?;
+            let substr = sub_bytes(string.as_bytes(), i, j.or(Some(i)));
             stack.extend(substr.iter().map(|b| Value::Integer(i64::from(*b))));
             Ok(CallbackReturn::Return)
         }),
@@ -96,7 +96,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         "sub",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let (string, i, j) = stack.consume::<(String, i64, Option<i64>)>(ctx)?;
-            let substr = ctx.intern(sub_bytes(string.as_bytes(), i, j)?);
+            let substr = ctx.intern(sub_bytes(string.as_bytes(), i, j));
             stack.replace(ctx, substr);
             Ok(CallbackReturn::Return)
         }),
@@ -242,7 +242,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         let len = s.as_bytes().len();
                         // The length prefix is written at `size` bytes, so a longer string would
                         // record a truncated count and the payload could never be read back.
-                        if *size < 8 && len >= 1usize << (size * 8) {
+                        if *size < 8 && (len as u64) >= 1u64 << (size * 8) {
                             return Err(bad(arg, "string length does not fit in given size"));
                         }
                         arg += 1;
@@ -353,10 +353,11 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                     }
                     pack::Item::LenString { size } => {
                         let head = room(at, *size).ok_or_else(short)?;
-                        let len =
+                        let len = usize::try_from(
                             pack::read_int(&bytes[at..head], *size, false, parsed.little_endian)
-                                .map_err(|e| e.into_value(ctx))?
-                                as usize;
+                                .map_err(|e| e.into_value(ctx))?,
+                        )
+                        .map_err(|_| short())?;
                         let end = room(head, len).ok_or_else(short)?;
                         out.push(ctx.intern(&bytes[head..end]).into());
                         at = end;
@@ -396,8 +397,13 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
             }
             let sep_bytes: &[u8] = sep.as_ref().map(|s| s.as_bytes()).unwrap_or(b"");
             let s_bytes = s.as_bytes();
+            if s_bytes.is_empty() && (sep_bytes.is_empty() || n == 1) {
+                stack.replace(ctx, ctx.intern(b""));
+                return Ok(CallbackReturn::Return);
+            }
             // Calculate total size and check for overflow / too-large
-            let rep_n = n as usize;
+            let rep_n =
+                usize::try_from(n).map_err(|_| "resulting string too large".into_value(ctx))?;
             let sep_total = sep_bytes.len().saturating_mul(rep_n.saturating_sub(1));
             let s_total = s_bytes.len().saturating_mul(rep_n);
             let total = s_total
@@ -934,11 +940,11 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
 /// Does NOT clamp to [0, len] (so callers can detect out-of-range upper values).
 fn normalise_init(len: usize, init: i64) -> usize {
     if init >= 1 {
-        (init - 1) as usize
+        usize::try_from(init - 1).unwrap_or(usize::MAX)
     } else if init == 0 {
         0
     } else {
-        let abs: usize = init.unsigned_abs().try_into().unwrap_or(0);
+        let abs = usize::try_from(init.unsigned_abs()).unwrap_or(usize::MAX);
         len.saturating_sub(abs)
     }
 }
@@ -1018,17 +1024,13 @@ pub fn find_plain(src: &[u8], pat: &[u8], init: usize) -> Option<usize> {
 }
 
 /// sub_bytes: implement Lua string.sub semantics on raw bytes.
-fn sub_bytes(string: &[u8], i: i64, j: Option<i64>) -> Result<&[u8], std::num::TryFromIntError> {
-    let i = match i {
-        i if i > 0 => i.saturating_sub(1).try_into()?,
-        0 => 0,
-        i => string.len().saturating_sub(i.unsigned_abs().try_into()?),
-    };
+fn sub_bytes(string: &[u8], i: i64, j: Option<i64>) -> &[u8] {
+    let i = normalise_init(string.len(), i);
     let j = if let Some(j) = j {
         if j >= 0 {
-            j.try_into()?
+            usize::try_from(j).unwrap_or(usize::MAX)
         } else {
-            let j: usize = j.unsigned_abs().try_into()?;
+            let j = usize::try_from(j.unsigned_abs()).unwrap_or(usize::MAX);
             string.len().saturating_sub(j.saturating_sub(1))
         }
     } else {
@@ -1036,11 +1038,11 @@ fn sub_bytes(string: &[u8], i: i64, j: Option<i64>) -> Result<&[u8], std::num::T
     }
     .clamp(0, string.len());
 
-    Ok(if i >= j || i >= string.len() {
+    if i >= j || i >= string.len() {
         &[]
     } else {
         &string[i..j]
-    })
+    }
 }
 
 /// Simple string replacement for gsub with string replacement arg.

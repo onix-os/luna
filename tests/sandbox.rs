@@ -1,9 +1,9 @@
 //! Frozen tables and the memory ceiling: together, what makes the sandboxing claim true.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -36,6 +36,23 @@ fn rawset_cannot_bypass_a_freeze() -> Result<(), ExternError> {
     Ok(())
 }
 
+/// `table.insert` and `table.remove` have array fast paths that must still honour a freeze.
+#[test]
+fn table_insert_and_remove_cannot_bypass_a_freeze() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local t = table.freeze({ 1, 2, 3 })
+        local inserted = pcall(table.insert, t, 4)
+        local shifted = pcall(table.insert, t, 1, 0)
+        local removed = pcall(table.remove, t)
+        local front = pcall(table.remove, t, 1)
+        return not inserted and not shifted and not removed and not front
+            and #t == 3 and t[1] == 1 and t[3] == 3
+    "#
+    )?);
+    Ok(())
+}
+
 #[test]
 fn freezing_is_reportable() -> Result<(), ExternError> {
     assert!(eval(
@@ -63,7 +80,7 @@ fn a_frozen_stdlib_table_survives_sabotage() -> Result<(), ExternError> {
 /// Slice-granular, so the script is stopped rather than erroring at the allocation.
 #[test]
 fn a_runaway_allocation_is_stopped_by_the_memory_ceiling() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let before = lua.total_memory();
     lua.set_memory_limit(Some(before + 4 * 1024 * 1024));
     assert_eq!(lua.memory_limit(), Some(before + 4 * 1024 * 1024));
@@ -90,7 +107,7 @@ fn a_runaway_allocation_is_stopped_by_the_memory_ceiling() {
 
 #[test]
 fn no_limit_by_default() {
-    let lua = Lua::core();
+    let lua = common::core();
     assert_eq!(lua.memory_limit(), None);
 }
 
@@ -146,7 +163,7 @@ fn without_it_a_present_key_stops_newindex() -> Result<(), ExternError> {
 /// should not be killed for it.
 #[test]
 fn the_ceiling_collects_before_stopping() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let baseline = lua.total_memory();
     lua.set_memory_limit(Some(baseline + 2 * 1024 * 1024));
 
@@ -177,3 +194,5 @@ fn the_ceiling_collects_before_stopping() {
         "garbage alone must not trip the ceiling"
     );
 }
+
+mod common;

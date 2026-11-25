@@ -189,6 +189,9 @@ pub fn format_value<'gc>(
                 if precision.is_some() {
                     return Err("invalid format (invalid conversion)".to_string());
                 }
+                if ctx.functional() {
+                    return Err("'%p' is not available in functional mode".to_string());
+                }
             }
             'F' => {
                 return Err("invalid format (invalid conversion)".to_string());

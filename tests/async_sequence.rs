@@ -1,11 +1,11 @@
 use luna::{
-    async_sequence, meta_ops, Callback, CallbackReturn, Closure, Executor, ExternError, Lua,
+    async_sequence, meta_ops, Callback, CallbackReturn, Closure, Executor, ExternError,
     SequenceReturn, Table, Variadic,
 };
 
 #[test]
 fn async_sequence_works() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, _| {
@@ -56,3 +56,5 @@ fn async_sequence_works() -> Result<(), ExternError> {
 
     Ok(())
 }
+
+mod common;

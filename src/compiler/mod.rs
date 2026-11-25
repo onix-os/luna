@@ -8,7 +8,8 @@ pub mod string_utils;
 
 pub use self::{
     compiler::{
-        compile_chunk, CompileError, CompileErrorKind, CompiledPrototype, FunctionRef, LocalVarInfo,
+        compile_chunk, compile_chunk_with, CompileError, CompileErrorKind, CompiledPrototype,
+        FunctionRef, LocalVarInfo,
     },
     interning::StringInterner,
     lexer::LineNumber,

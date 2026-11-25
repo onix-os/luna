@@ -83,8 +83,8 @@ fn resolve_local<'gc>(
     crate::compiler::LocalVarInfo<crate::String<'gc>>,
 )> {
     // Level 1 is the caller of `getlocal`, matching PUC-Rio.
-    let frame = exec.frame_at(usize::try_from(level - 1).ok()?)?;
-    let index = usize::try_from(index - 1).ok()?;
+    let frame = exec.frame_at(to_zero_based(level)?)?;
+    let index = to_zero_based(index)?;
     let proto = frame.closure.prototype();
     let local = proto
         .locals
@@ -93,6 +93,10 @@ fn resolve_local<'gc>(
         .nth(index)?
         .clone();
     Some((frame, local))
+}
+
+fn to_zero_based(index: i64) -> Option<usize> {
+    usize::try_from(index.checked_sub(1)?).ok()
 }
 
 fn local_at<'gc>(
@@ -159,8 +163,8 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
             let described = match first {
                 Value::Integer(_) | Value::Number(_) => {
                     // Level 1 is the caller of `getinfo`, matching PUC-Rio.
-                    let level = first.to_integer().unwrap_or(1).max(1) as usize - 1;
-                    match exec.lua_frame_at(level) {
+                    let level = to_zero_based(first.to_integer().unwrap_or(1).max(1));
+                    match level.and_then(|level| exec.lua_frame_at(level)) {
                         Some(frame) => {
                             info.set_field(ctx, "currentline", frame.current_line.0 as i64);
                             Some(frame.closure)
@@ -231,10 +235,7 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 return Ok(CallbackReturn::Return);
             };
             let upvalues = closure.upvalues();
-            match usize::try_from(index - 1)
-                .ok()
-                .and_then(|i| upvalues.get(i))
-            {
+            match to_zero_based(index).and_then(|i| upvalues.get(i)) {
                 // luna keeps no upvalue names, so the name slot is the index.
                 Some(slot) => {
                     let up = slot.get();
@@ -261,10 +262,7 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 return Ok(CallbackReturn::Return);
             };
             let upvalues = closure.upvalues();
-            match usize::try_from(index - 1)
-                .ok()
-                .and_then(|i| upvalues.get(i))
-            {
+            match to_zero_based(index).and_then(|i| upvalues.get(i)) {
                 Some(slot) => {
                     let up = slot.get();
                     match up.get() {
@@ -443,10 +441,7 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 stack.replace(ctx, Value::Nil);
                 return Ok(CallbackReturn::Return);
             };
-            let Some(slot) = usize::try_from(index - 1)
-                .ok()
-                .and_then(|i| closure.upvalues().get(i))
-            else {
+            let Some(slot) = to_zero_based(index).and_then(|i| closure.upvalues().get(i)) else {
                 return Err("bad argument #2 to 'upvalueid' (index out of range)"
                     .into_value(ctx)
                     .into());
@@ -482,8 +477,7 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                     .into());
             };
             let index = |n: i64, c: Closure<'_>, arg: &'static str| {
-                usize::try_from(n - 1)
-                    .ok()
+                to_zero_based(n)
                     .filter(|i| *i < c.upvalues().len())
                     .ok_or_else(|| {
                         crate::Error::from_value(

@@ -1,6 +1,9 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    pin::Pin,
+};
 
-use allocator_api2::vec;
+use allocator_api2::{boxed, vec};
 use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::RefLock, Collect, Gc, Mutation};
 use thiserror::Error;
 
@@ -8,7 +11,8 @@ use crate::{
     compiler::{FunctionRef, LineNumber},
     thread::BadThreadMode,
     BoxSequence, CallbackReturn, Closure, Context, Error, FromMultiValue, Fuel, Function,
-    IntoMultiValue, PendingFuture, SequencePoll, Stack, String, Thread, ThreadMode, Variadic,
+    IntoMultiValue, PendingFuture, Sequence, SequencePoll, Stack, String, Thread, ThreadMode,
+    Variadic,
 };
 
 use super::{
@@ -16,6 +20,73 @@ use super::{
     thread::{Frame, LuaFrame, StackVec, ThreadState},
     vm::run_vm,
 };
+
+enum ActiveSequence<'gc> {
+    User(BoxSequence<'gc>),
+    Close(boxed::Box<CloseSequence<'gc>, MetricsAlloc<'gc>>),
+}
+
+impl<'gc> ActiveSequence<'gc> {
+    fn unpack(frame: Frame<'gc>) -> (usize, Self, Option<Error<'gc>>) {
+        match frame {
+            Frame::Sequence {
+                bottom,
+                sequence,
+                pending_error,
+            } => (bottom, Self::User(sequence), pending_error),
+            Frame::Close {
+                bottom,
+                sequence,
+                pending_error,
+            } => (bottom, Self::Close(sequence), pending_error),
+            _ => unreachable!(),
+        }
+    }
+
+    fn frame(self, bottom: usize, pending_error: Option<Error<'gc>>) -> Frame<'gc> {
+        match self {
+            Self::User(sequence) => Frame::Sequence {
+                bottom,
+                sequence,
+                pending_error,
+            },
+            Self::Close(sequence) => Frame::Close {
+                bottom,
+                sequence,
+                pending_error,
+            },
+        }
+    }
+
+    fn poll(
+        &mut self,
+        ctx: Context<'gc>,
+        exec: Execution<'gc, '_>,
+        stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        match self {
+            Self::User(sequence) => sequence.poll(ctx, exec, stack),
+            Self::Close(sequence) => Pin::new(&mut **sequence).poll(ctx, exec, stack),
+        }
+    }
+
+    fn error(
+        &mut self,
+        ctx: Context<'gc>,
+        exec: Execution<'gc, '_>,
+        error: Error<'gc>,
+        stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        match self {
+            Self::User(sequence) => sequence.error(ctx, exec, error, stack),
+            Self::Close(sequence) => Pin::new(&mut **sequence).error(ctx, exec, error, stack),
+        }
+    }
+
+    fn has_pending_close(&self) -> bool {
+        matches!(self, Self::Close(sequence) if sequence.has_remaining())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutorMode {
@@ -114,9 +185,9 @@ impl<'gc> Hash for Executor<'gc> {
 impl<'gc> Executor<'gc> {
     const VM_GRANULARITY: u32 = 64;
 
-    const FUEL_PER_CALLBACK: i32 = 8;
+    pub(super) const FUEL_PER_CALLBACK: i32 = 8;
     const FUEL_PER_SEQ_STEP: i32 = 4;
-    const FUEL_PER_STEP: i32 = 4;
+    pub(super) const FUEL_PER_STEP: i32 = 4;
 
     /// Creates a new `Executor` with a stopped main thread.
     pub fn new(ctx: Context<'gc>) -> Self {
@@ -276,6 +347,18 @@ impl<'gc> Executor<'gc> {
                 drop(res_state);
             }
 
+            #[cfg(all(
+                feature = "jit",
+                any(
+                    test,
+                    all(
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    )
+                )
+            ))]
+            let mut step_charged = false;
             if top_thread.mode() == ThreadMode::Normal {
                 fn do_yield<'gc>(
                     ctx: Context<'gc>,
@@ -286,6 +369,16 @@ impl<'gc> Executor<'gc> {
                     to_thread: Option<Thread<'gc>>,
                     bottom: usize,
                 ) {
+                    if top_state.closing {
+                        stack.truncate(bottom);
+                        top_state.frames.push(Frame::Error(
+                            crate::RuntimeError::new(anyhow::anyhow!(
+                                "cannot yield while closing a coroutine"
+                            ))
+                            .into(),
+                        ));
+                        return;
+                    }
                     if let Some(to_thread) = to_thread {
                         if let Err(err) = to_thread.resume(ctx, Variadic(stack.drain(bottom..))) {
                             top_state.frames.push(Frame::Error(err.into()));
@@ -421,11 +514,8 @@ impl<'gc> Executor<'gc> {
                             }
                         }
                     }
-                    Some(Frame::Sequence {
-                        bottom,
-                        mut sequence,
-                        pending_error,
-                    }) => {
+                    Some(frame @ (Frame::Sequence { .. } | Frame::Close { .. })) => {
+                        let (bottom, mut sequence, pending_error) = ActiveSequence::unpack(frame);
                         fuel.consume(Self::FUEL_PER_SEQ_STEP);
 
                         let inner = top_thread.into_inner();
@@ -454,11 +544,7 @@ impl<'gc> Executor<'gc> {
 
                         match poll {
                             Ok(SequencePoll::Pending) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                             }
                             Ok(SequencePoll::Return) => {
                                 top_state.return_to(&mut top_stack, bottom);
@@ -467,11 +553,7 @@ impl<'gc> Executor<'gc> {
                                 function,
                                 bottom: rel_bottom,
                             }) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                                 top_state.push_call(&mut top_stack, bottom + rel_bottom, function);
                             }
                             Ok(SequencePoll::TailCall(function)) => {
@@ -481,11 +563,7 @@ impl<'gc> Executor<'gc> {
                                 to_thread,
                                 bottom: rel_bottom,
                             }) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                                 do_yield(
                                     ctx,
                                     &mut state.thread_stack,
@@ -509,11 +587,7 @@ impl<'gc> Executor<'gc> {
                                 thread,
                                 bottom: rel_bottom,
                             }) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                                 do_resume(
                                     ctx,
                                     &mut state.thread_stack,
@@ -534,20 +608,60 @@ impl<'gc> Executor<'gc> {
                                 );
                             }
                             Ok(SequencePoll::Waiting(future)) => {
-                                // Park the future and put the sequence back unchanged: when the
-                                // host has awaited it, this sequence is polled again exactly as if
-                                // it had returned `Pending`. Ending the slice here is what gets the
-                                // future out to somewhere the arena is not borrowed.
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
-                                state.pending = Some(future);
-                                break false;
+                                if top_state.closing {
+                                    top_stack.truncate(bottom);
+                                    top_state.frames.push(Frame::Error(
+                                        crate::RuntimeError::new(anyhow::anyhow!(
+                                            "cannot await while closing a coroutine"
+                                        ))
+                                        .into(),
+                                    ));
+                                } else {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                    state.pending = Some(future);
+                                    break false;
+                                }
                             }
                             Err(error) => {
                                 top_stack.truncate(bottom);
+                                if sequence.has_pending_close() {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                }
+                                top_state.frames.push(Frame::Error(error));
+                            }
+                        }
+                    }
+                    Some(Frame::HookResume) => {
+                        let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                        top_state.frames.push(Frame::HookResume);
+                        let stack = top_state.stack;
+                        let frame_stack = stack.borrow_mut(&ctx);
+                        #[cfg(feature = "jit")]
+                        let mut frame_stack = frame_stack;
+                        let lua_frame = LuaFrame {
+                            #[cfg(all(
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            pair_handoff: None,
+                            state: top_state,
+                            #[cfg(feature = "jit")]
+                            stack: &mut frame_stack,
+                            #[cfg(not(feature = "jit"))]
+                            stack: frame_stack,
+                            fuel,
+                        };
+                        match run_vm(ctx, lua_frame, Self::VM_GRANULARITY) {
+                            Ok(instructions) => fuel.consume(instructions.try_into().unwrap()),
+                            Err(error) => {
+                                let error = match error_position(&top_state.frames) {
+                                    Some(at) => Error::from(crate::RuntimeError::new(
+                                        anyhow::Error::new(error).context(at),
+                                    )),
+                                    None => Error::from(error),
+                                };
                                 top_state.frames.push(Frame::Error(error));
                             }
                         }
@@ -558,12 +672,147 @@ impl<'gc> Executor<'gc> {
 
                         // One borrow of the stack for the whole VM slice, not one per opcode.
                         let stack = top_state.stack;
-                        let lua_frame = LuaFrame {
-                            state: top_state,
-                            stack: stack.borrow_mut(&ctx),
-                            fuel,
+                        let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
+                            let frame_stack = stack.borrow_mut(&ctx);
+                            #[cfg(feature = "jit")]
+                            let mut frame_stack = frame_stack;
+                            let lua_frame = LuaFrame {
+                                #[cfg(all(
+                                    feature = "jit",
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                ))]
+                                pair_handoff: None,
+                                state: top_state,
+                                #[cfg(feature = "jit")]
+                                stack: &mut frame_stack,
+                                #[cfg(not(feature = "jit"))]
+                                stack: frame_stack,
+                                fuel,
+                            };
+                            #[cfg(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            let mut lua_frame = lua_frame;
+                            #[cfg(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            let result = if let Some((completed, start, count)) =
+                                super::vm::try_scalar_activation(
+                                    ctx,
+                                    &mut lua_frame,
+                                    Self::VM_GRANULARITY,
+                                ) {
+                                let mut stats = ctx.jit().interpreter_stats();
+                                stats.dispatches = 1;
+                                let result = lua_frame
+                                    .return_upper(&ctx, start, count)
+                                    .map(|()| completed);
+                                if result.is_ok() {
+                                    stats.reported_instructions = Some(0);
+                                }
+                                result
+                            } else {
+                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                            };
+                            #[cfg(not(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            )))]
+                            let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                            result
                         };
-                        match run_vm(ctx, lua_frame, Self::VM_GRANULARITY) {
+                        #[cfg(all(
+                            feature = "jit",
+                            any(
+                                test,
+                                all(
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )
+                            )
+                        ))]
+                        let policy = ctx.jit().activation_policy();
+                        #[cfg(all(
+                            feature = "jit",
+                            any(
+                                test,
+                                all(
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )
+                            )
+                        ))]
+                        let result = if let Some(limit) = policy.native_limit() {
+                            let outcome = {
+                                let mut host = super::activation::ActivationHost::new(
+                                    top_state,
+                                    stack.borrow_mut(&ctx),
+                                    fuel,
+                                );
+                                host.run(
+                                    ctx,
+                                    limit.get(),
+                                    Self::VM_GRANULARITY,
+                                    Self::FUEL_PER_STEP,
+                                )
+                            };
+                            #[cfg(test)]
+                            ctx.jit()
+                                .record_activations(outcome.activations, outcome.stack_growths);
+                            step_charged = true;
+                            outcome.result.map(|()| 0)
+                        } else {
+                            match ordinary(top_state, fuel) {
+                                Err(error) => Err(error),
+                                Ok(instructions) => {
+                                    if policy == crate::jit::ActivationPolicy::InterpretedTail
+                                        && matches!(
+                                            top_state.frames.last(),
+                                            Some(Frame::Lua { .. })
+                                        )
+                                    {
+                                        interpreted_tail::after(
+                                            ctx,
+                                            top_state,
+                                            stack,
+                                            fuel,
+                                            instructions,
+                                            &mut step_charged,
+                                        )
+                                    } else {
+                                        Ok(instructions)
+                                    }
+                                }
+                            }
+                        };
+                        #[cfg(not(all(
+                            feature = "jit",
+                            any(
+                                test,
+                                all(
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )
+                            )
+                        )))]
+                        let result = ordinary(top_state, fuel);
+                        match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
                                 // it is still on the stack. Added as anyhow context rather than
@@ -587,52 +836,99 @@ impl<'gc> Executor<'gc> {
                     }
                     Some(Frame::Error(err)) => {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        match top_state
-                            .frames
-                            .pop()
-                            .expect("normal thread must have frame above error")
+                        if state.thread_stack.len() > 1
+                            && !top_state.closing
+                            && !top_state
+                                .frames
+                                .iter()
+                                .any(|frame| matches!(frame, Frame::Sequence { .. }))
                         {
-                            Frame::Lua { bottom, .. } => {
-                                let stack = top_state.stack;
-                                let mut stack = stack.borrow_mut(&ctx);
-                                top_state.close_upvalues(&ctx, &stack, bottom);
-                                // An error unwinding past a `<close>` variable still has to run its
-                                // handler — that is the case cleanup exists for. The handler gets
-                                // the in-flight error, and the sequence re-raises it afterwards.
-                                let to_close = top_state.take_to_be_closed(&stack, bottom);
-                                stack.truncate(bottom);
-                                if to_close.is_empty() {
-                                    top_state.frames.push(Frame::Error(err));
-                                } else {
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence: BoxSequence::new(
-                                            &ctx,
-                                            CloseSequence::new(to_close, Some(err)),
-                                        ),
-                                        pending_error: None,
-                                    });
+                            top_state.terminal_error = Some(err);
+                            top_state.deferred_error = true;
+                            top_state.error_taken = false;
+                        } else {
+                            match top_state
+                                .frames
+                                .pop()
+                                .expect("normal thread must have frame above error")
+                            {
+                                Frame::Lua { bottom, .. } => {
+                                    let stack = top_state.stack;
+                                    let mut stack = stack.borrow_mut(&ctx);
+                                    top_state.close_upvalues(&ctx, &stack, bottom);
+                                    // An error unwinding past a `<close>` variable still has to run its
+                                    // handler — that is the case cleanup exists for. The handler gets
+                                    // the in-flight error, and the sequence re-raises it afterwards.
+                                    let to_close = top_state.take_to_be_closed(&stack, bottom);
+                                    stack.truncate(bottom);
+                                    if to_close.is_empty() {
+                                        top_state.frames.push(Frame::Error(err));
+                                    } else {
+                                        top_state.frames.push(Frame::close(
+                                            ctx,
+                                            bottom,
+                                            to_close,
+                                            Some(err),
+                                        ));
+                                    }
                                 }
-                            }
-                            Frame::Sequence {
-                                bottom,
-                                sequence,
-                                pending_error,
-                            } => {
-                                assert!(pending_error.is_none());
-                                top_state.frames.push(Frame::Sequence {
+                                Frame::Sequence {
                                     bottom,
                                     sequence,
-                                    pending_error: Some(err),
-                                });
+                                    pending_error,
+                                } => {
+                                    assert!(pending_error.is_none());
+                                    top_state.frames.push(Frame::Sequence {
+                                        bottom,
+                                        sequence,
+                                        pending_error: Some(err),
+                                    });
+                                }
+                                Frame::Close {
+                                    bottom,
+                                    sequence,
+                                    pending_error,
+                                } => {
+                                    assert!(pending_error.is_none());
+                                    top_state.frames.push(Frame::Close {
+                                        bottom,
+                                        sequence,
+                                        pending_error: Some(err),
+                                    });
+                                }
+                                frame => panic!("tried to wind through improper frame {frame:?}"),
                             }
-                            frame => panic!("tried to wind through improper frame {frame:?}"),
                         }
                     }
                     _ => panic!("tried to step invalid frame type"),
                 }
             }
 
+            #[cfg(all(
+                feature = "jit",
+                any(
+                    test,
+                    all(
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    )
+                )
+            ))]
+            if !step_charged {
+                fuel.consume(Self::FUEL_PER_STEP);
+            }
+            #[cfg(not(all(
+                feature = "jit",
+                any(
+                    test,
+                    all(
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    )
+                )
+            )))]
             fuel.consume(Self::FUEL_PER_STEP);
 
             if !fuel.should_continue() {
@@ -894,4 +1190,623 @@ pub struct UpperLuaFrame<'gc> {
     /// The instruction about to run. A local's name is only meaningful together with a pc, since
     /// the allocator reuses registers between blocks.
     pub pc: usize,
+}
+
+#[cfg(test)]
+mod activation_tests {
+    use super::*;
+    use crate::{Callback, Lua, Value};
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) struct Slice {
+        done: bool,
+        mode: ExecutorMode,
+        fuel: i32,
+        interrupted: bool,
+        frames: Vec<Vec<std::string::String>>,
+        stacks: Vec<Vec<std::string::String>>,
+        dispatches: u64,
+    }
+
+    fn value(value: Value<'_>) -> std::string::String {
+        match value {
+            Value::Number(number) => format!("number:{:016x}", number.to_bits()),
+            Value::String(string) => format!("string:{:?}", string.as_bytes()),
+            Value::Nil | Value::Boolean(_) | Value::Integer(_) => {
+                format!("{}:{}", value.type_name(), value.display())
+            }
+            _ => value.type_name().to_owned(),
+        }
+    }
+
+    pub(super) fn run(
+        source: &str,
+        budget: i32,
+        native: bool,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode(source, budget, native, false)
+    }
+
+    fn run_mode(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode_checked(source, budget, native, kernels, None)
+    }
+
+    fn run_mode_checked(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+        activations: Option<u64>,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode_checked_kernel(source, budget, native, kernels, activations, false)
+    }
+
+    fn run_mode_checked_kernel(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+        activations: Option<u64>,
+        integer: bool,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode_scoped(source, budget, native, kernels, activations, integer, 0)
+    }
+
+    pub(super) fn run_mode_scoped(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+        activations: Option<u64>,
+        integer: bool,
+        host_limit: usize,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        let mut lua = Lua::core();
+        lua.load_debug();
+        let _ = (native, kernels, activations, integer, host_limit);
+        #[cfg(feature = "jit")]
+        let native = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
+        #[cfg(feature = "jit")]
+        lua.set_jit_config(crate::JitConfig {
+            mode: if native {
+                crate::JitMode::Auto
+            } else {
+                crate::JitMode::Off
+            },
+            hot_threshold: u32::MAX,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            #[cfg(feature = "jit")]
+            ctx.jit().test_activation_host(host_limit);
+            #[cfg(all(feature = "jit", not(miri)))]
+            if integer {
+                ctx.jit().test_integer_activations(native && kernels);
+            } else {
+                ctx.jit().test_scalar_kernels(native && kernels);
+            }
+            ctx.set_global(
+                "nested_boundary",
+                Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                    let function = ctx.get_global::<Function>("read")?;
+                    let nested = Executor::start(ctx, function, ());
+                    while !nested.step(ctx, &mut Fuel::with(4096)).unwrap() {}
+                    let number = nested.take_result::<i64>(ctx).unwrap()?;
+                    stack.replace(ctx, number + 1);
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+            ctx.set_global(
+                "boundary",
+                Callback::from_fn(&ctx, |ctx, mut execution, mut stack| {
+                    let number = stack.consume::<i64>(ctx)?;
+                    execution.fuel().interrupt();
+                    stack.replace(ctx, number + 1);
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+            let closure = Closure::load(ctx, Some("lua-batch"), source.as_bytes()).unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        #[cfg(feature = "jit")]
+        if native {
+            while lua.prepare_jit().unwrap() != 0 {}
+        }
+        let mut trace = Vec::new();
+        for _ in 0..10_000 {
+            let slice = lua.enter(|ctx| {
+                let executor = ctx.fetch(&executor);
+                let mut fuel = Fuel::with(budget);
+                let done = executor.step(ctx, &mut fuel).unwrap();
+                let state = executor.0.borrow();
+                let mut frames = Vec::new();
+                let mut stacks = Vec::new();
+                for thread in &state.thread_stack {
+                    let thread = thread.into_inner().borrow();
+                    frames.push(
+                        thread
+                            .frames
+                            .iter()
+                            .map(|frame| match frame {
+                                Frame::Lua {
+                                    pc,
+                                    base,
+                                    bottom,
+                                    stack_size,
+                                    is_variable,
+                                    expected_return,
+                                    ..
+                                } => {
+                                    format!("lua:{pc}:{base}:{bottom}:{stack_size}:{is_variable}:{expected_return:?}")
+                                }
+                                Frame::Callback { bottom, .. } => format!("callback:{bottom}"),
+                                Frame::Sequence {
+                                    bottom,
+                                    pending_error,
+                                    ..
+                                } => {
+                                    format!("sequence:{bottom}:{}", pending_error.is_some())
+                                }
+                                Frame::Close {
+                                    bottom,
+                                    pending_error,
+                                    ..
+                                } => {
+                                    format!("close:{bottom}:{}", pending_error.is_some())
+                                }
+                                Frame::Start(_) => "start".to_owned(),
+                                Frame::HookResume => "hook-resume".to_owned(),
+                                Frame::Yielded => "yielded".to_owned(),
+                                Frame::WaitThread => "wait".to_owned(),
+                                Frame::Result { bottom } => format!("result:{bottom}"),
+                                Frame::Error(error) => format!("error:{error}"),
+                            })
+                            .collect(),
+                    );
+                    stacks.push(thread.stack.borrow().iter().copied().map(value).collect());
+                }
+                #[cfg(feature = "jit")]
+                let dispatches = ctx.jit().0.borrow().stats.total_dispatches;
+                #[cfg(not(feature = "jit"))]
+                let dispatches = 0;
+                Slice {
+                    done,
+                    mode: executor.mode(),
+                    fuel: fuel.remaining(),
+                    interrupted: fuel.is_interrupted(),
+                    frames,
+                    stacks,
+                    dispatches,
+                }
+            });
+            let done = slice.done;
+            trace.push(slice);
+            lua.gc_collect();
+            if done {
+                #[cfg(feature = "jit")]
+                if host_limit > 0 {
+                    let (scopes, steps, _) = lua.enter(|ctx| ctx.jit().test_activation_counts());
+                    assert!(scopes > 0 && steps >= scopes);
+                    if host_limit == 1 {
+                        assert_eq!(steps, scopes);
+                    }
+                    if source.contains("local n=0 local function f(x) n=n+x end")
+                        && budget == 4096
+                        && host_limit > 1
+                    {
+                        assert!(steps > scopes, "host never crossed an activation");
+                        if native {
+                            assert!(lua.jit_stats().native_instructions > 0);
+                        }
+                    }
+                }
+                #[cfg(all(feature = "jit", not(miri)))]
+                if let Some(expected) = activations {
+                    assert_eq!(
+                        lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
+                        expected,
+                        "{source}, {budget}"
+                    );
+                }
+                let result = lua.enter(|ctx| {
+                    ctx.fetch(&executor)
+                        .take_result::<i64>(ctx)
+                        .unwrap()
+                        .map_err(|error| format!("{error}"))
+                });
+                return (trace, result);
+            }
+        }
+        panic!("Lua activation batch did not finish");
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn scoped_activation_hosts_preserve_canonical_frames_fuel_and_boundaries() {
+        for source in [
+            "local n=0 local function f(x) n=n+x end for i=1,20 do f(1) end return n",
+            "local function f(...) return ... end local function g(...) return f(...) end local n=0 for i=1,20 do n=g(n+1) end return n",
+            "local n=0 for i=1,20 do local ok=pcall(function() return i.x end) if not ok then n=n+1 end end return n",
+            "local function f() return 1+{} end return f()",
+            "local n=0 local function f() local x <close> = setmetatable({}, {__close=function() n=n+1 end}) end for i=1,20 do f() end return n",
+            "local co=coroutine.create(function() for i=1,20 do coroutine.yield(i) end end) local n=0 for i=1,20 do local ok,x=coroutine.resume(co) assert(ok) n=x end return n",
+            "local function f(x) return boundary(x) end local n=0 for i=1,20 do n=f(n) end return n",
+            "local n=0 local function read() return n end _ENV.read=read local function f() n=nested_boundary() end for i=1,20 do f() end return n",
+            "local ticks=0 debug.sethook(function() ticks=ticks+1 end,'',7) local n=0 local function f(x) return x+1 end for i=1,20 do n=f(n) end debug.sethook() return n",
+        ] {
+            for budget in [0, 1, 17, 4096] {
+                let reference = run_mode(source, budget, false, false);
+                for limit in [1, 2, 64] {
+                    for native in [false, true] {
+                        assert_eq!(reference, run_mode_scoped(source, budget, native, false, None, false, limit), "{source}, {budget}, {limit}, {native}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn scoped_activation_host_releases_before_nested_executor_callbacks() {
+        let source = "local n=0 local function read() return n end _ENV.read=read local function f() n=nested_boundary() end for i=1,5 do f() end return n";
+        let reference = run_mode(source, 17, false, false);
+        assert_eq!(reference.1, Ok(5));
+        for limit in [2, 64] {
+            assert_eq!(
+                reference,
+                run_mode_scoped(source, 17, false, false, None, false, limit)
+            );
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn scoped_activation_host_rebuilds_registers_after_stack_growth() {
+        let locals = (1..=160)
+            .map(|i| format!("local x{i}={i} "))
+            .collect::<std::string::String>();
+        let sum = (1..=160)
+            .map(|i| format!("x{i}"))
+            .collect::<Vec<_>>()
+            .join("+");
+        let source = format!("local function f() {locals} return {sum} end return f()");
+        let mut lua = Lua::empty();
+        let executor = lua.enter(|ctx| {
+            ctx.jit().test_activation_host(64);
+            let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 12880);
+        let (scopes, steps, growths) = lua.enter(|ctx| ctx.jit().test_activation_counts());
+        assert!(scopes > 0 && steps > scopes && growths > 0);
+    }
+
+    #[test]
+    fn native_and_interpreted_activations_have_identical_canonical_slices() {
+        compare_canonical_slices(false);
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn scalar_kernels_have_identical_canonical_slices() {
+        compare_canonical_slices(true);
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn direct_scalar_activations_preserve_canonical_slices() {
+        for (source, expected, activations) in [
+            ("local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end return n", 100, 100),
+            ("local n=0 local function f() n=n+1 end for i=1,100 do f() end return n", 100, 100),
+            ("local n=100 local function f(x) n=n-x end for i=1,100 do f(1) end return n", 0, 100),
+            ("local n=1 local function f(x) n=n*x end for i=1,4 do f(2) end return n", 16, 4),
+            ("local n=1 local function f() n=n+n end for i=1,4 do f() end return n", 16, 0),
+            ("local n=math.maxinteger local function f(x) n=n+x end f(1) return n==math.mininteger and 100 or 0", 100, 1),
+            ("local n=math.mininteger local function f(x) n=n-x end f(1) return n==math.maxinteger and 100 or 0", 100, 1),
+            ("local n=4611686018427387904 local function f(x) n=n*x end f(4) return n", 0, 1),
+            ("local n=0 local function f(x) n=n+x end for i=1,100 do f(0.5) end return n", 50, 0),
+            ("local function make() local n=0 return function(x) n=n+x return n end end local f=make() local n=0 for i=1,100 do n=f(1) end return n", 100, 0),
+            ("local n=1 local function f(x) n=n+x end local x=setmetatable({}, {__add=function() return {} end}) f(x) return type(n)=='table' and 100 or 0", 100, 0),
+            ("local n=0 local function f(x,t) n=n+x return t end local t={} for i=1,100 do assert(f(1,t)==t) end return n", 100, 0),
+            ("local n=0 local function f(x,t) n=n+x end local t={x=1} for i=1,100 do f(1,t) assert(t.x==1) end return n", 100, 100),
+            ("local n=0 local function f(x) n=n+x end local function g(x) return f(x) end for i=1,100 do g(1) end return n", 100, 100),
+            ("local n=0 local function f(x) n=n+x end local co=coroutine.create(function() for i=1,100 do f(1) if i%10==0 then coroutine.yield() end end end) while coroutine.status(co)~='dead' do assert(coroutine.resume(co)) end return n", 100, 0),
+            ("local ticks=0 debug.sethook(function() local x=0 for i=1,2 do x=x+i end ticks=ticks+x end,'',9) local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end debug.sethook() return n", 100, 0),
+        ] {
+            for budget in [0, 1, 17, 4096] {
+                let reference = run_mode(source, budget, false, false);
+                assert_eq!(reference.1, Ok(expected));
+                assert_eq!(
+                    reference,
+                    run_mode_checked(source, budget, true, true, Some(activations)),
+                    "{source}, {budget}"
+                );
+                assert_eq!(
+                    reference,
+                    run_mode_checked_kernel(source, budget, true, true, Some(activations), true),
+                    "integer {source}, {budget}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scalar_activation_refusals_match_compiled_shapes() {
+        let mut lua = Lua::empty();
+        for source in [
+            "local n=1 local function f() n=n+n end return f",
+            "local n=0 local function f(x,t) n=n+x return t end return f",
+        ] {
+            lua.enter(|ctx| {
+                let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+                let prototype = closure.prototype().prototypes[0];
+                let operations: Vec<_> = prototype.opcodes.iter().map(|op| op.decode()).collect();
+                assert!(operations.len() > 4, "{source}: {operations:?}");
+            });
+        }
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn scalar_activation_executes_without_upvalue_helpers() {
+        let mut lua = Lua::empty();
+        lua.set_jit_config(crate::JitConfig {
+            mode: crate::JitMode::Auto,
+            hot_threshold: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            ctx.jit().test_scalar_kernels(true);
+            let closure = Closure::load(
+                ctx,
+                None,
+                b"local sum=1 local function add(v) sum=sum+v end add(2) return sum",
+            )
+            .unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        assert_eq!(lua.prepare_jit().unwrap(), 2);
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 3);
+        let stats = lua.jit_stats();
+        assert_eq!(stats.native_upvalue_reads, 1);
+        assert_eq!(stats.native_upvalue_writes, 1);
+        assert!(stats.helper_calls < 2, "{stats:?}");
+        assert_eq!(
+            lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
+            1
+        );
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn integer_activations_execute_without_upvalue_helpers() {
+        for (initial, operation, argument, expected) in [
+            (1, "+", 2, 3),
+            (1, "-", 2, -1),
+            (3, "*", 2, 6),
+            (i64::MAX, "+", 1, i64::MIN),
+            (i64::MIN, "-", 1, i64::MAX),
+            (i64::MAX, "*", 2, -2),
+        ] {
+            let initial = if initial == i64::MIN {
+                "(-9223372036854775807-1)".to_owned()
+            } else {
+                initial.to_string()
+            };
+            let source = format!(
+                "local sum={initial} local function add(v) sum=sum{operation}v end add({argument}) return sum"
+            );
+            let mut lua = Lua::empty();
+            lua.set_jit_config(crate::JitConfig {
+                mode: crate::JitMode::Auto,
+                hot_threshold: 1,
+                ..Default::default()
+            })
+            .unwrap();
+            let executor = lua.enter(|ctx| {
+                ctx.jit().test_integer_activations(true);
+                let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+                ctx.stash(Executor::start(ctx, closure.into(), ()))
+            });
+            assert_eq!(lua.prepare_jit().unwrap(), 2);
+            assert_eq!(lua.execute::<i64>(&executor).unwrap(), expected);
+            let stats = lua.jit_stats();
+            assert_eq!(stats.native_upvalue_reads, 1);
+            assert_eq!(stats.native_upvalue_writes, 1);
+            assert!(stats.helper_calls < 2, "{stats:?}");
+            assert_eq!(
+                lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
+                1
+            );
+        }
+    }
+
+    fn compare_canonical_slices(kernels: bool) {
+        for source in [
+            "local function f(x) return x+1 end local n=0 for i=1,100 do n=f(n) end return n",
+            "local function f() end local n=0 for i=1,100 do f() n=n+1 end return n",
+            "local function f(...) return ... end local function g(...) return f(...) end local n=0 for i=1,100 do n=g(n+1) end return n",
+            "local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end return n",
+            "local function f(n) if n==0 then return 100 end return f(n-1) end return f(100)",
+            "local n=0 for i=1,100 do local ok=pcall(function() return i.x end) if not ok then n=n+1 end end return n",
+            "local t=coroutine.create(function() coroutine.yield(1) return 100 end) assert(coroutine.resume(t)) local ok,n=coroutine.resume(t) assert(ok) return n",
+            "local n=0 local function f() local x <close> = setmetatable({}, {__close=function() n=n+1 end}) end for i=1,100 do f() end return n",
+            "local n=0 debug.sethook(function() n=n+1 end,'',9) local function f(x) return x+1 end local result=0 for i=1,100 do result=f(result) end debug.sethook() return result",
+            "local function f() return 1+{} end return f()",
+        ] {
+            for budget in [0, 1, 17, 4096] {
+                let reference = run_mode(source, budget, false, kernels);
+                if source.contains("1+{}") {
+                    assert!(reference.1.is_err());
+                } else {
+                    assert_eq!(reference.1, Ok(100));
+                }
+                assert_eq!(reference, run_mode(source, budget, true, kernels), "{source}, {budget}");
+            }
+        }
+    }
+
+    #[test]
+    fn native_call_successors_preserve_complete_step_traces() {
+        for source in [
+            "local n=3 n=boundary(n+4) return n",
+            "local cb=boundary local n=0 for i=1,4 do n=cb(n) end return n",
+            "local f=setmetatable({}, {__call=function(_,n) return boundary(n) end}) local n=f(7) return n",
+            "local ok=pcall(function() return boundary({}) end) return ok and 0 or 17",
+            "local co=coroutine.create(function() coroutine.yield(boundary(4)) return boundary(5) end) local ok,a=coroutine.resume(co) local ok2,b=coroutine.resume(co) return a+b",
+            "debug.sethook(function() end,'',1) local n=boundary(4) debug.sethook() return n",
+            "local n=4 read=function() return n end n=nested_boundary() return n",
+            "local n=boundary(1) return boundary(n)",
+        ] {
+            for budget in [0, 1, 2, 7, 11, 12, 17, 4096] {
+                let reference = run(source, budget, false);
+                assert!(reference.1.is_ok(), "{source}, {budget}: {reference:?}");
+                assert_eq!(reference, run(source, budget, true), "{source}, {budget}");
+            }
+        }
+    }
+
+    #[test]
+    fn native_and_interpreted_callbacks_match_interrupted_slices() {
+        for budget in [1, 17, 4096] {
+            let source = "local n=0 for i=1,100 do n=boundary(n) end return n";
+            let reference = run(source, budget, false);
+            assert_eq!(reference.1, Ok(100));
+            assert!(reference.0.iter().any(|slice| slice.interrupted));
+            assert_eq!(reference, run(source, budget, true));
+        }
+    }
+
+    #[test]
+    fn native_and_interpreted_nested_executors_preserve_open_upvalues() {
+        let source =
+            "local n=96 read=function() return n end for i=1,4 do n=nested_boundary() end return n";
+        let reference = run(source, 4096, false);
+        assert_eq!(reference.1, Ok(100));
+        assert_eq!(reference, run(source, 4096, true));
+    }
+}
+
+#[cfg(test)]
+mod mode_tests;
+
+#[cfg(test)]
+mod callback_chain_tests;
+
+#[cfg(all(
+    test,
+    feature = "jit",
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod builtin_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod static_off_tests;
+
+#[cfg(test)]
+impl Executor<'_> {
+    pub(crate) fn test_frame_snapshot(
+        self,
+    ) -> (Vec<Vec<std::string::String>>, Vec<Vec<std::string::String>>) {
+        use crate::Value;
+        let state = self.0.borrow();
+        let mut frames = Vec::new();
+        let mut stacks = Vec::new();
+        for thread in &state.thread_stack {
+            let thread = thread.into_inner().borrow();
+            frames.push(thread.frames.iter().map(|frame| match frame {
+                Frame::Lua {pc,base,bottom,stack_size,is_variable,expected_return,..} => format!("lua:{pc}:{base}:{bottom}:{stack_size}:{is_variable}:{expected_return:?}"),
+                Frame::Callback {bottom,..} => format!("callback:{bottom}"),
+                Frame::Sequence {bottom,pending_error,..} => format!("sequence:{bottom}:{}",pending_error.is_some()),
+                Frame::Close {bottom,pending_error,..} => format!("close:{bottom}:{}",pending_error.is_some()),
+                Frame::Start(_) => "start".to_owned(),
+                Frame::HookResume => "hook-resume".to_owned(),
+                Frame::Yielded => "yielded".to_owned(),
+                Frame::WaitThread => "wait".to_owned(),
+                Frame::Result {bottom} => format!("result:{bottom}"),
+                Frame::Error(error) => format!("error:{error}"),
+            }).collect());
+            stacks.push(
+                thread
+                    .stack
+                    .borrow()
+                    .iter()
+                    .copied()
+                    .map(|value| match value {
+                        Value::Number(n) => format!("number:{:016x}", n.to_bits()),
+                        Value::String(s) => format!("string:{:?}", s.as_bytes()),
+                        Value::Nil | Value::Boolean(_) | Value::Integer(_) => {
+                            format!("{}:{}", value.type_name(), value.display())
+                        }
+                        _ => value.type_name().to_owned(),
+                    })
+                    .collect(),
+            );
+        }
+        (frames, stacks)
+    }
+}
+
+#[cfg(all(
+    feature = "jit",
+    any(
+        test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    )
+))]
+mod interpreted_tail;
+
+#[cfg(all(test, feature = "jit"))]
+impl<'gc> Executor<'gc> {
+    pub(crate) fn test_with_lua_registers<R>(
+        self,
+        ctx: Context<'gc>,
+        call: impl for<'frame> FnOnce(Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
+    ) -> R {
+        let executor = self.0.borrow();
+        let thread = executor
+            .thread_stack
+            .last()
+            .expect("executor has no thread");
+        let mut state = thread.into_inner().borrow_mut(&ctx);
+        assert!(matches!(state.frames.last(), Some(Frame::Lua { .. })));
+        let storage = state.stack;
+        let stack = storage.borrow_mut(&ctx);
+        let mut fuel = Fuel::empty();
+        let mut host = super::activation::ActivationHost::new(&mut state, stack, &mut fuel);
+        host.with_registers(call)
+    }
 }

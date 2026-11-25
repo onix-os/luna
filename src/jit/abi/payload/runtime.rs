@@ -1,0 +1,1827 @@
+use super::*;
+use crate::{
+    jit::{abi, helpers},
+    thread::LuaRegisters,
+};
+
+#[cfg(test)]
+#[path = "local_materialize_tests.rs"]
+mod local_tests;
+
+#[cfg(test)]
+#[path = "closed_table_tests.rs"]
+mod closed_table_tests;
+
+#[cfg(test)]
+#[path = "local_table_tests.rs"]
+mod local_table_tests;
+
+#[cfg(test)]
+#[path = "table_write_tests.rs"]
+mod table_write_tests;
+
+#[cfg(test)]
+#[path = "new_table_tests.rs"]
+mod new_table_tests;
+
+#[cfg(test)]
+#[path = "upvalue_read_tests.rs"]
+mod upvalue_read_tests;
+
+#[cfg(test)]
+#[path = "capacity_tests.rs"]
+mod capacity_tests;
+
+#[cfg(test)]
+#[path = "full_binding_tests.rs"]
+mod full_binding_tests;
+
+#[cfg(test)]
+#[path = "bound_tests.rs"]
+mod bound_tests;
+
+#[cfg(test)]
+#[path = "sparse_binding_tests.rs"]
+mod sparse_binding_tests;
+
+#[cfg(test)]
+#[path = "set_list_tests.rs"]
+mod set_list_tests;
+
+pub(crate) struct Binding<'scope> {
+    slots: NonNull<Payload>,
+    host: &'scope mut Bridge,
+    count: usize,
+}
+
+pub(crate) type BoundEntry =
+    unsafe extern "C" fn(*mut Payload, u64, u32, *mut abi::Exit, *mut Bridge);
+
+impl Binding<'_> {
+    /// Invokes an owning code object's verified frame-bound entry once.
+    ///
+    /// # Safety
+    /// The entry implements the bound payload grammar for exactly `registers` cells,
+    /// preserves descriptor validity across helpers, and retains no frame pointers.
+    pub(crate) unsafe fn invoke(
+        self,
+        entry: BoundEntry,
+        registers: usize,
+        pc: usize,
+        budget: u32,
+        exit: &mut abi::Exit,
+    ) {
+        assert_eq!(registers, self.count);
+        unsafe {
+            entry(
+                self.slots.as_ptr(),
+                pc as u64,
+                budget.min(64),
+                exit,
+                self.host,
+            )
+        };
+    }
+}
+
+pub(crate) fn with_binding<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl for<'scope> FnOnce(Binding<'scope>),
+) {
+    let count = frame.slot_count;
+    with_bridge::<CAPACITY>(frame, |slots, host| {
+        body(Binding {
+            slots: NonNull::new(slots).unwrap(),
+            host: unsafe { &mut *host },
+            count,
+        });
+    });
+}
+
+/// Binds the selected entry's incoming descriptor reads.
+///
+/// # Safety
+/// Source-level reads must be covered by the mask or a preceding definition.
+/// Scalar writes must materialize opaque destinations. Helpers must read opaque
+/// null descriptors from canonical storage.
+#[cfg(test)]
+pub(crate) unsafe fn with_binding_mask<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    mask: [u64; 4],
+    body: impl for<'scope> FnOnce(Binding<'scope>),
+) {
+    let count = frame.slot_count;
+    with_bridge_selected::<CAPACITY, true>(frame, mask, |slots, host| {
+        body(Binding {
+            slots: NonNull::new(slots).unwrap(),
+            host: unsafe { &mut *host },
+            count,
+        });
+    });
+}
+
+#[repr(C)]
+pub(crate) struct Bridge {
+    pub base: abi::Host,
+    pub read: unsafe extern "C" fn(*mut Payload, u32) -> u64,
+    pub functions: &'static Functions,
+    materializations: u64,
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_write_binding(entry: BoundEntry, count: usize, masks: [[u64; 4]; 2]) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"local x=17 return x").unwrap();
+        for (mask, expected) in masks.into_iter().zip([1, 0]) {
+            let mut values = vec![Value::Integer(41); count];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    read_hints: None,
+                    projection: None,
+                };
+                let mut exit = abi::Exit::default();
+                with_bridge_selected::<256, true>(&mut frame, mask, |slots, host| {
+                    unsafe { entry(slots, 0, 1, &mut exit, host) };
+                    assert_eq!(unsafe { (*host).materializations }, expected);
+                });
+                assert_eq!(exit.instructions, 1);
+                assert_eq!(frame.count.calls, 0);
+                assert!(frame.panic.is_none());
+            });
+            assert!(matches!(values[0], Value::Integer(17)));
+            assert!(values[1..].iter().all(|v| matches!(v, Value::Integer(41))));
+        }
+    });
+}
+
+#[repr(C)]
+pub(crate) struct Functions {
+    pub helpers: [abi::HelperEntry; 10],
+    pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub terminal: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub copy: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+}
+
+static FUNCTIONS: Functions = Functions {
+    helpers: [
+        helper::<1>,
+        helper::<2>,
+        helper::<3>,
+        helper::<4>,
+        helper::<5>,
+        helper::<6>,
+        helper::<7>,
+        helper::<8>,
+        helper::<9>,
+        helper::<10>,
+    ],
+    write: write_scalar,
+    terminal: write_terminal,
+    copy: copy_retired,
+};
+
+unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
+    unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
+}
+
+unsafe extern "C" fn copy_retired(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    dest: u32,
+    source: u64,
+    _zero: u64,
+) {
+    unsafe { (*host).materializations += 1 };
+    let result = unsafe { copy_terminal::<true>((*host).base.data.cast(), slots, dest, source) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
+}
+
+unsafe extern "C" fn write_scalar(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) {
+    unsafe { (*host).materializations += 1 };
+    let result = unsafe { materialize((*host).base.data.cast(), slots, index, tag, bits) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
+}
+
+unsafe extern "C" fn write_terminal(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) {
+    unsafe { (*host).materializations += 1 };
+    let result = unsafe { materialize_terminal((*host).base.data.cast(), slots, index, tag, bits) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
+}
+
+unsafe extern "C" fn helper<const KIND: u32>(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
+    unsafe { call::<KIND>((*host).data.cast(), slots.cast(), a, b, c, pc) }
+}
+
+#[inline(always)]
+pub(crate) fn with_bridge<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut Payload, *mut Bridge),
+) {
+    with_bridge_selected::<CAPACITY, false>(frame, [0; 4], body);
+}
+
+#[inline(always)]
+fn with_bridge_selected<const CAPACITY: usize, const SELECTED: bool>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    mask: [u64; 4],
+    body: impl FnOnce(*mut Payload, *mut Bridge),
+) {
+    with_session_selected::<CAPACITY, SELECTED>(frame, mask, |session, slots| {
+        let mut bridge = Bridge {
+            base: abi::Host {
+                data: session.cast(),
+                projection: std::ptr::null_mut(),
+            },
+            read: read_bits,
+            functions: &FUNCTIONS,
+            materializations: 0,
+        };
+        body(slots, &mut bridge);
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_numeric_read(
+    entry: unsafe extern "C" fn(*const Payload) -> u64,
+    exact_tag: Option<u64>,
+) {
+    check_native_bound_read(entry, |tag| {
+        matches!(tag, INTEGER | NUMBER) && exact_tag.is_none_or(|exact| tag == exact)
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_scalar_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    check_native_bound_read(entry, |_| true);
+    check_bound_scalar_transitions(entry);
+}
+
+#[cfg(test)]
+pub(crate) fn check_bound_scalar_transitions(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let kinds = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"bound transition")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ];
+        let replacement = 0x7ff8000000000063;
+        for initial in kinds {
+            for next in kinds {
+                let mut values = [initial, next];
+                let mut pc = 5;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 2,
+                        panic: None,
+                        read_hints: None,
+                        projection: None,
+                    };
+                    with_binding::<2>(&mut frame, |binding| unsafe {
+                        let slots = binding.slots.as_ptr();
+                        let host = binding.host;
+                        assert_eq!(entry(slots), Slot::from_value(initial).bits);
+                        let move_value = host.functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+                        assert_eq!(
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 1, 0, 7),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(entry(slots), Slot::from_value(next).bits);
+                        (host.functions.terminal)(host, slots, 0, NUMBER, replacement);
+                        assert_eq!(slots.read().tag, NIL);
+                        assert!(slots.read().pointer.is_null());
+                        assert_eq!(entry(slots), 0);
+                        assert_eq!(
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 0, 0, 9),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(entry(slots), replacement);
+                        assert_eq!(host.materializations, 1);
+                    });
+                    assert_eq!(frame.count.calls, 2);
+                    assert_eq!(frame.count.completed, 2);
+                    assert!(frame.panic.is_none());
+                });
+                assert_eq!(pc, 10);
+                let after = Slot::from_value(values[0]);
+                assert_eq!((after.tag, after.bits), (NUMBER, replacement));
+                let sibling = Slot::from_value(values[1]);
+                let expected = Slot::from_value(next);
+                assert_eq!((sibling.tag, sibling.bits), (expected.tag, expected.bits));
+            }
+        }
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+fn check_native_bound_read(
+    entry: unsafe extern "C" fn(*const Payload) -> u64,
+    accepts: impl Fn(u64) -> bool,
+) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        for value in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Integer(0),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"bound read")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ] {
+            let scalar = Slot::from_value(value);
+            let expected = if accepts(scalar.tag) { scalar.bits } else { 0 };
+            let mut values = [value];
+            let mut pc = 5;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 1,
+                    panic: None,
+                    read_hints: None,
+                    projection: None,
+                };
+                with_binding::<1>(&mut frame, |binding| {
+                    assert_eq!(unsafe { entry(binding.slots.as_ptr()) }, expected);
+                });
+                assert_eq!(frame.count.calls, 0);
+                assert!(frame.panic.is_none());
+            });
+            assert_eq!(pc, 5);
+            let after = Slot::from_value(values[0]);
+            assert_eq!((after.tag, after.bits), (scalar.tag, scalar.bits));
+        }
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_proven_tag_write(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64) -> u64,
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+            copy: declined,
+        },
+        materializations: 0,
+    };
+    for bits in [0, 1, i64::MIN as u64, i64::MAX as u64, u64::MAX] {
+        for initial in [
+            Value::Nil,
+            Value::Boolean(true),
+            Value::Integer(0),
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+        ] {
+            let mut values = [initial];
+            let mut frame = Frame::new(&mut values);
+            let mut slot = frame.bind(0).unwrap();
+            let entered = unsafe { entry(&mut slot, &mut bridge, bits) };
+            assert_eq!(entered, u64::from(matches!(initial, Value::Integer(_))));
+            assert_eq!(bridge.materializations, 0);
+            let actual = Slot::from_value(values[0]);
+            let expected = Slot::from_value(if entered == 1 {
+                Value::Integer(bits as i64)
+            } else {
+                initial
+            });
+            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+        }
+        let mut malformed = Payload {
+            tag: INTEGER,
+            pointer: std::ptr::null_mut(),
+        };
+        bridge.materializations = 0;
+        assert_eq!(unsafe { entry(&mut malformed, &mut bridge, bits) }, 1);
+        assert_eq!(bridge.materializations, 1);
+        assert_eq!(malformed.tag, INTEGER);
+        assert!(malformed.pointer.is_null());
+        bridge.materializations = 0;
+    }
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_write_guards(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+            copy: declined,
+        },
+        materializations: 0,
+    };
+    let tags = (0..=255)
+        .chain((0..64).map(|bit| (1u64 << bit) | INTEGER))
+        .chain([u64::MAX - 1, u64::MAX]);
+    for tag in tags {
+        for null in [false, true] {
+            let bits = 0x0123_4567_89ab_cdef;
+            if (matches!(tag, INTEGER | NUMBER) && !null) || (tag == NIL && null) {
+                continue;
+            }
+            let mut sentinel = 0xfedc_ba98_7654_3210u64;
+            let pointer = if null {
+                std::ptr::null_mut()
+            } else {
+                std::ptr::from_mut(&mut sentinel).cast()
+            };
+            let mut descriptor = Payload { tag, pointer };
+            let before = bridge.materializations;
+            unsafe { entry(&mut descriptor, &mut bridge, tag, bits) };
+            assert_eq!(
+                bridge.materializations,
+                before + 1,
+                "tag={tag}, null={null}"
+            );
+            assert_eq!(sentinel, 0xfedc_ba98_7654_3210);
+            assert_eq!(descriptor.tag, tag);
+            assert_eq!(descriptor.pointer, pointer);
+        }
+    }
+}
+
+#[cfg(not(miri))]
+pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64)) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let scalars = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+        ];
+        for initial in scalars.into_iter().chain([
+            Value::String(ctx.intern(b"payload")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ]) {
+            for destination in scalars {
+                let expected = Slot::from_value(destination);
+                let final_bits = expected.bits
+                    ^ match expected.tag {
+                        BOOLEAN => 1,
+                        INTEGER => u64::MAX,
+                        NUMBER => 1 << 63,
+                        _ => 0,
+                    };
+                let mut values = [initial, Value::Integer(12345)];
+                let mut pc = 17;
+                let mut fuel = crate::Fuel::with(67);
+                LuaRegisters::with_test_frame_state(
+                    ctx,
+                    &mut pc,
+                    &mut values,
+                    &mut fuel,
+                    false,
+                    |mut registers| {
+                        let mut frame = helpers::Frame {
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 2,
+                            panic: None,
+                            read_hints: None,
+                            projection: None,
+                        };
+                        with_bridge::<256>(&mut frame, |slots, host| unsafe {
+                            let materializations =
+                                u64::from(Slot::from_value(initial).tag != expected.tag);
+                            for bits in [expected.bits, final_bits] {
+                                entry(slots, host, expected.tag, bits);
+                                assert_eq!((*host).materializations, materializations);
+                                let actual = load(slots.read()).unwrap();
+                                assert_eq!((actual.tag, actual.bits), (expected.tag, bits));
+                                let sibling = load(slots.add(1).read()).unwrap();
+                                assert_eq!((sibling.tag, sibling.bits), (INTEGER, 12345));
+                            }
+                        });
+                        assert_eq!(frame.count.calls, 0);
+                        assert_eq!(frame.count.completed, 0);
+                        assert_eq!(frame.count.declined, 0);
+                        assert_eq!(frame.count.allocations, 0);
+                        assert_eq!(frame.count.table_reads, 0);
+                        assert_eq!(frame.count.table_writes, 0);
+                        assert_eq!(frame.count.upvalue_reads, 0);
+                        assert_eq!(frame.count.upvalue_writes, 0);
+                        assert!(frame.panic.is_none());
+                    },
+                );
+                let actual = Slot::from_value(values[0]);
+                assert_eq!((actual.tag, actual.bits), (expected.tag, final_bits));
+                assert!(matches!(values[1], Value::Integer(12345)));
+                assert_eq!(pc, 17);
+                assert_eq!(fuel.remaining(), 67);
+            }
+        }
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_write_guards(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+            copy: declined,
+        },
+        materializations: 0,
+    };
+    crate::Lua::empty().enter(|ctx| {
+        for initial in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+            Value::String(ctx.intern(b"guard")),
+        ] {
+            for tag in (NIL..=REFERENCE).chain([255, 1 << 63, u64::MAX]) {
+                for bits in [0, 1, 2, 255, 256, 1 << 63, u64::MAX] {
+                    let mut values = [initial, Value::Integer(12345)];
+                    let mut frame = Frame::new(&mut values);
+                    let mut descriptor = frame.bind(0).unwrap();
+                    let pointer = descriptor.pointer;
+                    let before = bridge.materializations;
+                    let direct = descriptor.tag == tag
+                        && (matches!(tag, NIL | INTEGER | NUMBER) || (tag == BOOLEAN && bits <= 1));
+                    unsafe { entry(&mut descriptor, &mut bridge, tag, bits) };
+                    assert_eq!(bridge.materializations - before, u64::from(!direct));
+                    assert_eq!(descriptor.tag, Slot::from_value(initial).tag);
+                    assert_eq!(descriptor.pointer, pointer);
+                    let expected = if direct {
+                        match tag {
+                            BOOLEAN => Value::Boolean(bits != 0),
+                            INTEGER => Value::Integer(bits as i64),
+                            NUMBER => Value::Number(f64::from_bits(bits)),
+                            _ => initial,
+                        }
+                    } else {
+                        initial
+                    };
+                    let actual = Slot::from_value(values[0]);
+                    let expected = Slot::from_value(expected);
+                    assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                    assert!(matches!(values[1], Value::Integer(12345)));
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn bridge_function_table_preserves_original_payload_and_host_pointers() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let mut values = [Value::Nil; 2];
+        let mut pc = 0;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 2,
+                panic: None,
+                read_hints: None,
+                projection: None,
+            };
+            with_bridge::<256>(&mut frame, |slots, host| unsafe {
+                assert!(std::ptr::eq((*host).functions, &FUNCTIONS));
+                ((*host).functions.write)(host, slots, 0, INTEGER, 42);
+                assert_eq!(((*host).read)(slots, 0), 42);
+                ((*host).functions.terminal)(host, slots, 1, INTEGER, 7);
+                let retired = slots.add(1).read();
+                assert_eq!(retired.tag, NIL);
+                assert!(retired.pointer.is_null());
+                assert_eq!((*host).materializations, 2);
+                assert_eq!(
+                    ((*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize])(
+                        host.cast(),
+                        slots.cast(),
+                        1,
+                        0,
+                        0,
+                        7
+                    ),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(((*host).read)(slots, 1), 42);
+            });
+            assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
+        });
+        assert_eq!(pc, 8);
+        assert!(values
+            .iter()
+            .all(|value| matches!(value, Value::Integer(42))));
+    });
+}
+
+struct Session<'s, 'gc, 'a, 'b, 'p> {
+    frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
+    values: NonNull<Value<'gc>>,
+    counts: NonNull<helpers::Counts>,
+    pc: NonNull<usize>,
+    ctx: crate::Context<'gc>,
+    closure: crate::Closure<'gc>,
+    count: usize,
+    stopped: bool,
+    borrow: PhantomData<&'s mut helpers::Frame<'gc, 'a, 'b, 'p>>,
+}
+
+impl Session<'_, '_, '_, '_, '_> {
+    fn bind_each(&mut self, count: usize, mut write: impl FnMut(usize, Payload)) {
+        self.bind_selected::<false>(count, [0; 4], &mut write);
+    }
+
+    fn bind_selected<const SELECTED: bool>(
+        &mut self,
+        count: usize,
+        mask: [u64; 4],
+        mut write: impl FnMut(usize, Payload),
+    ) {
+        let frame = unsafe { self.frame.as_mut() };
+        assert_eq!(count, frame.slot_count);
+        self.counts = NonNull::from(&mut frame.count);
+        self.pc = NonNull::from(&mut *frame.registers.pc);
+        let mut canonical = Frame::new(&mut frame.registers.stack_frame[..count]);
+        self.values = canonical.values;
+        for index in 0..count {
+            let value = if !SELECTED || mask[index / 64] & (1 << (index % 64)) != 0 {
+                canonical.bind(index).unwrap()
+            } else {
+                Payload {
+                    tag: REFERENCE,
+                    pointer: std::ptr::null_mut(),
+                }
+            };
+            write(index, value);
+        }
+    }
+
+    fn rebind(&mut self, slots: &mut [Payload]) {
+        self.bind_each(slots.len(), |index, value| slots[index] = value);
+    }
+}
+
+#[inline(always)]
+fn with_session_capacity<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut (), *mut Payload),
+) {
+    with_session_selected::<CAPACITY, false>(frame, [0; 4], body);
+}
+
+#[inline(always)]
+fn with_session_selected<const CAPACITY: usize, const SELECTED: bool>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    mask: [u64; 4],
+    body: impl FnOnce(*mut (), *mut Payload),
+) {
+    let count = frame.slot_count;
+    assert!(CAPACITY <= 256 && count <= CAPACITY && count <= frame.registers.stack_frame.len());
+    assert!(frame.projection.is_none());
+    let stopped = frame.panic.is_some();
+    let ctx = frame.ctx;
+    let closure = frame.closure;
+    let mut session = Session {
+        frame: NonNull::from(frame),
+        values: NonNull::dangling(),
+        counts: NonNull::dangling(),
+        pc: NonNull::dangling(),
+        ctx,
+        closure,
+        count,
+        stopped,
+        borrow: PhantomData,
+    };
+    let mut slots = [std::mem::MaybeUninit::<Payload>::uninit(); CAPACITY];
+    session.bind_selected::<SELECTED>(count, mask, |index, value| {
+        slots[index].write(value);
+    });
+    body(
+        std::ptr::from_mut(&mut session).cast(),
+        slots.as_mut_ptr().cast(),
+    );
+}
+
+#[cfg(test)]
+fn with_session(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut (), *mut Payload),
+) {
+    with_session_capacity::<256>(frame, body);
+}
+
+unsafe extern "C" fn call<const KIND: u32>(
+    host: *mut (),
+    slots: *mut Payload,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if KIND == abi::HELPER_GET_UPVALUE {
+        if let Some(result) = upvalue_read(session, slots, a, b, pc) {
+            return result;
+        }
+    }
+    if matches!(KIND, abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE) {
+        if let Some(result) = constant_table::<KIND>(session, slots, a, b, c, pc) {
+            return result;
+        }
+    }
+    if KIND == abi::HELPER_SET_TABLE {
+        if let Some(result) = table_write(session, slots, a, b, c, pc) {
+            return result;
+        }
+    }
+    if KIND == abi::HELPER_NEW_TABLE {
+        let ctx = session.ctx;
+        if let Some(result) = new_table_with(session, slots, a, pc, || {
+            crate::Table::from_parts(
+                &ctx,
+                crate::table::RawTable::with_capacity(&ctx, b as usize, c as usize),
+                None,
+            )
+        }) {
+            return result;
+        }
+    }
+    if KIND == abi::HELPER_SET_LIST {
+        if let Some(result) = set_list(session, slots, a, b, pc) {
+            return result;
+        }
+    }
+    let count = session.count;
+    let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
+    if result != abi::HELPER_PANICKED {
+        session.rebind(unsafe { std::slice::from_raw_parts_mut(slots, count) });
+    } else {
+        session.stopped = true;
+    }
+    result
+}
+
+fn upvalue_read(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    dest: u32,
+    source: u32,
+    pc: u32,
+) -> Option<u32> {
+    use crate::thread::ScopedUpvalue;
+    if dest as usize >= session.count {
+        return None;
+    }
+    let upvalue = session.closure.upvalues().get(source as usize)?.get();
+    let origin = unsafe {
+        LuaRegisters::scoped_upvalue(
+            std::ptr::addr_of!(*(*session.frame.as_ptr()).registers),
+            upvalue,
+        )?
+    };
+    let origin = match origin {
+        ScopedUpvalue::Register(index) => {
+            if index >= session.count {
+                return None;
+            }
+            ScopedUpvalue::Value(table_operand(session, slots, index as u32)?)
+        }
+        origin => origin,
+    };
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let value = match origin {
+            ScopedUpvalue::Value(value) => value,
+            ScopedUpvalue::Foreign(open) => open.get(&session.ctx),
+            ScopedUpvalue::Register(_) => unreachable!(),
+        };
+        let mut canonical = Frame {
+            values: session.values,
+            len: session.count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+            dest as usize,
+            value,
+        ));
+    }));
+    Some(match result {
+        Ok(()) => {
+            let counts = unsafe { session.counts.as_mut() };
+            counts.completed += 1;
+            counts.upvalue_reads += 1;
+            abi::HELPER_COMPLETED
+        }
+        Err(payload) => {
+            unsafe { session.frame.as_mut().panic = Some(payload) };
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
+}
+
+fn new_table_with<'gc>(
+    session: &mut Session<'_, 'gc, '_, '_, '_>,
+    slots: *mut Payload,
+    dest: u32,
+    pc: u32,
+    allocate: impl FnOnce() -> crate::Table<'gc>,
+) -> Option<u32> {
+    if dest as usize >= session.count {
+        return None;
+    }
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let table = allocate();
+        let mut canonical = Frame {
+            values: session.values,
+            len: session.count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+            dest as usize,
+            Value::Table(table),
+        ));
+    }));
+    Some(match result {
+        Ok(()) => {
+            let counts = unsafe { session.counts.as_mut() };
+            counts.completed += 1;
+            counts.allocations += 1;
+            abi::HELPER_COMPLETED
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
+}
+
+fn table_operand<'gc>(
+    session: &Session<'_, 'gc, '_, '_, '_>,
+    slots: *mut Payload,
+    operand: u32,
+) -> Option<Value<'gc>> {
+    if operand & abi::CONSTANT_OPERAND != 0 {
+        return session
+            .closure
+            .prototype()
+            .constants
+            .get((operand & !abi::CONSTANT_OPERAND) as usize)
+            .copied()
+            .map(Into::into);
+    }
+    if operand as usize >= session.count {
+        return None;
+    }
+    let slot = unsafe { slots.add(operand as usize).read() };
+    match slot.tag {
+        NIL | REFERENCE if slot.pointer.is_null() => {
+            Some(unsafe { session.values.as_ptr().add(operand as usize).read() })
+        }
+        INTEGER | NUMBER | BOOLEAN => unsafe { load(slot) }.map(|value| value.value(Value::Nil)),
+        _ => None,
+    }
+}
+
+fn set_list(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    base: u32,
+    count: u32,
+    pc: u32,
+) -> Option<u32> {
+    let end = base.checked_add(2)?.checked_add(count)?;
+    if end as usize > session.count {
+        return None;
+    }
+    let (Value::Table(table), Value::Integer(mut index)) = (
+        table_operand(session, slots, base)?,
+        table_operand(session, slots, base + 1)?,
+    ) else {
+        return None;
+    };
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let registers = unsafe { std::ptr::addr_of_mut!(*(*session.frame.as_ptr()).registers) };
+        if !unsafe { LuaRegisters::charge_scoped_fixed_list(registers, count as usize) } {
+            return false;
+        }
+        for offset in 0..count {
+            let Some(next) = index.checked_add(1) else {
+                break;
+            };
+            index = next;
+            let value = table_operand(session, slots, base + 2 + offset)
+                .expect("invalid fixed-list descriptor");
+            table.set_raw(&session.ctx, index.into(), value).unwrap();
+            unsafe {
+                session.counts.as_mut().table_writes += 1;
+            }
+        }
+        let mut canonical = Frame {
+            values: session.values,
+            len: session.count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+            base as usize + 1,
+            Value::Integer(index),
+        ));
+        true
+    }));
+    Some(match result {
+        Ok(true) => {
+            unsafe {
+                session.counts.as_mut().completed += 1;
+            }
+            abi::HELPER_COMPLETED
+        }
+        Ok(false) => {
+            unsafe {
+                session.counts.as_mut().declined += 1;
+                *session.pc.as_ptr() = pc as usize;
+            }
+            abi::HELPER_DECLINED
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
+}
+
+fn table_write(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    receiver: u32,
+    key: u32,
+    value: u32,
+    pc: u32,
+) -> Option<u32> {
+    if receiver as usize >= session.count {
+        return None;
+    }
+    let table = table_operand(session, slots, receiver)?;
+    let key = table_operand(session, slots, key)?;
+    let value = table_operand(session, slots, value)?;
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        helpers::write_table_value(session.ctx, table, key, value)
+    }));
+    Some(match result {
+        Ok(completed) => {
+            let counts = unsafe { session.counts.as_mut() };
+            if completed {
+                counts.completed += 1;
+                counts.table_writes += 1;
+                abi::HELPER_COMPLETED
+            } else {
+                counts.declined += 1;
+                unsafe {
+                    *session.pc.as_ptr() = pc as usize;
+                }
+                abi::HELPER_DECLINED
+            }
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
+}
+
+fn constant_table<const KIND: u32>(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    dest: u32,
+    receiver: u32,
+    operand: u32,
+    pc: u32,
+) -> Option<u32> {
+    if dest as usize >= session.count || operand & abi::CONSTANT_OPERAND == 0 {
+        return None;
+    }
+    let table = if KIND == abi::HELPER_GET_UP_TABLE {
+        let crate::closure::UpValueState::Closed(table) = session
+            .closure
+            .upvalues()
+            .get(receiver as usize)?
+            .get()
+            .get()
+        else {
+            return None;
+        };
+        table
+    } else {
+        if receiver as usize >= session.count
+            || unsafe { slots.add(receiver as usize).read().tag } != REFERENCE
+        {
+            return None;
+        }
+        let table = unsafe { session.values.as_ptr().add(receiver as usize).read() };
+        if !matches!(table, Value::Table(_)) {
+            return None;
+        }
+        table
+    };
+    let key = session
+        .closure
+        .prototype()
+        .constants
+        .get((operand & !abi::CONSTANT_OPERAND) as usize)
+        .copied()?
+        .into();
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        helpers::with_table_value(session.ctx, table, key, |value| {
+            let mut canonical = Frame {
+                values: session.values,
+                len: session.count,
+                borrow: PhantomData,
+            };
+            assert!(canonical.store(
+                unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+                dest as usize,
+                value
+            ));
+        })
+    }));
+    Some(match result {
+        Ok(completed) => {
+            let counts = unsafe { session.counts.as_mut() };
+            if completed {
+                counts.completed += 1;
+                counts.table_reads += 1;
+                counts.upvalue_reads += u64::from(KIND == abi::HELPER_GET_UP_TABLE);
+                unsafe {
+                    *session.pc.as_ptr() = pc as usize + 1;
+                }
+                abi::HELPER_COMPLETED
+            } else {
+                counts.declined += 1;
+                unsafe {
+                    *session.pc.as_ptr() = pc as usize;
+                }
+                abi::HELPER_DECLINED
+            }
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
+}
+
+unsafe extern "C" fn materialize(
+    host: *mut (),
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if index as usize >= session.count {
+        return abi::HELPER_DECLINED;
+    }
+    unsafe {
+        match tag {
+            NIL => materialize_scalar::<NIL>(session, slots, index, bits),
+            BOOLEAN if bits <= 1 => materialize_scalar::<BOOLEAN>(session, slots, index, bits),
+            INTEGER => materialize_scalar::<INTEGER>(session, slots, index, bits),
+            NUMBER => materialize_scalar::<NUMBER>(session, slots, index, bits),
+            _ => abi::HELPER_DECLINED,
+        }
+    }
+}
+
+unsafe extern "C" fn materialize_terminal(
+    host: *mut (),
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if index as usize >= session.count {
+        return abi::HELPER_DECLINED;
+    }
+    let value = match tag {
+        NIL => Value::Nil,
+        BOOLEAN if bits <= 1 => Value::Boolean(bits != 0),
+        INTEGER => Value::Integer(bits as i64),
+        NUMBER => Value::Number(f64::from_bits(bits)),
+        _ => return abi::HELPER_DECLINED,
+    };
+    unsafe {
+        slots.add(index as usize).write(Payload {
+            tag: NIL,
+            pointer: std::ptr::null_mut(),
+        });
+        session.values.as_ptr().add(index as usize).write(value);
+    }
+    abi::HELPER_COMPLETED
+}
+
+#[cfg(test)]
+#[path = "terminal_tests.rs"]
+mod terminal_tests;
+
+#[cfg(test)]
+#[path = "terminal_copy_tests.rs"]
+mod terminal_copy_tests;
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_terminal_copy(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+) {
+    terminal_copy_tests::check_native(entry, false);
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_guarded_terminal_copy(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+) {
+    terminal_copy_tests::check_native(entry, true);
+}
+
+/// Copies a canonical value and retires its destination and optional source.
+///
+/// # Safety
+/// The pointers belong to one live session. Retired descriptors are not used
+/// again until rebound.
+unsafe fn copy_terminal<const RETIRE_SOURCE: bool>(
+    host: *mut (),
+    slots: *mut Payload,
+    dest: u32,
+    source: u64,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if dest as usize >= session.count || source >= session.count as u64 {
+        return abi::HELPER_DECLINED;
+    }
+    if RETIRE_SOURCE {
+        unsafe {
+            let values = session.values.as_ptr();
+            std::ptr::copy(values.add(source as usize), values.add(dest as usize), 1);
+            slots.add(source as usize).write(Payload {
+                tag: NIL,
+                pointer: std::ptr::null_mut(),
+            });
+        }
+    } else if let Some(value) = table_operand(session, slots, source as u32) {
+        unsafe { session.values.as_ptr().add(dest as usize).write(value) };
+    } else {
+        return abi::HELPER_DECLINED;
+    }
+    unsafe {
+        slots.add(dest as usize).write(Payload {
+            tag: NIL,
+            pointer: std::ptr::null_mut(),
+        });
+    }
+    abi::HELPER_COMPLETED
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_retired_descriptor(descriptor: Payload) {
+    assert_eq!(descriptor.tag, NIL);
+    assert!(descriptor.pointer.is_null());
+}
+
+#[inline(always)]
+unsafe fn materialize_scalar<const TAG: u64>(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    index: u32,
+    bits: u64,
+) -> u32 {
+    let value = match TAG {
+        NIL => Value::Nil,
+        BOOLEAN => Value::Boolean(bits != 0),
+        INTEGER => Value::Integer(bits as i64),
+        NUMBER => Value::Number(f64::from_bits(bits)),
+        _ => unreachable!(),
+    };
+    let mut canonical = Frame {
+        values: session.values,
+        len: session.count,
+        borrow: PhantomData,
+    };
+    assert!(canonical.store(
+        unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+        index as usize,
+        value,
+    ));
+    abi::HELPER_COMPLETED
+}
+
+#[test]
+fn initialized_prefix_bounds_hold_for_empty_small_and_full_frames() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        for count in [0, 1, 7, 255, 256] {
+            let mut values = vec![Value::Integer(1); count];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    read_hints: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    if count != 0 {
+                        assert!(store(
+                            slots.add(count - 1).read(),
+                            Slot {
+                                tag: INTEGER,
+                                bits: 42
+                            }
+                        ));
+                        assert_eq!(
+                            call::<{ abi::HELPER_MOVE }>(host, slots, 0, (count - 1) as u32, 0, 7),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(load(slots.read()).unwrap().bits, 42);
+                    }
+                    assert_eq!(
+                        call::<{ abi::HELPER_MOVE }>(
+                            host,
+                            slots,
+                            0,
+                            count as u32,
+                            0,
+                            if count == 0 { 7 } else { 8 }
+                        ),
+                        abi::HELPER_PANICKED
+                    );
+                    assert_eq!(
+                        materialize(host, slots, 0, INTEGER, 99),
+                        abi::HELPER_PANICKED
+                    );
+                });
+                assert_eq!(
+                    (frame.count.calls, frame.count.completed),
+                    if count == 0 { (1, 0) } else { (2, 1) }
+                );
+                assert!(frame.panic.is_some());
+            });
+            assert_eq!(pc, if count == 0 { 8 } else { 9 });
+            for (index, value) in values.into_iter().enumerate() {
+                let expected = if index == 0 || index + 1 == count {
+                    42
+                } else {
+                    1
+                };
+                assert!(matches!(value, Value::Integer(actual) if actual == expected));
+            }
+        }
+    });
+}
+
+#[test]
+fn scalar_materialization_preserves_current_aliases_without_transport_counters() {
+    crate::Lua::empty().enter(|ctx| {
+        for count in [2, 256] {
+            let closure = crate::Closure::load(ctx, None, b"return _ENV").unwrap();
+            let mut values = vec![Value::Nil; count];
+            let mut pc = 17;
+            let mut fuel = crate::Fuel::with(67);
+            LuaRegisters::with_test_frame_state(
+                ctx,
+                &mut pc,
+                &mut values,
+                &mut fuel,
+                false,
+                |mut registers| {
+                    let cell = registers
+                        .open_test_upvalue(&ctx, crate::types::RegisterIndex((count - 1) as u8));
+                    closure.set_upvalue(&ctx, 0, cell);
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: count,
+                        panic: None,
+                        read_hints: None,
+                        projection: None,
+                    };
+                    with_session(&mut frame, |host, slots| unsafe {
+                        for value in [
+                            Value::Integer(i64::MIN),
+                            Value::Number(f64::from_bits(0x7ff8000000000042)),
+                            Value::Boolean(true),
+                            Value::Nil,
+                            Value::Number(-0.0),
+                            Value::Integer(i64::MAX),
+                        ] {
+                            let expected = Slot::from_value(value);
+                            assert_eq!(
+                                materialize(
+                                    host,
+                                    slots,
+                                    (count - 1) as u32,
+                                    expected.tag,
+                                    expected.bits
+                                ),
+                                abi::HELPER_COMPLETED
+                            );
+                            let actual = load(slots.add(count - 1).read()).unwrap();
+                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                            assert_eq!(
+                                call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 0, 0, 0, 17),
+                                abi::HELPER_COMPLETED
+                            );
+                            let actual = load(slots.read()).unwrap();
+                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                        }
+                        for (index, tag, bits) in [
+                            (count as u32, INTEGER, 0),
+                            (u32::MAX, INTEGER, 0),
+                            (0, BOOLEAN, 2),
+                            (0, REFERENCE, 0),
+                            (0, u64::MAX, 0),
+                        ] {
+                            assert_eq!(
+                                materialize(host, slots, index, tag, bits),
+                                abi::HELPER_DECLINED
+                            );
+                            assert_eq!(load(slots.read()).unwrap().bits, i64::MAX as u64);
+                        }
+                        assert_eq!(
+                            materialize(host, slots, (count - 1) as u32, INTEGER, i64::MIN as u64),
+                            abi::HELPER_COMPLETED
+                        );
+                    });
+                    assert_eq!(
+                        (
+                            frame.count.calls,
+                            frame.count.completed,
+                            frame.count.upvalue_reads
+                        ),
+                        (6, 6, 6)
+                    );
+                    assert_eq!((frame.count.declined, frame.count.allocations), (0, 0));
+                    assert!(frame.panic.is_none());
+                },
+            );
+            assert_eq!(pc, 18);
+            assert_eq!(fuel.remaining(), 67);
+            assert!(matches!(values[0], Value::Integer(i64::MAX)));
+            assert!(matches!(values[count - 1], Value::Integer(i64::MIN)));
+        }
+    });
+}
+
+#[cfg(not(miri))]
+unsafe extern "C" fn move_bridge(
+    host: *mut (),
+    slots: *mut Payload,
+    dest: u32,
+    source: u32,
+    panic: bool,
+) -> u32 {
+    unsafe {
+        call::<{ abi::HELPER_MOVE }>(
+            host,
+            slots,
+            dest,
+            if panic { u32::MAX } else { source },
+            0,
+            42,
+        )
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn generated_code_calls_production_helpers_and_exits_on_real_bounds_panic() {
+    super::native::with_entry(|entry| {
+        crate::Lua::empty().enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            let table = crate::Table::new(&ctx);
+            let mut values = [Value::Integer(1), Value::Nil, Value::Table(table)];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 3,
+                    panic: None,
+                    read_hints: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| {
+                    assert_eq!(
+                        unsafe { entry(slots, host, move_bridge, INTEGER, 42) },
+                        abi::HELPER_PANICKED
+                    );
+                });
+                assert_eq!(
+                    (
+                        frame.count.calls,
+                        frame.count.completed,
+                        frame.count.declined
+                    ),
+                    (2, 1, 0)
+                );
+                assert!(frame.panic.is_some());
+            });
+            assert_eq!(pc, 43);
+            assert!(matches!(values[0], Value::Integer(42)));
+            assert!(matches!(values[1], Value::Integer(42)));
+            assert!(matches!(values[2], Value::Table(t) if t == table));
+        });
+    });
+}
+
+#[test]
+fn production_helpers_observe_direct_writes_and_rebind_current_frame_upvalues() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return _ENV").unwrap();
+        let table = crate::Table::new(&ctx);
+        let mut values = [
+            Value::Integer(1),
+            Value::Nil,
+            Value::Number(2.0),
+            Value::Table(table),
+        ];
+        let mut pc = 0;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 4,
+                panic: None,
+                read_hints: None,
+                projection: None,
+            };
+            with_session(&mut frame, |host, slots| unsafe {
+                assert!(store(
+                    slots.read(),
+                    Slot {
+                        tag: INTEGER,
+                        bits: 41
+                    }
+                ));
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 1, 0, 0, 10),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(load(slots.add(1).read()).unwrap().bits, 41);
+                assert!(store(
+                    slots.read(),
+                    Slot {
+                        tag: INTEGER,
+                        bits: 42
+                    }
+                ));
+                assert_eq!(
+                    call::<{ abi::HELPER_SET_UPVALUE }>(host, slots, 0, 2, 0, 11),
+                    abi::HELPER_COMPLETED
+                );
+                assert!(store(
+                    slots.read(),
+                    Slot {
+                        tag: NUMBER,
+                        bits: (-0.0f64).to_bits()
+                    }
+                ));
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 1, 0, 0, 12),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_MOVE }>(host, slots, 3, 1, 0, 13),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_TABLE }>(host, slots, 1, 0, 2, 14),
+                    abi::HELPER_DECLINED
+                );
+                assert_eq!(load(slots.add(2).read()).unwrap().bits, 2.0f64.to_bits());
+                assert_eq!(load(slots.read()).unwrap().bits, (-0.0f64).to_bits());
+            });
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.declined
+                ),
+                (5, 4, 1)
+            );
+            assert_eq!(
+                (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                (2, 1)
+            );
+            assert!(frame.panic.is_none());
+        });
+        assert_eq!(pc, 14);
+        for index in [0, 1, 3] {
+            assert!(
+                matches!(values[index], Value::Number(n) if n.to_bits() == (-0.0f64).to_bits())
+            );
+        }
+    });
+}
+
+#[test]
+fn production_helpers_preserve_closed_reference_roots_and_table_effects() {
+    let mut lua = crate::Lua::empty();
+    let rooted = lua.enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return _ENV").unwrap();
+        let table = crate::Table::new(&ctx);
+        let mut values = [
+            Value::Integer(1),
+            Value::Nil,
+            Value::Table(table),
+            Value::Integer(7),
+        ];
+        let mut pc = 0;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 4,
+                panic: None,
+                read_hints: None,
+                projection: None,
+            };
+            with_session(&mut frame, |host, slots| unsafe {
+                assert_eq!(
+                    call::<{ abi::HELPER_SET_UPVALUE }>(host, slots, 0, 2, 0, 0),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_UPVALUE }>(host, slots, 0, 0, 0, 1),
+                    abi::HELPER_COMPLETED
+                );
+                assert!(slots.read().pointer.is_null());
+                assert!(load(slots.read()).is_none());
+                assert!(store(
+                    slots.add(3).read(),
+                    Slot {
+                        tag: INTEGER,
+                        bits: 42
+                    }
+                ));
+                assert_eq!(
+                    call::<{ abi::HELPER_SET_TABLE }>(host, slots, 0, 3, 2, 2),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(
+                    call::<{ abi::HELPER_GET_TABLE }>(host, slots, 1, 0, 3, 3),
+                    abi::HELPER_COMPLETED
+                );
+                assert!(slots.add(1).read().pointer.is_null());
+                assert_eq!(
+                    call::<{ abi::HELPER_NEW_TABLE }>(host, slots, 3, 0, 0, 4),
+                    abi::HELPER_COMPLETED
+                );
+                assert!(slots.add(3).read().pointer.is_null());
+            });
+            assert_eq!((frame.count.calls, frame.count.completed), (5, 5));
+            assert_eq!(
+                (
+                    frame.count.table_reads,
+                    frame.count.table_writes,
+                    frame.count.allocations
+                ),
+                (1, 1, 1)
+            );
+            assert!(frame.panic.is_none());
+        });
+        assert_eq!(pc, 5);
+        for index in 0..3 {
+            assert!(matches!(values[index], Value::Table(t) if t == table));
+        }
+        assert!(matches!(values[3], Value::Table(t) if t != table));
+        assert!(matches!(table.get_raw(&ctx, Value::Integer(42)), Value::Table(t) if t == table));
+        ctx.stash(closure)
+    });
+    lua.gc_collect();
+    lua.enter(|ctx| {
+        let closure = ctx.fetch(&rooted);
+        let crate::closure::UpValueState::Closed(Value::Table(table)) =
+            closure.upvalues()[0].get().get()
+        else {
+            panic!("closed table root was lost");
+        };
+        assert!(matches!(table.get_raw(&ctx, Value::Integer(42)), Value::Table(t) if t == table));
+    });
+    drop(rooted);
+    lua.gc_collect();
+}
+
+#[test]
+fn production_helper_panic_keeps_direct_writes_and_stops_reentry() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let table = crate::Table::new(&ctx);
+        table.set_readonly(&ctx, true);
+        let mut values = [Value::Table(table), Value::Integer(0), Value::Number(1.0)];
+        let mut pc = 0;
+        let mut fuel = crate::Fuel::with(47);
+        LuaRegisters::with_test_frame_state(
+            ctx,
+            &mut pc,
+            &mut values,
+            &mut fuel,
+            false,
+            |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 3,
+                    panic: None,
+                    read_hints: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    assert!(store(
+                        slots.add(2).read(),
+                        Slot {
+                            tag: NUMBER,
+                            bits: (-0.0f64).to_bits()
+                        }
+                    ));
+                    assert_eq!(
+                        call::<{ abi::HELPER_SET_LIST }>(host, slots, 0, 1, 0, 7),
+                        abi::HELPER_PANICKED
+                    );
+                    assert_eq!(
+                        call::<{ abi::HELPER_MOVE }>(host, slots, 1, 2, 0, 8),
+                        abi::HELPER_PANICKED
+                    );
+                    assert_eq!(
+                        materialize(host, slots, 1, INTEGER, 99),
+                        abi::HELPER_PANICKED
+                    );
+                });
+                assert_eq!(
+                    (
+                        frame.count.calls,
+                        frame.count.completed,
+                        frame.count.declined
+                    ),
+                    (1, 0, 0)
+                );
+                assert!(frame.panic.is_some());
+            },
+        );
+        assert_eq!(pc, 8);
+        assert_eq!(fuel.remaining(), 42);
+        assert!(matches!(values[1], Value::Integer(0)));
+        assert!(matches!(values[2], Value::Number(n) if n.to_bits() == (-0.0f64).to_bits()));
+        assert!(matches!(table.get_raw(&ctx, Value::Integer(1)), Value::Nil));
+    });
+}

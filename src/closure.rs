@@ -32,6 +32,8 @@ pub enum CompilerError {
     // is `_ENV`, but a chunk read off disk can claim otherwise.
     #[error("chunk cannot be a top-level function")]
     NotTopLevel(#[from] ClosureError),
+    #[error("binary chunks are not available in functional mode")]
+    FunctionalBinary,
 }
 
 /// A compiled Lua function.
@@ -191,7 +193,7 @@ impl<'gc> FunctionPrototype<'gc> {
         let interner = Interner(ctx);
 
         let chunk = compiler::parse_chunk(source, interner)?;
-        let compiled_function = compiler::compile_chunk(&chunk, interner)?;
+        let compiled_function = compiler::compile_chunk_with(&chunk, interner, ctx.functional())?;
 
         Ok(FunctionPrototype::from_compiled(
             &ctx,
@@ -351,11 +353,21 @@ impl<'gc> Closure<'gc> {
         // A dumped chunk is loaded rather than compiled. It is checked on the way in — see
         // `crate::dump` — because nothing about the bytes is trustworthy.
         let proto = if crate::dump::is_binary_chunk(source) {
+            if ctx.functional() {
+                return Err(CompilerError::FunctionalBinary);
+            }
             crate::dump::undump(ctx, source)?
         } else {
             FunctionPrototype::compile(ctx, name.unwrap_or("<anonymous>"), source)?
         };
-        Ok(Closure::new(&ctx, proto, Some(env))?)
+        let closure = Closure::new(&ctx, proto, Some(env))?;
+        #[cfg(feature = "jit")]
+        if !crate::dump::is_binary_chunk(source) {
+            ctx.jit_registry()
+                .borrow_mut(&ctx)
+                .register(ctx, closure.prototype());
+        }
+        Ok(closure)
     }
 
     pub fn prototype(self) -> Gc<'gc, FunctionPrototype<'gc>> {

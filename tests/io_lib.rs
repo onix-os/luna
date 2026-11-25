@@ -1,15 +1,17 @@
 //! File handles, built on `std::fs` — no C anywhere.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<bool>(&executor)
 }
+
+mod common;
 
 fn scratch(name: &str) -> String {
     let dir = std::env::temp_dir().join("luna_io_test");

@@ -3,9 +3,7 @@
 //! This is how an embedder calls a Lua function from several Rust frames down, where there is no
 //! continuation to hand back as `CallbackReturn::Call`.
 
-use luna::{
-    Callback, CallbackReturn, Closure, Context, Executor, ExternError, Function, Lua, Value,
-};
+use luna::{Callback, CallbackReturn, Closure, Context, Executor, ExternError, Function, Value};
 
 /// Run `f` on a nested executor, to completion, from inside a callback.
 fn call_nested<'gc>(ctx: Context<'gc>, f: Function<'gc>) -> Result<Value<'gc>, luna::Error<'gc>> {
@@ -22,7 +20,7 @@ fn call_nested<'gc>(ctx: Context<'gc>, f: Function<'gc>) -> Result<Value<'gc>, l
 /// The callee captures nothing, so no upvalue of the running thread is read.
 #[test]
 fn nested_call_without_upvalues() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let call = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -56,7 +54,7 @@ fn nested_call_without_upvalues() -> Result<(), ExternError> {
 /// over that config's own locals.
 #[test]
 fn nested_call_reading_an_upvalue_of_the_running_thread() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let call = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -91,7 +89,7 @@ fn nested_call_reading_an_upvalue_of_the_running_thread() -> Result<(), ExternEr
 /// The same, writing through the upvalue rather than reading it.
 #[test]
 fn nested_call_writing_an_upvalue_of_the_running_thread() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let call = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -120,3 +118,5 @@ fn nested_call_writing_an_upvalue_of_the_running_thread() -> Result<(), ExternEr
     assert_eq!(lua.execute::<i64>(&executor)?, 42);
     Ok(())
 }
+
+mod common;

@@ -1,14 +1,94 @@
-//! The `debug` library. `sethook`/`getlocal` are deliberately absent — see the module docs.
+//! Debug-library behavior and mutation.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<String, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<String>(&executor)
+}
+
+mod common;
+
+#[test]
+fn debug_indices_accept_the_full_lua_integer_range() -> Result<(), ExternError> {
+    for operation in [
+        "assert(debug.getupvalue(f, index)==nil)",
+        "assert(debug.setupvalue(f, index, 99)==nil)",
+        "assert(not pcall(debug.upvalueid, f, index))",
+        "assert(not pcall(debug.upvaluejoin, f, index, g, 1))",
+        "assert(not pcall(debug.upvaluejoin, f, 1, g, index))",
+        "assert(debug.getlocal(1, index)==nil)",
+        "assert(debug.setlocal(1, index, 99)==nil)",
+        "assert(debug.getlocal(index, 1)==nil)",
+        "assert(debug.setlocal(index, 1, 99)==nil)",
+    ] {
+        let script = format!(
+            r#"
+            local x,y=41,42
+            local f=function() return x end
+            local g=function() return y end
+            for _,index in ipairs({{-9223372036854775807-1,-1,0,4294967296,9223372036854775807}}) do
+                {operation}
+                assert(f()==41 and g()==42)
+            end
+            return "ok"
+            "#
+        );
+        assert_eq!(eval(&script)?, "ok", "{operation}");
+    }
+    Ok(())
+}
+
+#[test]
+fn debug_frame_levels_do_not_wrap_on_narrow_targets() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            for _,level in ipairs({4294967296,4294967297,9223372036854775807}) do
+                assert(debug.getinfo(level)==nil)
+            end
+            return "ok"
+            "#
+        )?,
+        "ok"
+    );
+    Ok(())
+}
+
+#[test]
+fn joined_upvalue_can_alias_the_executing_frames_local() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+        local alias=0
+        local f
+        f=function()
+            local x=0
+            local read=function() return x end
+            local joined=false
+            for i=1,10 do
+                local name,value=debug.getupvalue(f,i)
+                if name and value==0 then
+                    debug.upvaluejoin(f,i,read,1)
+                    joined=true
+                    break
+                end
+            end
+            assert(joined)
+            x=41
+            alias=alias+1
+            return x
+        end
+        return tostring(f())
+    "#
+        )?,
+        "42"
+    );
+    Ok(())
 }
 
 #[test]

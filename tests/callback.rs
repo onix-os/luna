@@ -2,13 +2,13 @@ use std::pin::Pin;
 
 use luna::{
     BoxSequence, Callback, CallbackReturn, Closure, Context, Error, Execution, Executor,
-    ExternError, Function, IntoValue, Lua, Sequence, SequencePoll, Stack, String, Thread, Value,
+    ExternError, Function, IntoValue, Sequence, SequencePoll, Stack, String, Thread, Value,
 };
 use ottavino_gc_arena::Collect;
 
 #[test]
 fn callback() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |_, _, mut stack| {
@@ -40,7 +40,7 @@ fn callback() -> Result<(), ExternError> {
 
 #[test]
 fn tail_call_trivial_callback() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |_, _, mut stack| {
@@ -69,7 +69,7 @@ fn tail_call_trivial_callback() -> Result<(), ExternError> {
 
 #[test]
 fn loopy_callback() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, _| {
@@ -145,7 +145,7 @@ fn loopy_callback() -> Result<(), ExternError> {
 
 #[test]
 fn yield_sequence() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -229,7 +229,7 @@ fn yield_sequence() -> Result<(), ExternError> {
 
 #[test]
 fn resume_with_err() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua.enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -304,3 +304,167 @@ fn resume_with_err() {
         },
     );
 }
+
+#[test]
+fn nested_callback_outcomes_preserve_payloads_and_single_drops() -> Result<(), ExternError> {
+    use std::{
+        cell::Cell,
+        panic::{catch_unwind, AssertUnwindSafe},
+        rc::Rc,
+    };
+
+    #[derive(Collect)]
+    #[collect(require_static)]
+    struct Counted(Rc<Cell<usize>>);
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    impl<'gc> Sequence<'gc> for Counted {
+        fn poll(
+            self: Pin<&mut Self>,
+            _: Context<'gc>,
+            _: Execution<'gc, '_>,
+            _: Stack<'gc, '_>,
+        ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+            panic!("forwarded sequence must not be polled");
+        }
+    }
+
+    let drops = Rc::new(Cell::new(0));
+    let mut lua = common::core();
+    let executor = lua.try_enter(|ctx| {
+        let counts = drops.clone();
+        ctx.set_global(
+            "probe",
+            Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+                let choice: i64 = stack.consume(ctx)?;
+                let counts = counts.clone();
+                let child = Callback::from_fn(&ctx, move |ctx, _, _| {
+                    let sequence = || BoxSequence::new(&ctx, Counted(counts.clone()));
+                    Ok(match choice {
+                        0 => CallbackReturn::Return,
+                        1 => CallbackReturn::Sequence(sequence()),
+                        2 => CallbackReturn::Call {
+                            function: Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return))
+                                .into(),
+                            then: Some(sequence()),
+                        },
+                        3 => CallbackReturn::Yield {
+                            to_thread: Some(Thread::new(ctx)),
+                            then: Some(sequence()),
+                        },
+                        4 => CallbackReturn::Resume {
+                            thread: Thread::new(ctx),
+                            then: Some(sequence()),
+                        },
+                        5 => return Err(Value::Integer(91).into()),
+                        6 => {
+                            let _sequence = sequence();
+                            std::panic::panic_any(73usize);
+                        }
+                        _ => unreachable!(),
+                    })
+                });
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    child.call(ctx, exec.reborrow(), stack.reborrow())
+                }));
+                let actual = match outcome {
+                    Ok(Ok(CallbackReturn::Return)) => 0,
+                    Ok(Ok(CallbackReturn::Sequence(_))) => 1,
+                    Ok(Ok(CallbackReturn::Call { function, then })) => {
+                        assert!(matches!(function, Function::Callback(_)) && then.is_some());
+                        2
+                    }
+                    Ok(Ok(CallbackReturn::Yield { to_thread, then })) => {
+                        assert!(to_thread.is_some() && then.is_some());
+                        3
+                    }
+                    Ok(Ok(CallbackReturn::Resume { thread, then })) => {
+                        assert_eq!(thread.mode(), luna::ThreadMode::Stopped);
+                        assert!(then.is_some());
+                        4
+                    }
+                    Ok(Err(Error::Lua(error))) => {
+                        assert!(matches!(error.0, Value::Integer(91)));
+                        5
+                    }
+                    Err(payload) => {
+                        assert_eq!(payload.downcast_ref::<usize>(), Some(&73));
+                        6
+                    }
+                    _ => panic!("unexpected forwarded outcome"),
+                };
+                assert_eq!(actual, choice);
+                stack.replace(ctx, true);
+                Ok(CallbackReturn::Return)
+            }),
+        );
+        let closure = Closure::load(ctx, None, b"for i=0,6 do assert(probe(i)) end return 42")?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert_eq!(drops.get(), 5);
+    lua.gc_collect();
+    assert_eq!(drops.get(), 5);
+    Ok(())
+}
+
+#[test]
+fn callback_stack_overflow_preserves_caller() -> Result<(), ExternError> {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let mut lua = common::core();
+    lua.enter(|ctx| {
+        let boundary = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let Value::Integer(input) = stack.get(0) else {
+                panic!("expected integer argument");
+            };
+            assert!(stack.get(usize::MAX).is_nil());
+            assert!(stack.remove(usize::MAX).is_none());
+            for operation in 0..4 {
+                let result = catch_unwind(AssertUnwindSafe(|| match operation {
+                    0 => stack.set(usize::MAX, Value::Nil),
+                    1 => stack.resize(usize::MAX),
+                    2 => stack.sub_stack(usize::MAX).clear(),
+                    3 => drop(stack.drain(usize::MAX..)),
+                    _ => unreachable!(),
+                }));
+                assert!(result.is_err());
+                assert_eq!(stack.len(), 1);
+                assert!(matches!(stack.get(0), Value::Integer(value) if value == input));
+            }
+            stack.replace(ctx, input);
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("boundary", boundary);
+    });
+    let closure = lua.try_enter(|ctx| {
+        let source = b"local guard=12345 local root={n=42} local sum=0 for i=1,80 do sum=sum+boundary(i) end return guard,root.n,sum";
+        Ok(ctx.stash(Closure::load(ctx, Some("callback-stack-bounds"), source)?))
+    })?;
+    for _ in 0..3 {
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+        assert_eq!(
+            lua.execute::<(i64, i64, i64)>(&executor)?,
+            (12345, 42, 3240)
+        );
+        lua.gc_collect();
+    }
+    #[cfg(feature = "jit")]
+    if lua.jit_capabilities().supported_target
+        && matches!(
+            std::env::var("LUNA_TEST_JIT_MODE").as_deref(),
+            Ok("auto" | "force")
+        )
+    {
+        assert!(lua.jit_stats().native_entries > 0);
+    }
+    Ok(())
+}
+
+mod common;

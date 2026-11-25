@@ -2,16 +2,18 @@
 //! replacement capture indices, the C character classes, `string.format` coercion and `%q`
 //! literals, and `string.unpack`'s bounds checks.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<T>(&executor)
 }
+
+mod common;
 
 /// Run `expr`, which must yield a string and a count, and render it as `"result count"`.
 fn subst(expr: &str) -> String {

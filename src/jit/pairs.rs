@@ -1,0 +1,559 @@
+use allocator_api2::vec::Vec;
+
+use super::{
+    canonical::Program,
+    ir::Snapshot,
+    metadata_map,
+    owner::Shared,
+    resources::{BudgetAllocator, Compactor},
+    CompileError, JitConfig, JitMode, MetadataMap, Runtime,
+};
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Key {
+    pub caller: u64,
+    pub callee: u64,
+    pub pc: usize,
+}
+
+#[derive(Default)]
+struct Entry {
+    hotness: u32,
+    attempts: u32,
+    queued: bool,
+    program: Option<Shared<Program>>,
+    last_used: u64,
+}
+
+pub(super) struct State {
+    pub(super) regions: super::native_region::cache::Cache,
+    pub(super) promotions: Option<super::native_region::schedule::Schedule>,
+    #[cfg(test)]
+    executions: (usize, usize),
+    entries: MetadataMap<Key, Entry>,
+    installed: usize,
+    queue: Vec<Key, BudgetAllocator>,
+    entry_compactor: Compactor,
+    queue_compactor: Compactor,
+    allocator: BudgetAllocator,
+}
+
+impl State {
+    pub(super) fn new(allocator: BudgetAllocator) -> Self {
+        Self {
+            regions: super::native_region::cache::Cache::new(allocator.clone()),
+            #[cfg(test)]
+            promotions: None,
+            #[cfg(not(test))]
+            promotions: Some(super::native_region::schedule::Schedule::new(
+                allocator.clone(),
+            )),
+            #[cfg(test)]
+            executions: (0, 0),
+            entries: metadata_map(allocator.clone()),
+            installed: 0,
+            queue: Vec::new_in(allocator.clone()),
+            entry_compactor: Compactor::default(),
+            queue_compactor: Compactor::default(),
+            allocator,
+        }
+    }
+
+    pub fn queued(&self) -> usize {
+        let count = self.queue.len();
+        let count = count + self.promotions.as_ref().map_or(0, |queue| queue.queued());
+        count
+    }
+
+    pub fn has_installed(&self) -> bool {
+        self.installed != 0
+    }
+
+    pub fn clear(&mut self) {
+        let enabled = self.promotions.is_some();
+        *self = Self::new(self.allocator.clone());
+        self.promotions =
+            enabled.then(|| super::native_region::schedule::Schedule::new(self.allocator.clone()));
+    }
+
+    pub fn victim(&self, exclude: Option<Key>) -> Option<(u64, Key)> {
+        self.entries
+            .iter()
+            .filter_map(|(key, entry)| {
+                (Some(*key) != exclude
+                    && entry
+                        .program
+                        .as_ref()
+                        .is_some_and(|program| Shared::strong_count(program) == 1))
+                .then_some((entry.last_used, *key))
+            })
+            .min()
+    }
+
+    pub fn evict(&mut self, key: Key) {
+        self.regions.remove(key);
+        if let Some(queue) = &mut self.promotions {
+            queue.cancel(key);
+        }
+        let entry = self.entries.get_mut(&key).unwrap();
+        self.installed -= usize::from(entry.program.take().is_some());
+        entry.hotness = 0;
+    }
+
+    pub fn configure(&mut self, config: &JitConfig, available: usize) {
+        let entries = &mut self.entries;
+        let mut retained = 0;
+        self.queue.retain(|key| {
+            let entry = entries.get_mut(key).unwrap();
+            let keep = retained < available && entry.attempts < config.max_compile_attempts;
+            retained += usize::from(keep);
+            entry.queued = keep;
+            keep
+        });
+        if self.queue.is_empty() {
+            self.queue = Vec::new_in(self.allocator.clone());
+        }
+        if let Some(queue) = &mut self.promotions {
+            queue.configure(config, available.saturating_sub(retained));
+        }
+    }
+
+    pub fn retire(&mut self, id: u64) {
+        self.regions.retire(id);
+        if let Some(queue) = &mut self.promotions {
+            queue.retire(id);
+        }
+        self.queue
+            .retain(|key| key.caller != id && key.callee != id);
+        self.entries.retain(|key, entry| {
+            let keep = key.caller != id && key.callee != id;
+            if !keep {
+                self.installed -= usize::from(entry.program.is_some());
+            }
+            keep
+        });
+        if self.queue.is_empty() {
+            self.queue = Vec::new_in(self.allocator.clone());
+        }
+        if self.entries.is_empty() {
+            self.entries = metadata_map(self.allocator.clone());
+        }
+    }
+
+    fn observe(&mut self, key: Key, config: &JitConfig, available: bool) -> bool {
+        if !self.entries.contains_key(&key) {
+            if self.entries.try_reserve(1).is_err() {
+                return false;
+            }
+            self.entries.insert(key, Entry::default());
+        }
+        let entry = self.entries.get_mut(&key).unwrap();
+        entry.hotness = entry.hotness.saturating_add(1);
+        if available
+            && entry.program.is_none()
+            && !entry.queued
+            && entry.attempts < config.max_compile_attempts
+            && entry.hotness >= config.hot_threshold
+        {
+            if self.queue.try_reserve(1).is_err() {
+                return false;
+            }
+            self.queue.push(key);
+            entry.queued = true;
+            return true;
+        }
+        false
+    }
+
+    fn next(&mut self) -> Option<Key> {
+        if self.queue.is_empty() {
+            return None;
+        }
+        let key = self.queue.remove(0);
+        let entry = self.entries.get_mut(&key).unwrap();
+        entry.queued = false;
+        entry.attempts = entry.attempts.saturating_add(1);
+        Some(key)
+    }
+
+    pub fn needs_compaction(&mut self) -> bool {
+        let needed = self
+            .entry_compactor
+            .needed(self.entries.len(), self.entries.capacity())
+            | self
+                .queue_compactor
+                .needed(self.queue.len(), self.queue.capacity());
+        let needed = needed
+            | self.regions.needs_compaction()
+            | self
+                .promotions
+                .as_mut()
+                .is_some_and(|queue| queue.needs_compaction());
+        needed
+    }
+
+    pub(super) fn has_key(&self, key: Key) -> bool {
+        self.entries
+            .get(&key)
+            .is_some_and(|entry| entry.program.is_some())
+    }
+
+    pub(super) fn contains(&self, pair: &super::PreparedPair) -> bool {
+        self.entries
+            .get(&pair.program.key())
+            .and_then(|entry| entry.program.as_ref())
+            .is_some_and(|program| Shared::ptr_eq(program, &pair.program))
+    }
+
+    pub fn compact(&mut self) -> [super::resources::Compaction; 2] {
+        [
+            self.entry_compactor.map(&mut self.entries),
+            self.queue_compactor.vector(&mut self.queue),
+        ]
+    }
+}
+
+impl Runtime {
+    pub(crate) fn record_pair_execution(&self, calls: usize, returns: usize) {
+        let mut manager = self.0.borrow_mut();
+        manager.stats.native_pair_calls =
+            manager.stats.native_pair_calls.saturating_add(calls as u64);
+        manager.stats.native_pair_returns = manager
+            .stats
+            .native_pair_returns
+            .saturating_add(returns as u64);
+        #[cfg(test)]
+        if let Some(pairs) = &mut manager.pairs {
+            pairs.executions.0 = pairs.executions.0.saturating_add(calls);
+            pairs.executions.1 = pairs.executions.1.saturating_add(returns);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_pair_executions(&self) -> (usize, usize) {
+        self.0
+            .borrow()
+            .pairs
+            .as_ref()
+            .map_or((0, 0), |pairs| pairs.executions)
+    }
+
+    pub(crate) fn prepare_call_at<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        registers: &crate::thread::LuaRegisters<'gc, '_>,
+        pc: usize,
+        scope: &mut super::PairScope<'gc>,
+    ) -> Option<super::PreparedPair> {
+        let prototype = caller.prototype();
+        let crate::opcode::Operation::Call {
+            func,
+            args,
+            returns,
+        } = prototype.opcodes.get(pc)?.decode()
+        else {
+            return None;
+        };
+        if args.to_constant().is_none() || returns.to_constant() != Some(0) {
+            return None;
+        }
+        let crate::Value::Function(crate::Function::Closure(callee)) =
+            registers.stack_frame.get(usize::from(func.0)).copied()?
+        else {
+            return None;
+        };
+        let caller_address = ottavino_gc_arena::Gc::as_ptr(prototype) as usize;
+        let callee_address = ottavino_gc_arena::Gc::as_ptr(callee.prototype()) as usize;
+        if scope.cache.as_ref().is_some_and(|cached| {
+            cached.program.key().pc == pc
+                && scope.caller == caller_address
+                && scope.callee == callee_address
+                && self.touch_pair(cached)
+        }) {
+            return scope.cache.take();
+        }
+        let registry = ctx.jit_registry().borrow();
+        let key = Key {
+            caller: registry.identity(ctx, prototype)?,
+            callee: registry.identity(ctx, callee.prototype())?,
+            pc,
+        };
+        let program = self.pair_lease(key)?;
+        scope.cache = None;
+        scope.caller = caller_address;
+        scope.callee = callee_address;
+        Some(super::PreparedPair { program })
+    }
+
+    fn touch_pair(&self, cached: &super::PreparedPair) -> bool {
+        let mut manager = self.0.borrow_mut();
+        if manager.config.mode != JitMode::Auto {
+            return false;
+        }
+        manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
+        let clock = manager.clock.saturating_add(1);
+        let Some(entry) = manager
+            .pairs
+            .as_mut()
+            .and_then(|pairs| pairs.entries.get_mut(&cached.program.key()))
+        else {
+            return false;
+        };
+        if !entry
+            .program
+            .as_ref()
+            .is_some_and(|program| Shared::ptr_eq(program, &cached.program))
+        {
+            return false;
+        }
+        entry.last_used = clock;
+        manager.clock = clock;
+        manager.stats.native_pair_cache_hits =
+            manager.stats.native_pair_cache_hits.saturating_add(1);
+        true
+    }
+
+    pub(crate) fn call_pairs_enabled(&self) -> bool {
+        let manager = self.0.borrow();
+        manager.config.mode == JitMode::Auto && manager.pairs.is_some()
+    }
+
+    pub(crate) fn observe_call<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        registers: &crate::thread::LuaRegisters<'gc, '_>,
+        function: crate::types::RegisterIndex,
+        arguments: crate::types::VarCount,
+        returns: crate::types::VarCount,
+    ) {
+        if arguments.to_constant().is_none() || returns.to_constant() != Some(0) {
+            return;
+        }
+        let Some(crate::Value::Function(crate::Function::Closure(callee))) =
+            registers.stack_frame.get(usize::from(function.0)).copied()
+        else {
+            return;
+        };
+        if callee.prototype().opcodes.len() != 4 {
+            return;
+        }
+        let prototype = callee.prototype();
+        let operations: [_; 4] = std::array::from_fn(|index| prototype.opcodes[index].decode());
+        let Some(pattern) = super::leaf::Pattern::from_operations(&operations) else {
+            return;
+        };
+        let crate::opcode::Operation::Return { count, .. } = operations[3] else {
+            return;
+        };
+        if count.to_constant().is_none() {
+            return;
+        }
+        match pattern.right {
+            super::leaf::Operand::Constant(index) => {
+                if !matches!(
+                    prototype.constants.get(usize::from(index)),
+                    Some(crate::Constant::Integer(_))
+                ) {
+                    return;
+                }
+            }
+            super::leaf::Operand::Register(register) if register != pattern.read => {
+                if register.0 >= arguments.to_constant().unwrap()
+                    || register.0 >= prototype.fixed_params
+                {
+                    return;
+                }
+            }
+            _ => {}
+        }
+        let registry = ctx.jit_registry().borrow();
+        let Some(caller) = registry.identity(ctx, caller.prototype()) else {
+            return;
+        };
+        let Some(callee) = registry.identity(ctx, callee.prototype()) else {
+            return;
+        };
+        let Some(pc) = registers.pc.checked_sub(1) else {
+            return;
+        };
+        self.observe_pair(Key { caller, callee, pc });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_call_pairs(&self, enabled: bool) {
+        let mut manager = self.0.borrow_mut();
+        manager.pairs = enabled.then(|| State::new(manager.metadata.clone()));
+        manager.stats.queued_requests = manager.queued_count();
+    }
+
+    pub(crate) fn observe_pair(&self, key: Key) {
+        let mut manager = self.0.borrow_mut();
+        if manager.config.mode != JitMode::Auto
+            || !manager.tracked.contains_key(&key.caller)
+            || !manager.tracked.contains_key(&key.callee)
+        {
+            return;
+        }
+        let available = manager.queued_count() < manager.config.max_queue_entries;
+        let config = manager.config.clone();
+        if manager
+            .pairs
+            .as_mut()
+            .is_some_and(|pairs| pairs.observe(key, &config, available))
+        {
+            manager.stats.compilation_requests =
+                manager.stats.compilation_requests.saturating_add(1);
+        }
+        manager.stats.queued_requests = manager.queued_count();
+    }
+
+    pub(crate) fn next_pair_request(&self) -> Option<Key> {
+        let mut manager = self.0.borrow_mut();
+        let key = manager.pairs.as_mut()?.next();
+        manager.stats.queued_requests = manager.queued_count();
+        key
+    }
+
+    pub(super) fn pair_lease(&self, key: Key) -> Option<Shared<Program>> {
+        let mut manager = self.0.borrow_mut();
+        if manager.config.mode != JitMode::Auto {
+            return None;
+        }
+        manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
+        let last_used = manager.clock.saturating_add(1);
+        let program = manager.pairs.as_mut()?.entries.get_mut(&key)?;
+        let lease = program.program.as_ref()?.clone();
+        program.last_used = last_used;
+        manager.clock = last_used;
+        manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
+        Some(lease)
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_replace_pair(&self, program: Shared<Program>) -> Shared<Program> {
+        self.0
+            .borrow_mut()
+            .pairs
+            .as_mut()
+            .unwrap()
+            .entries
+            .get_mut(&program.key())
+            .unwrap()
+            .program
+            .replace(program)
+            .unwrap()
+    }
+
+    pub(crate) fn compile_pair(
+        &self,
+        key: Key,
+        caller: Snapshot,
+        callee: Snapshot,
+    ) -> Result<(), CompileError> {
+        #[cfg(test)]
+        let hook = self.0.borrow_mut().before_compile.take();
+        #[cfg(test)]
+        if let Some(hook) = hook {
+            hook();
+        }
+        let (memory, limit, metadata, limits) = {
+            let manager = self.0.borrow();
+            (
+                manager.memory.clone(),
+                manager.config.max_code_bytes,
+                manager.metadata.clone(),
+                super::work::Limits::from(&manager.config),
+            )
+        };
+        #[cfg(test)]
+        let failure = self.0.borrow().memory_failure;
+        let compile = || {
+            Program::new(
+                key,
+                &caller,
+                &callee,
+                memory.clone(),
+                limit,
+                metadata.clone(),
+                limits,
+                #[cfg(test)]
+                failure,
+            )
+        };
+        let mut result = compile();
+        if matches!(&result, Err(CompileError::ResourceLimit("native mappings"))) {
+            let mut manager = self.0.borrow_mut();
+            let eligible = manager.config.mode == JitMode::Auto
+                && manager.pairs.as_ref().is_some_and(|pairs| {
+                    pairs
+                        .entries
+                        .get(&key)
+                        .is_some_and(|entry| entry.attempts < manager.config.max_compile_attempts)
+                });
+            if eligible && manager.evict_cached(super::CacheKey::Pair(key)) {
+                manager
+                    .pairs
+                    .as_mut()
+                    .unwrap()
+                    .entries
+                    .get_mut(&key)
+                    .unwrap()
+                    .attempts += 1;
+                manager.stats.compilation_failures =
+                    manager.stats.compilation_failures.saturating_add(1);
+                drop(manager);
+                result = compile();
+            }
+        }
+        drop(caller);
+        drop(callee);
+        let mut manager = self.0.borrow_mut();
+        let result = result.and_then(|program| {
+            if manager.config.mode != JitMode::Auto
+                || !manager.tracked.contains_key(&key.caller)
+                || !manager.tracked.contains_key(&key.callee)
+                || !manager.pairs.as_ref().is_some_and(|pairs| {
+                    pairs
+                        .entries
+                        .get(&key)
+                        .is_some_and(|entry| entry.attempts <= manager.config.max_compile_attempts)
+                })
+            {
+                return Ok(());
+            }
+            #[cfg(test)]
+            match failure {
+                super::backend::Failure::RefuseOwnerStorage => {
+                    manager.metadata.0.set_limit(manager.metadata.0.current())
+                }
+                super::backend::Failure::RefuseOwnerAllocation => manager.metadata.0.fail_after(0),
+                _ => {}
+            }
+            let program = Shared::try_new(program, manager.metadata.clone())
+                .map_err(|_| CompileError::ResourceLimit("JIT metadata"))?;
+            let last_used = manager.clock.saturating_add(1);
+            let pairs = manager.pairs.as_mut().unwrap();
+            pairs.regions.remove(key);
+            if let Some(queue) = &mut pairs.promotions {
+                queue.cancel(key);
+            }
+            let entry = pairs.entries.get_mut(&key).unwrap();
+            pairs.installed += usize::from(entry.program.replace(program).is_none());
+            entry.last_used = last_used;
+            manager.clock = last_used;
+            manager.stats.installed_regions = manager.stats.installed_regions.saturating_add(1);
+            manager.stats.queued_requests = manager.queued_count();
+            Ok(())
+        });
+        if result.is_err() {
+            manager.stats.compilation_failures =
+                manager.stats.compilation_failures.saturating_add(1);
+        }
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests;

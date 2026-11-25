@@ -77,6 +77,60 @@
         ];
       in
       {
+        devShells.worker = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.stable.latest.default.override {
+              targets = [ "x86_64-unknown-linux-musl" ];
+              extensions = [ "rustfmt" "clippy" ];
+            })
+            pkgs.binutils
+            pkgs.jq
+            pkgs.actionlint
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.valgrind ];
+          LUNA_WORKER_GLIBC_STATIC = pkgs.lib.optionalString pkgs.stdenv.isLinux "${pkgs.glibc.static}/lib";
+        };
+
+        devShells.pgo = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.stable.latest.default.override {
+              extensions = [ "llvm-tools-preview" ];
+            })
+            pkgs.clang
+          ];
+        };
+
+        devShells.fallback = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.stable.latest.default.override {
+              targets = [ "i686-unknown-linux-musl" ];
+              extensions = [ "rustfmt" "clippy" ];
+            })
+            pkgs.lld
+          ];
+          CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.lld}/bin/ld.lld";
+        };
+
+        devShells.fuzz = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.nightly."2026-08-16".default.override {
+              extensions = [ "rust-src" ];
+            })
+            pkgs.cargo-fuzz
+            pkgs.clang
+            pkgs.pkg-config
+          ];
+          CC = "clang";
+          CXX = "clang++";
+        };
+
+        devShells.miri = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.nightly."2026-08-16".default.override {
+              extensions = [ "miri" "rust-src" ];
+            })
+          ];
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [
             # One toolchain, with the musl target, replacing the separate rustc/cargo/rustfmt/
@@ -90,6 +144,9 @@
             pkgs.clang
             pkgs.mold
             pkgs.pkg-config
+            pkgs.actionlint
+            pkgs.valgrind
+            pkgs.binutils
 
             # Working out where the binary and the source went. Each answers a different question,
             # and the first two answer it about *different* things — which is the reason to have

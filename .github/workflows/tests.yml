@@ -1,0 +1,202 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The toolchain action is pinned to an exact stable release: `@stable` silently moves under us,
+  # which turns a new lint into a red build on an unrelated PR.
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+      # `make verify` as one step reports only "the gate failed". Splitting it means the run summary
+      # alone names the stage, which matters because reading job logs needs admin rights on this
+      # repository and the person debugging a red build usually does not have them.
+      - name: Toolchain and environment
+        run: |
+          echo "make:  $(make --version | head -1)"
+          echo "cargo: $(cargo --version)"
+          echo "PROJECT_NAME parsed by the Makefile: '$(make -s print-name)'"
+      # Failures are re-emitted as ::error:: annotations, not just written to the log. Job logs need
+      # admin rights on this repository; annotations are visible to anyone who can see the run, so a
+      # red build stays diagnosable by whoever is actually looking at it.
+      - name: fmt-check
+        run: |
+          make fmt-check && exit 0
+          make fmt-check 2>&1 | head -60 | while IFS= read -r l; do echo "::error::fmt: $l"; done
+          exit 1
+      - name: check
+        run: make check
+      - name: Miri evidence recipe
+        run: make jit-miri-wrapper-tests
+      - name: Paired benchmark evidence recipe
+        run: make jit-bench-raw-tests
+      - name: Consumer evidence recipe
+        run: make jit-oslo-consumer-tests
+      - name: Compiler job memory evidence reader
+        run: make jit-compiler-jobs-memcheck-reader-tests
+      - name: test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee /tmp/test.log && exit 0
+          grep -nE 'FAILED|panicked|left:|right:|assertion' /tmp/test.log \
+            | head -60 | while IFS= read -r l; do echo "::error::test: $l"; done
+          exit 1
+      # Reported, not enforced, for the reason written above the `verify` target in the Makefile:
+      # the inherited lint backlog would make this red on every run. Switch to `make clippy-strict`
+      # and drop continue-on-error once it is cleared.
+      - name: clippy
+        continue-on-error: true
+        run: make clippy
+      - name: rustdoc
+        run: make rustdoc
+
+  miri:
+    name: Rust-only JIT Miri (seed ${{ matrix.seed }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: nightly-2026-08-16
+          components: miri, rust-src
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/miri
+          key: miri-x86_64-nightly-2026-08-16-${{ hashFiles('Cargo.lock') }}
+      - name: Rust-only component gate
+        env:
+          MIRIFLAGS: -Zmiri-seed=${{ matrix.seed }}
+        run: make jit-miri MIRI_DIR=target/jit-evidence/miri/x86_64-unknown-linux-gnu/seed-${{ matrix.seed }}
+      - name: Upload Miri evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: miri-seed-${{ matrix.seed }}
+          path: target/jit-evidence/miri/
+          if-no-files-found: error
+
+  fallback:
+    name: interpreter fallback (i686 musl)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.97.1
+          targets: i686-unknown-linux-musl
+      - name: Install linker
+        run: sudo apt-get update && sudo apt-get install -y lld
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: fallback-i686-musl-rust-1.97.1-${{ hashFiles('Cargo.lock') }}
+      - name: Execute unsupported-target gate
+        env:
+          CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER: ld.lld
+        run: |
+          mkdir -p target/jit-evidence/fallback
+          set -o pipefail
+          make environment TARGET=i686-unknown-linux-musl | tee target/jit-evidence/fallback/environment.log
+          make jit-fallback TARGET=i686-unknown-linux-musl 2>&1 | tee target/jit-evidence/fallback/ci.log
+      - name: Upload fallback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: interpreter-fallback-i686-musl
+          path: target/jit-evidence/fallback/
+          if-no-files-found: error
+
+  native:
+    name: native (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+          components: rustfmt
+      - name: Install musl linker
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install static GNU libraries
+        if: endsWith(matrix.target, '-gnu')
+        run: sudo apt-get update && sudo apt-get install -y libc6-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: jit-${{ matrix.target }}-rust-1.97.1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            jit-${{ matrix.target }}-rust-1.97.1-
+      - name: Native gate
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: |
+          mkdir -p target/jit-evidence
+          make environment TARGET=${{ matrix.target }} | tee target/jit-evidence/ci-environment.log
+          set -o pipefail
+          static=false
+          case '${{ matrix.target }}' in
+            *-gnu) static=true ;;
+          esac
+          make jit-platform TARGET=${{ matrix.target }} WORKER_STATIC_GNU="$static" 2>&1 | tee target/jit-evidence/ci-native.log
+      - name: Build matched shipping feature-cost artifacts
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: |
+          set -o pipefail
+          make jit-size-build TARGET=${{ matrix.target }} SIZE_PROFILE=shipping 2>&1 | tee target/jit-evidence/ci-size-build.log
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-${{ matrix.target }}
+          path: target/jit-evidence/
+          if-no-files-found: error

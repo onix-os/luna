@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
-use luna::{Lua, Table, Value};
+use luna::{Table, Value};
 
 #[test]
 fn test_table_iter() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.enter(|ctx| {
         let table = Table::new(&ctx);
@@ -45,3 +45,5 @@ fn test_table_iter() {
         assert!(table.get_value(ctx, "3").is_nil());
     });
 }
+
+mod common;

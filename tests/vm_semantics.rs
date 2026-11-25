@@ -1,15 +1,54 @@
 //! VM behaviour that a script can observe: loop preparation, and what a callback sees of the stack
 //! it was handed.
 
-use luna::{Callback, CallbackReturn, Closure, Executor, ExternError, Lua, Value, Variadic};
+use luna::{Callback, CallbackReturn, Closure, Executor, ExternError, Value, Variadic};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<T>(&executor)
+}
+
+#[test]
+fn generic_for_false_control_values_do_not_end_iteration() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<i64>(
+            r#"
+        local function iter(_, key)
+            if key == nil then return false, 42 end
+            if key == false then return true, 43 end
+            return nil, 1000
+        end
+        local total = 0
+        for key, value in iter, nil, nil do total = total + value end
+        return total
+    "#
+        )?,
+        85
+    );
+    Ok(())
+}
+
+#[test]
+fn generic_for_pairs_visits_false_keys_and_nil_still_ends_the_loop() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<i64>(
+            r#"
+        local total = 0
+        for key, value in pairs({[false]=42}) do
+            assert(key == false)
+            total = total + value
+        end
+        for key, value in function() return nil, 1000 end do total = total + value end
+        return total
+    "#
+        )?,
+        42
+    );
+    Ok(())
 }
 
 #[test]
@@ -160,7 +199,7 @@ fn a_returned_frame_leaves_nothing_reachable_to_the_caller() -> Result<(), Exter
 fn draining_a_stack_from_the_back_removes_the_whole_range() -> Result<(), ExternError> {
     // `Stack::drain` yields from either end, and what came off the back used to be left behind:
     // the callback's arguments reappeared among its return values.
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let backwards: Vec<Value> = stack.drain(..).rev().collect();
@@ -180,7 +219,7 @@ fn draining_a_stack_from_the_back_removes_the_whole_range() -> Result<(), Extern
 fn partially_draining_a_stack_from_the_back_removes_the_whole_range() -> Result<(), ExternError> {
     // A single value taken off the back and then dropped: the rest of the range goes too, as
     // `Vec::drain` does.
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let last = {
@@ -195,6 +234,8 @@ fn partially_draining_a_stack_from_the_back_removes_the_whole_range() -> Result<
     assert_eq!(lua.execute::<Variadic<Vec<i64>>>(&executor)?.0, vec![3]);
     Ok(())
 }
+
+mod common;
 
 #[test]
 fn ordinary_numeric_for_loops_still_run() -> Result<(), ExternError> {

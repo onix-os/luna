@@ -1,14 +1,79 @@
 //! `__metatable`, `__name`, metatables on non-table values, and PUC-Rio float formatting.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<bool>(&executor)
+}
+
+mod common;
+
+#[test]
+fn ordering_preserves_metamethod_arguments_and_errors() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local calls = 0
+        local object = {}
+        setmetatable(object, {
+            __lt = function(a, b)
+                calls = calls + 1
+                assert((a == object and b == 3) or (a == 3 and b == object))
+                return a == object
+            end,
+            __le = function(a, b)
+                calls = calls + 1
+                assert((a == object and b == 3) or (a == 3 and b == object))
+                return b == object
+            end,
+        })
+        assert(object < 3 and not (3 < object))
+        assert(not (object <= 3) and 3 <= object)
+        assert("12" < "2" and "2" <= "2")
+        assert(not pcall(function() return "2" < 3 end))
+        assert(not pcall(function() return false <= 3 end))
+        local broken = setmetatable({}, { __lt = function() error("ordering failure") end })
+        local ok, message = pcall(function() return broken < 3 end)
+        return calls == 4 and not ok and string.find(message, "ordering failure") ~= nil
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn function_and_metamethod_calls_preserve_arguments_results_and_errors() -> Result<(), ExternError>
+{
+    assert!(eval(
+        r#"
+        local calls = 0
+        local function direct(a, b)
+            calls = calls + 1
+            return a + b, a - b
+        end
+        local a, b = direct(7, 3)
+        local callback = math.abs(-9)
+        local object = setmetatable({ value = 10 }, {
+            __call = function(self, x, y)
+                calls = calls + 1
+                return self.value + x + y, x - y
+            end,
+        })
+        local c, d = object(2, 3)
+        local function values() return 4, 5, 6 end
+        local function identity(...) return ... end
+        local x, y, z = identity(values())
+        local ok_table = pcall(function() local bad = {}; bad() end)
+        local ok_number = pcall(function() local bad = 3; bad() end)
+        return calls == 2 and a == 10 and b == 4 and callback == 9
+            and c == 15 and d == -1 and x == 4 and y == 5 and z == 6
+            and not ok_table and not ok_number
+        "#
+    )?);
+    Ok(())
 }
 
 /// The only mechanism a library has to make a metatable tamper-proof.
@@ -95,6 +160,73 @@ fn concat_coerces_floats_the_same_way() -> Result<(), ExternError> {
     assert!(eval(
         r#"
         return (12.0 .. "") == "12.0" and ("" .. 12) == "12" and (1e100 .. "") == "1e+100"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn concat_scalar_fast_paths_preserve_separator_and_empty_cases() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        return table.concat({}) == ""
+            and table.concat({}, ",") == ""
+            and table.concat({12}, ",") == "12"
+            and table.concat({12, 3.5, "z"}) == "123.5z"
+            and table.concat({12, 3.5, "z"}, nil) == "123.5z"
+            and table.concat({12, 3.5, "z"}, 7) == "1273.57z"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn concat_value_and_separator_fallbacks_preserve_right_to_left_order() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local calls = {}
+        local function label(value)
+            if type(value) == "table" then return value.name end
+            return value
+        end
+        local mt = {__concat = function(a, b)
+            local left, right = label(a), label(b)
+            calls[#calls + 1] = left .. ":" .. right
+            return "(" .. left .. "+" .. right .. ")"
+        end}
+        local function node(name) return setmetatable({name = name}, mt) end
+        local a, b, c = node("a"), node("b"), node("c")
+        assert(table.concat({a, b, c}) == "(a+(b+c))")
+        assert(table.concat(calls, ";") == "b:c;a:(b+c)")
+        calls = {}
+        assert(table.concat({a, b, c}, "|") == "(a+|(b+(|+c)))")
+        assert(table.concat(calls, ";") == "|:c;b:(|+c);a:|(b+(|+c))")
+        calls = {}
+        assert(table.concat({"a", "b", "c"}, node("sep")) == "a(sep+b(sep+c))")
+        return table.concat(calls, ";") == "sep:c;sep:b(sep+c)"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn concat_fallback_errors_preserve_payload_and_caller_state() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local calls, last_left, last_right = 0, nil, nil
+        local bad = setmetatable({}, {__concat = function(a, b)
+            calls = calls + 1
+            last_left, last_right = a, b
+            error("concat sentinel", 0)
+        end})
+        local canary = {42}
+        local ok, err = pcall(table.concat, {"a", bad, "c"})
+        assert(not ok and err == "concat sentinel" and calls == 1)
+        assert(last_left == bad and last_right == "c")
+        ok, err = pcall(table.concat, {"a", "b", "c"}, bad)
+        assert(not ok and err == "concat sentinel" and calls == 2)
+        return last_left == bad and last_right == "c" and canary[1] == 42
+            and table.concat({"after", "error"}, ",") == "after,error"
     "#
     )?);
     Ok(())

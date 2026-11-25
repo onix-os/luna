@@ -4,11 +4,21 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use allocator_api2::vec;
+use allocator_api2::{boxed, vec};
 use ottavino_gc_arena::{
     allocator_api::MetricsAlloc, lock::RefLock, Collect, Finalization, Gc, GcWeak, Mutation,
 };
 use thiserror::Error;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(all(test, feature = "jit"))]
+pub(super) mod builtin;
+#[cfg(test)]
+mod call_layout;
+#[cfg(test)]
+mod callback_setup;
 
 use crate::{
     closure::{UpValue, UpValueState},
@@ -25,7 +35,7 @@ use super::VMError;
 /// The current state of a [`Thread`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThreadMode {
-    /// No frames are on the thread and there are no available results, the thread can be started.
+    /// No execution or results remain. Failed coroutines can retain frames for explicit cleanup.
     Stopped,
     /// The thread has an error or has returned (or yielded) values that must be taken to move the
     /// thread back to the `Stopped` (or `Suspended`) state.
@@ -88,6 +98,10 @@ impl<'gc> Thread<'gc> {
                 open_upvalues: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 to_be_closed: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 running: false,
+                closing: false,
+                terminal_error: None,
+                deferred_error: false,
+                error_taken: false,
                 max_call_depth: ctx.max_call_depth(),
             }),
         );
@@ -119,6 +133,11 @@ impl<'gc> Thread<'gc> {
         args: impl IntoMultiValue<'gc>,
     ) -> Result<(), BadThreadMode> {
         let mut state = self.check_mode(&ctx, ThreadMode::Stopped)?;
+        if state.deferred_error {
+            let stack = state.stack;
+            state.reset(&ctx, &mut stack.borrow_mut(&ctx));
+        }
+        state.terminal_error = None;
         let stack = state.stack;
         let mut stack = stack.borrow_mut(&ctx);
         assert!(stack.is_empty());
@@ -134,6 +153,11 @@ impl<'gc> Thread<'gc> {
         function: Function<'gc>,
     ) -> Result<(), BadThreadMode> {
         let mut state = self.check_mode(mc, ThreadMode::Stopped)?;
+        if state.deferred_error {
+            let stack = state.stack;
+            state.reset(mc, &mut stack.borrow_mut(mc));
+        }
+        state.terminal_error = None;
         state.frames.push(Frame::Start(function));
         Ok(())
     }
@@ -205,6 +229,51 @@ impl<'gc> Thread<'gc> {
         }
     }
 
+    pub(crate) fn is_closing(self) -> bool {
+        self.0.borrow().closing
+    }
+
+    pub(crate) fn has_terminal_error(self) -> bool {
+        self.0.borrow().terminal_error.is_some()
+    }
+
+    pub(crate) fn result_is_terminal(self) -> bool {
+        let state = self.0.borrow();
+        state.deferred_error
+            || matches!(
+                state.frames.as_slice(),
+                [Frame::Result { .. } | Frame::Error(_)]
+            )
+    }
+
+    pub(crate) fn prepare_close(self, ctx: Context<'gc>) -> Result<(), BadThreadMode> {
+        let mode = self.mode();
+        if !matches!(
+            mode,
+            ThreadMode::Stopped | ThreadMode::Suspended | ThreadMode::Result
+        ) {
+            return Err(BadThreadMode {
+                found: mode,
+                expected: None,
+            });
+        }
+        let mut state = self.0.borrow_mut(&ctx);
+        let stack = state.stack;
+        let mut stack = stack.borrow_mut(&ctx);
+        let pending_error = match state.frames.last() {
+            Some(Frame::Error(error)) => Some(error.clone()),
+            _ => state.terminal_error.take(),
+        };
+        let values = state.take_pending_close_values(&stack);
+        state.reset(&ctx, &mut stack);
+        state.closing = true;
+        state
+            .frames
+            .push(Frame::close(ctx, 0, values, pending_error));
+        state.frames.push(Frame::Yielded);
+        Ok(())
+    }
+
     /// For each open upvalue pointing to this thread, if the upvalue itself is live, then resurrect
     /// the actual value that it is pointing to.
     ///
@@ -261,6 +330,33 @@ pub struct OpenUpValue<'gc> {
 impl<'gc> OpenUpValue<'gc> {
     const UPGRADE_ERR: &'static str = "thread not finalized: upvalues not closed";
 
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn with_test_stack<R>(
+        ctx: Context<'gc>,
+        values: &[Value<'gc>],
+        index: usize,
+        locked: bool,
+        call: impl FnOnce(UpValue<'gc>) -> R,
+    ) -> R {
+        let mut values_copy = vec::Vec::new_in(MetricsAlloc::new(&ctx));
+        values_copy.extend_from_slice(values);
+        let stack = Gc::new(&ctx, RefLock::new(values_copy));
+        let cell = UpValue::new(
+            &ctx,
+            UpValueState::Open(Self {
+                stack: Gc::downgrade(stack),
+                stack_index: index,
+            }),
+        );
+        let _guard = locked.then(|| stack.borrow_mut(&ctx));
+        call(cell)
+    }
+
+    #[cfg(all(test, feature = "jit"))]
+    pub(super) fn index_in(self, stack: Gc<'gc, RefLock<StackVec<'gc>>>) -> Option<usize> {
+        (self.stack.as_ptr() == Gc::as_ptr(stack)).then_some(self.stack_index)
+    }
+
     // Locks the stack alone. The executor may be holding the thread's frames borrowed while a
     // native runs; that no longer has anything to do with reaching this slot.
     pub fn get(self, mc: &Mutation<'gc>) -> Value<'gc> {
@@ -284,6 +380,7 @@ pub(super) enum MetaReturn {
     Register(RegisterIndex),
     /// Increment the PC by one if the returned value converted to a boolean is equal to this.
     SkipIf(bool),
+    Hook,
 }
 
 #[derive(Debug, Copy, Clone, Collect)]
@@ -319,6 +416,11 @@ pub(super) enum Frame<'gc> {
         // of the stack.
         pending_error: Option<Error<'gc>>,
     },
+    Close {
+        bottom: usize,
+        sequence: boxed::Box<CloseSequence<'gc>, MetricsAlloc<'gc>>,
+        pending_error: Option<Error<'gc>>,
+    },
     /// A suspended function call that has not yet been run. Must be the only frame in the stack.
     Start(Function<'gc>),
     /// A callback that has been queued but not called yet. Must be the top frame of the stack.
@@ -332,9 +434,30 @@ pub(super) enum Frame<'gc> {
     /// We are waiting on an upper thread to finish. Must be the top frame of the stack.
     WaitThread,
     /// Results are waiting to be taken. Must be the top frame of the stack.
-    Result { bottom: usize },
+    Result {
+        bottom: usize,
+    },
     /// An error is currently unwinding. Must be the top frame of the stack.
     Error(Error<'gc>),
+    HookResume,
+}
+
+impl<'gc> Frame<'gc> {
+    pub(super) fn close(
+        ctx: Context<'gc>,
+        bottom: usize,
+        values: Vec<Value<'gc>>,
+        error: Option<Error<'gc>>,
+    ) -> Self {
+        Self::Close {
+            bottom,
+            sequence: boxed::Box::new_in(
+                CloseSequence::new(values, error),
+                MetricsAlloc::new(&ctx),
+            ),
+            pending_error: None,
+        }
+    }
 }
 
 /// A thread's value stack, allocated separately from the rest of its state.
@@ -358,6 +481,10 @@ pub struct ThreadState<'gc> {
     // borrow is exactly what `Thread::mode` takes to look, so the lock cannot distinguish a thread
     // being stepped from one merely being inspected. The flag can.
     pub(super) running: bool,
+    pub(super) closing: bool,
+    pub(super) terminal_error: Option<Error<'gc>>,
+    pub(super) deferred_error: bool,
+    pub(super) error_taken: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
 }
@@ -392,6 +519,13 @@ impl<'gc> fmt::Debug for ThreadState<'gc> {
 
 impl<'gc> ThreadState<'gc> {
     pub(super) fn mode(&self) -> ThreadMode {
+        if self.deferred_error {
+            return if self.error_taken {
+                ThreadMode::Stopped
+            } else {
+                ThreadMode::Result
+            };
+        }
         match self.frames.last() {
             None => {
                 // `try_borrow`, because the stack may legitimately be borrowed by a caller further
@@ -403,9 +537,11 @@ impl<'gc> ThreadState<'gc> {
                 ThreadMode::Stopped
             }
             Some(frame) => match frame {
-                Frame::Lua { .. } | Frame::Callback { .. } | Frame::Sequence { .. } => {
-                    ThreadMode::Normal
-                }
+                Frame::Lua { .. }
+                | Frame::HookResume
+                | Frame::Callback { .. }
+                | Frame::Sequence { .. }
+                | Frame::Close { .. } => ThreadMode::Normal,
                 Frame::Start(_) | Frame::Yielded => ThreadMode::Suspended,
                 Frame::WaitThread => ThreadMode::Waiting,
                 Frame::Result { .. } => ThreadMode::Result,
@@ -500,7 +636,7 @@ impl<'gc> ThreadState<'gc> {
         return_len: usize,
     ) {
         match self.frames.last_mut() {
-            Some(Frame::Sequence { .. }) => {
+            Some(Frame::Sequence { .. } | Frame::Close { .. }) => {
                 stack.truncate(bottom + return_len);
             }
             Some(Frame::Lua {
@@ -542,6 +678,7 @@ impl<'gc> ThreadState<'gc> {
                         *is_variable = false;
                         match meta_ret {
                             MetaReturn::None => {}
+                            MetaReturn::Hook => self.frames.push(Frame::HookResume),
                             MetaReturn::Register(reg) => {
                                 stack[*base + reg.0 as usize] = meta_val;
                             }
@@ -567,12 +704,23 @@ impl<'gc> ThreadState<'gc> {
         &mut self,
         stack: &'a mut StackVec<'gc>,
     ) -> Result<impl Iterator<Item = Value<'gc>> + 'a, Error<'gc>> {
+        if self.deferred_error {
+            self.error_taken = true;
+            return Err(self
+                .terminal_error
+                .clone()
+                .expect("deferred error is present"));
+        }
+        let closing = std::mem::replace(&mut self.closing, false);
         match self.frames.pop() {
             Some(Frame::Result { bottom }) => Ok(stack.drain(bottom..)),
             Some(Frame::Error(err)) => {
                 assert!(stack.is_empty());
                 assert!(self.frames.is_empty());
                 assert!(self.open_upvalues.is_empty());
+                if !closing {
+                    self.terminal_error = Some(err.clone());
+                }
                 Err(err)
             }
             _ => panic!("no results available to take"),
@@ -596,6 +744,24 @@ impl<'gc> ThreadState<'gc> {
             .collect();
         self.to_be_closed.truncate(start);
         taken
+    }
+
+    fn take_pending_close_values(&mut self, stack: &StackVec<'gc>) -> Vec<Value<'gc>> {
+        let mut markers = self.to_be_closed.drain(..).peekable();
+        let mut values = Vec::new();
+        for frame in &mut self.frames {
+            if let Frame::Close {
+                bottom, sequence, ..
+            } = frame
+            {
+                while markers.peek().is_some_and(|index| *index < *bottom) {
+                    values.push(stack[markers.next().unwrap()]);
+                }
+                values.extend(sequence.take_remaining());
+            }
+        }
+        values.extend(markers.map(|index| stack[index]));
+        values
     }
 
     pub(super) fn close_upvalues(
@@ -626,11 +792,28 @@ impl<'gc> ThreadState<'gc> {
         self.open_upvalues.truncate(start);
     }
 
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn captures_below(&self, bottom: usize) -> bool {
+        self.open_upvalues.last().is_none_or(|&upvalue| {
+            matches!(upvalue.get(), UpValueState::Open(open) if open.stack_index < bottom)
+        }) && self.to_be_closed.last().is_none_or(|&index| index < bottom)
+    }
+
     pub(super) fn reset(&mut self, mc: &Mutation<'gc>, stack: &mut StackVec<'gc>) {
         self.close_upvalues(mc, stack, 0);
         assert!(self.open_upvalues.is_empty());
         stack.clear();
         self.frames.clear();
+        self.to_be_closed.clear();
+        self.closing = false;
+        self.terminal_error = None;
+        self.deferred_error = false;
+        self.error_taken = false;
     }
 
     fn resurrect_live_upvalues(&self, fc: &Finalization<'gc>) {
@@ -660,18 +843,45 @@ impl<'gc> ThreadState<'gc> {
     }
 }
 
+#[cfg(not(feature = "jit"))]
+type FrameStack<'gc, 'a> = RefMut<'a, StackVec<'gc>>;
+
+#[cfg(feature = "jit")]
+type FrameStack<'gc, 'a> = &'a mut StackVec<'gc>;
+
 pub(super) struct LuaFrame<'gc, 'a> {
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) pair_handoff: Option<&'a mut crate::jit::PairScope<'gc>>,
     pub(super) state: &'a mut ThreadState<'gc>,
-    // Held for the whole of `run_vm`, so the opcode loop pays one borrow per slice rather than one
-    // per access. Safe to hold across the loop because a native never runs inside it — the executor
-    // dispatches those, with this frame long dropped.
-    pub(super) stack: RefMut<'a, StackVec<'gc>>,
+    // The executor or activation host owns this stack borrow.
+    pub(super) stack: FrameStack<'gc, 'a>,
     pub(super) fuel: &'a mut Fuel,
 }
 
 impl<'gc, 'a> LuaFrame<'gc, 'a> {
-    const FUEL_PER_CALL: i32 = 4;
-    const FUEL_PER_ITEM: i32 = 1;
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn pair_fixed_stack(&self) -> bool {
+        matches!(
+            self.state.frames.last(),
+            Some(Frame::Lua {
+                is_variable: false,
+                ..
+            })
+        )
+    }
+
+    pub(super) const FUEL_PER_CALL: i32 = 4;
+    pub(super) const FUEL_PER_ITEM: i32 = 1;
 
     // Returns the active closure for this Lua frame
     pub(super) fn closure(&self) -> Closure<'gc> {
@@ -695,11 +905,9 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
             _ => panic!("top frame is not lua frame"),
         }
         let bottom = self.stack.len();
-        self.state.frames.push(Frame::Sequence {
-            bottom,
-            sequence: BoxSequence::new(&ctx, CloseSequence::new(values, None)),
-            pending_error: None,
-        });
+        self.state
+            .frames
+            .push(Frame::close(ctx, bottom, values, None));
     }
 
     /// Raise `error` at the current instruction.
@@ -758,7 +966,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                 None => Value::Nil,
             },
         ];
-        self.call_meta_function(ctx, function, &args, MetaReturn::None)?;
+        self.call_meta_function(ctx, function, &args, MetaReturn::Hook)?;
         Ok(true)
     }
 
@@ -766,18 +974,24 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
             Some(Frame::Lua {
-                bottom, base, pc, ..
+                base,
+                pc,
+                is_variable: _is_variable,
+                ..
             }) => {
                 let (upper_stack, stack_frame) = self.stack[..].split_at_mut(*base);
                 LuaRegisters {
                     pc,
                     stack_frame,
                     upper_stack,
-                    bottom: *bottom,
                     base: *base,
                     open_upvalues: &mut self.state.open_upvalues,
                     to_be_closed: &mut self.state.to_be_closed,
                     stack: self.state.stack,
+                    #[cfg(feature = "jit")]
+                    fuel: self.fuel,
+                    #[cfg(feature = "jit")]
+                    variable: *_is_variable,
                 }
             }
             _ => panic!("top frame is not lua frame"),
@@ -895,8 +1109,108 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         Ok(())
     }
 
+    #[cfg(test)]
+    #[inline(always)]
+    fn try_callback_call(
+        &mut self,
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    ) -> bool {
+        if self.state.frames.len() >= self.state.max_call_depth {
+            return false;
+        }
+        let Some(count) = args.to_constant() else {
+            return false;
+        };
+        let Some(Frame::Lua {
+            base,
+            is_variable: false,
+            expected_return,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            return false;
+        };
+        let Some(start) = base.checked_add(usize::from(func.0)) else {
+            return false;
+        };
+        let Some(Value::Function(Function::Callback(callback))) = self.stack.get(start).copied()
+        else {
+            return false;
+        };
+        let Some(end) = start.checked_add(usize::from(count) + 1) else {
+            return false;
+        };
+        if end > self.stack.len() {
+            return false;
+        }
+        self.fuel.consume(Self::FUEL_PER_CALL);
+        *expected_return = Some(LuaReturn::Normal(returns));
+        self.fuel.consume(i32::from(count) * Self::FUEL_PER_ITEM);
+        self.stack.copy_within(start + 1..end, start);
+        self.stack.truncate(end - 1);
+        self.state.frames.push(Frame::Callback {
+            bottom: start,
+            callback,
+        });
+        true
+    }
+
     /// Call the function at the given register with the given arguments. On return, results will be
     /// placed starting at the function register.
+    #[cfg(test)]
+    fn call_function_common(
+        mut self,
+        ctx: Context<'gc>,
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    ) -> Result<(), VMError> {
+        let Some(Frame::Lua {
+            expected_return,
+            is_variable,
+            base,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            panic!("top frame is not lua frame");
+        };
+        if *is_variable != args.is_variable() {
+            return Err(VMError::ExpectedVariableStack(args.is_variable()));
+        }
+        self.fuel.consume(Self::FUEL_PER_CALL);
+        let function_index = *base + func.0 as usize;
+        let arg_count = args
+            .to_constant()
+            .map(|c| c as usize)
+            .unwrap_or(self.stack.len() - function_index - 1);
+        let call = match self.stack[function_index] {
+            Value::Function(Function::Callback(callback)) => Function::Callback(callback),
+            value => meta_ops::call(ctx, value)?,
+        };
+        *expected_return = Some(LuaReturn::Normal(returns));
+        self.fuel
+            .consume(count_fuel(Self::FUEL_PER_ITEM, arg_count));
+        self.stack.copy_within(
+            function_index + 1..function_index + 1 + arg_count,
+            function_index,
+        );
+        self.stack.truncate(function_index + arg_count);
+        match call {
+            Function::Callback(callback) if self.state.frames.len() < self.state.max_call_depth => {
+                self.state.frames.push(Frame::Callback {
+                    bottom: function_index,
+                    callback,
+                });
+            }
+            call => self.state.push_call(&mut self.stack, function_index, call),
+        }
+        Ok(())
+    }
+
+    /// Call the function at the given register with the given arguments.
+    /// Results replace the function register on return.
     pub(super) fn call_function(
         mut self,
         ctx: Context<'gc>,
@@ -1118,25 +1432,149 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         // Not truncated to the returned values here: the frame being left keeps the height it
         // already had, and `return_values_to` trims or grows that to whatever the frame below
         // needs, rather than rebuilding it a `Nil` at a time.
-        self.stack.copy_within(start..start + count, bottom);
+        if count == 0 {
+            assert!(start <= self.stack.len());
+            assert!(bottom <= self.stack.len());
+        } else {
+            self.stack.copy_within(start..start + count, bottom);
+        }
         self.state.return_values_to(&mut self.stack, bottom, count);
 
         Ok(())
     }
 }
 
-pub(super) struct LuaRegisters<'gc, 'a> {
+#[cfg(all(test, feature = "jit"))]
+pub(crate) enum ScopedUpvalue<'gc> {
+    Value(Value<'gc>),
+    Register(usize),
+    Foreign(OpenUpValue<'gc>),
+}
+
+pub(crate) struct LuaRegisters<'gc, 'a> {
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
     upper_stack: &'a mut [Value<'gc>],
-    bottom: usize,
     base: usize,
     open_upvalues: &'a mut vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
     to_be_closed: &'a mut vec::Vec<usize, MetricsAlloc<'gc>>,
     stack: Gc<'gc, RefLock<StackVec<'gc>>>,
+    #[cfg(feature = "jit")]
+    fuel: &'a mut Fuel,
+    #[cfg(feature = "jit")]
+    variable: bool,
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    /// Resolves a capture without borrowing the current frame's values.
+    ///
+    /// # Safety
+    /// `registers` is live and exclusively held; its metadata and upper stack
+    /// are accessible. Current-frame values may have outstanding field loans.
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) unsafe fn scoped_upvalue(
+        registers: *const Self,
+        upvalue: UpValue<'gc>,
+    ) -> Option<ScopedUpvalue<'gc>> {
+        match upvalue.get() {
+            UpValueState::Closed(value) => Some(ScopedUpvalue::Value(value)),
+            UpValueState::Open(open) => {
+                let stack = unsafe { std::ptr::addr_of!((*registers).stack).read() };
+                if open.stack.as_ptr() != Gc::as_ptr(stack) {
+                    return Some(ScopedUpvalue::Foreign(open));
+                }
+                let base = unsafe { std::ptr::addr_of!((*registers).base).read() };
+                if open.stack_index < base {
+                    let upper = unsafe { &*std::ptr::addr_of!((*registers).upper_stack) };
+                    upper
+                        .get(open.stack_index)
+                        .copied()
+                        .map(ScopedUpvalue::Value)
+                } else {
+                    Some(ScopedUpvalue::Register(open.stack_index - base))
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn fixed_list_stack(&self) -> bool {
+        !self.variable
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn charge_fixed_list(&mut self, count: usize) {
+        self.fuel.consume(LuaFrame::FUEL_PER_CALL);
+        self.fuel
+            .consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+    }
+
+    /// Charges fixed-list fuel without borrowing the frame's values.
+    ///
+    /// # Safety
+    /// Registers and fuel are live and exclusively held. Frame-value field
+    /// loans may remain outstanding; no other fuel access overlaps this call.
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) unsafe fn charge_scoped_fixed_list(registers: *mut Self, count: usize) -> bool {
+        if unsafe { std::ptr::addr_of!((*registers).variable).read() } {
+            return false;
+        }
+        let fuel = unsafe { &mut **std::ptr::addr_of_mut!((*registers).fuel) };
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+        true
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        any(
+            test,
+            all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            )
+        )
+    ))]
+    pub(crate) fn shadow_key(&self) -> (usize, usize) {
+        (Gc::as_ptr(self.stack) as usize, self.base)
+    }
+
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn with_test_frame<R>(
+        ctx: Context<'gc>,
+        pc: &mut usize,
+        stack_frame: &mut [Value<'gc>],
+        call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
+    ) -> R {
+        Self::with_test_frame_state(ctx, pc, stack_frame, &mut Fuel::empty(), false, call)
+    }
+
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn with_test_frame_state<R>(
+        ctx: Context<'gc>,
+        pc: &mut usize,
+        stack_frame: &mut [Value<'gc>],
+        fuel: &mut Fuel,
+        variable: bool,
+        call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
+    ) -> R {
+        let allocator = MetricsAlloc::new(&ctx);
+        let mut open_upvalues = vec::Vec::new_in(allocator.clone());
+        let mut to_be_closed = vec::Vec::new_in(allocator.clone());
+        call(LuaRegisters {
+            pc,
+            stack_frame,
+            upper_stack: &mut [],
+            base: 0,
+            open_upvalues: &mut open_upvalues,
+            to_be_closed: &mut to_be_closed,
+            stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
+            fuel,
+            variable,
+        })
+    }
+
     pub(super) fn open_upvalue(&mut self, mc: &Mutation<'gc>, reg: RegisterIndex) -> UpValue<'gc> {
         let ind = self.base + reg.0 as usize;
         match self
@@ -1158,15 +1596,34 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         }
     }
 
-    pub(super) fn get_upvalue(&self, mc: &Mutation<'gc>, upvalue: UpValue<'gc>) -> Value<'gc> {
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn open_test_upvalue(
+        &mut self,
+        mc: &Mutation<'gc>,
+        reg: RegisterIndex,
+    ) -> UpValue<'gc> {
+        self.open_upvalue(mc, reg)
+    }
+
+    pub(crate) fn get_upvalue(&self, mc: &Mutation<'gc>, upvalue: UpValue<'gc>) -> Value<'gc> {
+        self.get_upvalue_with(mc, upvalue, |_, value| value)
+    }
+
+    pub(crate) fn get_upvalue_with(
+        &self,
+        mc: &Mutation<'gc>,
+        upvalue: UpValue<'gc>,
+        read: impl FnOnce(usize, Value<'gc>) -> Value<'gc>,
+    ) -> Value<'gc> {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
-                    assert!(
-                        open_upvalue.stack_index < self.bottom,
-                        "upvalues must be above the current Lua frame"
-                    );
-                    self.upper_stack[open_upvalue.stack_index]
+                    if open_upvalue.stack_index < self.base {
+                        self.upper_stack[open_upvalue.stack_index]
+                    } else {
+                        let index = open_upvalue.stack_index - self.base;
+                        read(index, self.stack_frame[index])
+                    }
                 } else {
                     open_upvalue.get(mc)
                 }
@@ -1175,20 +1632,32 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         }
     }
 
-    pub(super) fn set_upvalue(
+    pub(crate) fn set_upvalue(
         &mut self,
         mc: &Mutation<'gc>,
         upvalue: UpValue<'gc>,
         value: Value<'gc>,
     ) {
+        self.set_upvalue_with(mc, upvalue, value, |_| {});
+    }
+
+    pub(crate) fn set_upvalue_with(
+        &mut self,
+        mc: &Mutation<'gc>,
+        upvalue: UpValue<'gc>,
+        value: Value<'gc>,
+        write: impl FnOnce(usize),
+    ) {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
-                    assert!(
-                        open_upvalue.stack_index < self.bottom,
-                        "upvalues must be above the current Lua frame"
-                    );
-                    self.upper_stack[open_upvalue.stack_index] = value;
+                    if open_upvalue.stack_index < self.base {
+                        self.upper_stack[open_upvalue.stack_index] = value;
+                    } else {
+                        let index = open_upvalue.stack_index - self.base;
+                        self.stack_frame[index] = value;
+                        write(index);
+                    }
                 } else {
                     open_upvalue.set(mc, value);
                 }
@@ -1263,5 +1732,83 @@ fn open_upvalue_ind<'gc>(u: UpValue<'gc>) -> usize {
     match u.get() {
         UpValueState::Open(open_upvalue) => open_upvalue.stack_index,
         UpValueState::Closed(_) => panic!("upvalue is not open"),
+    }
+}
+
+#[cfg(feature = "jit")]
+impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    pub(crate) fn projection_origin(
+        &self,
+        upvalue: UpValue<'gc>,
+    ) -> Option<crate::jit::projection::Origin<'gc>> {
+        use crate::jit::projection::Origin;
+        match upvalue.get() {
+            UpValueState::Closed(value) => Some(Origin::Closed(value)),
+            UpValueState::Open(open) if open.stack.as_ptr() == Gc::as_ptr(self.stack) => {
+                if open.stack_index < self.base {
+                    Some(Origin::Upper(
+                        open.stack_index,
+                        *self.upper_stack.get(open.stack_index)?,
+                    ))
+                } else {
+                    let index = open.stack_index - self.base;
+                    Some(Origin::Register(index, *self.stack_frame.get(index)?))
+                }
+            }
+            UpValueState::Open(_) => None,
+        }
+    }
+
+    pub(crate) fn projection_read(&self, upper: bool, index: usize) -> Option<Value<'gc>> {
+        if upper {
+            self.upper_stack.get(index).copied()
+        } else {
+            self.stack_frame.get(index).copied()
+        }
+    }
+
+    pub(crate) fn projection_write(&mut self, upper: bool, index: usize, value: Value<'gc>) {
+        if upper {
+            self.upper_stack[index] = value;
+        } else {
+            self.stack_frame[index] = value;
+        }
+    }
+}
+
+#[cfg(all(test, feature = "jit"))]
+impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    pub(crate) fn projection_split_frame<R>(
+        ctx: Context<'gc>,
+        pc: &mut usize,
+        canonical: &mut [Value<'gc>],
+        base: usize,
+        call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
+    ) -> R {
+        let allocator = MetricsAlloc::new(&ctx);
+        let mut open_upvalues = vec::Vec::new_in(allocator.clone());
+        let mut to_be_closed = vec::Vec::new_in(allocator.clone());
+        let (upper_stack, stack_frame) = canonical.split_at_mut(base);
+        call(LuaRegisters {
+            pc,
+            stack_frame,
+            upper_stack,
+            base,
+            open_upvalues: &mut open_upvalues,
+            to_be_closed: &mut to_be_closed,
+            stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
+            fuel: &mut Fuel::empty(),
+            variable: false,
+        })
+    }
+
+    pub(crate) fn projection_open_at(&self, ctx: Context<'gc>, index: usize) -> UpValue<'gc> {
+        UpValue::new(
+            &ctx,
+            UpValueState::Open(OpenUpValue {
+                stack: Gc::downgrade(self.stack),
+                stack_index: index,
+            }),
+        )
     }
 }

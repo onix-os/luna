@@ -1,0 +1,116 @@
+--- a/crates/oslo-luavm/Cargo.toml
++++ b/crates/oslo-luavm/Cargo.toml
+@@ -7,6 +7,9 @@
+ publish = false
+ description = "The Lua VM oslo runs on: luna."
+ 
++[features]
++luna-jit-bench = ["luna/jit"]
++
+ [dependencies]
+ # A stackless Lua VM in pure Rust with a tracing garbage collector. No C, so a static musl build
+ # needs no C toolchain — the property the evaluator this replaced was written to keep.
+@@ -17,6 +20,6 @@
+ #
+ # This was a commit hash while luna had no releases. `v0.5.0` is the first, and the exact commit is
+ # recorded in `Cargo.lock` either way — so what the tag buys is a name a human can read in a diff.
+-luna = { git = "https://github.com/onix-os/luna", tag = "v0.5.0" }
++luna = { path = "../../../luna" }
+ # The value type the shell speaks. The whole point of this crate is converting between the two.
+ oslo-base = { path = "../oslo-base" }
+--- a/crates/oslo-luavm/src/lib.rs
++++ b/crates/oslo-luavm/src/lib.rs
+@@ -133,13 +133,61 @@
+ 
++#[cfg(all(test, feature = "luna-jit-bench"))]
++mod luna_bench_probe_tests {
++    #[test]
++    fn active_vm_loan_makes_counter_probe_unavailable() {
++        let engine = super::Engine::new();
++        let _running = engine.lua.borrow_mut();
++        assert!(engine.luna_bench_stats().is_none());
++    }
++}
++
+ impl Engine {
+     pub fn new() -> Self {
++        let lua = Lua::full();
++        #[cfg(feature = "luna-jit-bench")]
++        let lua = {
++            let mut lua = lua;
++            let mode = match std::env::var("LUNA_OSLO_JIT_MODE").as_deref() {
++                Ok("auto") => luna::JitMode::Auto,
++                Ok("off") | Err(_) => luna::JitMode::Off,
++                _ => panic!("invalid consumer benchmark mode"),
++            };
++            lua.set_jit_config(luna::JitConfig {
++                mode,
++                ..Default::default()
++            })
++            .expect("consumer JIT configuration");
++            lua
++        };
+         Engine {
+-            lua: RefCell::new(Lua::full()),
++            lua: RefCell::new(lua),
+             chunk: RefCell::new("?".to_string()),
+             varargs: RefCell::new(Vec::new()),
+         }
+     }
+ 
++    pub fn luna_bench_stats(&self) -> Option<(bool, [u64; 5])> {
++        #[cfg(feature = "luna-jit-bench")]
++        {
++            let lua = self.lua.try_borrow().ok()?;
++            let stats = lua.jit_stats();
++            Some((
++                true,
++                [
++                    stats.native_entries,
++                    stats.native_instructions,
++                    stats.compilation_requests,
++                    stats.code_bytes as u64,
++                    stats.metadata_bytes as u64,
++                ],
++            ))
++        }
++        #[cfg(not(feature = "luna-jit-bench"))]
++        {
++            Some((false, [0; 5]))
++        }
++    }
++
+     /// Name the source that is about to run, for error positions.
+     pub fn set_chunk(&self, name: &str) {
+         *self.chunk.borrow_mut() = name.to_string();
+--- a/crates/oslo-shell/src/data/tools/where_.rs
++++ b/crates/oslo-shell/src/data/tools/where_.rs
+@@ -36,6 +36,7 @@
+     // config defined. In a script or a `-c` command there is none, and a filter must still work —
+     // so one is made for the occasion. Made once for the whole filter, not once per row.
+     let engine = session_engine();
++    let before = engine.luna_bench_stats();
+     // `1GB` is not Lua and cannot be made into Lua, so a unit literal becomes the number the rows
+     // carry before any of this is compiled. See `super::units`.
+     let expanded = super::units::expand(expression);
+@@ -70,6 +71,20 @@
+             }
+         }
+     }
++    if std::env::var_os("LUNA_OSLO_EVIDENCE").is_some() {
++        match (before, engine.luna_bench_stats()) {
++            (Some((jit_compiled, before)), Some((_, after))) => {
++                assert!(after[..3].iter().zip(&before[..3]).all(|(a, b)| a >= b));
++                eprintln!(
++                    "luna_oslo_consumer_protocol=1 jit_compiled={} rows={} kept={} native_entries={} native_instructions={} compilation_requests={} code_bytes={} metadata_bytes={}",
++                    usize::from(jit_compiled), rows.len(), kept.len(),
++                    after[0] - before[0], after[1] - before[1], after[2] - before[2],
++                    after[3], after[4],
++                );
++            }
++            _ => eprintln!("luna_oslo_consumer_protocol=1 evidence_available=0"),
++        }
++    }
+     (kept, failure)
+ }
+ 

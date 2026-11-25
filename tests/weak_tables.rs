@@ -5,16 +5,18 @@
 //! `None` and there is no window in which the table holds a pointer to freed memory. The
 //! skip-tracing version would make that a discipline instead of a fact about the type.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<i64, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<i64>(&executor)
 }
+
+mod common;
 
 const CHURN: &str = "for i = 1, 2000 do local t = { i, i, i } end";
 
@@ -544,6 +546,46 @@ fn a_back_reference_does_not_survive_repeated_collection() -> Result<(), ExternE
 }
 
 /// `"kv"` is both: keys weak *and* values weak, so an entry goes when either side does.
+#[test]
+fn reattached_weak_modes_retire_ephemerons_without_losing_finalization() -> Result<(), ExternError>
+{
+    assert_eq!(
+        eval(
+            r#"
+            local finalized = 0
+            local function exercise()
+                local key = {}
+                local mode = {__mode = "k", __gc = function() finalized = finalized + 1 end}
+                local cache = setmetatable({}, mode)
+                local function fill() cache[key] = {marker = 113} end
+                for _, weak_mode in ipairs({"kv", "v", "kv", "v"}) do
+                    fill()
+                    collectgarbage("collect")
+                    collectgarbage("collect")
+                    assert(cache[key].marker == 113)
+                    mode.__mode = weak_mode
+                    collectgarbage("collect")
+                    collectgarbage("collect")
+                    assert(cache[key].marker == 113)
+                    setmetatable(cache, mode)
+                    collectgarbage("collect")
+                    collectgarbage("collect")
+                    assert(cache[key] == nil)
+                    mode.__mode = "k"
+                    setmetatable(cache, mode)
+                end
+            end
+            exercise()
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return finalized
+            "#,
+        )?,
+        1
+    );
+    Ok(())
+}
+
 #[test]
 fn mode_kv_is_weak_on_both_sides() -> Result<(), ExternError> {
     assert_eq!(

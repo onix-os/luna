@@ -18,7 +18,7 @@ use std::{
 };
 
 use luna::{
-    async_sequence, Callback, CallbackReturn, Closure, Executor, ExternError, Lua, SequenceReturn,
+    async_sequence, Callback, CallbackReturn, Closure, Executor, ExternError, SequenceReturn,
 };
 
 /// Counts how many times it was woken, so a test can prove a real waker is being used rather than
@@ -80,8 +80,8 @@ fn delayed<T>(polls: usize, value: T) -> Delayed<T> {
 }
 
 /// Install a global that awaits `polls` times and returns `value` to Lua.
-fn lua_awaiting(polls: usize) -> (Lua, luna::StashedExecutor) {
-    let mut lua = Lua::core();
+fn lua_awaiting(polls: usize) -> (common::Lua, luna::StashedExecutor) {
+    let mut lua = common::core();
     let executor = lua
         .try_enter(|ctx| {
             let callback = Callback::from_fn(&ctx, move |ctx, _, _| {
@@ -122,7 +122,7 @@ fn a_future_that_completes_after_several_polls() {
 /// Lua either side of the await, so the suspension has to survive a real frame stack.
 #[test]
 fn awaiting_interleaves_with_lua() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua
         .try_enter(|ctx| {
             let callback = Callback::from_fn(&ctx, |ctx, _, _| {
@@ -161,7 +161,7 @@ fn awaiting_interleaves_with_lua() {
 /// A future is allowed to produce an error; it travels back as a normal Lua error.
 #[test]
 fn an_awaited_future_can_fail() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua
         .try_enter(|ctx| {
             let callback = Callback::from_fn(&ctx, |ctx, _, _| {
@@ -224,7 +224,7 @@ fn the_sync_driver_refuses_rather_than_hanging() {
 /// budget must not mistake a blocked script for a runaway one.
 #[test]
 fn waiting_does_not_consume_the_whole_fuel_budget() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let polls = Rc::new(Cell::new(0usize));
     let seen = polls.clone();
 
@@ -275,7 +275,7 @@ fn waiting_does_not_consume_the_whole_fuel_budget() {
 /// With the feature on but nothing awaiting, the ordinary drivers are unaffected.
 #[test]
 fn a_non_awaiting_executor_still_runs_synchronously() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), b"return 6 * 7")?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -283,6 +283,8 @@ fn a_non_awaiting_executor_still_runs_synchronously() -> Result<(), ExternError>
     assert_eq!(lua.execute::<i64>(&executor)?, 42);
     Ok(())
 }
+
+mod common;
 
 /// Dropping a parked future instead of awaiting it is a host error, and it fails loudly.
 ///

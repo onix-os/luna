@@ -324,6 +324,61 @@ pub fn load_trig<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
     math.set_field(ctx, "tan", callback("tan", &ctx, |_, v: f64| Some(v.tan())));
 }
 
+/// Replace the functions that call the platform math library with the portable `libm` crate, so
+/// results are bit-identical on every target.
+pub(crate) fn load_portable<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
+    math.set_field(
+        ctx,
+        "exp",
+        callback("exp", &ctx, |_, v: f64| Some(libm::exp(v))),
+    );
+    math.set_field(
+        ctx,
+        "log",
+        callback("log", &ctx, |_, (v, base): (f64, Option<f64>)| {
+            Some(match base {
+                None => libm::log(v),
+                Some(base) => libm::log(v) / libm::log(base),
+            })
+        }),
+    );
+    math.set_field(
+        ctx,
+        "acos",
+        callback("acos", &ctx, |_, v: f64| Some(libm::acos(v))),
+    );
+    math.set_field(
+        ctx,
+        "asin",
+        callback("asin", &ctx, |_, v: f64| Some(libm::asin(v))),
+    );
+    math.set_field(
+        ctx,
+        "atan",
+        callback("atan", &ctx, |_, (a, b): (f64, Option<f64>)| {
+            Some(match b {
+                Some(b) => libm::atan2(a, b),
+                None => libm::atan(a),
+            })
+        }),
+    );
+    math.set_field(
+        ctx,
+        "cos",
+        callback("cos", &ctx, |_, v: f64| Some(libm::cos(v))),
+    );
+    math.set_field(
+        ctx,
+        "sin",
+        callback("sin", &ctx, |_, v: f64| Some(libm::sin(v))),
+    );
+    math.set_field(
+        ctx,
+        "tan",
+        callback("tan", &ctx, |_, v: f64| Some(libm::tan(v))),
+    );
+}
+
 pub fn load_random<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
     use std::{cell::RefCell, rc::Rc};
 
@@ -379,7 +434,7 @@ pub fn load_random<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
                     (Some(high), Some(low)) => {
                         let high_bytes = high.to_ne_bytes();
                         let low_bytes = low.to_ne_bytes();
-                        let seed: [u8; 32] = core::array::from_fn(|idx| {
+                        let seed: <SmallRng as SeedableRng>::Seed = core::array::from_fn(|idx| {
                             let idx_mod_16 = idx % 16;
                             if idx_mod_16 >= 8 {
                                 high_bytes[idx_mod_16 - 8]

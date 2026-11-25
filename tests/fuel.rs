@@ -1,8 +1,8 @@
-use luna::{Callback, CallbackReturn, Closure, Executor, ExecutorMode, ExternError, Fuel, Lua};
+use luna::{Callback, CallbackReturn, Closure, Executor, ExecutorMode, ExternError, Fuel};
 
 #[test]
 fn test_interrupt() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |_, mut exec, _| {
@@ -28,3 +28,5 @@ fn test_interrupt() -> Result<(), ExternError> {
 
     Ok(())
 }
+
+mod common;

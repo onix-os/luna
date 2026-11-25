@@ -5,6 +5,7 @@ use crate::types::{
 };
 
 #[derive(Debug, Copy, Clone, Collect)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[collect(require_static)]
 pub enum RCIndex {
     Register(RegisterIndex),
@@ -24,6 +25,7 @@ impl From<ConstantIndex8> for RCIndex {
 }
 
 #[derive(Debug, Copy, Clone, Collect)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[collect(require_static)]
 pub enum Operation {
     Move {
@@ -294,7 +296,43 @@ pub enum Operation {
 #[collect(require_static)]
 pub struct OpCode(OpCodeRepr);
 
+#[cfg(feature = "jit")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum CallTransition {
+    Call {
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    },
+    TailCall {
+        func: RegisterIndex,
+        args: VarCount,
+    },
+    Return {
+        start: RegisterIndex,
+        count: VarCount,
+    },
+}
+
 impl OpCode {
+    #[cfg(feature = "jit")]
+    pub(crate) fn call_transition(self) -> Option<CallTransition> {
+        match self.0 {
+            OpCodeRepr::Call {
+                func,
+                args,
+                returns,
+            } => Some(CallTransition::Call {
+                func,
+                args,
+                returns,
+            }),
+            OpCodeRepr::TailCall { func, args } => Some(CallTransition::TailCall { func, args }),
+            OpCodeRepr::Return { start, count } => Some(CallTransition::Return { start, count }),
+            _ => None,
+        }
+    }
+
     pub fn encode(operation: Operation) -> Self {
         Self(match operation {
             Operation::MarkToBeClosed { source } => OpCodeRepr::MarkToBeClosed { source },
@@ -662,6 +700,7 @@ impl OpCode {
         })
     }
 
+    #[inline(always)]
     pub fn decode(self) -> Operation {
         match self.0 {
             OpCodeRepr::MarkToBeClosed { source } => Operation::MarkToBeClosed { source },

@@ -469,6 +469,15 @@ pub fn tostring<'gc>(
 
     Ok(match v {
         v @ Value::String(_) => MetaResult::Value(v),
+        Value::Table(_) | Value::Function(_) | Value::Thread(_) | Value::UserData(_)
+            if ctx.functional() =>
+        {
+            let name = match get_metamethod(ctx, v, MetaMethod::Name) {
+                Some(Value::String(name)) => name,
+                _ => ctx.intern(v.type_name().as_bytes()),
+            };
+            MetaResult::Value(name.into())
+        }
         v => {
             // With no `__tostring`, a `__name` still improves on "userdata: 0x…" — it is the only
             // way a bound Rust type prints as itself.
@@ -667,9 +676,18 @@ pub fn add<'gc>(
     lhs: Value<'gc>,
     rhs: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
-    meta_metaop(ctx, lhs, rhs, MetaMethod::Add, |_, a, b| {
-        Some(a.to_constant()?.add(&b.to_constant()?)?.into())
-    })
+    let value = match (lhs, rhs) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a.wrapping_add(b)),
+        (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
+        (Value::Integer(a), Value::Number(b)) => Value::Number(a as f64 + b),
+        (Value::Number(a), Value::Integer(b)) => Value::Number(a + b as f64),
+        _ => {
+            return meta_metaop(ctx, lhs, rhs, MetaMethod::Add, |_, a, b| {
+                Some(a.to_constant()?.add(&b.to_constant()?)?.into())
+            });
+        }
+    };
+    Ok(value.into())
 }
 
 pub fn subtract<'gc>(
@@ -677,9 +695,18 @@ pub fn subtract<'gc>(
     lhs: Value<'gc>,
     rhs: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
-    meta_metaop(ctx, lhs, rhs, MetaMethod::Sub, |_, a, b| {
-        Some(a.to_constant()?.subtract(&b.to_constant()?)?.into())
-    })
+    let value = match (lhs, rhs) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a.wrapping_sub(b)),
+        (Value::Number(a), Value::Number(b)) => Value::Number(a - b),
+        (Value::Integer(a), Value::Number(b)) => Value::Number(a as f64 - b),
+        (Value::Number(a), Value::Integer(b)) => Value::Number(a - b as f64),
+        _ => {
+            return meta_metaop(ctx, lhs, rhs, MetaMethod::Sub, |_, a, b| {
+                Some(a.to_constant()?.subtract(&b.to_constant()?)?.into())
+            });
+        }
+    };
+    Ok(value.into())
 }
 
 pub fn multiply<'gc>(
@@ -687,9 +714,18 @@ pub fn multiply<'gc>(
     lhs: Value<'gc>,
     rhs: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
-    meta_metaop(ctx, lhs, rhs, MetaMethod::Mul, |_, a, b| {
-        Some(a.to_constant()?.multiply(&b.to_constant()?)?.into())
-    })
+    let value = match (lhs, rhs) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a.wrapping_mul(b)),
+        (Value::Number(a), Value::Number(b)) => Value::Number(a * b),
+        (Value::Integer(a), Value::Number(b)) => Value::Number(a as f64 * b),
+        (Value::Number(a), Value::Integer(b)) => Value::Number(a * b as f64),
+        _ => {
+            return meta_metaop(ctx, lhs, rhs, MetaMethod::Mul, |_, a, b| {
+                Some(a.to_constant()?.multiply(&b.to_constant()?)?.into())
+            });
+        }
+    };
+    Ok(value.into())
 }
 
 pub fn float_divide<'gc>(
@@ -889,16 +925,16 @@ pub fn concat_many<'gc>(
     ctx: Context<'gc>,
     values: &[Value<'gc>],
 ) -> Result<ConcatMetaResult<'gc>, MetaOperatorError> {
-    // Fast path scope; never loops, returns if successful, otherwise
-    // breaks to fall back to the slow impl.
-    loop {
-        // Since we have to make two passes to check for complex types,
-        // estimate the length in the first pass.
+    // Concatenate scalar values without invoking metamethods.
+    'fast: {
         let Some(len) = estimate_concatenated_len(values)? else {
-            break;
+            break 'fast;
         };
 
-        let mut bytes = Vec::with_capacity(len);
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(len)
+            .map_err(|_| MetaOperatorError::ConcatOverflow)?;
         for value in values {
             match value {
                 Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
@@ -909,10 +945,13 @@ pub fn concat_many<'gc>(
                 _ => unreachable!(),
             }
         }
-        return Ok(ConcatMetaResult::Value(Value::String(ctx.intern(&bytes))));
+        let string = ctx
+            .interned_strings()
+            .intern_buffer(&ctx, bytes.into_boxed_slice());
+        return Ok(ConcatMetaResult::Value(Value::String(string)));
     }
 
-    // Fall back to a sequence-based implemenation to handle metamethods
+    // Evaluate concatenation metamethods from right to left.
     let func = Callback::from_fn(&ctx, |ctx, _, stack| {
         let args = stack.len();
         let s = async_sequence(&ctx, |_, mut seq| async move {
@@ -941,18 +980,15 @@ pub fn concat_separated<'gc>(
         return concat_many(ctx, values);
     }
 
-    // Fast path scope; never loops, returns if successful, otherwise
-    // breaks to fall back to the slow impl.
-    loop {
+    // Concatenate scalar values with a scalar separator.
+    'fast: {
         let sep_str = match separator.into_string(ctx) {
             Some(s) => s,
-            None => break,
+            None => break 'fast,
         };
 
-        // Since we have to make two passes to check for complex types,
-        // estimate the length in the first pass.
         let Some(len) = estimate_concatenated_len(values)? else {
-            break;
+            break 'fast;
         };
 
         let sep_count = values.len().saturating_sub(1);
@@ -961,7 +997,6 @@ pub fn concat_separated<'gc>(
             .and_then(|l| l.checked_add(len))
             .ok_or(MetaOperatorError::ConcatOverflow)?;
 
-        // Should this be allocated in-place in the GC heap?
         let mut bytes = Vec::with_capacity(total_len);
 
         let mut iter = values.iter();
@@ -992,7 +1027,7 @@ pub fn concat_separated<'gc>(
         return Ok(ConcatMetaResult::Value(Value::String(ctx.intern(&bytes))));
     }
 
-    // Fall back to a sequence-based implemenation to handle metamethods
+    // Evaluate separator and value concatenation metamethods from right to left.
     let func = Callback::from_fn_with(&ctx, separator, move |&sep, ctx, _, stack| {
         let args = stack.len();
         let b = async_sequence(&ctx, |locals, mut seq| {
@@ -1071,3 +1106,6 @@ fn prepare_async_metaop<'gc, const N: usize>(
         }
     }
 }
+
+#[cfg(test)]
+mod binary_dispatch_tests;

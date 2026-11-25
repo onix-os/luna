@@ -100,6 +100,32 @@ impl<'gc> Table<'gc> {
         self.get_raw(&ctx, key.into_value(ctx))
     }
 
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_prepared_string(
+        self,
+        ctx: Context<'gc>,
+        key: crate::String<'gc>,
+        hash: super::PreparedStringHash,
+    ) -> Value<'gc> {
+        self.0
+            .borrow()
+            .raw_table
+            .get_prepared_string(&ctx, key, hash)
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_canonical_string(
+        self,
+        ctx: Context<'gc>,
+        key: crate::String<'gc>,
+        hint: Option<crate::jit::entry_bytes::Hint<'_>>,
+    ) -> Value<'gc> {
+        self.0
+            .borrow()
+            .raw_table
+            .get_canonical_string(&ctx, key, hint)
+    }
+
     /// A convenience method over [`Table::set`] for setting a string field of a table.
     ///
     /// It behaves exactly the same as [`Table::set`], except since this only accepts string keys,
@@ -238,20 +264,20 @@ impl<'gc> Table<'gc> {
             if !mt.get_value(ctx, crate::MetaMethod::Gc).is_nil() {
                 ctx.finalizers().register_table(&ctx, self.0);
             }
-            // `__mode` is read once, here. Changing it afterwards does not retroactively weaken
-            // entries — PUC-Rio calls that undefined, and this is luna's answer.
+            // Convert weak storage when attaching the metatable.
             if let Value::String(mode) = mt.get_value(ctx, crate::MetaMethod::Mode) {
                 let mode = mode.as_bytes();
                 if mode.contains(&b'k') {
                     self.0.borrow_mut(&ctx).raw_table.make_keys_weak(&ctx);
-                    // Ephemeron revival is for `"k"` alone. Under `"kv"` the value is weak in its
-                    // own right and must die when nothing else holds it, however alive its key is,
-                    // so putting values back would be exactly wrong.
+                    // Revive values only for weak-key-only tables.
                     if !mode.contains(&b'v') {
                         ctx.finalizers().register_weak_keys(&ctx, self.0);
+                    } else {
+                        ctx.finalizers().unregister_weak_keys(&ctx, self.0);
                     }
                 } else if mode.contains(&b'v') {
                     self.0.borrow_mut(&ctx).raw_table.make_values_weak(&ctx);
+                    ctx.finalizers().unregister_weak_keys(&ctx, self.0);
                 }
             }
         }
@@ -339,5 +365,19 @@ impl<'gc> fmt::Debug for TableState<'gc> {
                 &self.metatable.as_ref().map(|t| ShallowTableDebug(*t)),
             )
             .finish()
+    }
+}
+
+#[cfg(feature = "jit")]
+impl<'gc> Table<'gc> {
+    #[inline(always)]
+    pub(crate) fn try_strong_canonical_hint(
+        self,
+        key: crate::String<'gc>,
+        index: usize,
+    ) -> Option<(std::cell::Ref<'gc, TableState<'gc>>, Value<'gc>)> {
+        let state = self.0.try_borrow().ok()?;
+        let value = state.raw_table.strong_canonical_hint(key, index)?;
+        Some((state, value))
     }
 }

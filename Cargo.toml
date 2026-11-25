@@ -3,7 +3,9 @@ resolver = "2"
 members = [
     "derive",
     "util",
+    "worker",
 ]
+exclude = ["fuzz"]
 default-members = [
     ".",
     "derive",
@@ -11,7 +13,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 authors = ["Trim Bresilla <kushtrimbresilla@gmail.com>"]
 license = "MIT"
@@ -23,6 +25,7 @@ allocator-api2 = "0.2"
 anyhow = "1.0"
 ottavino-gc-arena = { version = "0.6.0", features = ["allocator-api2", "hashbrown"] }
 hashbrown = { version = "0.14", features = ["raw"] }
+libm = "0.2.16"
 # `math.random` runs on SmallRng and nothing else. The default features pull rand_chacha and
 # ppv-lite86 for a ChaCha generator that is never constructed — and so does `std`, which in
 # rand 0.8 enables `rand_chacha/std` rather than the optional-dependency form. `getrandom` is
@@ -32,8 +35,8 @@ serde = "1.0"
 serde_json = "1.0"
 thiserror = "1.0"
 
-luna = { path = "./", version = "0.5.0" }
-luna-derive = { path = "./derive", version = "0.5.0" }
+luna = { path = "./", version = "0.6.0" }
+luna-derive = { path = "./derive", version = "0.6.0" }
 
 [package]
 name = "luna"
@@ -51,13 +54,55 @@ allocator-api2.workspace = true
 anyhow.workspace = true
 ottavino-gc-arena.workspace = true
 hashbrown.workspace = true
+libm.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 luna-derive = { workspace = true, optional = true }
+luna-jit-embed = { path = "worker", version = "=0.6.0", optional = true }
+
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+cranelift-codegen = { version = "=0.136.1", optional = true }
+cranelift-frontend = { version = "=0.136.1", optional = true }
+cranelift-jit = { version = "=0.136.1", optional = true }
+cranelift-module = { version = "=0.136.1", optional = true }
+cranelift-native = { version = "=0.136.1", optional = true }
+libc = { version = "0.2", optional = true }
+memmap2 = { version = "=0.9.11", optional = true }
+wasmtime-jit-icache-coherence = { package = "wasmtime-internal-jit-icache-coherence", version = "=49.0.1", optional = true }
+sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"], optional = true }
+target-lexicon = { version = "=0.13.5", optional = true }
+
+[[bin]]
+name = "luna-jit-worker"
+path = "src/bin/jit_worker.rs"
+required-features = ["jit-worker-bootstrap"]
+test = false
+bench = false
+
+[[test]]
+name = "jit_worker"
+path = "tests/jit_worker.rs"
+required-features = ["jit-worker-bootstrap"]
 
 [[example]]
 name = "async"
 required-features = ["async"]
+
+[[example]]
+name = "jit_bench"
+required-features = ["jit"]
+
+[[example]]
+name = "jit_metrics"
+required-features = ["jit"]
+
+[[example]]
+name = "jit_cycles"
+required-features = ["jit"]
+
+[[example]]
+name = "jit"
+required-features = ["jit"]
 
 [features]
 default = []
@@ -68,6 +113,9 @@ async = []
 # `#[derive(FromValue, IntoValue)]`. Off by default because it pulls syn, quote and proc-macro2
 # into the build — three crates a host writing its conversions by hand should not compile.
 derive = ["dep:luna-derive"]
+jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native", "dep:libc", "dep:memmap2", "dep:wasmtime-jit-icache-coherence"]
+jit-worker-bootstrap = ["jit", "dep:sha2", "dep:target-lexicon"]
+jit-worker-embedded = ["jit-worker-bootstrap", "dep:luna-jit-embed"]
 
 [dev-dependencies]
 # Only the REPL example needs a dependency, and only for line editing and history. Argument
@@ -75,9 +123,16 @@ derive = ["dep:luna-derive"]
 # into every `cargo test`.
 rustyline = "14.0"
 
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
+target-lexicon = "=0.13.5"
+sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"] }
+
 # Defaults leave a release build with 16 codegen units, no cross-crate inlining and full debug
 # symbols. This is a library, so these apply only to what is built *here* — examples, tests and
 # the REPL — not to anything downstream.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.release]
 # Cuts a `Lua::core()` embed from ~794 KB to ~600 KB for about 19% off the VM's speed. Not "z",
 # which saves a further 43 KB but runs 2.4x slower: `run_vm` is one large dispatch loop and "z"

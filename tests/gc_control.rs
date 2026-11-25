@@ -3,10 +3,10 @@
 //! Acting on the collector needs `&mut Lua`, which a callback never has, so the verbs leave a
 //! request that the host carries out at the end of the slice.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -53,7 +53,7 @@ fn an_unknown_verb_still_errors() -> Result<(), ExternError> {
 /// A full collection actually reclaims: allocate a large dead structure, then collect.
 #[test]
 fn collect_reclaims_dead_values() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua
         .try_enter(|ctx| {
@@ -82,12 +82,61 @@ fn collect_reclaims_dead_values() {
 
 #[test]
 fn stop_and_restart_are_reportable_from_rust() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     assert!(lua.gc_is_running());
     lua.gc_stop();
     assert!(!lua.gc_is_running());
     lua.gc_restart();
     assert!(lua.gc_is_running());
+}
+
+mod common;
+
+#[test]
+fn lua_reports_the_host_pacing_state_after_allocations() -> Result<(), ExternError> {
+    let mut lua = common::core();
+    let executor = lua.try_enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            None,
+            &b"local t={} for i=1,100 do t[i]={i} end return collectgarbage('isrunning')"[..],
+        )?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    lua.gc_stop();
+    assert!(!lua.execute::<bool>(&executor)?);
+    assert!(!lua.gc_is_running());
+    Ok(())
+}
+
+#[test]
+fn stop_survives_collection_and_restart_is_visible_immediately() -> Result<(), ExternError> {
+    for request in [
+        "collectgarbage()",
+        "collectgarbage(nil)",
+        "collectgarbage('collect')",
+        "collectgarbage('step')",
+    ] {
+        let mut lua = common::core();
+        let source = format!("collectgarbage('stop'); {request}; return true");
+        let executor = lua.try_enter(|ctx| {
+            let closure = Closure::load(ctx, None, source.as_bytes())?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })?;
+        assert!(lua.execute::<bool>(&executor)?);
+        assert!(!lua.gc_is_running(), "{request}");
+    }
+    assert!(eval(
+        r#"
+        collectgarbage('stop')
+        assert(not collectgarbage('isrunning'))
+        collectgarbage('restart')
+        assert(collectgarbage('isrunning'))
+        collectgarbage('stop')
+        return not collectgarbage('isrunning')
+    "#
+    )?);
+    Ok(())
 }
 
 /// A script can observe its own `collectgarbage("collect")`.
@@ -98,21 +147,36 @@ fn stop_and_restart_are_reportable_from_rust() {
 /// script could collect and still see its own garbage on the following line.
 #[test]
 fn collect_takes_effect_before_the_next_statement() -> Result<(), ExternError> {
-    assert_eq!(
-        eval(
-            r#"
+    for request in [
+        "collectgarbage(\"collect\")",
+        "collectgarbage()",
+        "collectgarbage(nil)",
+    ] {
+        assert!(
+            eval(
+                &r#"
             local finalized = false
             local weak = setmetatable({}, { __mode = "v" })
             local function make()
                 weak.entry = setmetatable({}, { __gc = function() finalized = true end })
             end
             make()
-            collectgarbage("collect")
-            collectgarbage("collect")
+            GC_REQUEST
+            GC_REQUEST
             return weak.entry == nil and finalized
         "#
-        )?,
-        true
-    );
+                .replace("GC_REQUEST", request)
+            )?,
+            "{request}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn default_and_nil_collection_return_the_explicit_result() -> Result<(), ExternError> {
+    assert!(eval(
+        "return collectgarbage()==0 and collectgarbage(nil)==0 and collectgarbage('collect')==0"
+    )?);
     Ok(())
 }

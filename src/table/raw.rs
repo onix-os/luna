@@ -77,6 +77,25 @@ fn hasher() -> &'static ahash::random_state::RandomState {
     HASHER.get_or_init(ahash::random_state::RandomState::new)
 }
 
+#[cfg(feature = "jit")]
+#[derive(Clone, Copy)]
+pub(crate) struct PreparedStringHash(u64);
+
+#[cfg(feature = "jit")]
+impl PreparedStringHash {
+    pub(crate) fn new(key: String<'_>) -> Self {
+        Self(hasher().hash_one(CanonicalKey::String(key)))
+    }
+
+    pub(crate) fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+}
+
 /// The hash an entry is stored under.
 ///
 /// A key that is not live carries its own, because it cannot be recomputed: a weak key may have
@@ -167,6 +186,7 @@ impl<'gc> RawTable<'gc> {
         index < self.array.len() && (!self.weak_values || !self.array[index].is_nil())
     }
 
+    #[inline]
     pub fn get(&self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
         if let Some(index) = to_array_index(key) {
             if self.array_answers(index) {
@@ -174,6 +194,11 @@ impl<'gc> RawTable<'gc> {
             }
         }
 
+        self.get_map(mc, key)
+    }
+
+    #[inline(never)]
+    fn get_map(&self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
         if let Ok(key) = CanonicalKey::new(key) {
             if let Some((_, v)) = self
                 .map
@@ -185,6 +210,59 @@ impl<'gc> RawTable<'gc> {
                 Value::Nil
             }
         } else {
+            Value::Nil
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_prepared_string(
+        &self,
+        mc: &Mutation<'gc>,
+        key: String<'gc>,
+        hash: PreparedStringHash,
+    ) -> Value<'gc> {
+        self.map
+            .raw_entry()
+            .from_hash(hash.0, |stored| stored.eq_string(key))
+            .map_or(Value::Nil, |(_, slot)| slot.0.get(mc))
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_canonical_string(
+        &self,
+        mc: &Mutation<'gc>,
+        key: String<'gc>,
+        hint: Option<crate::jit::entry_bytes::Hint<'_>>,
+    ) -> Value<'gc> {
+        let raw = self.map.raw_table();
+        if let Some(index) = hint.and_then(|hint| hint.load()) {
+            if index < raw.buckets() && unsafe { raw.is_bucket_full(index) } {
+                // The occupied bucket belongs to this immutably borrowed table.
+                let bucket = unsafe { raw.bucket(index).as_ref() };
+                let stored = match bucket.0 {
+                    Key::Live(CanonicalKey::String(stored))
+                    | Key::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(stored)), _) => {
+                        Some(stored)
+                    }
+                    _ => None,
+                };
+                if stored.is_some_and(|stored| Gc::ptr_eq(stored.into_inner(), key.into_inner())) {
+                    return bucket.1 .0.get(mc);
+                }
+            }
+        }
+        let hash = PreparedStringHash::new(key).bits();
+        if let Some(bucket) = raw.find(hash, |(stored, _)| stored.eq_string(key)) {
+            if let Some(hint) = hint {
+                // The successful lookup identifies a bucket in the current table.
+                hint.remember(Some(unsafe { raw.bucket_index(&bucket) }));
+            }
+            // The found bucket remains live under the immutable table borrow.
+            unsafe { bucket.as_ref().1 .0.get(mc) }
+        } else {
+            if let Some(hint) = hint {
+                hint.remember(None);
+            }
             Value::Nil
         }
     }
@@ -206,6 +284,7 @@ impl<'gc> RawTable<'gc> {
         }
     }
 
+    #[inline]
     pub fn set(
         &mut self,
         mc: &Mutation<'gc>,
@@ -221,6 +300,16 @@ impl<'gc> RawTable<'gc> {
             }
         }
 
+        self.set_map(mc, key, value, index_key)
+    }
+
+    fn set_map(
+        &mut self,
+        mc: &Mutation<'gc>,
+        key: Value<'gc>,
+        value: Value<'gc>,
+        index_key: Option<usize>,
+    ) -> Result<Value<'gc>, InvalidTableKey> {
         let table_key = CanonicalKey::new(key)?;
         let hash = hasher().hash_one(table_key);
 
@@ -1046,6 +1135,70 @@ impl<'gc> Slot<'gc> {
         match self {
             Slot::Strong(v) => v.is_nil(),
             Slot::Weak(_) => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod access_tests;
+
+#[cfg(any(test, feature = "jit"))]
+impl<'gc> Key<'gc> {
+    fn eq_string(self, query: String<'gc>) -> bool {
+        #[cold]
+        #[inline(never)]
+        fn equal_contents(a: String<'_>, b: String<'_>) -> bool {
+            a == b
+        }
+
+        match self {
+            Self::Live(CanonicalKey::String(key))
+            | Self::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(key)), _) => {
+                Gc::ptr_eq(key.into_inner(), query.into_inner()) || equal_contents(key, query)
+            }
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod key_hash_tests;
+
+#[cfg(test)]
+mod capacity_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod prehashed_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod code_read_hint_tests;
+
+#[cfg(feature = "jit")]
+impl<'gc> RawTable<'gc> {
+    #[inline(always)]
+    pub(crate) fn strong_canonical_hint(
+        &self,
+        key: String<'gc>,
+        index: usize,
+    ) -> Option<Value<'gc>> {
+        if self.weak_keys || self.weak_values {
+            return None;
+        }
+        let raw = self.map.raw_table();
+        if index >= raw.buckets() || !unsafe { raw.is_bucket_full(index) } {
+            return None;
+        }
+        // The occupied bucket is protected by the immutable table borrow.
+        let bucket = unsafe { raw.bucket(index).as_ref() };
+        let Key::Live(CanonicalKey::String(stored)) = bucket.0 else {
+            return None;
+        };
+        if !Gc::ptr_eq(stored.into_inner(), key.into_inner()) {
+            return None;
+        }
+        match bucket.1 .0 {
+            Slot::Strong(value) if !value.is_nil() => Some(value),
+            _ => None,
         }
     }
 }

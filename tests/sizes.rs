@@ -1,6 +1,8 @@
 use std::mem;
 
-use luna::{opcode::OpCode, Callback, Closure, String, Table, Thread, UserData, Value};
+use luna::{
+    opcode::OpCode, Callback, Closure, Constant, Function, String, Table, Thread, UserData, Value,
+};
 
 #[test]
 fn test_sizes() {
@@ -13,5 +15,28 @@ fn test_sizes() {
     assert_eq!(mem::size_of::<Callback>(), ptr_size);
     assert_eq!(mem::size_of::<Thread>(), ptr_size);
     assert_eq!(mem::size_of::<UserData>(), ptr_size);
-    assert!(mem::size_of::<Value>() <= ptr_size * 2);
+    for (name, size) in [
+        ("Function", mem::size_of::<Function>()),
+        ("Option<Function>", mem::size_of::<Option<Function>>()),
+    ] {
+        assert!(
+            size <= 2 * ptr_size,
+            "{name}: {size} bytes exceeds two pointers"
+        );
+    }
+    let tagged_payload = mem::size_of::<(usize, i64)>();
+    for (name, size) in [
+        ("Value", mem::size_of::<Value>()),
+        ("Constant<String>", mem::size_of::<Constant<String>>()),
+        ("Option<Value>", mem::size_of::<Option<Value>>()),
+        (
+            "Option<Constant<String>>",
+            mem::size_of::<Option<Constant<String>>>(),
+        ),
+    ] {
+        assert!(
+            size <= tagged_payload,
+            "{name}: {size} bytes exceeds {tagged_payload}"
+        );
+    }
 }

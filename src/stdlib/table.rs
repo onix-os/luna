@@ -418,7 +418,9 @@ fn table_remove_impl<'gc>(
         .unwrap_or(false)
         // A weak-value table keeps its entries in the map part, where they can be held weakly. The
         // array fast path would store the value strongly and it would never be released.
-        || table.into_inner().borrow().raw_table.has_weak_values();
+        || table.into_inner().borrow().raw_table.has_weak_values()
+        // The array fast path writes the raw table directly, so a frozen table takes the checked path.
+        || table.is_readonly();
 
     if !use_fallback {
         // Try the fast path
@@ -550,7 +552,9 @@ fn table_insert_impl<'gc>(
         .unwrap_or(false)
         // A weak-value table keeps its entries in the map part, where they can be held weakly. The
         // array fast path would store the value strongly and it would never be released.
-        || table.into_inner().borrow().raw_table.has_weak_values();
+        || table.into_inner().borrow().raw_table.has_weak_values()
+        // The array fast path writes the raw table directly, so a frozen table takes the checked path.
+        || table.is_readonly();
 
     if !use_fallback {
         // Try the fast path

@@ -6,6 +6,31 @@
 
 use luna::{Closure, Executor, Lua};
 
+#[test]
+fn host_requests_keep_last_request_wins_semantics() {
+    use luna::GcRequest::{Collect, None, Restart, Step, Stop};
+
+    let mut lua = common::core();
+    for initial in [false, true] {
+        for (requests, expected) in [
+            ([Stop, None], initial),
+            ([Restart, None], initial),
+            ([Stop, Restart], true),
+            ([Restart, Stop], false),
+            ([Stop, Collect], initial),
+            ([Restart, Step], initial),
+        ] {
+            lua.set_gc_pacing(initial);
+            lua.enter(|ctx| {
+                for request in requests {
+                    ctx.request_gc(request);
+                }
+            });
+            assert_eq!(lua.gc_is_running(), expected, "{requests:?}");
+        }
+    }
+}
+
 /// Allocate a few thousand dead tables and report memory before and after.
 fn churn(lua: &mut Lua) {
     let executor = lua
@@ -26,7 +51,7 @@ fn churn(lua: &mut Lua) {
 
 #[test]
 fn pacing_is_automatic_by_default() {
-    let lua = Lua::core();
+    let lua = common::core();
     assert!(lua.gc_is_automatic());
     assert!(lua.gc_is_running());
 }
@@ -37,7 +62,7 @@ fn pacing_is_automatic_by_default() {
 /// a step had nothing to act on.
 #[test]
 fn an_explicit_step_works_after_stop() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.gc_stop();
     assert!(!lua.gc_is_automatic());
 
@@ -65,7 +90,7 @@ fn an_explicit_step_works_after_stop() {
 /// calls to reclaim finalizable objects for the same reason.
 #[test]
 fn gc_collect_works_after_stop() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.gc_stop();
     churn(&mut lua);
     let before = lua.total_memory();
@@ -80,7 +105,7 @@ fn gc_collect_works_after_stop() {
 
 #[test]
 fn restart_returns_to_automatic() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.gc_stop();
     lua.gc_restart();
     assert!(lua.gc_is_automatic());
@@ -90,7 +115,7 @@ fn restart_returns_to_automatic() {
 /// Taking the schedule over stops `enter` collecting on its own.
 #[test]
 fn set_gc_pacing_hands_the_schedule_to_the_host() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.set_gc_pacing(false);
     assert!(!lua.gc_is_automatic());
     lua.set_gc_pacing(true);
@@ -100,10 +125,12 @@ fn set_gc_pacing_hands_the_schedule_to_the_host() {
 /// The default path is unchanged: a host that never touches any of this still gets collection.
 #[test]
 fn the_default_path_still_collects() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     churn(&mut lua);
     let after_churn = lua.total_memory();
     churn(&mut lua);
     // Memory should not grow without bound across repeated churn.
     assert!(lua.total_memory() < after_churn * 4);
 }
+
+mod common;
