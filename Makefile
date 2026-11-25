@@ -1185,6 +1185,14 @@ vm-callback-chains:
 	@set -o pipefail; $(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::callback_chain_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::callback_chain_tests $(ARGS) | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
+.PHONY: vm-numeric-comparison
+vm-numeric-comparison:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::numeric_comparison $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::numeric_comparison $(ARGS)
+	@$(CARGO) test --locked -p luna --no-default-features --test metamethods $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --test metamethods $(TARGET_ARG) $(ARGS)
+	@for mode in off auto force; do LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test metamethods $(TARGET_ARG) ordering_preserves_metamethod_arguments_and_errors || exit $$?; done
+
 vm-mode-checks:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::mode_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::mode_tests
@@ -3149,6 +3157,20 @@ binary-metamethods-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' meta_ops::binary_dispatch_tests -- --test-threads=1
 
 .PHONY: jit-entry-hints jit-entry-hints-miri
+.PHONY: jit-snapshot-budget jit-snapshot-budget-miri
+jit-snapshot-budget:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::snapshot_budget_tests -- --test-threads=1
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_owner_tests -- --test-threads=1
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) lua::memory_tests -- --test-threads=1
+
+jit-snapshot-budget-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::snapshot_budget_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::runtime_owner_tests -- --test-threads=1
+
+.PHONY: jit-entry-feedback
+jit-entry-feedback: jit-entry-hints
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
+
 jit-entry-hints:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_bytes
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::code_read_hint_tests

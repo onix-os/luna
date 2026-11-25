@@ -208,7 +208,7 @@ fn build_dependencies<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Prepare
             pc,
         }
     };
-    let allocator = ctx.jit().0.borrow().snapshots.clone();
+    let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
     let caller =
         || super::super::ir::Snapshot::new_in(&prototype, 4096, allocator.clone()).unwrap();
     ctx.jit().compile(key.caller, caller()).unwrap();
@@ -1132,7 +1132,7 @@ fn interpreted_prefix_handoff_uses_the_selected_call_site() {
         |ctx, closure, region, start| {
             let prototype = closure.prototype();
             let key = region.pair.program.key();
-            let allocator = ctx.jit().0.borrow().snapshots.clone();
+            let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
             for (pc, opcode) in prototype.opcodes.iter().enumerate() {
                 if pc != key.pc && matches!(opcode.decode(), Operation::Call { .. }) {
                     let key = super::super::pairs::Key { pc, ..key };

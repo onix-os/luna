@@ -14,6 +14,37 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 mod common;
 
 #[test]
+fn ordering_preserves_metamethod_arguments_and_errors() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local calls = 0
+        local object = {}
+        setmetatable(object, {
+            __lt = function(a, b)
+                calls = calls + 1
+                assert((a == object and b == 3) or (a == 3 and b == object))
+                return a == object
+            end,
+            __le = function(a, b)
+                calls = calls + 1
+                assert((a == object and b == 3) or (a == 3 and b == object))
+                return b == object
+            end,
+        })
+        assert(object < 3 and not (3 < object))
+        assert(not (object <= 3) and 3 <= object)
+        assert("12" < "2" and "2" <= "2")
+        assert(not pcall(function() return "2" < 3 end))
+        assert(not pcall(function() return false <= 3 end))
+        local broken = setmetatable({}, { __lt = function() error("ordering failure") end })
+        local ok, message = pcall(function() return broken < 3 end)
+        return calls == 4 and not ok and string.find(message, "ordering failure") ~= nil
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
 fn function_and_metamethod_calls_preserve_arguments_results_and_errors() -> Result<(), ExternError>
 {
     assert!(eval(

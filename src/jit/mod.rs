@@ -1,12 +1,18 @@
 //! Optional native execution configuration and per-state diagnostics.
 
-use std::{cell::RefCell, sync::atomic::Ordering};
+use std::{
+    cell::{OnceCell, RefCell},
+    sync::atomic::Ordering,
+};
 
 use ahash::RandomState;
 use allocator_api2::vec::Vec;
 use hashbrown::HashMap;
 use ottavino_gc_arena::Collect;
 use thiserror::Error;
+
+#[cfg(test)]
+mod snapshot_budget_tests;
 
 pub(crate) use compile_error::Error as CompileError;
 
@@ -923,7 +929,7 @@ pub(crate) struct Manager {
     ))]
     code_compactor: Compactor,
     pub(crate) metadata: BudgetAllocator,
-    pub(crate) snapshots: BudgetAllocator,
+    pub(crate) snapshots: OnceCell<BudgetAllocator>,
     pub(crate) host: LedgerRef,
     pub(crate) memory: MappingCounter,
     #[cfg(all(
@@ -949,7 +955,6 @@ impl Default for Manager {
         let config = JitConfig::default();
         let host = Ledger::host(usize::MAX);
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
-        let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
             #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
             compiler_jobs: None,
@@ -1011,7 +1016,7 @@ impl Default for Manager {
             ))]
             memory_failure: backend::Failure::None,
             metadata,
-            snapshots,
+            snapshots: OnceCell::new(),
             memory: MappingCounter::new(host.clone()),
             host,
             #[cfg(all(
@@ -1053,6 +1058,30 @@ enum CacheKey {
 }
 
 impl Manager {
+    pub(crate) fn snapshot_allocator(&self) -> Result<BudgetAllocator, CompileError> {
+        if let Some(allocator) = self.snapshots.get() {
+            return Ok(allocator.clone());
+        }
+        let allocator = BudgetAllocator(
+            Ledger::try_child(self.config.max_snapshot_bytes, self.host.clone())
+                .map_err(|_| CompileError::ResourceLimit("JIT snapshot ledger"))?,
+        );
+        let _ = self.snapshots.set(allocator);
+        Ok(self.snapshots.get().unwrap().clone())
+    }
+
+    pub(crate) fn snapshot_current_bytes(&self) -> usize {
+        self.snapshots
+            .get()
+            .map_or(0, |allocator| allocator.0.current())
+    }
+
+    pub(crate) fn snapshot_peak_bytes(&self) -> usize {
+        self.snapshots
+            .get()
+            .map_or(0, |allocator| allocator.0.peak())
+    }
+
     fn queued_count(&self) -> usize {
         let count = self.queue.len();
         #[cfg(all(
@@ -1285,7 +1314,9 @@ impl Manager {
             self.stats.queued_requests = self.queued_count();
         }
         self.metadata.0.set_limit(config.max_metadata_bytes);
-        self.snapshots.0.set_limit(config.max_snapshot_bytes);
+        if let Some(allocator) = self.snapshots.get() {
+            allocator.0.set_limit(config.max_snapshot_bytes);
+        }
         self.config = config;
         #[cfg(all(
             not(miri),
@@ -2000,7 +2031,7 @@ impl Runtime {
                 Ok(code) => {
                     #[cfg(test)]
                     if failure == backend::Failure::RequireReleasedSnapshot {
-                        assert_eq!(manager.snapshots.0.current(), 0);
+                        assert_eq!(manager.snapshot_current_bytes(), 0);
                     }
                     if manager.tracked.contains_key(&id) && manager.config.mode == JitMode::Auto {
                         #[cfg(all(test, not(miri)))]
@@ -2184,7 +2215,7 @@ impl Runtime {
                 return 0;
             }
             let code = &prepared.code;
-            if !code.entries.get(*registers.pc).copied().unwrap_or(false) {
+            if !code.entries.permit(*registers.pc) {
                 return 0;
             }
             if registers.stack_frame.len() < code.registers {
@@ -2789,6 +2820,15 @@ impl Runtime {
         } else {
             exit
         };
+        let ordinary_guard = !PROJECTED && !CANONICAL && exit.reason == exits::Kind::Guard as u32;
+        #[cfg(test)]
+        let ordinary_guard = ordinary_guard
+            && scalar_delta
+                .as_ref()
+                .is_none_or(|delta| delta.reads == 0 && delta.writes == 0);
+        if ordinary_guard {
+            frame.defer_guard(exit.instructions);
+        }
         let write_back = !DEFER || frame.panic.is_some();
         #[cfg(test)]
         let write_back = write_back && !CANONICAL;
@@ -2872,6 +2912,9 @@ impl Runtime {
         }
         let counts = frame.count;
         record_helper_counts!(manager.stats, counts);
+        if (PROJECTED || CANONICAL) && exit.reason == exits::Kind::Guard as u32 {
+            code.entries.defer_guard(pc, exit.instructions, &counts);
+        }
         manager.stats.record_native_exit(&exit);
         if let Some(payload) = frame.panic.take() {
             drop(manager);
@@ -2889,7 +2932,7 @@ mod runtime_owner_tests {
     fn exact_charge_survives_clones_and_releases_after_final_runtime_drop() {
         let runtime = Runtime::new();
         let host = runtime.0.borrow().host.clone();
-        let expected = 3 * LedgerRef::allocation_bytes() + RuntimeOwner::allocation_bytes();
+        let expected = 2 * LedgerRef::allocation_bytes() + RuntimeOwner::allocation_bytes();
         assert_eq!(
             (host.accounted(), host.bootstrap_bytes(), host.current()),
             (expected, expected, 0)
@@ -3119,14 +3162,13 @@ mod eviction_tests {
         });
         request(&runtime, 1).unwrap();
         let lease = runtime.lookup(1).unwrap();
-        let (host, counter, metadata, bytes, bootstrap) = {
+        let (host, counter, metadata, bytes) = {
             let manager = runtime.0.borrow();
             (
                 manager.host.clone(),
                 MappingCounter::new(manager.metadata.0.clone()),
                 manager.metadata.clone(),
                 runtime.usage(),
-                manager.host.bootstrap_bytes(),
             )
         };
         assert!(bytes > 0);
@@ -3134,10 +3176,7 @@ mod eviction_tests {
         assert!(requested > 0 && requested <= bytes);
         runtime.0.borrow_mut().clear_registrations();
         drop(runtime);
-        assert_eq!(
-            host.bootstrap_bytes(),
-            bootstrap - RuntimeOwner::allocation_bytes() - LedgerRef::allocation_bytes()
-        );
+        assert_eq!(host.bootstrap_bytes(), 2 * LedgerRef::allocation_bytes());
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
         assert_eq!(counter.requested(), requested);
         assert_executable(&lease);

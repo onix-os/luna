@@ -993,8 +993,12 @@ fn embedded_image_admission_uses_lua_host_and_metadata_before_spawn_and_recovers
     let (host, metadata, snapshot) = lua.enter(|ctx| {
         let source = crate::Closure::load(ctx, None, &b"local x=1 return x+2"[..]).unwrap();
         let manager = ctx.jit().0.borrow();
-        let snapshot =
-            Snapshot::new_in(&source.prototype(), 4096, manager.snapshots.clone()).unwrap();
+        let snapshot = Snapshot::new_in(
+            &source.prototype(),
+            4096,
+            manager.snapshot_allocator().unwrap(),
+        )
+        .unwrap();
         (manager.host.clone(), manager.metadata.clone(), snapshot)
     });
     let baseline = host.accounted();

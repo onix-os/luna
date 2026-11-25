@@ -27,6 +27,7 @@ mod global_index;
 mod hook_resume;
 #[cfg(test)]
 mod instantiate;
+mod numeric_comparison;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
 // changed.
@@ -1057,24 +1058,29 @@ fn run_vm_slice<'gc>(
             } => {
                 let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
                 let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
-                match meta_ops::less_than(ctx, left, right)? {
-                    MetaResult::Value(v) => {
-                        if v.to_bool() == skip_if {
-                            *registers.pc += 1;
-                        }
+                if let Some(value) = numeric_comparison::compare::<false>(left, right) {
+                    if value == skip_if {
+                        *registers.pc += 1;
                     }
-                    MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
-                            ctx,
-                            call.function,
-                            &call.args,
-                            MetaReturn::SkipIf(skip_if),
-                        )?;
-                        break;
+                } else {
+                    match meta_ops::less_than(ctx, left, right)? {
+                        MetaResult::Value(v) => {
+                            if v.to_bool() == skip_if {
+                                *registers.pc += 1;
+                            }
+                        }
+                        MetaResult::Call(call) => {
+                            lua_frame.call_meta_function(
+                                ctx,
+                                call.function,
+                                &call.args,
+                                MetaReturn::SkipIf(skip_if),
+                            )?;
+                            break;
+                        }
                     }
                 }
             }
-
             Operation::LessEq {
                 skip_if,
                 left,
@@ -1082,24 +1088,29 @@ fn run_vm_slice<'gc>(
             } => {
                 let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
                 let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
-                match meta_ops::less_equal(ctx, left, right)? {
-                    MetaResult::Value(v) => {
-                        if v.to_bool() == skip_if {
-                            *registers.pc += 1;
-                        }
+                if let Some(value) = numeric_comparison::compare::<true>(left, right) {
+                    if value == skip_if {
+                        *registers.pc += 1;
                     }
-                    MetaResult::Call(call) => {
-                        lua_frame.call_meta_function(
-                            ctx,
-                            call.function,
-                            &call.args,
-                            MetaReturn::SkipIf(skip_if),
-                        )?;
-                        break;
+                } else {
+                    match meta_ops::less_equal(ctx, left, right)? {
+                        MetaResult::Value(v) => {
+                            if v.to_bool() == skip_if {
+                                *registers.pc += 1;
+                            }
+                        }
+                        MetaResult::Call(call) => {
+                            lua_frame.call_meta_function(
+                                ctx,
+                                call.function,
+                                &call.args,
+                                MetaReturn::SkipIf(skip_if),
+                            )?;
+                            break;
+                        }
                     }
                 }
             }
-
             Operation::Not { dest, source } => {
                 let source = registers.stack_frame[source.0 as usize];
                 registers.stack_frame[dest.0 as usize] = (!source.to_bool()).into();

@@ -85,7 +85,7 @@ fn later_inline_batch_unwind_keeps_published_state_and_code_lease() {
 fn inline_ir_refusal_preserves_original_region_and_releases_workspace() {
     fixture(|ctx, closure, original, start| {
         assert!(original.inline.is_some());
-        let allocator = ctx.jit().0.borrow().snapshots.clone();
+        let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
         let source =
             crate::jit::ir::Snapshot::new_in(&closure.prototype(), 4096, allocator.clone())
                 .unwrap();

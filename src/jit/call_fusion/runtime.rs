@@ -55,7 +55,7 @@ impl Request {
         };
         let (config, allocator) = {
             let manager = ctx.jit().0.borrow();
-            (manager.config.clone(), manager.snapshots.clone())
+            (manager.config.clone(), manager.snapshot_allocator()?)
         };
         Ok(Input::new(
             &caller.prototype(),

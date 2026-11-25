@@ -362,8 +362,8 @@ impl Lua {
         stats.metadata_bytes = manager.metadata.0.current();
         stats.metadata_peak_bytes = manager.metadata.0.peak();
         stats.metadata_allocation_refusals = manager.metadata.0.refusals();
-        stats.snapshot_bytes = manager.snapshots.0.current();
-        stats.snapshot_peak_bytes = manager.snapshots.0.peak();
+        stats.snapshot_bytes = manager.snapshot_current_bytes();
+        stats.snapshot_peak_bytes = manager.snapshot_peak_bytes();
         stats.accounted_jit_bytes = manager.host.accounted();
         stats.bootstrap_bytes = manager.host.bootstrap_bytes();
         stats.accounted_jit_peak_bytes = manager.host.accounted_peak();
@@ -536,7 +536,7 @@ impl Lua {
                 crate::jit::ir::Snapshot::new_in(
                     &proto,
                     snapshot_limit,
-                    self.jit.0.borrow().snapshots.clone(),
+                    self.jit.0.borrow().snapshot_allocator()?,
                 )
             })
         });
@@ -566,29 +566,32 @@ impl Lua {
         let Some(key) = self.jit.next_pair_request() else {
             return self.service_jit_region();
         };
-        let (config, allocator) = {
-            let manager = self.jit.0.borrow();
-            (manager.config.clone(), manager.snapshots.clone())
-        };
+        let config = self.jit.0.borrow().config.clone();
         let snapshots = self.arena.mutate(|mc, state| {
             let ctx = state.ctx(mc);
             let registry = state.jit_registry.borrow();
             let caller = registry.resolve(ctx, key.caller)?;
             let callee = registry.resolve(ctx, key.callee)?;
             Some(
-                crate::jit::ir::Snapshot::new_in(
-                    &caller,
-                    config.max_prototype_instructions,
-                    allocator.clone(),
-                )
-                .and_then(|caller| {
-                    crate::jit::ir::Snapshot::new_in(
-                        &callee,
-                        config.max_prototype_instructions,
-                        allocator,
-                    )
-                    .map(|callee| (caller, callee))
-                }),
+                self.jit
+                    .0
+                    .borrow()
+                    .snapshot_allocator()
+                    .and_then(|allocator| {
+                        crate::jit::ir::Snapshot::new_in(
+                            &caller,
+                            config.max_prototype_instructions,
+                            allocator.clone(),
+                        )
+                        .and_then(|caller| {
+                            crate::jit::ir::Snapshot::new_in(
+                                &callee,
+                                config.max_prototype_instructions,
+                                allocator,
+                            )
+                            .map(|callee| (caller, callee))
+                        })
+                    }),
             )
         });
         let Some(snapshots) = snapshots else {
@@ -1513,7 +1516,7 @@ mod memory_tests {
     #[test]
     fn bootstrap_floor_survives_cache_clear_and_denies_growth_below_it() {
         let mut lua = Lua::empty();
-        let expected = 3 * crate::jit::resources::LedgerRef::allocation_bytes()
+        let expected = 2 * crate::jit::resources::LedgerRef::allocation_bytes()
             + crate::jit::RuntimeOwner::allocation_bytes();
         assert_eq!(lua.jit_stats().bootstrap_bytes, expected);
         assert_eq!(lua.accounted_memory(), lua.total_memory() + expected);
@@ -1537,7 +1540,10 @@ mod memory_tests {
         let mut lua = Lua::empty();
         let (metadata, snapshots) = {
             let manager = lua.jit.0.borrow();
-            (manager.metadata.clone(), manager.snapshots.clone())
+            (
+                manager.metadata.clone(),
+                manager.snapshot_allocator().unwrap(),
+            )
         };
         let mut first = Vec::<u8, _>::new_in(metadata.clone());
         let mut second = Vec::<u8, _>::new_in(snapshots);

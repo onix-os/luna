@@ -53,10 +53,11 @@ impl Request {
                 "region dependency admission".into(),
             ));
         }
+        let workspace = manager.snapshot_allocator()?;
         let snapshot = Snapshot::new_in(
             &caller,
             manager.config.max_prototype_instructions,
-            manager.snapshots.clone(),
+            workspace.clone(),
         )?;
         let inline_callee = (snapshot.registers <= 16)
             .then(|| {
@@ -67,7 +68,7 @@ impl Request {
                 let source = Snapshot::new_in(
                     &callee,
                     manager.config.max_prototype_instructions,
-                    manager.snapshots.clone(),
+                    workspace.clone(),
                 )
                 .ok()?;
                 crate::jit::inline_loop::Plan::new(
@@ -89,7 +90,7 @@ impl Request {
             config: manager.config.clone(),
             memory: manager.memory.clone(),
             metadata: manager.metadata.clone(),
-            workspace: manager.snapshots.clone(),
+            workspace,
         })
     }
 

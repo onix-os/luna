@@ -20,7 +20,10 @@ fn real_compile_pressure_evicts_cached_region_and_recovers_after_lease_release()
                     manager.memory.load(std::sync::atomic::Ordering::Relaxed);
                 manager.enqueue(id, true);
                 assert_eq!(manager.next_request(), Some(id));
-                (manager.memory.clone(), manager.snapshots.clone())
+                (
+                    manager.memory.clone(),
+                    manager.snapshot_allocator().unwrap(),
+                )
             };
             let requested = memory.requested();
             let compile = || {
@@ -281,7 +284,7 @@ fn successful_dependency_replacement_invalidates_cached_regions() {
             let key = region.pair.program.key();
             ctx.jit().install_region(region).unwrap();
             let lease = ctx.jit().region_lease(key).unwrap();
-            let allocator = ctx.jit().0.borrow().snapshots.clone();
+            let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
             let caller =
                 crate::jit::ir::Snapshot::new_in(&closure.prototype(), 4096, allocator.clone())
                     .unwrap();

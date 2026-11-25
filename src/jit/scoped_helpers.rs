@@ -120,7 +120,7 @@ impl Code {
             (
                 manager.memory.clone(),
                 manager.metadata.clone(),
-                manager.snapshots.clone(),
+                manager.snapshot_allocator()?,
                 manager.config.clone(),
             )
         };

@@ -23,7 +23,7 @@ fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Snapshot, Snap
         .unwrap();
         let caller = closure.prototype();
         let callee = caller.prototypes[0];
-        let allocator = ctx.jit().0.borrow().snapshots.clone();
+        let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
         let caller_source = Snapshot::new_in(&caller, 4096, allocator.clone()).unwrap();
         let callee_source = Snapshot::new_in(&callee, 4096, allocator).unwrap();
         let registry = ctx.jit_registry().borrow();
@@ -49,7 +49,7 @@ fn charged_image_executes_after_snapshot_release_until_final_lease_drop() {
             (
                 manager.metadata.clone(),
                 manager.memory.clone(),
-                manager.snapshots.0.clone(),
+                manager.snapshot_allocator().unwrap().0.clone(),
             )
         };
         let before = (
@@ -111,7 +111,7 @@ fn code_workspace_mapping_and_protection_refusals_release_all_charges() {
                 (
                     manager.metadata.clone(),
                     manager.memory.clone(),
-                    manager.snapshots.0.clone(),
+                    manager.snapshot_allocator().unwrap().0.clone(),
                 )
             };
             let before = (

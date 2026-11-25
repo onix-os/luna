@@ -13,7 +13,7 @@ const DISTINCT: &[u8] = b"local n=0 local function f(v) n=n+v end local function
 fn regions<'gc>(ctx: Context<'gc>, caller: Closure<'gc>, first: Region) -> Vec<Region> {
     let prototype = caller.prototype();
     let first_key = first.pair.program.key();
-    let allocator = ctx.jit().0.borrow().snapshots.clone();
+    let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
     let mut regions = vec![first];
     for (index, (pc, _)) in prototype
         .opcodes
@@ -304,7 +304,7 @@ fn stale_selected_dependency_is_unlinked_once_without_scanning_siblings() {
         for region in sites {
             ctx.jit().install_region(region).unwrap();
         }
-        let allocator = ctx.jit().0.borrow().snapshots.clone();
+        let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
         ctx.jit()
             .compile_pair(
                 stale_key,

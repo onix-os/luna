@@ -352,7 +352,7 @@ fn pair_pressure_evicts_lru_and_bounds_retries_without_resetting_victim_attempts
             ),
             (1, 2)
         );
-        assert_eq!(manager.snapshots.0.current(), 0);
+        assert_eq!(manager.snapshot_current_bytes(), 0);
     });
     lua.enter(|ctx| ctx.jit().observe_pair(second));
     assert_eq!(lua.service_jit().unwrap(), 0);
@@ -745,7 +745,7 @@ fn vm_observes_real_call_pairs_but_never_compiles_within_a_step() {
         assert!(manager.pairs.as_ref().unwrap().entries[&key].queued);
         assert_eq!(manager.stats.installed_regions, 0);
         assert_eq!(manager.memory.load(std::sync::atomic::Ordering::Relaxed), 0);
-        assert_eq!(manager.snapshots.0.current(), 0);
+        assert_eq!(manager.snapshot_current_bytes(), 0);
     });
     let mut serviced = 0;
     while lua.service_jit().unwrap() != 0 {
@@ -1057,7 +1057,7 @@ fn collected_independent_callee_cancels_requests_without_retiring_the_caller() {
 fn second_snapshot_refusal_releases_the_first_snapshot_and_consumes_one_attempt() {
     let (mut lua, closure, key) = fixture();
     let caller_bytes = lua.enter(|ctx| {
-        let allocator = ctx.jit().0.borrow().snapshots.clone();
+        let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
         let snapshot =
             Snapshot::new_in(&ctx.fetch(&closure).prototype(), 4096, allocator.clone()).unwrap();
         let bytes = allocator.0.current();

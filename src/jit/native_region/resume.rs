@@ -420,7 +420,7 @@ mod tests {
                             }
                             1 => ctx.jit().0.borrow_mut().config.mode = JitMode::Off,
                             2 => {
-                                let allocator = ctx.jit().0.borrow().snapshots.clone();
+                                let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
                                 let snapshot = crate::jit::ir::Snapshot::new_in(
                                     &closure.prototype(),
                                     4096,
@@ -504,7 +504,7 @@ mod tests {
                 .borrow()
                 .identity(ctx, other.prototype())
                 .unwrap();
-            let allocator = ctx.jit().0.borrow().snapshots.clone();
+            let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
             let snapshot =
                 crate::jit::ir::Snapshot::new_in(&other.prototype(), 4096, allocator).unwrap();
             ctx.jit().compile(id, snapshot).unwrap();

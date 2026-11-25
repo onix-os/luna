@@ -39,7 +39,7 @@ fn packed_helper_matches_prepared_pc_declines_and_panic_state() {
         );
         ctx.globals().set(ctx, "target", -19).unwrap();
         let hash = crate::table::PreparedStringHash::new(ctx.intern(b"target")).bits();
-        let hints = EntryBytes::try_new([true, false].into_iter(), BudgetAllocator(Ledger::new(2)))
+        let hints = EntryBytes::try_new([true, false].into_iter(), BudgetAllocator(Ledger::new(4)))
             .unwrap();
         for packed in [
             0,

@@ -1,12 +1,12 @@
 use super::*;
 use crate::jit::entry_bytes::Hint;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU16, Ordering};
 
 fn cached<'gc>(
     table: &RawTable<'gc>,
     mc: &Mutation<'gc>,
     key: String<'gc>,
-    hint: &AtomicU8,
+    hint: &AtomicU16,
 ) -> Value<'gc> {
     table.get_canonical_string(mc, key, Some(Hint::new(hint)))
 }
@@ -32,7 +32,7 @@ fn code_hint_checks_every_offset_and_current_table_key() {
         let key = String::from_slice(&ctx, b"target");
         let equal = String::from_buffer(&ctx, b"target".to_vec().into_boxed_slice());
         let missing = ctx.intern(b"absent");
-        let hint = AtomicU8::new(0);
+        let hint = AtomicU16::new(0);
         for count in [0, 1, 4, 16, 128, 300] {
             let mut table = RawTable::new(&ctx);
             for i in 0..count {
@@ -47,7 +47,7 @@ fn code_hint_checks_every_offset_and_current_table_key() {
             table.set(&ctx, key.into(), Value::Integer(71)).unwrap();
             for offset in 0..=u8::MAX {
                 for query in [key, equal, missing] {
-                    hint.store(offset, Ordering::Relaxed);
+                    hint.store(u16::from(offset), Ordering::Relaxed);
                     same(
                         cached(&table, &ctx, query, &hint),
                         table.get(&ctx, query.into()),
@@ -73,7 +73,7 @@ fn strong_peek_checks_live_identity_without_changing_any_hint_byte() {
         let equal = String::from_buffer(&ctx, b"target".to_vec().into_boxed_slice());
         let missing = ctx.intern(b"absent");
         assert!(!Gc::ptr_eq(key.into_inner(), equal.into_inner()));
-        let hint = AtomicU8::new(0);
+        let hint = AtomicU16::new(0);
         let mut successes = 0;
         for count in [0, 1, 4, 16, 128, 300] {
             let mut table = RawTable::new(&ctx);
@@ -89,7 +89,7 @@ fn strong_peek_checks_live_identity_without_changing_any_hint_byte() {
             table.set(&ctx, key.into(), Value::Integer(71)).unwrap();
             for byte in 0..=u8::MAX {
                 for query in [key, equal, missing] {
-                    hint.store(byte, Ordering::Relaxed);
+                    hint.store(u16::from(byte), Ordering::Relaxed);
                     if let Some(value) = table
                         .strong_canonical_hint(query, Hint::new(&hint).load().unwrap_or(usize::MAX))
                     {
@@ -97,16 +97,16 @@ fn strong_peek_checks_live_identity_without_changing_any_hint_byte() {
                         same(value, Value::Integer(71));
                         successes += 1;
                     }
-                    assert_eq!(hint.load(Ordering::Relaxed), byte);
+                    assert_eq!(hint.load(Ordering::Relaxed), u16::from(byte));
                 }
             }
             table.set(&ctx, key.into(), Value::Nil).unwrap();
             for byte in 0..=u8::MAX {
-                hint.store(byte, Ordering::Relaxed);
+                hint.store(u16::from(byte), Ordering::Relaxed);
                 assert!(table
                     .strong_canonical_hint(key, Hint::new(&hint).load().unwrap_or(usize::MAX))
                     .is_none());
-                assert_eq!(hint.load(Ordering::Relaxed), byte);
+                assert_eq!(hint.load(Ordering::Relaxed), u16::from(byte));
             }
         }
         assert!(successes >= 8);
@@ -117,7 +117,7 @@ fn strong_peek_checks_live_identity_without_changing_any_hint_byte() {
 fn strong_peek_observes_current_values_and_refuses_all_weak_modes() {
     crate::Lua::empty().enter(|ctx| {
         let key = ctx.intern(b"target");
-        let hint = AtomicU8::new(0);
+        let hint = AtomicU16::new(0);
         let closure = Closure::load(ctx, None, b"return").unwrap();
         let values = [
             Value::Boolean(false),
@@ -163,7 +163,7 @@ fn strong_peek_borrow_refusal_and_release_do_not_cross_invocations() {
         let table = Table::new(&ctx);
         let inner = table.into_inner();
         let key = ctx.intern(b"target");
-        let hint = AtomicU8::new(0);
+        let hint = AtomicU16::new(0);
         table.set(ctx, key, 71).unwrap();
         same(
             table.get_canonical_string(ctx, key, Some(Hint::new(&hint))),
@@ -253,7 +253,7 @@ fn strong_peek_loaded_index_uses_current_value_without_reloading_the_hint() {
     crate::Lua::empty().enter(|ctx| {
         let table = Table::new(&ctx);
         let key = ctx.intern(b"target");
-        let byte = AtomicU8::new(0);
+        let byte = AtomicU16::new(0);
         table.set(ctx, key, 71).unwrap();
         same(
             table.get_canonical_string(ctx, key, Some(Hint::new(&byte))),
@@ -285,7 +285,7 @@ fn code_hint_tracks_growth_removal_and_weak_transitions() {
     crate::Lua::empty().enter(|ctx| {
         let key = String::from_buffer(&ctx, std::vec![b'x'; 257].into_boxed_slice());
         let equal = String::from_slice(&ctx, key.as_bytes());
-        let hint = AtomicU8::new(255);
+        let hint = AtomicU16::new(255);
         let callback = Callback::from_fn(&ctx, |_, _, _| panic!("lookup executed callback"));
         for mode in 0..4 {
             let mut table = RawTable::new(&ctx);
@@ -349,7 +349,7 @@ fn code_hint_tracks_growth_removal_and_weak_transitions() {
 fn code_hint_never_roots_weak_values_across_collection() {
     for mode in ["k", "v", "kv"] {
         let mut lua = crate::Lua::empty();
-        let hint = AtomicU8::new(0);
+        let hint = AtomicU16::new(0);
         let root = lua.enter(|ctx| {
             let key = ctx.intern(b"entry");
             let table = Table::new(&ctx);
@@ -379,7 +379,7 @@ fn code_hint_never_roots_weak_values_across_collection() {
 
 #[test]
 fn code_hint_can_cross_arenas_without_retaining_gc_provenance() {
-    let hint = AtomicU8::new(255);
+    let hint = AtomicU16::new(255);
     for state in 0..16 {
         crate::Lua::empty().enter(|ctx| {
             let mut table = RawTable::new(&ctx);
@@ -408,7 +408,7 @@ fn canonical_reads_without_hints_match_long_keys_and_large_maps() {
                 }
                 let key = String::from_buffer(&ctx, std::vec![b'x'; length].into_boxed_slice());
                 let equal = String::from_buffer(&ctx, std::vec![b'x'; length].into_boxed_slice());
-                let hint = AtomicU8::new(255);
+                let hint = AtomicU16::new(255);
                 for value in [
                     Value::Nil,
                     Value::Integer(-91),

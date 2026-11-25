@@ -7050,7 +7050,7 @@ mod memory_tests {
             Failure::None,
         )
         .unwrap();
-        let retained = code.entries.capacity() * std::mem::size_of::<bool>()
+        let retained = code.entries.capacity() * std::mem::size_of::<u16>()
             + AtomicShared::<MemoryStatus>::allocation_bytes()
             + code._memory.allocations.capacity() * std::mem::size_of::<Segment>();
         assert_eq!(metadata.current(), retained);
@@ -7621,7 +7621,8 @@ mod memory_tests {
         });
         let snapshot_ledger = snapshot.operations.allocator().0.clone();
         let snapshot_baseline = snapshot_ledger.current();
-        let entry_bytes = snapshot.operations.len();
+        let entry_bytes =
+            snapshot.operations.len() * std::mem::size_of::<std::sync::atomic::AtomicU16>();
         let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes();
         for cause in 0..3 {
             let host = super::super::resources::Ledger::new(if cause == 1 {
@@ -7693,8 +7694,10 @@ mod memory_tests {
                 host.current(),
                 total.load(Ordering::Relaxed),
             );
-            let admission =
-                snapshot.operations.len() + AtomicShared::<MemoryStatus>::allocation_bytes() - 1;
+            let admission = snapshot.operations.len()
+                * std::mem::size_of::<std::sync::atomic::AtomicU16>()
+                + AtomicShared::<MemoryStatus>::allocation_bytes()
+                - 1;
             match cause {
                 0 => metadata.set_limit(baseline.0 + admission),
                 1 => host.set_limit(baseline.1 + admission),
@@ -7757,7 +7760,8 @@ mod memory_tests {
         });
         let snapshot_ledger = snapshot.operations.allocator().0.clone();
         let snapshot_baseline = snapshot_ledger.current();
-        let entry_bytes = snapshot.operations.len();
+        let entry_bytes =
+            snapshot.operations.len() * std::mem::size_of::<std::sync::atomic::AtomicU16>();
         let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes()
             + Handoff::<Memory>::allocation_bytes()
             + std::alloc::Layout::new::<Provider>().size();
@@ -7842,6 +7846,7 @@ mod memory_tests {
                 total.load(Ordering::Relaxed),
             );
             let admission = snapshot.operations.len()
+                * std::mem::size_of::<std::sync::atomic::AtomicU16>()
                 + AtomicShared::<MemoryStatus>::allocation_bytes()
                 + Handoff::<Memory>::allocation_bytes()
                 + std::alloc::Layout::new::<Provider>().size()

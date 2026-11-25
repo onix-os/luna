@@ -180,7 +180,14 @@ fn snapshot_metadata_and_host_failures_consume_bounded_attempts() {
     for fault in 0..3 {
         let mut setup = Setup::new(2);
         let memory = setup.runtime.0.borrow().memory.clone();
-        let snapshots = setup.runtime.0.borrow().snapshots.0.clone();
+        let snapshots = setup
+            .runtime
+            .0
+            .borrow()
+            .snapshot_allocator()
+            .unwrap()
+            .0
+            .clone();
         let metadata = setup.runtime.0.borrow().metadata.0.clone();
         let requested = memory.requested();
         let initial = setup.lua.jit_stats();
@@ -292,7 +299,7 @@ fn ordinary_eviction_cancels_pending_promotion_and_replacement_can_requeue() {
     assert_eq!(setup.lua.service_jit().unwrap(), 0);
     setup.lua.enter(|ctx| {
         let source = ctx.fetch(&setup.source);
-        let allocator = ctx.jit().0.borrow().snapshots.clone();
+        let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
         let snapshot =
             crate::jit::ir::Snapshot::new_in(&source.prototype(), 4096, allocator).unwrap();
         ctx.jit().compile(setup.key.caller, snapshot).unwrap();
@@ -378,7 +385,7 @@ fn retired_sources_and_replaced_dependencies_cancel_promotion_requests() {
                     assert_eq!(ctx.jit().next_region_request(), Some(setup.key));
                 }
                 let source = ctx.fetch(&setup.source);
-                let allocator = ctx.jit().0.borrow().snapshots.clone();
+                let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
                 let caller =
                     crate::jit::ir::Snapshot::new_in(&source.prototype(), 4096, allocator.clone())
                         .unwrap();

@@ -141,6 +141,14 @@ pub(super) struct Frame<'gc, 'a, 'b, 'p> {
     pub read_hints: Option<&'a super::entry_bytes::EntryBytes>,
 }
 
+impl Frame<'_, '_, '_, '_> {
+    pub(super) fn defer_guard(&self, instructions: u32) {
+        if let Some(entries) = self.read_hints {
+            entries.defer_guard(*self.registers.pc, instructions, &self.count);
+        }
+    }
+}
+
 #[inline(always)]
 pub(super) fn with_table_value<'gc>(
     ctx: Context<'gc>,

@@ -106,7 +106,7 @@ fn constant_string_reads_match_generic_effects_aliases_and_metamethod_declines()
             .unwrap();
         let hints = EntryBytes::try_new(
             [true, false, true].into_iter(),
-            BudgetAllocator(Ledger::new(3)),
+            BudgetAllocator(Ledger::new(6)),
         )
         .unwrap();
         let table = Table::new(&ctx);
@@ -173,7 +173,7 @@ fn constant_string_hints_revalidate_table_mutations_and_non_table_operands() {
             })
             .unwrap();
         let hints =
-            EntryBytes::try_new([true].into_iter(), BudgetAllocator(Ledger::new(1))).unwrap();
+            EntryBytes::try_new([true].into_iter(), BudgetAllocator(Ledger::new(2))).unwrap();
         for generation in 0..8 {
             let table = Table::new(&ctx);
             for i in 0..generation * 32 {
@@ -253,7 +253,7 @@ fn canonical_entry_keeps_non_string_constant_fallback() {
         let closure = Closure::load(ctx, None, b"local t={} return t[1],t[1.5]").unwrap();
         let table = Table::new(&ctx);
         let hints =
-            EntryBytes::try_new([true].into_iter(), BudgetAllocator(Ledger::new(1))).unwrap();
+            EntryBytes::try_new([true].into_iter(), BudgetAllocator(Ledger::new(2))).unwrap();
         let mut kinds = 0;
         for (index, &constant) in closure.prototype().constants.iter().enumerate() {
             match constant {

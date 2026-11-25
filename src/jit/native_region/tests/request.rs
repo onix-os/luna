@@ -69,7 +69,14 @@ fn request_compiles_outside_arena_and_cached_execution_matches_off() {
     let (mut fixture, request) = Fixture::new();
     fn gc_free<T: 'static>(_: &T) {}
     gc_free(&request);
-    let snapshots = fixture.runtime.0.borrow().snapshots.0.clone();
+    let snapshots = fixture
+        .runtime
+        .0
+        .borrow()
+        .snapshot_allocator()
+        .unwrap()
+        .0
+        .clone();
     assert!(snapshots.current() > 0);
     fixture.lua.gc_collect();
     fixture.lua.gc_collect();
@@ -108,7 +115,10 @@ fn dropping_request_and_snapshot_refusal_leave_dependencies_intact() {
     let (mut fixture, request) = Fixture::new();
     let (snapshots, memory) = {
         let manager = fixture.runtime.0.borrow();
-        (manager.snapshots.0.clone(), manager.memory.clone())
+        (
+            manager.snapshot_allocator().unwrap().0.clone(),
+            manager.memory.clone(),
+        )
     };
     let requested = memory.requested();
     assert!(snapshots.current() > 0);
@@ -138,7 +148,14 @@ fn dropping_request_and_snapshot_refusal_leave_dependencies_intact() {
 fn request_and_built_region_do_not_root_collected_sources() {
     for build in [false, true] {
         let (mut fixture, request) = Fixture::new();
-        let snapshots = fixture.runtime.0.borrow().snapshots.0.clone();
+        let snapshots = fixture
+            .runtime
+            .0
+            .borrow()
+            .snapshot_allocator()
+            .unwrap()
+            .0
+            .clone();
         let memory = fixture.runtime.0.borrow().memory.clone();
         let (request, region) = if build {
             (None, Some(request.compile(&fixture.runtime).unwrap()))
@@ -201,7 +218,7 @@ fn changed_configuration_or_dependencies_refuse_build_and_install() {
                 2 => ctx.jit().0.borrow_mut().retire(fixture.key.callee),
                 3 | 4 => {
                     let source = ctx.fetch(&fixture.source);
-                    let allocator = ctx.jit().0.borrow().snapshots.clone();
+                    let allocator = ctx.jit().0.borrow().snapshot_allocator().unwrap();
                     let caller = crate::jit::ir::Snapshot::new_in(
                         &source.prototype(),
                         4096,
@@ -231,7 +248,7 @@ fn changed_configuration_or_dependencies_refuse_build_and_install() {
             };
             assert!(matches!(result, Err(CompileError::Compilation(_))));
             assert_eq!(fixture.runtime.0.borrow().clock, clock);
-            assert_eq!(fixture.runtime.0.borrow().snapshots.0.current(), 0);
+            assert_eq!(fixture.runtime.0.borrow().snapshot_current_bytes(), 0);
             if change != 5 {
                 assert!(Shared::ptr_eq(
                     &peer,
@@ -259,7 +276,7 @@ fn foreign_runtime_refuses_prepared_request_before_native_allocation() {
     ));
     assert_eq!(memory.requested(), before);
     assert_eq!(foreign_memory.requested(), foreign_before);
-    assert_eq!(fixture.runtime.0.borrow().snapshots.0.current(), 0);
+    assert_eq!(fixture.runtime.0.borrow().snapshot_current_bytes(), 0);
     drop(foreign_request);
 }
 
@@ -279,7 +296,7 @@ fn failed_compilation_releases_snapshot_and_preserves_cached_region() {
         let (snapshots, metadata, memory, host) = {
             let manager = fixture.runtime.0.borrow();
             (
-                manager.snapshots.0.clone(),
+                manager.snapshot_allocator().unwrap().0.clone(),
                 manager.metadata.0.clone(),
                 manager.memory.clone(),
                 manager.host.clone(),
