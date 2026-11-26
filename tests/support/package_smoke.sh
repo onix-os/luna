@@ -20,8 +20,8 @@ export CARGO_TARGET_DIR="$evidence/package-target"
 
 stage_package() {
     local name=$1
-    local archive="$evidence/package-target/package/$name-0.6.0.crate"
-    local destination="$evidence/vendor/$name-0.6.0"
+    local archive="$evidence/package-target/package/$name-0.6.1.crate"
+    local destination="$evidence/vendor/$name-0.6.1"
     test ! -e "$destination"
     tar -xzf "$archive" -C "$evidence/vendor"
     tar -tzf "$archive" >"$evidence/$name-files.txt"
@@ -60,7 +60,7 @@ for feature in nojit jit; do
         all($dependencies[]; .source == "registry+https://github.com/rust-lang/crates.io-index" and (.manifest_path | startswith($prefix))) and
         all($dependencies[]; .name != "luna-jit-embed" and .name != "sha2") and
         (any($dependencies[]; .name == "cranelift-codegen") == ($mode == "jit")) and
-        all($dependencies[] | select(.name | test("^luna($|-)")); .version == "0.6.0")
+        all($dependencies[] | select(.name | test("^luna($|-)")); .version == "0.6.1")
     ' "$evidence/$feature.metadata.json" >"$evidence/$feature-isolation.txt"
     cargo build --locked --offline --release "${flags[@]}"
     cp "$CARGO_TARGET_DIR/release/luna-release-probe" "$evidence/consumer-$feature"
