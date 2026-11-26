@@ -478,6 +478,9 @@ pub fn tostring<'gc>(
             };
             MetaResult::Value(name.into())
         }
+        Value::Number(n) if n.is_nan() && ctx.functional() => {
+            MetaResult::Value(ctx.intern(b"nan").into())
+        }
         v => {
             // With no `__tostring`, a `__name` still improves on "userdata: 0x…" — it is the only
             // way a bound Rust type prints as itself.
@@ -878,7 +881,7 @@ pub fn concat<'gc>(
                 match value {
                     Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
                     Value::Number(n) => {
-                        write!(&mut bytes, "{}", crate::stdlib::format_number(n)).unwrap()
+                        write!(&mut bytes, "{}", crate::stdlib::format_number_in(ctx, n)).unwrap()
                     }
                     Value::String(s) => bytes.extend(s.as_bytes()),
                     _ => return None,
@@ -939,7 +942,7 @@ pub fn concat_many<'gc>(
             match value {
                 Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
                 Value::Number(n) => {
-                    write!(&mut bytes, "{}", crate::stdlib::format_number(*n)).unwrap()
+                    write!(&mut bytes, "{}", crate::stdlib::format_number_in(ctx, *n)).unwrap()
                 }
                 Value::String(s) => bytes.extend(s.as_bytes()),
                 _ => unreachable!(),
@@ -1004,7 +1007,7 @@ pub fn concat_separated<'gc>(
             match val {
                 Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
                 Value::Number(n) => {
-                    write!(&mut bytes, "{}", crate::stdlib::format_number(*n)).unwrap()
+                    write!(&mut bytes, "{}", crate::stdlib::format_number_in(ctx, *n)).unwrap()
                 }
                 Value::String(s) => bytes.extend(s.as_bytes()),
                 _ => unreachable!(),
@@ -1015,7 +1018,7 @@ pub fn concat_separated<'gc>(
                 match val {
                     Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
                     Value::Number(n) => {
-                        write!(&mut bytes, "{}", crate::stdlib::format_number(*n)).unwrap()
+                        write!(&mut bytes, "{}", crate::stdlib::format_number_in(ctx, *n)).unwrap()
                     }
                     Value::String(s) => bytes.extend(s.as_bytes()),
                     _ => unreachable!(),

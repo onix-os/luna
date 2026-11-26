@@ -1,6 +1,6 @@
 # Repository workflow
 
-- Work on the existing `feat/native-jit` branch for the current JIT work.
+- Work on the `develop` branch; releases are cut from it with `make release`.
 - Do not create local or remote branches unless the user explicitly asks.
 - Do not create a branch for each experiment or benchmark.
 - Do not create extra Git worktrees for experiments or benchmarks; use ordinary source snapshots without Git metadata.

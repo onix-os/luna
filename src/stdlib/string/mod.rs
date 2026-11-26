@@ -181,6 +181,11 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let format: String = stack.from_front(ctx)?;
             let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+            for index in 0..stack.len() {
+                if let Value::Number(n) = stack.get(index) {
+                    stack.set(index, Value::Number(crate::stdlib::canonical_nan(ctx, n)));
+                }
+            }
 
             let mut out = Vec::new();
             let mut arg = 0;

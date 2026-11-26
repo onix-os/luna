@@ -77,6 +77,18 @@ fn startup(child: &mut Child<'_>) -> Result<(), Fault> {
     }
 }
 
+/// Wait for a child to exit on its own and reap it, without signalling it first as `stop` does.
+fn exited(child: &mut Child<'_>) -> io::Result<ExitStatus> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.reap()? {
+            return Ok(status);
+        }
+        assert!(Instant::now() < deadline);
+        child.ready(20)?;
+    }
+}
+
 fn fds() -> usize {
     std::fs::read_dir("/proc/self/fd").unwrap().count()
 }
@@ -138,7 +150,7 @@ fn missing_signal_capability_refuses_without_descriptors_or_children() {
     if error.raw_os_error() == Some(libc::EBADF) {
         let mut child = Child::spawn(&image, limits()).unwrap();
         assert!(startup(&mut child).is_err());
-        assert_eq!(child.stop().unwrap().code(), Some(127));
+        assert_eq!(exited(&mut child).unwrap().code(), Some(127));
     } else {
         assert_eq!(
             Child::spawn(&image, limits()).err().unwrap().raw_os_error(),
@@ -167,7 +179,7 @@ fn invalid_exec_reports_fixed_startup_fault_and_reaps() {
             errno: libc::ENOEXEC
         })
     );
-    assert_eq!(child.stop().unwrap().code(), Some(127));
+    assert_eq!(exited(&mut child).unwrap().code(), Some(127));
     let mut output = child.output.take().unwrap();
     let mut byte = [0];
     assert_eq!(output.read(&mut byte).unwrap(), 0);
@@ -263,7 +275,7 @@ fn launch_startup_and_reap_have_no_parent_rust_allocations() {
     TRACK.set(true);
     let mut child = Child::spawn(&image, limits()).unwrap();
     let fault = startup(&mut child);
-    let result = child.stop();
+    let result = exited(&mut child);
     drop(child);
     TRACK.set(false);
     assert!(fault.is_err());
@@ -287,7 +299,7 @@ fn parallel_launches_preserve_pinned_wait_ownership() {
                 for _ in 0..4 {
                     let mut child = Child::spawn(&image, limits()).unwrap();
                     assert!(startup(&mut child).is_err());
-                    assert_eq!(child.stop().unwrap().code(), Some(127));
+                    assert_eq!(exited(&mut child).unwrap().code(), Some(127));
                 }
             });
         }
@@ -332,7 +344,7 @@ fn closed_stdio_child() {
             errno: libc::ENOEXEC
         })
     );
-    assert_eq!(child.stop().unwrap().code(), Some(127));
+    assert_eq!(exited(&mut child).unwrap().code(), Some(127));
     drop(child);
     for fd in 1..3 {
         assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);

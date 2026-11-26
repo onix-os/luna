@@ -112,6 +112,10 @@ pub fn default() -> Lua {
     configure(InnerLua::default())
 }
 
+pub fn functional() -> Lua {
+    configure(InnerLua::functional())
+}
+
 fn configure(lua: InnerLua) -> Lua {
     #[cfg(feature = "jit")]
     {

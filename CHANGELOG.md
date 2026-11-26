@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.1] - 2026-11-26
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Close purity and determinism holes
+- Report compile details from load
+
+### <!-- 3 -->📚 Documentation
+
+- Point agent workflow at develop
+
+### <!-- 6 -->🧪 Testing
+
+- Wait for failed launches to exit
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Bump version and internal deps to 0.6.1
+
 ## [0.6.0] - 2026-11-25
 
 ### <!-- 0 -->⛰️  Features

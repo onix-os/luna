@@ -648,7 +648,14 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
                     Ok(CallbackReturn::Return)
                 }
                 Err(e) => {
-                    let err_str = ctx.intern(e.to_string().as_bytes());
+                    let mut message = e.to_string();
+                    let mut source = std::error::Error::source(&e);
+                    while let Some(cause) = source {
+                        message.push_str(": ");
+                        message.push_str(&cause.to_string());
+                        source = cause.source();
+                    }
+                    let err_str = ctx.intern(message.as_bytes());
                     stack.replace(ctx, (Value::Nil, err_str));
                     Ok(CallbackReturn::Return)
                 }

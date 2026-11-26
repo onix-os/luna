@@ -237,6 +237,9 @@ struct CompilerFunction<S> {
     // The opcode index each live local was declared at, in lockstep with `locals`. Kept beside it
     // rather than inside so the existing destructuring of that tuple is untouched.
     local_starts: Vec<usize>,
+    // Whether each live local is captured by a closure or assigned after its declaration, in
+    // lockstep with `locals`.
+    local_uses: Vec<LocalUse>,
     // Locals whose scope has ended, with the opcode range they were live for. This is what
     // `debug.getlocal` reads: a register alone does not say which name it held at a given pc,
     // because the allocator reuses registers across blocks.
@@ -333,16 +336,37 @@ enum JumpLabel<S> {
     Break,
 }
 
+#[derive(Debug, Default, Copy, Clone)]
+struct LocalUse {
+    captured: bool,
+    reassigned: bool,
+}
+
 impl<S: Clone> CompilerFunction<S> {
     /// Declare a local, recording where its scope begins.
     fn declare_local(&mut self, name: S, register: RegisterIndex, attrs: LocalAttributes) {
         self.locals.push((name, register, attrs));
         self.local_starts.push(self.operations.len());
+        self.local_uses.push(LocalUse::default());
+    }
+
+    /// Record an assignment to the live local in `register`, refusing one that a closure captures.
+    fn reassign_local(&mut self, register: RegisterIndex) -> Result<(), CompileErrorKind> {
+        let Some(index) = self.locals.iter().rposition(|(_, r, _)| *r == register) else {
+            return Ok(());
+        };
+        let uses = &mut self.local_uses[index];
+        uses.reassigned = true;
+        if uses.captured {
+            return Err(CompileErrorKind::AssignToCaptured);
+        }
+        Ok(())
     }
 
     /// End the innermost local's scope, recording the opcode range it was live for.
     fn pop_local(&mut self) {
         if let Some((name, register, _)) = self.locals.pop() {
+            self.local_uses.pop();
             let start_pc = self.local_starts.pop().unwrap_or(0);
             self.local_debug.push(LocalVarInfo {
                 name,
@@ -685,6 +709,7 @@ impl<S: StringInterner> Compiler<S> {
                 self.current_function
                     .locals
                     .push((name.clone(), loop_var, LocalAttributes::NONE));
+                self.current_function.local_uses.push(LocalUse::default());
 
                 self.block_statements(body)?;
                 self.exit_block()?;
@@ -917,6 +942,9 @@ impl<S: StringInterner> Compiler<S> {
                     if attrs.is_const() {
                         return Err(CompileErrorKind::AssignToConst);
                     }
+                    if self.functional {
+                        self.current_function.reassign_local(dest)?;
+                    }
 
                     self.expr_discharge(
                         ExprDescriptor::Closure(proto),
@@ -1020,6 +1048,7 @@ impl<S: StringInterner> Compiler<S> {
                     self.current_function
                         .locals
                         .push((name.clone(), reg, *attr));
+                    self.current_function.local_uses.push(LocalUse::default());
                 }
             }
         }
@@ -1101,6 +1130,9 @@ impl<S: StringInterner> Compiler<S> {
                     VariableDescriptor::Local(dest, attrs) => {
                         if attrs.is_const() {
                             return Err(CompileErrorKind::AssignToConst);
+                        }
+                        if this.functional {
+                            this.current_function.reassign_local(dest)?;
                         }
                         this.expr_discharge(expr, ExprDestination::Register(dest))?;
                     }
@@ -1510,6 +1542,12 @@ impl<S: StringInterner> Compiler<S> {
                                 block.owns_upvalues = true;
                                 break;
                             }
+                        }
+                        let functional = self.functional;
+                        let uses = &mut get_function(self, i).local_uses[j];
+                        uses.captured = true;
+                        if functional && uses.reassigned {
+                            return Err(CompileErrorKind::AssignToCaptured);
                         }
 
                         get_function(self, i + 1)
@@ -2609,6 +2647,7 @@ impl<S: Clone> CompilerFunction<S> {
             fixed_params: 0,
             locals: Vec::new(),
             local_starts: Vec::new(),
+            local_uses: Vec::new(),
             local_debug: Vec::new(),
             blocks: Vec::new(),
             unique_jump_id: 0,

@@ -51,14 +51,15 @@ and the host freezes the results when the chunk finishes.
 | --- | --- |
 | No ambient inputs or effects | No `io`, `os`, `debug`, `package`, `coroutine`, `print`, `collectgarbage`, `dofile`, `loadfile`, `math.random(seed)`, `string.dump` |
 | Shared state cannot change | Globals and every library table, including the string metatable, are frozen |
-| Results cannot change | `luna::functional::freeze` deep-freezes tables, metatables and closure captures |
-| Closures carry no hidden state | Assigning to a captured variable is a compile error |
+| Results cannot change | `luna::functional::freeze` deep-freezes tables, table and userdata metatables, and closure captures |
+| Closures carry no hidden state | A captured local is effectively final: assigning to it anywhere, inside or outside the closure, is a compile error, so a value can be frozen at any point during evaluation |
 | Same traversal every run | `pairs`/`next` visit booleans, numbers, then strings by bytes; other key types are refused |
-| Output does not depend on memory layout | `tostring` and `%s` print `table`/`function` without addresses; `%p` is refused |
+| Output does not depend on memory layout or CPU | `tostring` and `%s` print `table`/`function` without addresses; `%p` is refused; every NaN prints as `nan` and packs to the same bytes, whatever sign bit the CPU produced |
 | Only checked code runs | Binary chunks are refused; `load` is text-only |
 | GC timing is unobservable | Metatables with `__gc` or `__mode` are refused |
 | Same numbers on every target | `math.exp`, `log`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan` use the portable `libm` crate; the `^` operator still uses the platform `pow` |
 | Files are pure inputs | `functional::import_environment` adds `import(name)`: the host's loader supplies the text, each name is evaluated once and its result frozen and cached, and cycles are refused |
+| Works with the JIT | Native code honours every guarantee; `tests/functional.rs` runs under JIT Off, Auto and Force and checks native output is byte-identical to the interpreter's and to separate processes' |
 
 ```rust
 use luna::{functional, Closure, Executor, Lua, RuntimeError, Value};

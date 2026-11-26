@@ -313,6 +313,13 @@ impl Default for Lua {
     }
 }
 
+fn refuse_functional(ctx: Context<'_>, library: &str) {
+    assert!(
+        !ctx.functional(),
+        "the {library} library cannot be loaded into a functional state"
+    );
+}
+
 impl Lua {
     /// Create a new `Lua` instance with no parts of the stdlib loaded.
     pub fn empty() -> Self {
@@ -345,7 +352,8 @@ impl Lua {
     /// once a chunk finishes so nothing it produced can change afterwards. Every chunk compiled
     /// in this state rejects assignment to captured variables, so frozen closures cannot carry
     /// hidden state. `pairs` and `next` visit keys in canonical order: booleans, numbers, then
-    /// strings by bytes. Metatables with `__gc` or `__mode` are refused.
+    /// strings by bytes. Metatables with `__gc` or `__mode` are refused, and every NaN prints as
+    /// `nan` whatever its sign bit. The `load_*` library methods panic on a functional state.
     pub fn functional() -> Self {
         let mut lua = Self::empty();
         lua.enter(|ctx| {
@@ -752,6 +760,7 @@ impl Lua {
     ///   - `load_utf8`
     pub fn load_core(&mut self) {
         self.enter(|ctx| {
+            refuse_functional(ctx, "core");
             load_base(ctx);
             load_coroutine(ctx);
             load_math(ctx);
@@ -764,6 +773,7 @@ impl Lua {
     /// Load the parts of the stdlib that allow I/O.
     pub fn load_io(&mut self) {
         self.enter(|ctx| {
+            refuse_functional(ctx, "io");
             load_io(ctx);
         })
     }
@@ -774,6 +784,7 @@ impl Lua {
     /// `os` can read the environment and delete files.
     pub fn load_os(&mut self) {
         self.enter(|ctx| {
+            refuse_functional(ctx, "os");
             load_os(ctx);
         })
     }
@@ -786,6 +797,7 @@ impl Lua {
     /// call and return hook masks are missing; see the module docs for why.
     pub fn load_debug(&mut self) {
         self.enter(|ctx| {
+            refuse_functional(ctx, "debug");
             load_debug(ctx);
         })
     }
@@ -795,6 +807,7 @@ impl Lua {
     /// There is no C loader: `package.cpath` and `package.loadlib` do not exist.
     pub fn load_package(&mut self) {
         self.enter(|ctx| {
+            refuse_functional(ctx, "package");
             load_package(ctx);
         })
     }

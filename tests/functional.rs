@@ -3,7 +3,7 @@
 
 use luna::{
     compiler::CompileErrorKind, functional, Callback, CallbackReturn, Closure, CompilerError,
-    Executor, ExternError, Lua, RuntimeError, Value,
+    Context, Error, Executor, ExternError, Fuel, Lua, RuntimeError, StashedExecutor, Value,
 };
 
 /// The README example, verbatim apart from the assertions.
@@ -33,28 +33,31 @@ fn the_readme_example_runs() -> Result<(), ExternError> {
     Ok(())
 }
 
+/// A chunk environment with a host `freeze` callback, the way a registering host would offer one.
+fn start<'gc>(ctx: Context<'gc>, source: &str) -> Result<StashedExecutor, Error<'gc>> {
+    let env = functional::environment(ctx);
+    env.set(
+        ctx,
+        "freeze",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let value = stack.get(0);
+            functional::freeze(ctx, value);
+            stack.replace(ctx, value);
+            Ok(CallbackReturn::Return)
+        }),
+    )?;
+    let closure = Closure::load_with_env(ctx, None, source.as_bytes(), env)?;
+    Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+}
+
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::functional();
-    let executor = lua.try_enter(|ctx| {
-        let env = functional::environment(ctx);
-        env.set(
-            ctx,
-            "freeze",
-            Callback::from_fn(&ctx, |ctx, _, mut stack| {
-                let value = stack.get(0);
-                functional::freeze(ctx, value);
-                stack.replace(ctx, value);
-                Ok(CallbackReturn::Return)
-            }),
-        )?;
-        let closure = Closure::load_with_env(ctx, None, source.as_bytes(), env)?;
-        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
-    })?;
+    let mut lua = common::functional();
+    let executor = lua.try_enter(|ctx| start(ctx, source))?;
     lua.execute::<bool>(&executor)
 }
 
 fn compile_error(source: &str) -> Option<CompileErrorKind> {
-    let mut lua = Lua::functional();
+    let mut lua = common::functional();
     lua.enter(|ctx| match Closure::load(ctx, None, source.as_bytes()) {
         Err(CompilerError::Compilation(error)) => Some(error.kind),
         _ => None,
@@ -119,7 +122,37 @@ fn assignment_to_a_captured_variable_does_not_compile() {
         compile_error("_ENV = {}"),
         Some(CompileErrorKind::AssignToCaptured)
     ));
-    assert!(compile_error("local n = 0 n = n + 1 local function read() return n end").is_none());
+}
+
+/// A captured local must be effectively final, as for Java lambdas: otherwise the enclosing code
+/// could rebind it after a closure was frozen, pointing the frozen closure at a fresh mutable value.
+#[test]
+fn a_captured_local_cannot_be_reassigned_anywhere() {
+    for source in [
+        "local t = {} local function f() return t end t = {}",
+        "local n = 0 n = n + 1 local function read() return n end",
+        "local x = 0 for i = 1, 3 do x = i local f = function() return x end end",
+        "local function g(a) a = a + 1 return function() return a end end",
+        "local f f = function() return f end",
+    ] {
+        assert!(
+            matches!(
+                compile_error(source),
+                Some(CompileErrorKind::AssignToCaptured)
+            ),
+            "{source}"
+        );
+    }
+    for source in [
+        "local n = 0 n = n + 1 return n",
+        "local n = 1 local function read() return n end return read()",
+        "local function f(n) if n == 0 then return 0 end return f(n - 1) end return f(3)",
+        "local fs = {} for i = 1, 3 do fs[i] = function() return i end end return fs",
+        "local t = {} local function add(v) t[#t + 1] = v end add(1) return t",
+        "local x = 1 do local x = 2 x = 3 end local function f() return x end return f()",
+    ] {
+        assert!(compile_error(source).is_none(), "{source}");
+    }
 }
 
 #[test]
@@ -127,12 +160,13 @@ fn load_compiles_in_functional_mode_and_refuses_binary() -> Result<(), ExternErr
     assert!(eval(
         r#"
         local fine = load("local x = 1 x = x + 1 return x")
-        local captured = load("local n = 0 return function() n = n + 1 end")
+        local captured, why = load("local n = 0 return function() n = n + 1 end")
         local binary = pcall(load, "\27Luna\0", "chunk", "b")
         return fine() == 2 and captured == nil and not binary
+            and why:find("line 1: cannot assign to a captured variable", 1, true) ~= nil
     "#
     )?);
-    let mut lua = Lua::functional();
+    let mut lua = common::functional();
     lua.enter(|ctx| {
         assert!(matches!(
             Closure::load(ctx, None, b"\x1bLuna\x00"),
@@ -249,7 +283,7 @@ fn collector_dependent_metatables_are_refused() -> Result<(), ExternError> {
 
 #[test]
 fn chunk_globals_stay_in_their_environment() -> Result<(), ExternError> {
-    let mut lua = Lua::functional();
+    let mut lua = common::functional();
     let (executor, env) = lua.try_enter(|ctx| {
         let env = functional::environment(ctx);
         let closure = Closure::load_with_env(ctx, None, b"answer = 42 return answer", env)?;
@@ -271,7 +305,7 @@ fn chunk_globals_stay_in_their_environment() -> Result<(), ExternError> {
 
 #[test]
 fn ordinary_states_are_unchanged() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(
             ctx,
@@ -297,7 +331,7 @@ fn eval_with_files(
 
     let loads = Rc::new(Cell::new(0));
     let counter = loads.clone();
-    let mut lua = Lua::functional();
+    let mut lua = common::functional();
     let result = lua
         .try_enter(|ctx| {
             let env = functional::import_environment(ctx, move |name| {
@@ -397,4 +431,233 @@ fn math_uses_the_portable_library() -> Result<(), ExternError> {
     "#
     )?);
     Ok(())
+}
+
+/// x86 produces a negative NaN for `0/0` and ARM a positive one, so a sign-aware `-nan` would
+/// make the same config print differently on different machines.
+#[test]
+fn every_nan_prints_the_same() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local a, b = 0/0, -(0/0)
+        return tostring(a) == "nan" and tostring(b) == "nan"
+            and ("" .. a) == "nan" and (b .. "") == "nan"
+            and table.concat({ a, b }, ",") == "nan,nan"
+            and string.format("%g %f %e %s", a, b, a, b) == "nan nan nan nan"
+            and string.format("%q", a) == string.format("%q", b)
+            and string.format("%a", a) == string.format("%a", b)
+            and string.pack("d", a) == string.pack("d", b)
+            and string.pack("f", a) == string.pack("f", b)
+    "#
+    )?);
+    let mut lua = common::core();
+    let executor = lua.try_enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return tostring(0/0) ~= tostring(-(0/0))")?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    assert!(lua.execute::<bool>(&executor)?);
+    Ok(())
+}
+
+#[test]
+fn impure_libraries_cannot_be_loaded_into_a_functional_state() {
+    for load in [
+        Lua::load_core as fn(&mut Lua),
+        Lua::load_io,
+        Lua::load_os,
+        Lua::load_debug,
+        Lua::load_package,
+    ] {
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut lua = Lua::functional();
+            load(&mut lua);
+        }))
+        .expect_err("loading an impure library must panic");
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
+        assert!(message.contains("functional state"), "{message}");
+    }
+}
+
+/// A configuration that never finishes is stopped by the host's fuel budget, and one that
+/// allocates without bound by the memory ceiling, so evaluation cannot hang or exhaust the host.
+#[test]
+fn runaway_configs_are_stopped_by_fuel_and_memory() -> Result<(), ExternError> {
+    let mut lua = common::functional();
+    let executor = lua.try_enter(|ctx| start(ctx, "local n = 0 while true do n = n + 1 end"))?;
+    let finished = lua.enter(|ctx| {
+        let executor = ctx.fetch(&executor);
+        (0..64).any(|_| executor.step(ctx, &mut Fuel::with(4096)).unwrap())
+    });
+    assert!(!finished);
+
+    let mut lua = common::functional();
+    let before = lua.total_memory();
+    lua.set_memory_limit(Some(before + 4 * 1024 * 1024));
+    let executor = lua.try_enter(|ctx| {
+        start(
+            ctx,
+            "local t = {} for i = 1, 100000000 do t[i] = { i } end return true",
+        )
+    })?;
+    lua.finish(&executor).map_err(RuntimeError::new)?;
+    assert!(lua.total_memory() < before + 64 * 1024 * 1024);
+    Ok(())
+}
+
+/// With the JIT compiling every prototype up front, native code must keep every functional
+/// guarantee: frozen tables refuse native writes, including a freeze in the middle of a hot
+/// loop, and iteration order and results stay those of the interpreter.
+#[cfg(feature = "jit")]
+#[test]
+fn native_code_keeps_the_functional_guarantees() {
+    use luna::{JitConfig, JitMode};
+
+    let source = r#"
+        local t = {}
+        for i = 1, 300 do t[i] = i * 2 end
+        local sum = 0
+        for i = 1, 300 do sum = sum + t[i] end
+        freeze(t)
+        local before = pcall(function() for i = 1, 300 do t[i] = -i end end)
+        local u = {}
+        local during = pcall(function()
+            for i = 1, 300 do
+                u[i] = i
+                if i == 150 then freeze(u) end
+            end
+        end)
+        local keys = {}
+        for k in pairs({ zeta = 1, alpha = 2, [3] = 3, [1] = 1 }) do keys[#keys + 1] = tostring(k) end
+        return sum == 90300 and not before and t[1] == 2 and t[300] == 600
+            and not during and u[150] == 150 and u[151] == nil
+            and table.concat(keys, ",") == "1,3,alpha,zeta"
+            and tostring(t) == "table" and tostring(0/0) == "nan"
+    "#;
+    let mut lua = Lua::functional();
+    if !lua.jit_capabilities().supported_target {
+        return;
+    }
+    let mut config = JitConfig::default();
+    config.mode = JitMode::Auto;
+    config.hot_threshold = 1;
+    lua.set_jit_config(config).unwrap();
+    let executor = lua.try_enter(|ctx| start(ctx, source)).unwrap();
+    lua.prepare_jit().unwrap();
+    assert!(lua.execute::<bool>(&executor).unwrap());
+    let stats = lua.jit_stats();
+    assert!(
+        stats.native_entries > 0 && stats.native_instructions > 0,
+        "{stats:?}"
+    );
+}
+
+mod common;
+
+/// A frozen userdata keeps its behaviour: its metatable is frozen with it.
+#[test]
+fn freezing_reaches_userdata_metatables() -> Result<(), ExternError> {
+    let mut lua = common::functional();
+    let executor = lua.try_enter(|ctx| {
+        let env = functional::environment(ctx);
+        let object = luna::UserData::new_static(&ctx, ());
+        let metatable = luna::Table::new(&ctx);
+        metatable.set(ctx, "__index", luna::Table::new(&ctx))?;
+        object.set_metatable(ctx, Some(metatable));
+        env.set(ctx, "object", object)?;
+        let closure = Closure::load_with_env(
+            ctx,
+            None,
+            b"return pcall(function() getmetatable(object).__index.x = 1 end)",
+            env,
+        )?;
+        functional::freeze(ctx, object.into());
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    assert!(!lua.execute::<bool>(&executor)?);
+    Ok(())
+}
+
+/// Builds a config with hundreds of keys inserted in a scrambled order, then serialises it with
+/// `pairs`. Each process seeds table hashing differently, so any leak of hash layout would show.
+const DETERMINISM_PROBE: &str = r#"
+    local config = { nested = {}, list = {} }
+    for i = 1, 400 do
+        local k = (i * 7919) % 400
+        config["key" .. k] = k * 1.5
+        config[k] = (k % 3 == 0) and 0/0 or -k
+        config.nested[#config.nested + 1] = { id = k, tag = string.format("%05.1f", k / 7) }
+    end
+    for i = 1, 50 do config.list[i] = (i * 31) % 17 end
+    table.sort(config.list)
+    local function encode(value)
+        if type(value) ~= "table" then return tostring(value) end
+        local parts = {}
+        for k, v in pairs(value) do parts[#parts + 1] = tostring(k) .. "=" .. encode(v) end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    return encode(config) .. "|" .. tostring(#config.list) .. "|" .. tostring(math.sin(0.5))
+"#;
+
+fn determinism_output() -> String {
+    let mut lua = Lua::functional();
+    let executor = lua.try_enter(|ctx| start(ctx, DETERMINISM_PROBE)).unwrap();
+    lua.execute::<String>(&executor).unwrap()
+}
+
+/// Prints the probe's output when a parent process asks for it, and does nothing otherwise.
+#[test]
+fn determinism_child() {
+    if std::env::var_os("LUNA_FUNCTIONAL_DETERMINISM").is_some() {
+        println!("OUTPUT:{}", determinism_output());
+    }
+}
+
+#[test]
+fn separate_processes_produce_identical_output() {
+    let run = || {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "determinism_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("LUNA_FUNCTIONAL_DETERMINISM", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .find_map(|line| line.split_once("OUTPUT:").map(|(_, rest)| rest.to_owned()))
+            .expect("child printed its output")
+    };
+    let local = determinism_output();
+    assert!(local.len() > 10_000);
+    assert_eq!(run(), local);
+    assert_eq!(run(), local);
+}
+
+/// The same probe compiled to native code up front gives byte-identical output.
+#[cfg(feature = "jit")]
+#[test]
+fn native_code_produces_identical_output() {
+    use luna::{JitConfig, JitMode};
+
+    let mut lua = Lua::functional();
+    if !lua.jit_capabilities().supported_target {
+        return;
+    }
+    let mut config = JitConfig::default();
+    config.mode = JitMode::Auto;
+    config.hot_threshold = 1;
+    lua.set_jit_config(config).unwrap();
+    let executor = lua.try_enter(|ctx| start(ctx, DETERMINISM_PROBE)).unwrap();
+    lua.prepare_jit().unwrap();
+    let native = lua.execute::<String>(&executor).unwrap();
+    assert!(lua.jit_stats().native_instructions > 0);
+    assert_eq!(native, determinism_output());
 }
