@@ -10,7 +10,10 @@ mod table;
 mod tempfile;
 mod utf8;
 
-pub(crate) use self::{math::load_portable as load_portable_math, string::format::format_number};
+pub(crate) use self::{
+    math::load_portable as load_portable_math,
+    string::format::{canonical_nan, format_number, format_number_in},
+};
 
 pub use self::{
     base::load_base, coroutine::load_coroutine, debug::load_debug, io::load_io, math::load_math,

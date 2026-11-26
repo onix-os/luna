@@ -67,6 +67,19 @@ pub fn format_value<'gc>(
     args: &[Value<'gc>],
     ctx: crate::Context<'gc>,
 ) -> Result<Vec<u8>, std::string::String> {
+    let canonical: Vec<Value<'gc>>;
+    let args = if ctx.functional() {
+        canonical = args
+            .iter()
+            .map(|arg| match *arg {
+                Value::Number(n) => Value::Number(canonical_nan(ctx, n)),
+                other => other,
+            })
+            .collect();
+        &canonical[..]
+    } else {
+        args
+    };
     let mut result = Vec::with_capacity(fmt_bytes.len() + 16);
     let mut pos = 0;
     let mut arg_index = 1usize; // 1-indexed (0 is the format string)
@@ -438,6 +451,21 @@ fn value_to_string<'gc>(
             "bad argument to 'format' (string expected, got {})",
             v.type_name()
         )),
+    }
+}
+
+/// [`format_number`] for a state, printing every NaN as `nan` in a functional one.
+pub(crate) fn format_number_in(ctx: crate::Context<'_>, n: f64) -> std::string::String {
+    format_number(canonical_nan(ctx, n))
+}
+
+/// The positive quiet NaN in place of any NaN in a functional state, so its sign bit, which
+/// differs between CPU families, is never observable.
+pub(crate) fn canonical_nan(ctx: crate::Context<'_>, n: f64) -> f64 {
+    if n.is_nan() && ctx.functional() {
+        f64::NAN
+    } else {
+        n
     }
 }
 

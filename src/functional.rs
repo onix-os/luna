@@ -17,8 +17,10 @@ use crate::{
 
 /// Make `value` and everything reachable from it read-only.
 ///
-/// Tables, their metatables and the values captured by closures are frozen. Callbacks,
-/// userdata and threads are opaque to the runtime and are left unchanged.
+/// Tables, the metatables of tables and userdata, and the values captured by closures are
+/// frozen. Callbacks, userdata contents and threads are opaque to the runtime and left unchanged.
+/// Captured locals are effectively final in a functional state, so freezing a closure while its
+/// chunk is still running is as sound as freezing it afterwards.
 pub fn freeze<'gc>(ctx: Context<'gc>, value: Value<'gc>) {
     let mut seen = HashSet::new();
     let mut pending = vec![value];
@@ -35,6 +37,11 @@ pub fn freeze<'gc>(ctx: Context<'gc>, value: Value<'gc>) {
                 for (key, value) in table.iter(ctx) {
                     pending.push(key);
                     pending.push(value);
+                }
+            }
+            Value::UserData(userdata) => {
+                if let Some(metatable) = userdata.metatable() {
+                    pending.push(metatable.into());
                 }
             }
             Value::Function(Function::Closure(closure)) => {
