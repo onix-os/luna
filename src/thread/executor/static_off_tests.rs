@@ -27,11 +27,7 @@ fn off_and_auto_match_at_every_executor_boundary() {
 }
 
 #[test]
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 fn auto_matches_interpreter_across_multiple_vm_slices() {
     let source = "local n=0 for i=1,128 do n=n+i end return n";
     for budget in [0, 1, 17, 4096] {
@@ -42,11 +38,7 @@ fn auto_matches_interpreter_across_multiple_vm_slices() {
 }
 
 #[test]
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 fn callback_mode_changes_retire_code_before_execution_resumes() {
     use crate::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode, Lua};
     use std::{cell::RefCell, rc::Rc};

@@ -135,7 +135,7 @@ impl Segment {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub fn base(&self) -> *const u8 {
         match &self.pages {
             Some(Pages::Writable(map)) => map.as_ptr(),

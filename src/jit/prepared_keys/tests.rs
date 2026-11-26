@@ -103,11 +103,7 @@ fn optional_retry_releases_keys_and_preserves_other_errors() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn exact_workspace_limit_retains_ordinary_compilation() {
     use crate::jit::{backend, resources::MappingCounter, work};
@@ -356,11 +352,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn changed_prepared_abi_is_rejected_before_native_installation() {
     use crate::jit::{backend, helper_flow::Fault, resources::MappingCounter, work};
@@ -383,11 +375,7 @@ fn changed_prepared_abi_is_rejected_before_native_installation() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn prepared_lookup_executes_in_the_real_runtime() {
     let mut lua = crate::Lua::core();
@@ -418,11 +406,7 @@ fn prepared_lookup_executes_in_the_real_runtime() {
     assert_eq!(lua.jit_stats().code_bytes, 0);
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn prepared_sources_keep_distinct_keys_and_current_values() {
     let mut lua = crate::Lua::core();

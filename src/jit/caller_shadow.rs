@@ -79,11 +79,7 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
         &mut self.slots[..self.count]
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(super) fn invoke(
         &mut self,
         ctx: crate::Context<'gc>,
@@ -206,11 +202,7 @@ impl<'gc, const N: usize> Transfer<'_, 'gc, N> {
         true
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(super) fn recover(
         self,
         host: &mut crate::thread::activation::ActivationHost<'gc, '_>,

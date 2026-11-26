@@ -175,10 +175,5 @@ fn numeric_accumulator(
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod native;

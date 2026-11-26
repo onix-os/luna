@@ -881,12 +881,7 @@ impl<'gc> ThreadState<'gc> {
         self.open_upvalues.truncate(start);
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) fn captures_below(&self, bottom: usize) -> bool {
         self.open_upvalues.last().is_none_or(|&upvalue| {
             matches!(upvalue.get(), UpValueState::Open(open) if open.stack_index < bottom)
@@ -939,12 +934,7 @@ type FrameStack<'gc, 'a> = RefMut<'a, StackVec<'gc>>;
 type FrameStack<'gc, 'a> = &'a mut StackVec<'gc>;
 
 pub(super) struct LuaFrame<'gc, 'a> {
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) pair_handoff: Option<&'a mut crate::jit::PairScope<'gc>>,
     pub(super) state: &'a mut ThreadState<'gc>,
     // The executor or activation host owns this stack borrow.
@@ -953,12 +943,7 @@ pub(super) struct LuaFrame<'gc, 'a> {
 }
 
 impl<'gc, 'a> LuaFrame<'gc, 'a> {
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) fn pair_fixed_stack(&self) -> bool {
         matches!(
             self.state.frames.last(),
@@ -1614,17 +1599,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         true
     }
 
-    #[cfg(all(
-        feature = "jit",
-        any(
-            test,
-            all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )
-        )
-    ))]
+    #[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
     pub(crate) fn shadow_key(&self) -> (usize, usize) {
         (Gc::as_ptr(self.stack) as usize, self.base)
     }

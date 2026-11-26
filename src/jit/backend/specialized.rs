@@ -4,6 +4,7 @@ use crate::jit::entry_admission::Plan;
 
 pub(in crate::jit) enum Entry {
     #[cfg(not(miri))]
+    #[cfg_attr(all(test, not(target_os = "linux")), allow(dead_code))]
     Lookup(ReadCode),
     Decline(Plan),
 }

@@ -2,18 +2,10 @@ use crate::Fuel;
 
 pub(in crate::jit) mod site;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(crate) mod runtime;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[derive(Clone, Copy)]
 pub(crate) struct Region {
     pub entry: usize,

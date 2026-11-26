@@ -93,11 +93,7 @@ pub(super) struct View {
     pub dirty: u64,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(super) type CellEntry =
     unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut abi::Exit, *mut View);
 
@@ -276,11 +272,7 @@ mod tests {
         assert!(!floating.integer_activation(pattern, abi::Slot::from_value(Value::Integer(2))));
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     mod native {
         use super::*;
 

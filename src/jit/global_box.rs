@@ -1,10 +1,4 @@
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 use {allocator_api2::boxed::Box as BudgetBox, std::alloc::Layout};
 
 use allocator_api2::alloc::AllocError;
@@ -52,13 +46,7 @@ pub(super) fn try_string(
 
 /// Transfers an initialized Global allocation to a standard Box.
 /// The returned charge must outlive the box, including unwinding.
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 pub(super) fn try_new<T>(
     value: T,
     allocator: BudgetAllocator,

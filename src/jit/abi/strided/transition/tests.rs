@@ -48,18 +48,10 @@ fn strided_helpers_retire_on_panic_and_refuse_reentry() {
 }
 
 fn transitions(native: bool) {
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let code = native.then(|| super::native::compile(helper::<{ abi::HELPER_MOVE }>));
     let entry: Transition = rust_transition::<{ abi::HELPER_MOVE }>;
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let entry = code.as_ref().map_or(entry, |code| code.entry);
     #[cfg(miri)]
     assert!(!native);
@@ -186,11 +178,7 @@ fn strided_helpers_rebind_all_kinds_and_restore_integer_access() {
     transitions(false);
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn strided_helpers_native_rebind_all_kinds() {
     transitions(true);

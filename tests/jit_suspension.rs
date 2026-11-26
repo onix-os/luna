@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", luna_jit_native))]
 
 #[path = "../examples/jit_support/suspension.rs"]
 mod suspension;

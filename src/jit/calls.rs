@@ -12,11 +12,7 @@ pub(super) struct Plan<'a> {
     pub expansion: work::Expansion,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[repr(C)]
 pub(super) struct NativeFrame {
     pub slots: *mut abi::Slot,
@@ -24,21 +20,13 @@ pub(super) struct NativeFrame {
     pub exit: abi::Exit,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(super) struct Program {
     pub entry: cranelift_codegen::ir::Function,
     pub callee: cranelift_codegen::ir::Function,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 impl Plan<'_> {
     pub fn callee(&self) -> &Snapshot {
         self.callee
@@ -556,11 +544,7 @@ mod tests {
         });
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[test]
     fn aggregate_entry_and_callee_ir_match_both_sources_and_reject_mutations() {
         use cranelift_codegen::{

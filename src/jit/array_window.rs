@@ -184,32 +184,16 @@ pub(super) fn has_source_plan(source: &super::ir::Snapshot) -> Result<bool, supe
     Ok((0..source.operations.len()).any(|end| plan::Plan::new(source, end).is_some()))
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod lowering;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod kernel;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod verify;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(super) use {
     invoke::{invoke as invoke_kernel, Outcome},
     kernel::program,
@@ -217,10 +201,5 @@ pub(super) use {
     plan::Plan,
 };
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod runtime_tests;

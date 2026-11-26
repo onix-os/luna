@@ -92,12 +92,7 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                     let mut decline_unchanged = true;
                     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let mut frame = LuaFrame {
-                            #[cfg(all(
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            ))]
+                            #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                             pair_handoff: None,
                             state: &mut state,
                             #[cfg(feature = "jit")]

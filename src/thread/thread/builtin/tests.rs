@@ -85,11 +85,7 @@ fn builtin_normal_call_admission_preserves_refused_state_and_exact_fuel() {
                 let original_mt = table.metatable();
                 let (used, hits) = scoped(true, || {
                     LuaFrame {
-                        #[cfg(all(
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        ))]
+                        #[cfg(all(not(miri), luna_jit_native))]
                         pair_handoff: None,
                         state: &mut state,
                         stack: &mut stack,
@@ -189,11 +185,7 @@ fn builtin_tail_returns_preserve_caller_shape_and_boundary_fuel() {
                 let mut fuel = Fuel::with(available);
                 let (used, hits) = scoped(true, || {
                     LuaFrame {
-                        #[cfg(all(
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        ))]
+                        #[cfg(all(not(miri), luna_jit_native))]
                         pair_handoff: None,
                         state: &mut state,
                         stack: &mut stack,

@@ -57,12 +57,7 @@ mod tests {
         let mut fuel = Fuel::with(7);
         fuel.interrupt();
         test(&mut LuaFrame {
-            #[cfg(all(
-                feature = "jit",
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
             pair_handoff: None,
             state: &mut state,
             #[cfg(feature = "jit")]

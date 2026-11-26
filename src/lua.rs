@@ -561,17 +561,9 @@ impl Lua {
         });
         let request = self.jit.0.borrow_mut().next_request();
         let Some(id) = request else {
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             return self.service_jit_pair();
-            #[cfg(not(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )))]
+            #[cfg(not(all(not(miri), luna_jit_native)))]
             return Ok(0);
         };
         let snapshot = self.arena.mutate(|mc, state| {
@@ -603,12 +595,7 @@ impl Lua {
         Ok(1)
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     fn service_jit_pair(&mut self) -> Result<usize, crate::jit::CompileError> {
         let Some(key) = self.jit.next_pair_request() else {
             return self.service_jit_region();
@@ -656,12 +643,7 @@ impl Lua {
         Ok(1)
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     fn service_jit_region(&mut self) -> Result<usize, crate::jit::CompileError> {
         use crate::jit::CompileError;
         let Some(key) = self.jit.next_region_request() else {

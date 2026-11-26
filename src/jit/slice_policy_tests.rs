@@ -1,17 +1,9 @@
 use super::{JitMode, Runtime};
 
 fn observed(runtime: &Runtime) -> (bool, bool) {
-    #[cfg(not(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )))]
+    #[cfg(not(all(not(miri), luna_jit_native)))]
     let pairs = false;
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let pairs = runtime.call_pairs_enabled();
     (runtime.active(), pairs)
 }
@@ -21,18 +13,9 @@ fn slice_policy_tracks_live_mode_and_pair_admission_without_effects() {
     let runtime = Runtime::new();
     let alias = runtime.clone();
     for enabled in [false, true, false, true] {
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         runtime.test_call_pairs(enabled);
-        let pairs = enabled
-            && cfg!(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ));
+        let pairs = enabled && cfg!(all(not(miri), luna_jit_native));
         for mode in [
             JitMode::Off,
             JitMode::Auto,

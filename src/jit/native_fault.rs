@@ -122,9 +122,18 @@ impl Fault {
     }
 }
 
-#[cfg(not(miri))]
+#[cfg(all(not(miri), target_os = "linux"))]
 pub(super) fn coherence<T>(operation: Operation, result: io::Result<T>) -> Result<T, Fault> {
     result.map_err(|error| Fault::capture(operation, error))
+}
+
+/// The cache-coherence crate reports its own error type outside Linux.
+#[cfg(all(not(miri), not(target_os = "linux")))]
+pub(super) fn coherence<T, E: std::fmt::Display>(
+    operation: Operation,
+    result: Result<T, E>,
+) -> Result<T, Fault> {
+    result.map_err(|error| Fault::capture(operation, io::Error::other(error.to_string())))
 }
 
 #[cfg(miri)]

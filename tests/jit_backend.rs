@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", luna_jit_native))]
 
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -50,6 +46,7 @@ fn compile_probe() -> (JITModule, FuncId) {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn generated_code_calls_a_rust_helper_from_rx_memory() {
     let (module, function) = compile_probe();
     let code = module.get_finalized_function(function);

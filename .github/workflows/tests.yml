@@ -200,3 +200,37 @@ jobs:
           name: native-${{ matrix.target }}
           path: target/jit-evidence/
           if-no-files-found: error
+
+  macos:
+    name: native (aarch64-apple-darwin)
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.97.1
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          components: rustfmt
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: jit-aarch64-apple-darwin-rust-1.97.1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            jit-aarch64-apple-darwin-rust-1.97.1-
+      - name: Native gate
+        run: |
+          set -o pipefail
+          make jit-macos 2>&1 | tee jit-macos.log
+      - name: Intel build
+        run: cargo check --locked --workspace --all-targets --features luna/jit --target x86_64-apple-darwin
+      - name: Upload macOS log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-aarch64-apple-darwin
+          path: jit-macos.log
+          if-no-files-found: error

@@ -274,10 +274,7 @@ mod tests {
         assert_eq!(source.operations.allocator().0.current(), before);
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[test]
     fn backend_work_refusal_precedes_graph_metadata_and_mapping_allocation() {
         use super::super::{

@@ -12,7 +12,7 @@ pub(in crate::jit) struct Kernels {
     registers: usize,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(super) fn from_artifact(
     memory: Memory,
     plans: &[window::Plan],

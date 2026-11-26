@@ -255,11 +255,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     fn compile(
         source: &Snapshot,
         metadata: BudgetAllocator,
@@ -277,11 +273,7 @@ mod tests {
         .unwrap()
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[test]
     fn actual_native_exits_resolve_source_calls_without_granting_budget_or_guard_entries() {
         for operation in operations() {
@@ -316,11 +308,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[test]
     fn optional_table_failures_and_late_owner_refusals_preserve_ordinary_code_and_peer_leases() {
         use super::super::backend::Failure;

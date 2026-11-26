@@ -266,10 +266,7 @@ fn run_with_references(
     }
 }
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod tests {
     use super::*;
     use std::sync::atomic::Ordering;

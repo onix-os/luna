@@ -170,18 +170,10 @@ fn counts(frame: &helpers::Frame<'_, '_, '_, '_>) -> [u64; 8] {
 }
 
 fn compare(native: bool) {
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let code = native.then(|| [packed_helper, PREPARED].map(super::native::compile));
     let entries: [Transition; 2] = [rust_control::<false>, rust_control::<true>];
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let entries = code
         .as_ref()
         .map_or(entries, |code| code.each_ref().map(|code| code.entry));
@@ -371,19 +363,11 @@ fn strided_prepared_matches_proxy_guards_values_aliases_and_panics() {
     compare(false);
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn strided_prepared_native_matches_proxy_guards_values_aliases_and_panics() {
     compare(true);
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod probe;

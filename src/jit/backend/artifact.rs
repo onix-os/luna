@@ -1,3 +1,5 @@
+#![cfg_attr(all(test, not(target_os = "linux")), allow(dead_code, unused_imports))]
+
 use std::cell::{Cell, RefCell};
 
 use cranelift_codegen::binemit::Reloc;
@@ -6,7 +8,7 @@ use cranelift_module::{FuncId, ModuleRelocTarget};
 
 use super::*;
 
-#[cfg(all(test, not(miri)))]
+#[cfg(all(test, not(miri), target_os = "linux"))]
 mod assemble;
 #[cfg(not(miri))]
 pub(in crate::jit) mod emission;
@@ -14,7 +16,7 @@ pub(in crate::jit) mod emission;
 mod install;
 mod link;
 mod target;
-#[cfg(all(test, not(miri)))]
+#[cfg(all(test, not(miri), target_os = "linux"))]
 pub(in crate::jit) use assemble::{assemble, Assembly};
 #[cfg(all(test, not(miri)))]
 pub(in crate::jit) mod runtime;

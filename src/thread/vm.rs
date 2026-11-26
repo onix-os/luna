@@ -98,12 +98,7 @@ fn positioned_error<'gc>(
     crate::RuntimeError::new(anyhow::anyhow!(message).context(at)).into()
 }
 
-#[cfg(all(
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(feature = "jit", not(miri), luna_jit_native))]
 #[inline(always)]
 #[cfg(test)]
 pub(super) fn try_scalar_activation<'gc>(
@@ -139,21 +134,11 @@ pub(crate) struct NativeResume<'gc> {
     pc: usize,
     instructions: u32,
     code: Option<crate::jit::Prepared>,
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     paired: bool,
 }
 
-#[cfg(all(
-    test,
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
 impl<'gc> NativeResume<'gc> {
     pub(crate) fn new(
         ctx: Context<'gc>,
@@ -186,13 +171,7 @@ pub(super) fn run_vm<'gc>(
     run_vm_slice(ctx, lua_frame, max_instructions)
 }
 
-#[cfg(all(
-    test,
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
 pub(super) fn resume_vm<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
@@ -222,13 +201,7 @@ fn run_vm_slice<'gc>(
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    #[cfg(all(
-        test,
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
     let resume = {
         let resume = lua_frame
             .pair_handoff
@@ -239,15 +212,7 @@ fn run_vm_slice<'gc>(
         }
         resume
     };
-    #[cfg(all(
-        test,
-        feature = "jit",
-        not(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))
-    ))]
+    #[cfg(all(test, feature = "jit", not(all(not(miri), luna_jit_native))))]
     let resume: Option<NativeResume<'gc>> = None;
     #[cfg(all(test, feature = "jit"))]
     assert!(resume
@@ -299,12 +264,7 @@ fn run_vm_slice<'gc>(
     // Read once per slice, not per instruction: with no hook installed this leaves a single
     // always-false branch in the loop, which is what Phase 3 set out to measure.
     let hook_enabled = ctx.hook_enabled();
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     let pair_handoff = !hook_enabled && lua_frame.pair_handoff.is_some();
     #[cfg(all(test, feature = "jit"))]
     let mock = (!hook_enabled)
@@ -331,19 +291,13 @@ fn run_vm_slice<'gc>(
     let mut skip_native_first = resume.is_some();
     #[cfg(all(test, feature = "jit"))]
     let native_code = if let Some(mut resume) = resume {
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             ctx.jit()
                 .resume_lease(resume.source, resume.code.take().unwrap())
                 .filter(|_| !hook_enabled)
         }
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         {
             let _ = resume.code.take();
             None
@@ -367,20 +321,10 @@ fn run_vm_slice<'gc>(
         manager.stats.hook_exits = manager.stats.hook_exits.saturating_add(1);
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     let mut pair_scope = lua_frame.pair_handoff.take();
     let mut registers = lua_frame.registers();
     #[cfg(not(feature = "jit"))]
@@ -430,19 +374,9 @@ fn run_vm_slice<'gc>(
         match &native_dispatch {
             #[cfg(feature = "jit")]
             dispatch::Dispatch::Compiled(code) if run_native => {
-                #[cfg(all(
-                    test,
-                    not(miri),
-                    target_os = "linux",
-                    any(target_arch = "x86_64", target_arch = "aarch64")
-                ))]
+                #[cfg(all(test, not(miri), luna_jit_native))]
                 let fused = crate::jit::call_fusion::runtime::current(ctx, native_id);
-                #[cfg(all(
-                    test,
-                    not(miri),
-                    target_os = "linux",
-                    any(target_arch = "x86_64", target_arch = "aarch64")
-                ))]
+                #[cfg(all(test, not(miri), luna_jit_native))]
                 if let Some(prepared) = &fused {
                     if *registers.pc == prepared.region().entry {
                         drop(registers);
@@ -461,12 +395,7 @@ fn run_vm_slice<'gc>(
                     }
                 }
                 let budget = max_instructions - instructions_run;
-                #[cfg(all(
-                    test,
-                    not(miri),
-                    target_os = "linux",
-                    any(target_arch = "x86_64", target_arch = "aarch64")
-                ))]
+                #[cfg(all(test, not(miri), luna_jit_native))]
                 let budget = fused
                     .as_ref()
                     .map_or(budget, |p| p.prefix_budget(*registers.pc, budget));
@@ -496,12 +425,7 @@ fn run_vm_slice<'gc>(
                 if instructions_run >= max_instructions {
                     break;
                 }
-                #[cfg(all(
-                    test,
-                    not(miri),
-                    target_os = "linux",
-                    any(target_arch = "x86_64", target_arch = "aarch64")
-                ))]
+                #[cfg(all(test, not(miri), luna_jit_native))]
                 if completed != 0
                     && fused
                         .as_ref()
@@ -517,12 +441,7 @@ fn run_vm_slice<'gc>(
                 #[cfg(not(test))]
                 let transition = current_prototype.opcodes[*registers.pc].call_transition();
                 if let Some(transition) = transition {
-                    #[cfg(all(
-                        feature = "jit",
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
-                    ))]
+                    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                     if pair_handoff
                         && matches!(transition, crate::opcode::CallTransition::Call { .. })
                     {
@@ -549,12 +468,7 @@ fn run_vm_slice<'gc>(
                             args,
                             returns,
                         } => {
-                            #[cfg(all(
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            ))]
+                            #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                             if observe_pairs {
                                 ctx.jit().observe_call(
                                     ctx,
@@ -739,12 +653,7 @@ fn run_vm_slice<'gc>(
                 args,
                 returns,
             } => {
-                #[cfg(all(
-                    feature = "jit",
-                    not(miri),
-                    target_os = "linux",
-                    any(target_arch = "x86_64", target_arch = "aarch64")
-                ))]
+                #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                 if pair_handoff {
                     let pc = *registers.pc - 1;
                     if let Some(pair) = ctx.jit().prepare_call_at(
@@ -764,12 +673,7 @@ fn run_vm_slice<'gc>(
                         registers = lua_frame.registers();
                     }
                 }
-                #[cfg(all(
-                    feature = "jit",
-                    not(miri),
-                    target_os = "linux",
-                    any(target_arch = "x86_64", target_arch = "aarch64")
-                ))]
+                #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                 if observe_pairs {
                     ctx.jit()
                         .observe_call(ctx, current_function, &registers, func, args, returns);

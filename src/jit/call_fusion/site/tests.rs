@@ -41,11 +41,7 @@ const SIMPLE: &[u8] = b"local sum=11 local function add(v) sum=sum+v end add(7) 
 const LOOP: &[u8] =
     b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn invalid_native_publication_preserves_every_canonical_value_and_pc() {
     use crate::{thread::LuaRegisters, Value};

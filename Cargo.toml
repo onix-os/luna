@@ -60,7 +60,7 @@ thiserror.workspace = true
 luna-derive = { workspace = true, optional = true }
 luna-jit-embed = { path = "worker", version = "=0.6.1", optional = true }
 
-[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+[target.'cfg(all(any(target_os = "linux", target_os = "macos"), any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
 cranelift-codegen = { version = "=0.136.1", optional = true }
 cranelift-frontend = { version = "=0.136.1", optional = true }
 cranelift-jit = { version = "=0.136.1", optional = true }
@@ -128,7 +128,7 @@ jit-worker-embedded = ["jit-worker-bootstrap", "dep:luna-jit-embed"]
 # into every `cargo test`.
 rustyline = "14.0"
 
-[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
+[target.'cfg(all(any(target_os = "linux", target_os = "macos"), any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
 target-lexicon = "=0.13.5"
 sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"] }
 

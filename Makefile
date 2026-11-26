@@ -460,6 +460,15 @@ jit-miri:
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$${filter//::/-}".log; \
 	done
 
+# The native backend on macOS hardware: every workspace test with the JIT compiled in, in each
+# mode. The out-of-process compiler worker is Linux-only, so its gates are not part of this.
+.PHONY: jit-macos
+jit-macos:
+	@case "$$(uname -sm)" in 'Darwin arm64'|'Darwin x86_64') ;; *) echo 'jit-macos needs macOS hardware, not a cross-build' >&2; exit 2;; esac
+	@$(MAKE) --no-print-directory jit-test JIT_MODE=off
+	@$(MAKE) --no-print-directory jit-test JIT_MODE=auto
+	@$(MAKE) --no-print-directory jit-test JIT_MODE=force
+
 jit-platform:
 	@case '$(TARGET)' in \
 		x86_64-unknown-linux-gnu|x86_64-unknown-linux-musl) arch=x86_64 ;; \

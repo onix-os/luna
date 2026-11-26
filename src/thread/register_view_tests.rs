@@ -28,11 +28,7 @@ fn with_frame<'gc>(ctx: Context<'gc>, test: impl FnOnce(&mut LuaFrame<'gc, '_>))
     let mut fuel = Fuel::with(7);
     fuel.interrupt();
     test(&mut LuaFrame {
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         pair_handoff: None,
         state: &mut state,
         stack: &mut stack,

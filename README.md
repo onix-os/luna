@@ -210,7 +210,7 @@ every embedder wants to compile:
 | --- | --- | --- |
 | `async` | `AsyncSequence::await_future`, `Lua::execute_async` — awaiting foreign futures from a callback | Nothing but code. It is `std::task` throughout; choosing a runtime stays yours |
 | `derive` | `#[derive(FromValue)]`, `#[derive(IntoValue)]` | `syn`, `quote` and `proc-macro2` in the build |
-| `jit` | Experimental native scalar/heap slices; constructors remain interpreted by default | Pinned Cranelift on Linux x86-64/aarch64; see [JIT.md](JIT.md) for current coverage and limits |
+| `jit` | Experimental native scalar/heap slices; constructors remain interpreted by default | Pinned Cranelift on Linux and macOS, x86-64/aarch64; the out-of-process compiler worker is Linux-only. See [JIT.md](JIT.md) for current coverage and limits |
 
 ```rust
 # use luna::{FromValue, IntoValue};
