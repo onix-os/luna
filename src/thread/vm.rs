@@ -404,18 +404,7 @@ fn run_vm_slice<'gc>(
                     .run(code, ctx, current_function, &mut registers, budget);
                 instructions_run += completed;
                 native_instructions += completed;
-                if (1..SHORT_NATIVE_ENTRY.min(budget)).contains(&completed)
-                    && matches!(
-                        current_prototype
-                            .opcodes
-                            .get(*registers.pc)
-                            .and_then(|op| op.call_transition()),
-                        Some(
-                            crate::opcode::CallTransition::Call { .. }
-                                | crate::opcode::CallTransition::TailCall { .. }
-                        )
-                    )
-                {
+                if completed < SHORT_NATIVE_ENTRY.min(budget) {
                     drop(registers);
                     if let Some(key) = backoff_key.filter(|_| ctx.jit().native_backoff()) {
                         lua_frame.state.back_off_native(key, NATIVE_BACKOFF_SLICES);
@@ -1297,10 +1286,10 @@ fn run_vm_slice<'gc>(
     Ok(instructions_run)
 }
 
-/// A native entry that stops at a call after fewer bytecodes than this costs more at the boundary
+/// A native entry that leaves native code after fewer bytecodes than this costs more at the boundary
 /// than it saves.
 #[cfg(feature = "jit")]
-const SHORT_NATIVE_ENTRY: u32 = 8;
+const SHORT_NATIVE_ENTRY: u32 = 12;
 
 /// How many slices such a frame then interprets before native dispatch is tried again.
 #[cfg(feature = "jit")]

@@ -229,7 +229,7 @@ pub struct JitConfig {
     pub max_snapshot_bytes: usize,
     pub max_metadata_bytes: usize,
     pub max_compile_attempts: u32,
-    /// Whether a frame whose native entries keep stopping at a call after a few bytecodes stops
+    /// Whether a frame whose native entries keep leaving native code after a few bytecodes stops
     /// entering native code for a while. On by default; off makes every slice try native code,
     /// which tests of native re-entry rely on.
     pub native_backoff: bool,

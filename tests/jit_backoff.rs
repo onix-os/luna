@@ -1,4 +1,4 @@
-//! Native entries that stop at a call after only a few bytecodes cost more than they save, so
+//! Native entries that leave native code after only a few bytecodes cost more than they save, so
 //! the frame backs off from native dispatch for a while. Long native runs are unaffected.
 
 #![cfg(feature = "jit")]
@@ -43,6 +43,20 @@ fn a_loop_around_a_host_call_backs_off_native_entry() {
     assert_eq!(value, 12_507_500);
     assert!(stats.native_entries > 0, "{stats:?}");
     assert!(stats.native_entries < 200, "{stats:?}");
+}
+
+#[test]
+fn a_loop_around_a_metamethod_backs_off_native_entry() {
+    let Some((value, stats)) = run(
+        "local mt = {} mt.__add = function(a, b) return setmetatable({n = a.n + b.n}, mt) end \
+         local sum = setmetatable({n = 0}, mt) local one = setmetatable({n = 1}, mt) \
+         for i = 1, 4000 do sum = sum + one end return sum.n",
+    ) else {
+        return;
+    };
+    assert_eq!(value, 4000);
+    assert!(stats.native_entries > 0, "{stats:?}");
+    assert!(stats.native_entries < 400, "{stats:?}");
 }
 
 #[test]

@@ -8,6 +8,7 @@ fn run(source: &[u8], native: bool, budget: i32) -> (Vec<(bool, i32)>, i64, JitS
         lua.set_jit_config(JitConfig {
             mode: JitMode::Auto,
             hot_threshold: 1,
+            native_backoff: false,
             ..Default::default()
         })
         .unwrap();

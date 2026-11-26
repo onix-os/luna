@@ -517,22 +517,36 @@ recovered by eviction and retry.
 
 ### Native back-off
 
-A native entry that completes fewer than 8 bytecodes and stops at a `Call` or
-`TailCall` costs more at the native boundary than it saves: register
-conversion, lookup checks, state publication and accounting are paid for a few
-instructions. Loops around a host callback or a metamethod do exactly that on
-every iteration. When it happens, the next 255 VM slices of the same frame that
-start at the same pc skip native dispatch entirely, including the registry
-identity and code lookups, and then native code is tried again. Slices that
-start elsewhere in the function, and native runs that do real work before a
-call, are unaffected; `tests/jit_backoff.rs` checks all three.
+A native entry that leaves native code after fewer than 12 bytecodes, without
+using up its budget, costs more at the native boundary than it saves: register
+conversion, lookup checks, state publication, accounting and generic table
+helpers are paid for a few instructions. Loops around a host callback or a
+metamethod do exactly that on every iteration, whether the exit is the call
+itself or an operand that needs a metamethod. When it happens, the next 255 VM
+slices of the same frame that start at the same pc skip native dispatch
+entirely, including the registry identity and code lookups, and then native
+code is tried again. Slices that start elsewhere in the function, and native
+runs that do real work before leaving, are unaffected; `tests/jit_backoff.rs`
+checks a host-call loop, a metamethod loop, a numeric loop and long native work
+before each call. Call-pair observation also returns before its out-of-line
+pattern match for calls that cannot pair, such as calls whose results are used.
 
 The policy is `JitConfig::native_backoff`, on by default. The integration
 harness turns it off because those suites assert native execution on every path,
-and in-crate unit tests leave it off unless `LUNA_TEST_NATIVE_BACKOFF=1`. On the
-`rust_callbacks` benchmark it cuts native entries from 64,849 to 271 and
-instructions by 2.7–3.6%. `polymorphic_metamethod` is unchanged: its remaining
-cost in Auto is per-slice bookkeeping, not native entry.
+and in-crate unit tests leave it off unless `LUNA_TEST_NATIVE_BACKOFF=1`.
+
+| Case | Native entries | Auto/Off instructions | Off/Auto wall time |
+|---|---|---|---|
+| `rust_callbacks` | 64,849 → 271 | 1.046 → 1.033 | 0.904 → 0.953 |
+| `polymorphic_metamethod` | 13,353 → 102 | 1.125 → 1.015 | 0.936 → 0.969 |
+| `closure_upvalue` | 37,589 → 35,311 | 0.358 → 0.346 | 2.30 → 2.43 |
+
+Instruction ratios are warm per-sample Callgrind counts (23 minus 3 samples),
+starting from the first, call-only version; wall ratios are medians of three
+21-sample paired runs on one pinned core, starting from before any back-off.
+Numeric and table loops are unchanged. The remaining Auto cost in both cases is
+fixed per-slice bookkeeping for an enabled JIT (activation policy, slice key,
+statistics), not native entry.
 
 ## Current execution coverage
 

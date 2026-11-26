@@ -319,6 +319,8 @@ impl Runtime {
         manager.config.mode == JitMode::Auto && manager.pairs.is_some()
     }
 
+    /// Observe a call for pairing; only calls with fixed arguments and no results can pair.
+    #[inline]
     pub(crate) fn observe_call<'gc>(
         &self,
         ctx: crate::Context<'gc>,
@@ -328,9 +330,19 @@ impl Runtime {
         arguments: crate::types::VarCount,
         returns: crate::types::VarCount,
     ) {
-        if arguments.to_constant().is_none() || returns.to_constant() != Some(0) {
-            return;
+        if let (Some(arguments), Some(0)) = (arguments.to_constant(), returns.to_constant()) {
+            self.observe_fixed_call(ctx, caller, registers, function, arguments);
         }
+    }
+
+    fn observe_fixed_call<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        registers: &crate::thread::LuaRegisters<'gc, '_>,
+        function: crate::types::RegisterIndex,
+        arguments: u8,
+    ) {
         let Some(crate::Value::Function(crate::Function::Closure(callee))) =
             registers.stack_frame.get(usize::from(function.0)).copied()
         else {
@@ -360,9 +372,7 @@ impl Runtime {
                 }
             }
             super::leaf::Operand::Register(register) if register != pattern.read => {
-                if register.0 >= arguments.to_constant().unwrap()
-                    || register.0 >= prototype.fixed_params
-                {
+                if register.0 >= arguments || register.0 >= prototype.fixed_params {
                     return;
                 }
             }

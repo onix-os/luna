@@ -12,6 +12,7 @@ fn state(native: bool) -> Lua {
         lua.set_jit_config(JitConfig {
             mode: JitMode::Auto,
             hot_threshold: 1,
+            native_backoff: false,
             ..Default::default()
         })
         .unwrap();
