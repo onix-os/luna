@@ -73,6 +73,11 @@ sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"
 target-lexicon = { version = "=0.13.5", optional = true }
 
 [[bin]]
+name = "luna"
+path = "src/bin/luna.rs"
+doc = false
+
+[[bin]]
 name = "luna-jit-worker"
 path = "src/bin/jit_worker.rs"
 required-features = ["jit-worker-bootstrap"]

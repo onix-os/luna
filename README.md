@@ -84,6 +84,68 @@ lua.try_enter(|ctx| {
 callbacks are opaque to the runtime: a host that registers one is responsible for keeping it
 pure, for example by recording declarations and applying them after evaluation.
 
+### Evaluating a configuration
+
+`functional::evaluate(path, &options)` does all of the above in one call and returns plain
+`Data`, and `luna eval` is the same thing from a shell, printing canonical JSON the way
+`nix eval --json` does:
+
+```sh
+luna eval service.lua --input-string env=prod --schema schema.lua --cache ~/.cache/luna
+```
+
+- **Inputs** arrive as the frozen `inputs` global, an empty map by default. A file that returns
+  a function is called with them, as a Nix file returning a function is.
+- **Imports** read `import("lib/x.lua")` relative to the configuration's directory, or `--root`.
+  Absolute paths, `.`/`..` and symlinks that leave the root are refused.
+- **Limits**: a total instruction budget (`--fuel`) and a memory ceiling (`--memory`) stop
+  runaway configurations with an error instead of hanging the host.
+- **Errors** name the import chain: `c.lua:1: broken config` followed by
+  `in 'c.lua', imported from b.lua:3` and `in 'b.lua', imported from a.lua:2`.
+- **Hashes**: every result carries the SHA-256 of every file read with the inputs, API and
+  schema (`input_hash`), and of the canonical result (`output_hash`), so a configuration has a
+  reproducible identity. `--hash` prints them.
+- **Cache**: with `--cache DIR`, a result is reused without evaluating while the file, its
+  inputs, its API, its schema and every file it imported are byte-for-byte unchanged.
+
+The result must be data: nil, booleans, numbers, strings, lists (keys exactly `1..n`) and maps.
+A function in the result is an error naming its path, such as
+`value.services.web.start: cannot convert a function`. JSON output additionally needs string
+keys, UTF-8 strings and finite numbers.
+
+### Registration-style APIs
+
+A configuration written as calls, such as `oslo.env.set("TOP", oslo.sys.pwd())`, stays pure when
+the host describes its API with `functional::Api` instead of acting on each call:
+
+```rust
+let api = Api::new()
+    .record("env.set")            // calls are appended to a log the script cannot read
+    .returning("sys.pwd", "/srv") // host state becomes a fixed input
+    .value("version", "1.2");
+```
+
+The arguments of every recorded call are frozen when it is made, and `Evaluated::declarations`
+lists the calls in order for the host to apply afterwards. From the shell:
+`luna eval .env.lua --api oslo --record env.set --returning 'sys.pwd="/srv"' --declarations`.
+
+### The `lib` global
+
+Every functional state has a frozen `lib`, written in functional Lua. Nothing in it changes its
+arguments, so it works on frozen and imported data.
+
+| | |
+| --- | --- |
+| Merging | `merge(a, b, ...)` (Nix `//`), `deep_merge(a, b)` (`recursiveUpdate`; lists are replaced) |
+| Lists | `map`, `filter`, `fold`, `concat`, `flatten`, `range`, `find`, `any`, `all`, `contains`, `unique`, `sort`, `group_by`, `is_list` |
+| Maps | `keys`, `values`, `map_values`, `filter_values`, `from_pairs` (all in canonical key order) |
+| Structure | `equal` (deep, cycle-safe), `copy` (a mutable deep copy) |
+| Overrides | `rewrite(tree, replace)`: Guix-style input rewriting. Replaces nodes by identity, through a table keyed by old nodes or a function, rebuilds only what contains them and keeps everything else shared |
+| Schemas | `check(value, type)` with `lib.types`: `any`, `string`, `integer`, `number`, `boolean`, `func`, `list(t)`, `map(t)`, `record(fields, { open = true })`, `optional(t)`, `default(t, v)`, `enum{...}`, `one_of(...)`, `custom(name, test)` |
+
+A schema both validates and normalises: defaults are filled in, unknown record fields are
+refused, and errors name the exact path, as in `config.hosts[2]: expected a string, got number 3`.
+
 ## Status
 
 Pre-1.0 and experimental. Expect frequent breaking changes on minor version bumps.

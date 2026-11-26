@@ -365,6 +365,7 @@ impl Lua {
             load_utf8(ctx);
             crate::functional::install(ctx);
         });
+        crate::functional::seal(&mut lua);
         lua
     }
 

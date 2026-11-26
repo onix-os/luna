@@ -3,17 +3,31 @@
 //! A state from [`crate::Lua::functional`] behaves like Starlark: a chunk may build and mutate the
 //! tables it creates, and [`freeze`] makes everything it produced read-only once it finishes.
 //! Nothing in the library reads the clock, the environment or the filesystem, and table
-//! iteration follows a canonical key order instead of hash layout.
+//! iteration follows a canonical key order instead of hash layout. Every functional state has a
+//! frozen `lib` global of merging, list, map, rewriting and schema helpers.
+//!
+//! [`evaluate`] runs a configuration file end to end and returns [`Data`]: imports confined to a
+//! root, inputs, a recorded [`Api`], limits, schema checking, content hashes and a cache.
 
-use std::{cmp::Ordering, collections::HashSet, pin::Pin};
+use std::{cmp::Ordering, collections::HashSet};
 
 use ottavino_gc_arena::{lock::RefLock, Collect, Gc, Rootable};
 
 use crate::{
-    closure::UpValueState, constant::cmp_int_float, stdlib::StringMetatable, BoxSequence, Callback,
-    CallbackReturn, Closure, CompilerError, Context, Error, Execution, Function, IntoValue,
-    MetaMethod, Sequence, SequencePoll, Stack, Table, Value,
+    closure::UpValueState, constant::cmp_int_float, stdlib::StringMetatable, Callback,
+    CallbackReturn, Context, Error, Function, IntoValue, MetaMethod, Table, Value,
 };
+
+mod data;
+mod evaluate;
+mod import;
+mod record;
+mod sha256;
+
+pub use data::{Data, DataError};
+pub use evaluate::{content_hash, evaluate, EvalError, Evaluated, Options};
+pub use import::{import_environment, import_environment_with};
+pub use record::{Api, Declaration, Recorder};
 
 /// Make `value` and everything reachable from it read-only.
 ///
@@ -68,7 +82,7 @@ pub fn environment<'gc>(ctx: Context<'gc>) -> Table<'gc> {
     environment_over(ctx, ctx.globals())
 }
 
-fn environment_over<'gc>(ctx: Context<'gc>, parent: Table<'gc>) -> Table<'gc> {
+pub(crate) fn environment_over<'gc>(ctx: Context<'gc>, parent: Table<'gc>) -> Table<'gc> {
     let metatable = Table::new(&ctx);
     metatable.set_field(ctx, "__index", parent);
     metatable.set_readonly(&ctx, true);
@@ -77,121 +91,7 @@ fn environment_over<'gc>(ctx: Context<'gc>, parent: Table<'gc>) -> Table<'gc> {
     env
 }
 
-/// An [`environment`] whose chunks can call `import(name)`.
-///
-/// `loader` maps a name to source text and is the only way the chunks reach other files, so it
-/// decides which names exist and how they resolve. Each name is evaluated once, in its own
-/// environment that can import further. Its first result and environment are frozen, and later
-/// imports return that same value. Importing a name that is still being evaluated is an error.
-pub fn import_environment<'gc>(
-    ctx: Context<'gc>,
-    loader: impl Fn(&str) -> Result<Vec<u8>, String> + 'static,
-) -> Table<'gc> {
-    let scope = Table::new(&ctx);
-    let imports = Imports {
-        scope,
-        cache: Table::new(&ctx),
-        loading: Table::new(&ctx),
-    };
-    let import = Callback::from_fn_with(&ctx, imports, move |imports, ctx, _, mut stack| {
-        let name = match stack.get(0) {
-            Value::String(name) => name,
-            _ => {
-                return Err("bad argument #1 to 'import' (string expected)"
-                    .into_value(ctx)
-                    .into())
-            }
-        };
-        let key = Value::String(name);
-        if let Value::Table(entry) = imports.cache.get_raw(&ctx, key) {
-            stack.replace(ctx, entry.get_raw(&ctx, Value::Integer(1)));
-            return Ok(CallbackReturn::Return);
-        }
-        let text = std::str::from_utf8(name.as_bytes())
-            .map_err(|_| message(ctx, "import name must be UTF-8".to_owned()))?;
-        if !imports.loading.get_raw(&ctx, key).is_nil() {
-            return Err(message(ctx, format!("import cycle through '{text}'")));
-        }
-        let source = loader(text)
-            .map_err(|error| message(ctx, format!("cannot import '{text}': {error}")))?;
-        let env = environment_over(ctx, imports.scope);
-        let closure = Closure::load_with_env(ctx, Some(text), &source, env).map_err(|error| {
-            let detail = match error {
-                CompilerError::Parsing(error) => error.to_string(),
-                CompilerError::Compilation(error) => error.to_string(),
-                error => error.to_string(),
-            };
-            message(ctx, format!("cannot import '{text}': {detail}"))
-        })?;
-        imports.loading.set_raw(&ctx, key, Value::Boolean(true))?;
-        stack.clear();
-        Ok(CallbackReturn::Call {
-            function: closure.into(),
-            then: Some(BoxSequence::new(
-                &ctx,
-                Imported {
-                    imports: *imports,
-                    key,
-                    env,
-                },
-            )),
-        })
-    });
-    scope.set_field(ctx, "import", import);
-    let metatable = Table::new(&ctx);
-    metatable.set_field(ctx, "__index", ctx.globals());
-    scope.set_metatable(ctx, Some(metatable));
-    freeze(ctx, scope.into());
-    environment_over(ctx, scope)
-}
-
-#[derive(Collect, Clone, Copy)]
-#[collect(no_drop)]
-struct Imports<'gc> {
-    scope: Table<'gc>,
-    cache: Table<'gc>,
-    loading: Table<'gc>,
-}
-
-#[derive(Collect)]
-#[collect(no_drop)]
-struct Imported<'gc> {
-    imports: Imports<'gc>,
-    key: Value<'gc>,
-    env: Table<'gc>,
-}
-
-impl<'gc> Sequence<'gc> for Imported<'gc> {
-    fn poll(
-        self: Pin<&mut Self>,
-        ctx: Context<'gc>,
-        _exec: Execution<'gc, '_>,
-        mut stack: Stack<'gc, '_>,
-    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
-        let value = stack.get(0);
-        freeze(ctx, value);
-        freeze(ctx, self.env.into());
-        let entry = Table::new(&ctx);
-        entry.set_raw(&ctx, Value::Integer(1), value)?;
-        self.imports.loading.set_raw(&ctx, self.key, Value::Nil)?;
-        self.imports.cache.set_raw(&ctx, self.key, entry.into())?;
-        stack.replace(ctx, value);
-        Ok(SequencePoll::Return)
-    }
-
-    fn error(
-        self: Pin<&mut Self>,
-        ctx: Context<'gc>,
-        _exec: Execution<'gc, '_>,
-        error: Error<'gc>,
-        _stack: Stack<'gc, '_>,
-    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
-        self.imports.loading.set_raw(&ctx, self.key, Value::Nil)?;
-        Err(error)
-    }
-}
-
-fn message<'gc>(ctx: Context<'gc>, text: String) -> Error<'gc> {
+pub(crate) fn message<'gc>(ctx: Context<'gc>, text: String) -> Error<'gc> {
     Value::String(ctx.intern(text.as_bytes())).into()
 }
 
@@ -257,9 +157,7 @@ fn successor<'gc>(
         if !after.is_nil() && compare_keys(key, after) != Ordering::Greater {
             continue;
         }
-        if best.map_or(true, |(found, _)| {
-            compare_keys(key, found) == Ordering::Less
-        }) {
+        if best.is_none_or(|(found, _)| compare_keys(key, found) == Ordering::Less) {
             best = Some((key, value));
         }
     }
@@ -410,8 +308,34 @@ pub(crate) fn install<'gc>(ctx: Context<'gc>) {
             })
         }),
     );
+}
 
-    freeze(ctx, globals.into());
-    let strings = ctx.singleton::<Rootable![StringMetatable<'_>]>();
-    freeze(ctx, strings.0.into());
+const LIBRARY: &[u8] = include_bytes!("lib.lua");
+
+/// Evaluate the `lib` global in the prepared state, then freeze the globals and the string
+/// metatable.
+pub(crate) fn seal(lua: &mut crate::Lua) {
+    let executor = lua
+        .try_enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(ctx, "lib", LIBRARY)?;
+            let closure = crate::Closure::new(&ctx, prototype, Some(environment(ctx)))?;
+            Ok(ctx.stash(crate::Executor::start(ctx, closure.into(), ())))
+        })
+        .expect("the functional library compiles");
+    lua.finish(&executor)
+        .expect("the functional library evaluates");
+    lua.enter(|ctx| {
+        let library: Table = ctx
+            .fetch(&executor)
+            .take_result(ctx)
+            .expect("the functional library finished")
+            .expect("the functional library returns its table");
+        let globals = ctx.globals();
+        globals
+            .set_raw(&ctx, ctx.intern(b"lib").into(), library.into())
+            .unwrap();
+        freeze(ctx, globals.into());
+        let strings = ctx.singleton::<Rootable![StringMetatable<'_>]>();
+        freeze(ctx, strings.0.into());
+    });
 }
