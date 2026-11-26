@@ -515,6 +515,25 @@ mapping-pressure retries refused because no unleased victim exists.
 `compilation_failures` counts each failed backend attempt, including failures
 recovered by eviction and retry.
 
+### Native back-off
+
+A native entry that completes fewer than 8 bytecodes and stops at a `Call` or
+`TailCall` costs more at the native boundary than it saves: register
+conversion, lookup checks, state publication and accounting are paid for a few
+instructions. Loops around a host callback or a metamethod do exactly that on
+every iteration. When it happens, the next 255 VM slices of the same frame that
+start at the same pc skip native dispatch entirely, including the registry
+identity and code lookups, and then native code is tried again. Slices that
+start elsewhere in the function, and native runs that do real work before a
+call, are unaffected; `tests/jit_backoff.rs` checks all three.
+
+The policy is `JitConfig::native_backoff`, on by default. The integration
+harness turns it off because those suites assert native execution on every path,
+and in-crate unit tests leave it off unless `LUNA_TEST_NATIVE_BACKOFF=1`. On the
+`rust_callbacks` benchmark it cuts native entries from 64,849 to 271 and
+instructions by 2.7–3.6%. `polymorphic_metamethod` is unchanged: its remaining
+cost in Auto is per-slice bookkeeping, not native entry.
+
 ## Current execution coverage
 
 `nix develop .#miri -c make jit-miri` uses the separately pinned nightly

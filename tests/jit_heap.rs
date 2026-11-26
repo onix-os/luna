@@ -13,6 +13,7 @@ fn state(native: bool) -> Lua {
     let mut lua = Lua::core();
     if native {
         lua.set_jit_config(JitConfig {
+            native_backoff: false,
             mode: JitMode::Auto,
             hot_threshold: 1,
             ..JitConfig::default()

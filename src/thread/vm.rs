@@ -312,7 +312,17 @@ fn run_vm_slice<'gc>(
         .flatten();
 
     #[cfg(feature = "jit")]
-    let native_id = if !hook_enabled && ctx.jit().active() {
+    let mut backoff_key = None;
+    #[cfg(feature = "jit")]
+    let native_id = if !hook_enabled && ctx.jit().active() && {
+        let key = (
+            lua_frame.frame_depth(),
+            ottavino_gc_arena::Gc::as_ptr(current_function.into_inner()) as usize,
+            *lua_frame.registers().pc,
+        );
+        backoff_key = Some(key);
+        !lua_frame.state.native_backed_off(key)
+    } {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
     } else {
         None
@@ -465,6 +475,24 @@ fn run_vm_slice<'gc>(
                     .run(code, ctx, current_function, &mut registers, budget);
                 instructions_run += completed;
                 native_instructions += completed;
+                if (1..SHORT_NATIVE_ENTRY.min(budget)).contains(&completed)
+                    && matches!(
+                        current_prototype
+                            .opcodes
+                            .get(*registers.pc)
+                            .and_then(|op| op.call_transition()),
+                        Some(
+                            crate::opcode::CallTransition::Call { .. }
+                                | crate::opcode::CallTransition::TailCall { .. }
+                        )
+                    )
+                {
+                    drop(registers);
+                    if let Some(key) = backoff_key.filter(|_| ctx.jit().native_backoff()) {
+                        lua_frame.state.back_off_native(key, NATIVE_BACKOFF_SLICES);
+                    }
+                    registers = lua_frame.registers();
+                }
                 if instructions_run >= max_instructions {
                     break;
                 }
@@ -1364,6 +1392,15 @@ fn run_vm_slice<'gc>(
     }
     Ok(instructions_run)
 }
+
+/// A native entry that stops at a call after fewer bytecodes than this costs more at the boundary
+/// than it saves.
+#[cfg(feature = "jit")]
+const SHORT_NATIVE_ENTRY: u32 = 8;
+
+/// How many slices such a frame then interprets before native dispatch is tried again.
+#[cfg(feature = "jit")]
+const NATIVE_BACKOFF_SLICES: u16 = 255;
 
 fn add_offset(pc: usize, offset: i16) -> usize {
     pc.checked_add_signed(isize::from(offset)).unwrap()

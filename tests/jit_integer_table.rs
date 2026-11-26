@@ -10,6 +10,7 @@ fn run(source: &[u8], native: bool, budget: i32) -> (Vec<(bool, i32)>, i64, JitS
     let mut lua = Lua::core();
     if native {
         lua.set_jit_config(JitConfig {
+            native_backoff: false,
             mode: JitMode::Auto,
             hot_threshold: 1,
             ..Default::default()

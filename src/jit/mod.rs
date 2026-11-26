@@ -352,6 +352,10 @@ pub struct JitConfig {
     pub max_snapshot_bytes: usize,
     pub max_metadata_bytes: usize,
     pub max_compile_attempts: u32,
+    /// Whether a frame whose native entries keep stopping at a call after a few bytecodes stops
+    /// entering native code for a while. On by default; off makes every slice try native code,
+    /// which tests of native re-entry rely on.
+    pub native_backoff: bool,
 }
 
 impl Default for JitConfig {
@@ -368,6 +372,7 @@ impl Default for JitConfig {
             max_snapshot_bytes: 2 * 1024 * 1024,
             max_metadata_bytes: 2 * 1024 * 1024,
             max_compile_attempts: 2,
+            native_backoff: true,
         }
     }
 }
@@ -1729,6 +1734,10 @@ impl Runtime {
 
     pub(crate) fn active(&self) -> bool {
         self.0.borrow().config.mode == JitMode::Auto
+    }
+
+    pub(crate) fn native_backoff(&self) -> bool {
+        self.0.borrow().config.native_backoff
     }
 
     #[cfg(any(

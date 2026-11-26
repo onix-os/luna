@@ -134,6 +134,8 @@ fn configure(lua: InnerLua) -> Lua {
             }
             other => panic!("invalid LUNA_TEST_JIT_MODE: {other}"),
         }
+        // The suites check native execution on every path, so no frame backs off from it.
+        config.native_backoff = false;
         lua.set_jit_config(config).unwrap();
         Lua {
             inner: lua,
