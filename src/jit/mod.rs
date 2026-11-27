@@ -3325,7 +3325,8 @@ mod eviction_tests {
         let bytes = runtime.usage();
         runtime.0.borrow_mut().config.max_code_bytes = bytes;
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as usize;
-        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(64 * page / 4096));
+        let additions = 64 * page / 4096;
+        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(additions));
         let snapshot = || {
             crate::Lua::empty().enter(|ctx| {
                 let prototype =
@@ -3377,8 +3378,11 @@ mod eviction_tests {
             }
             pc = exit.pc as usize;
         }
-        assert!(instructions > 64);
-        assert_eq!((slots[0].tag, slots[0].bits), (abi::INTEGER, 64));
+        assert!(instructions > additions as u32);
+        assert_eq!(
+            (slots[0].tag, slots[0].bits),
+            (abi::INTEGER, additions as u64)
+        );
     }
 
     #[test]
