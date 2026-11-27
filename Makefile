@@ -74,7 +74,7 @@ $(info ------------------------------------------)
 $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b dev compile c run r repl test t test-all test-doc check check-all clippy clippy-strict rustdoc fmt fmt-check print-name clean verify publish release help h
+.PHONY: build b dev compile c run r repl test t test-all test-doc check check-all clippy clippy-strict rustdoc fmt fmt-check print-name clean verify publish bump release help h
 .PHONY: jit-deps jit-check jit-test jit-test-all jit-test-doc jit-rustdoc jit-verify jit-tree jit-reference jit-backend jit-boundary jit-native jit-numeric jit-heap jit-registers jit-policy jit-resources jit-example jit-bench jit-bench-paired jit-performance jit-profile jit-profile-build jit-rust-assembly jit-fuzz-smoke jit-fuzz jit-evidence environment
 .PHONY: ci-check jit-platform
 .PHONY: jit-size jit-size-build jit-cost-tests jit-cost-native jit-shipping
@@ -2961,6 +2961,21 @@ publish:
 	@$(CARGO) publish -p $(PROJECT_NAME)
 	@$(CARGO) publish -p $(PROJECT_NAME)-util
 
+# Sets the workspace version, the internal dependency requirements, the exact release pins and
+# both lockfiles to VERSION.
+bump:
+	@case '$(VERSION)' in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "Use 'make bump VERSION=M.m.p'" >&2; exit 2;; esac
+	@sed -i -E '/^\[workspace\.package\]/,/^\[/s/^version = "[^"]*"/version = "$(VERSION)"/' Cargo.toml
+	@sed -i -E 's/^(luna(-derive)? = \{ path = "[^"]*", version = ")[^"]*"/\1$(VERSION)"/' Cargo.toml
+	@sed -i -E 's/^(luna-jit-embed = \{ path = "worker", version = "=)[^"]*"/\1$(VERSION)"/' Cargo.toml
+	@sed -i -E 's/^(luna(-util)? = \{ version = "=)[^"]*"/\1$(VERSION)"/' tests/release_consumer/Cargo.toml
+	@sed -i -E 's/(\$$name-)[0-9]+\.[0-9]+\.[0-9]+/\1$(VERSION)/g; s/(\.version == ")[0-9]+\.[0-9]+\.[0-9]+"/\1$(VERSION)"/' tests/support/package_smoke.sh
+	@$(CARGO) update --offline --workspace --quiet
+	@sed -i -E '/^name = "luna(-derive)?"$$/{n;s/^version = "[^"]*"/version = "$(VERSION)"/}' fuzz/Cargo.lock
+	@grep -q '^version = "$(VERSION)"' Cargo.toml
+	@test "$$(grep -c '$(VERSION)' tests/release_consumer/Cargo.toml tests/support/package_smoke.sh | awk -F: '{n += $$2} END {print n}')" -eq 5
+
+# Bumps every version and pin in one commit, then lets git-rel tag, write the changelog and push.
 release:
 	@if [ -z "$(HAS_REL)" ]; then \
 		echo "git-rel is not installed. Please install it first."; \
@@ -2970,7 +2985,17 @@ release:
 		echo "Release type not specified. Use 'make release TYPE=[patch|minor|major|M.m.p]'"; \
 		exit 1; \
 	fi
-	@git rel $(TYPE)
+	@[ "$$(git rev-parse --abbrev-ref HEAD)" = develop ] || { echo "Release from develop" >&2; exit 1; }
+	@git diff --quiet HEAD || { echo "Commit or stash local changes first" >&2; exit 1; }
+	@version=$$(echo '$(PROJECT_VERSION)' | awk -F. -v type='$(TYPE)' ' \
+		type ~ /^[0-9]+\.[0-9]+\.[0-9]+$$/ { print type; exit } \
+		type == "patch" { print $$1 "." $$2 "." $$3 + 1; exit } \
+		type == "minor" { print $$1 "." $$2 + 1 ".0"; exit } \
+		type == "major" { print $$1 + 1 ".0.0"; exit } \
+		{ exit 1 }') || { echo "Unknown release type '$(TYPE)'" >&2; exit 1; }; \
+	$(MAKE) --no-print-directory bump VERSION=$$version && \
+	{ git diff --quiet HEAD || git commit --quiet -am "chore: bump version and internal deps to $$version"; } && \
+	git rel $$version
 
 help:
 	@echo
@@ -3091,7 +3116,8 @@ help:
 	@echo "  jit-clean-release-package Clean only luna's release cache (TARGET=...)"
 	@echo "  jit-rust-assembly Inspect symbol-retained Rust dispatch/helper assembly"
 	@echo "  publish      Publish $(PROJECT_NAME)-derive, $(PROJECT_NAME), then $(PROJECT_NAME)-util"
-	@echo "  release      Release a new version"
+	@echo "  bump         Set every version and release pin (make bump VERSION=M.m.p)"
+	@echo "  release      Bump, tag and push a release (make release TYPE=patch|minor|major|M.m.p)"
 	@echo
 
 h: help
