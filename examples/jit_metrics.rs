@@ -6,6 +6,7 @@ use luna::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode
 mod churn;
 #[path = "jit_support/suspension.rs"]
 mod suspension;
+#[allow(dead_code)]
 #[path = "jit_support/workloads.rs"]
 mod workloads;
 use workloads::{Workload, COLD_SOURCE, PREDICATE_SOURCE, WORKLOADS};

@@ -54,7 +54,7 @@ pub enum ThreadMode {
 #[error("bad thread mode: {found:?}{}", if let Some(expected) = *.expected {
         format!(", expected {:?}", expected)
     } else {
-        format!("")
+        std::string::String::new()
     })]
 pub struct BadThreadMode {
     pub found: ThreadMode,
@@ -716,11 +716,7 @@ impl<'gc> ThreadState<'gc> {
                 let stack_size = proto.stack_size as usize;
                 let given_params = stack.len() - bottom;
 
-                let var_params = if given_params > fixed_params {
-                    given_params - fixed_params
-                } else {
-                    0
-                };
+                let var_params = given_params.saturating_sub(fixed_params);
                 stack[bottom..].rotate_right(var_params);
                 let base = bottom + var_params;
 
@@ -985,6 +981,7 @@ pub(super) struct LuaFrame<'gc, 'a> {
     pub(super) fuel: &'a mut Fuel,
 }
 
+#[cfg_attr(feature = "jit", allow(clippy::needless_borrow))]
 impl<'gc, 'a> LuaFrame<'gc, 'a> {
     #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) fn pair_fixed_stack(&self) -> bool {

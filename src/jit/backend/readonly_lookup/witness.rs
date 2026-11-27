@@ -119,7 +119,7 @@ impl Witness {
                 }
                 let node = Node {
                     inst,
-                    data: function.dfg.insts[inst].clone(),
+                    data: function.dfg.insts[inst],
                     args,
                     results,
                     targets: target_start..this.targets.len(),

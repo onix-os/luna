@@ -149,13 +149,11 @@ impl Site {
                     func,
                     args,
                     returns,
-                } => {
-                    if args.to_constant() != Some(1)
-                        || returns.to_constant() != Some(0)
-                        || call.replace((pc, func.0)).is_some()
-                    {
-                        return None;
-                    }
+                } if (args.to_constant() != Some(1)
+                    || returns.to_constant() != Some(0)
+                    || call.replace((pc, func.0)).is_some()) =>
+                {
+                    return None;
                 }
                 _ => {}
             }

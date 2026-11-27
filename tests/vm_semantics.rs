@@ -126,9 +126,8 @@ fn returns_reach_the_caller_whatever_their_count() -> Result<(), ExternError> {
     // Returning leaves the caller's registers above the results alone, so what it does still see
     // has to be exactly the results it asked for — including the `nil`s for the ones it did not
     // get, and nothing left over from the frame that returned.
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local function none() end
             local function one() return 1 end
             local function three() return 1, 2, 3 end
@@ -167,9 +166,7 @@ fn returns_reach_the_caller_whatever_their_count() -> Result<(), ExternError> {
 
             return true
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 

@@ -974,6 +974,7 @@ fn compile_image(
     .installed()
 }
 
+#[allow(clippy::result_large_err)]
 fn compile_image_to(
     snapshot: &Snapshot,
     total: MappingCounter,

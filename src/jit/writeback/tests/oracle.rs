@@ -111,7 +111,7 @@ fn independently_walked_paths_match_masks_for_loops_branches_and_aliases() {
                 _ => Operation::LoadBool {
                     dest: a,
                     value: true,
-                    skip_next: seed % 2 == 0,
+                    skip_next: seed.is_multiple_of(2),
                 },
             });
         }

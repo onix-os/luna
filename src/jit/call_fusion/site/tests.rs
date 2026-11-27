@@ -161,8 +161,6 @@ fn materialization_matches_every_real_caller_slot_after_collection() {
     ];
     for (initial, argument) in cases {
         for kind in 0..3 {
-            let initial = initial as i64;
-            let argument = argument as i64;
             let source = match kind {
                 0 => format!("local sum=0x{:016x} local function add(v) sum=sum+v end add(0x{:016x}) return sum", initial as u64, argument as u64),
                 1 => format!("local amount=0x{:016x} local sum=0x{:016x} local function add(v) sum=sum+v end add(amount) return sum", argument as u64, initial as u64),

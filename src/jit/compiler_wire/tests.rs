@@ -332,6 +332,7 @@ fn receiver_owns_all_data_after_thread_handoff_and_sender_release() {
 
 #[test]
 fn real_workload_packets_survive_arena_destruction_without_gc_handles() {
+    #[allow(dead_code)]
     mod workloads {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),

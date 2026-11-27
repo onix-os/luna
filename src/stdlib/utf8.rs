@@ -104,7 +104,7 @@ pub fn load_utf8<'gc>(ctx: Context<'gc>) {
 
             let mut count = 0i64;
             let mut pos = i - 1;
-            while (pos as i64) <= j - 1 && pos < bytes.len() {
+            while (pos as i64) < j && pos < bytes.len() {
                 match decode(bytes, pos) {
                     Some((_, len)) => {
                         count += 1;

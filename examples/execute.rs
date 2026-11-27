@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Get the global env
         let env = ctx.globals();
         // Run the lua script in the global context
-        let closure = Closure::load_with_env(ctx, None, &*source, env)?;
+        let closure = Closure::load_with_env(ctx, None, &source, env)?;
         // Create an executor that will run the lua script
         let ex = Executor::start(ctx, closure.into(), ());
 
@@ -34,10 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let env = ctx.globals();
 
         // Get the function out of the lua context
-        let foo = env.get::<_, Closure>(ctx, "foo")?;
+        let function = env.get::<_, Closure>(ctx, "foo")?;
 
         // Create an executor to run it, and pass it our arguments list.
-        let ex = Executor::start(ctx, foo.into(), "this is my message");
+        let ex = Executor::start(ctx, function.into(), "this is my message");
 
         // Return it stashed so we can pull it out of the context
         Ok(ctx.stash(ex))

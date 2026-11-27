@@ -561,7 +561,7 @@ fn run_vm_slice<'gc>(
 
             Operation::GetTable { dest, table, key } => {
                 let table = registers.stack_frame[table.0 as usize];
-                let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
+                let key = get_rc(registers.stack_frame, &current_prototype.constants, key);
                 match meta_ops::index(ctx, table, key)? {
                     MetaResult::Value(v) => {
                         registers.stack_frame[dest.0 as usize] = v;
@@ -580,8 +580,8 @@ fn run_vm_slice<'gc>(
 
             Operation::SetTable { table, key, value } => {
                 let table = registers.stack_frame[table.0 as usize];
-                let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
-                let value = get_rc(&registers.stack_frame, &current_prototype.constants, value);
+                let key = get_rc(registers.stack_frame, &current_prototype.constants, key);
+                let value = get_rc(registers.stack_frame, &current_prototype.constants, value);
                 if let Some(call) = meta_ops::new_index(ctx, table, key, value)? {
                     lua_frame.call_meta_function(
                         ctx,
@@ -608,7 +608,7 @@ fn run_vm_slice<'gc>(
                 };
                 #[cfg(not(feature = "jit"))]
                 let lookup = {
-                    let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
+                    let key = get_rc(registers.stack_frame, &current_prototype.constants, key);
                     meta_ops::index(ctx, table, key)
                 };
                 match lookup? {
@@ -629,8 +629,8 @@ fn run_vm_slice<'gc>(
 
             Operation::SetUpTable { table, key, value } => {
                 let table = registers.get_upvalue(&ctx, current_upvalues[table.0 as usize].get());
-                let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
-                let value = get_rc(&registers.stack_frame, &current_prototype.constants, value);
+                let key = get_rc(registers.stack_frame, &current_prototype.constants, key);
+                let value = get_rc(registers.stack_frame, &current_prototype.constants, value);
                 if let Some(call) = meta_ops::new_index(ctx, table, key, value)? {
                     lua_frame.call_meta_function(
                         ctx,
@@ -752,7 +752,7 @@ fn run_vm_slice<'gc>(
                 for &desc in proto.upvalues.iter() {
                     match desc {
                         UpValueDescriptor::Environment => {
-                            return Err(VMError::BadEnvUpValue.into());
+                            return Err(VMError::BadEnvUpValue);
                         }
                         UpValueDescriptor::ParentLocal(reg) => {
                             upvalues.push(Lock::new(registers.open_upvalue(&ctx, reg)));
@@ -883,7 +883,7 @@ fn run_vm_slice<'gc>(
 
             Operation::Method { base, table, key } => {
                 let table = registers.stack_frame[table.0 as usize];
-                let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
+                let key = get_rc(registers.stack_frame, &current_prototype.constants, key);
                 registers.stack_frame[base.0 as usize + 1] = table;
                 match meta_ops::index(ctx, table, key)? {
                     MetaResult::Value(v) => {
@@ -962,8 +962,8 @@ fn run_vm_slice<'gc>(
                 left,
                 right,
             } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::equal(ctx, left, right)? {
                     MetaResult::Value(v) => {
                         if v.to_bool() == skip_if {
@@ -987,8 +987,8 @@ fn run_vm_slice<'gc>(
                 left,
                 right,
             } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 if let Some(value) = numeric_comparison::compare::<false>(left, right) {
                     if value == skip_if {
                         *registers.pc += 1;
@@ -1017,8 +1017,8 @@ fn run_vm_slice<'gc>(
                 left,
                 right,
             } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 if let Some(value) = numeric_comparison::compare::<true>(left, right) {
                     if value == skip_if {
                         *registers.pc += 1;
@@ -1080,8 +1080,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::Add { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::add(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1097,8 +1097,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::Sub { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::subtract(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1114,8 +1114,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::Mul { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::multiply(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1131,8 +1131,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::Div { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::float_divide(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1148,8 +1148,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::IDiv { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::floor_divide(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1165,8 +1165,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::Mod { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::modulo(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1182,8 +1182,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::Pow { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::exponentiate(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1199,8 +1199,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::BitAnd { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::bitwise_and(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1216,8 +1216,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::BitOr { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::bitwise_or(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1233,8 +1233,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::BitXor { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::bitwise_xor(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1250,8 +1250,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::ShiftLeft { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::shift_left(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
@@ -1267,8 +1267,8 @@ fn run_vm_slice<'gc>(
             }
 
             Operation::ShiftRight { dest, left, right } => {
-                let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                let left = get_rc(registers.stack_frame, &current_prototype.constants, left);
+                let right = get_rc(registers.stack_frame, &current_prototype.constants, right);
                 match meta_ops::shift_right(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {

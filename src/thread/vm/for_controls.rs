@@ -83,9 +83,7 @@ fn check<'gc>(
     assert_eq!(fuel.remaining(), 19);
     assert_eq!(stack.len(), before.len());
     for (offset, (&actual, &original)) in stack.iter().zip(&before).enumerate() {
-        if offset == start {
-            same(actual, next);
-        } else if continues && offset == start + 3 {
+        if offset == start || (continues && offset == start + 3) {
             same(actual, next);
         } else if offset >= frame_base {
             same(actual, original);

@@ -64,18 +64,15 @@ fn the_round_trip_preserves_behaviour() -> Result<(), ExternError> {
 
 #[test]
 fn stripping_drops_local_names_but_not_behaviour() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local f = assert(load("local a = ... local doubled = a * 2 return doubled"))
             local full = string.dump(f)
             local thin = string.dump(f, true)
             assert(#thin < #full, "stripping should be smaller")
             return assert(load(thin, "c", "b"))(21) == 42
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
@@ -83,26 +80,22 @@ fn stripping_drops_local_names_but_not_behaviour() -> Result<(), ExternError> {
 /// anything else is refused at dump time rather than producing bytes that cannot be loaded.
 #[test]
 fn a_function_with_upvalues_is_refused() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             -- A nested function reaches `_ENV` through its parent, so it is not a chunk.
             local nested = assert(load("return function(x) return tostring(x) end"))()
             local ok, err = pcall(string.dump, nested)
             return not ok and tostring(err):match("chunk") ~= nil
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
 /// `mode` is how a host refuses a form it never meant to accept.
 #[test]
 fn mode_gates_binary_and_text_separately() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local bytes = string.dump(assert(load("return 1")))
             assert(not pcall(load, bytes, "c", "t"), "text-only should refuse a binary chunk")
             assert(load(bytes, "c", "b") ~= nil, "binary should be allowed by 'b'")
@@ -112,17 +105,14 @@ fn mode_gates_binary_and_text_separately() -> Result<(), ExternError> {
             assert(not pcall(load, bytes), "binary should need an explicit mode")
             return true
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
 #[test]
 fn rubbish_is_rejected_not_run() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             -- the signature without a body
             local f, err = load("\27Luna", "c", "b")
             assert(f == nil and err ~= nil, "a bare signature should not load")
@@ -131,9 +121,7 @@ fn rubbish_is_rejected_not_run() -> Result<(), ExternError> {
             assert(f2 == nil, "a foreign version should not load")
             return true
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 

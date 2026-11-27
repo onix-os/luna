@@ -21,7 +21,7 @@ fn interpreter_panics_unwind_through_the_vm_boundary() {
         })
         .unwrap();
         #[cfg(not(feature = "jit"))]
-        let _ = mode;
+        let () = mode;
         lua.enter(|ctx| {
             let closure = Closure::load(ctx, None, b"return 7").unwrap();
             assert!(matches!(

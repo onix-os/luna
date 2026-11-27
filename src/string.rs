@@ -98,7 +98,7 @@ impl<'gc> String<'gc> {
             assert!(s.len() <= N);
             let mut string = InlineString {
                 header: StringInner {
-                    hash: str_hash(&s),
+                    hash: str_hash(s),
                     buffer: Buffer::Inline(s.len()),
                 },
                 array: [0; N],
@@ -172,8 +172,7 @@ impl<'gc> String<'gc> {
                     let (_, offset) = layout
                         .extend(alloc::Layout::array::<u8>(len).unwrap())
                         .unwrap();
-                    let data =
-                        (Gc::as_ptr(self.0) as *const u8).offset(offset as isize) as *const u8;
+                    let data = (Gc::as_ptr(self.0) as *const u8).add(offset);
                     slice::from_raw_parts(data, len)
                 }
             }
@@ -196,6 +195,10 @@ impl<'gc> fmt::Debug for String<'gc> {
 impl<'gc> String<'gc> {
     pub fn len(self) -> i64 {
         self.as_bytes().len().try_into().unwrap()
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.as_bytes().is_empty()
     }
 
     pub fn to_str(self) -> Result<&'gc str, Utf8Error> {

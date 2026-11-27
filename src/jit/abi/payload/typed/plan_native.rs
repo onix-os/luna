@@ -164,7 +164,9 @@ impl<'p> Code<'p> {
         inspect(&context.func, module.isa());
         module.define_function(id, &mut context).unwrap();
         module.finalize_definitions().unwrap();
-        code.entry = Some(unsafe { std::mem::transmute(module.get_finalized_function(id)) });
+        code.entry = Some(unsafe {
+            std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(id))
+        });
         Ok(code)
     }
 

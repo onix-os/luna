@@ -337,6 +337,7 @@ fn packed_whole_generated_helpers_preserve_full_entry_contract() {
 }
 
 #[cfg(not(miri))]
+#[allow(dead_code)]
 #[path = "../../../../examples/jit_support/workloads.rs"]
 mod workloads;
 

@@ -411,7 +411,7 @@ fn value_to_integer<'gc>(v: Value<'gc>) -> Result<i64, std::string::String> {
 /// A float only converts when it is integral *and* inside the integer range; `n as i64` saturates,
 /// so the range has to be tested before the cast.
 fn float_to_integer(n: f64) -> Result<i64, std::string::String> {
-    if n.floor() == n && n >= -9_223_372_036_854_775_808.0 && n < 9_223_372_036_854_775_808.0 {
+    if n.floor() == n && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&n) {
         Ok(n as i64)
     } else {
         Err("number has no integer representation".to_string())
@@ -543,9 +543,9 @@ fn apply_width(result: &mut Vec<u8>, s: &[u8], width: Option<usize>, left_align:
         if w > len {
             if left_align {
                 result.extend_from_slice(s);
-                result.extend(std::iter::repeat(pad).take(w - len));
+                result.extend(std::iter::repeat_n(pad, w - len));
             } else {
-                result.extend(std::iter::repeat(pad).take(w - len));
+                result.extend(std::iter::repeat_n(pad, w - len));
                 result.extend_from_slice(s);
             }
         } else {
@@ -572,16 +572,12 @@ fn apply_width_str(
                 format!(
                     "{}{}",
                     s,
-                    std::iter::repeat(pad)
-                        .take(w - len)
-                        .collect::<std::string::String>()
+                    std::iter::repeat_n(pad, w - len).collect::<std::string::String>()
                 )
             } else {
                 format!(
                     "{}{}",
-                    std::iter::repeat(pad)
-                        .take(w - len)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n(pad, w - len).collect::<std::string::String>(),
                     s
                 )
             }
@@ -609,25 +605,19 @@ fn apply_width_with_prefix(
                     "{}{}{}",
                     prefix,
                     s,
-                    std::iter::repeat(pad as char)
-                        .take(padding)
-                        .collect::<std::string::String>()
+                    std::iter::repeat_n(pad as char, padding).collect::<std::string::String>()
                 )
             } else if pad == b'0' {
                 format!(
                     "{}{}{}",
                     prefix,
-                    std::iter::repeat('0')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n('0', padding).collect::<std::string::String>(),
                     s
                 )
             } else {
                 format!(
                     "{}{}{}",
-                    std::iter::repeat(pad as char)
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n(pad as char, padding).collect::<std::string::String>(),
                     prefix,
                     s
                 )
@@ -679,7 +669,7 @@ fn format_integer(
 
     // Special case: precision 0 with value 0 = ""
     if precision == Some(0) && n == 0 {
-        let s = format!("{}", sign);
+        let s = sign.to_string();
         return apply_width_str(&s, width, left_align, false, false, None);
     }
 
@@ -694,26 +684,20 @@ fn format_integer(
                 format!(
                     "{}{}",
                     full,
-                    std::iter::repeat(' ')
-                        .take(padding)
-                        .collect::<std::string::String>()
+                    std::iter::repeat_n(' ', padding).collect::<std::string::String>()
                 )
             } else if use_zero {
                 // zero padding goes between sign and digits
                 format!(
                     "{}{}{}",
                     sign,
-                    std::iter::repeat('0')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n('0', padding).collect::<std::string::String>(),
                     digits
                 )
             } else {
                 format!(
                     "{}{}",
-                    std::iter::repeat(' ')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n(' ', padding).collect::<std::string::String>(),
                     full
                 )
             }
@@ -774,17 +758,13 @@ fn format_float_f(
                 format!(
                     "{}{}{}",
                     sign,
-                    std::iter::repeat('0')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n('0', padding).collect::<std::string::String>(),
                     digits
                 )
             } else {
                 format!(
                     "{}{}",
-                    std::iter::repeat(' ')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n(' ', padding).collect::<std::string::String>(),
                     full
                 )
             }
@@ -854,17 +834,13 @@ fn format_float_e(
                 format!(
                     "{}{}{}",
                     sign,
-                    std::iter::repeat('0')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n('0', padding).collect::<std::string::String>(),
                     formatted
                 )
             } else {
                 format!(
                     "{}{}",
-                    std::iter::repeat(' ')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n(' ', padding).collect::<std::string::String>(),
                     full
                 )
             }
@@ -955,7 +931,7 @@ fn format_float_g(
     let use_exp = exp < -4 || exp >= prec as i32;
 
     let formatted = if use_exp {
-        let e_prec = if prec > 1 { prec - 1 } else { 0 };
+        let e_prec = prec.saturating_sub(1);
         let s = format_scientific(abs_n, e_prec, upper);
         if !has_hash {
             remove_trailing_zeros_exp(&s)
@@ -963,11 +939,7 @@ fn format_float_g(
             s
         }
     } else {
-        let f_prec = if prec > (exp + 1) as usize {
-            prec - (exp + 1) as usize
-        } else {
-            0
-        };
+        let f_prec = prec.saturating_sub((exp + 1) as usize);
         let s = format!("{:.prec$}", abs_n, prec = f_prec);
         if !has_hash {
             remove_trailing_zeros_f(&s)
@@ -986,17 +958,13 @@ fn format_float_g(
                 format!(
                     "{}{}{}",
                     sign,
-                    std::iter::repeat('0')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n('0', padding).collect::<std::string::String>(),
                     formatted
                 )
             } else {
                 format!(
                     "{}{}",
-                    std::iter::repeat(' ')
-                        .take(padding)
-                        .collect::<std::string::String>(),
+                    std::iter::repeat_n(' ', padding).collect::<std::string::String>(),
                     full
                 )
             }
@@ -1020,7 +988,7 @@ fn remove_trailing_zeros_f(s: &str) -> std::string::String {
 
 fn remove_trailing_zeros_exp(s: &str) -> std::string::String {
     // Find the 'e' or 'E'
-    if let Some(e_pos) = s.find(|c| c == 'e' || c == 'E') {
+    if let Some(e_pos) = s.find(['e', 'E']) {
         let (mantissa, exp) = s.split_at(e_pos);
         let mantissa = if mantissa.contains('.') {
             let m = mantissa.trim_end_matches('0');
@@ -1137,9 +1105,7 @@ fn format_hex_float(
                 "{}.{}{}",
                 lead_digit,
                 rest_digits,
-                std::iter::repeat('0')
-                    .take(prec - 13)
-                    .collect::<std::string::String>()
+                std::iter::repeat_n('0', prec - 13).collect::<std::string::String>()
             )
         }
     } else {

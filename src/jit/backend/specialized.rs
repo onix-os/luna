@@ -2,9 +2,10 @@
 use super::readonly_lookup::ReadCode;
 use crate::jit::entry_admission::Plan;
 
+#[allow(clippy::large_enum_variant)]
 pub(in crate::jit) enum Entry {
     #[cfg(not(miri))]
-    #[cfg_attr(all(test, not(target_os = "linux")), allow(dead_code))]
+    #[allow(dead_code)]
     Lookup(ReadCode),
     Decline(Plan),
 }

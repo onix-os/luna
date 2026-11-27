@@ -10,9 +10,11 @@ fn run(source: &str) -> Option<(i64, JitStats)> {
     if !lua.jit_capabilities().supported_target {
         return None;
     }
-    let mut config = JitConfig::default();
-    config.mode = JitMode::Auto;
-    config.hot_threshold = 1;
+    let config = JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    };
     lua.set_jit_config(config).unwrap();
     let executor = lua
         .try_enter(|ctx| {
@@ -75,9 +77,11 @@ fn a_loop_that_ends_with_a_short_run_stays_native_on_later_runs() {
     if !lua.jit_capabilities().supported_target {
         return;
     }
-    let mut config = JitConfig::default();
-    config.mode = JitMode::Auto;
-    config.hot_threshold = 1;
+    let config = JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    };
     lua.set_jit_config(config).unwrap();
     let closure = lua
         .try_enter(|ctx| {

@@ -146,7 +146,7 @@ fn test_goldenscripts() {
         let mut expected_output = String::new();
         let mut line = String::new();
         loop {
-            if let Err(_) = cursor.read_line(&mut line) {
+            if cursor.read_line(&mut line).is_err() {
                 eprintln!("{path:?}: reached EOF w/o encountering end of prelude");
                 failed_scripts.push(path);
                 continue 'main;
@@ -187,7 +187,7 @@ fn test_goldenscripts() {
             })
             .and_then(|executor| lua.execute::<()>(&executor))
         });
-        let run_error = run_result.map(|r| r.err()).flatten();
+        let run_error = run_result.and_then(|r| r.err());
 
         match mode {
             GoldenScriptMode::CompileError => {
@@ -231,7 +231,7 @@ fn test_goldenscripts() {
         }
     }
 
-    if failed_scripts.len() > 0 {
+    if !failed_scripts.is_empty() {
         panic!("Failed goldenscripts: {failed_scripts:?}");
     }
 }

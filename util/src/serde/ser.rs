@@ -154,9 +154,9 @@ impl<'gc> ser::Serializer for Serializer<'gc> {
         })
     }
 
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Value<'gc>, Error>
+    fn serialize_some<T>(self, value: &T) -> Result<Value<'gc>, Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         value.serialize(self)
     }
@@ -182,18 +182,18 @@ impl<'gc> ser::Serializer for Serializer<'gc> {
         self.serialize_str(variant)
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(
+    fn serialize_newtype_struct<T>(
         self,
         _name: &'static str,
         value: &T,
     ) -> Result<Value<'gc>, Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         value.serialize(self)
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T>(
         self,
         _name: &'static str,
         _variant_index: u32,
@@ -201,7 +201,7 @@ impl<'gc> ser::Serializer for Serializer<'gc> {
         value: &T,
     ) -> Result<Value<'gc>, Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         let value = value.serialize(self)?;
         let table = Table::new(&self.ctx);
@@ -280,9 +280,9 @@ impl<'gc> ser::SerializeSeq for SerializeSeq<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         self.table
             .set(
@@ -307,9 +307,9 @@ impl<'gc> ser::SerializeTuple for SerializeSeq<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         ser::SerializeSeq::serialize_element(self, value)
     }
@@ -323,9 +323,9 @@ impl<'gc> ser::SerializeTupleStruct for SerializeSeq<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
+    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         ser::SerializeSeq::serialize_element(self, value)
     }
@@ -357,17 +357,17 @@ impl<'gc> ser::SerializeMap for SerializeMap<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
+    fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         self.next_key = key.serialize(Serializer::new(self.ctx, self.options))?;
         Ok(())
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         self.table
             .set(
@@ -407,13 +407,9 @@ impl<'gc> ser::SerializeStruct for SerializeStruct<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         self.table.set_field(
             self.ctx,
@@ -452,9 +448,9 @@ impl<'gc> ser::SerializeTupleVariant for SerializeTupleVariant<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         self.table
             .set(
@@ -499,13 +495,9 @@ impl<'gc> ser::SerializeStructVariant for SerializeStructVariant<'gc> {
     type Ok = Value<'gc>;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: serde::Serialize,
+        T: ?Sized + serde::Serialize,
     {
         self.table.set_field(
             self.ctx,

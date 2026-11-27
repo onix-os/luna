@@ -313,7 +313,7 @@ fn compare(native: bool) {
                     }
                     let expected = match scenario {
                         2 | 3 | 4 | 9 | 11 => abi::HELPER_DECLINED,
-                        5 | 6 | 7 => abi::HELPER_PANICKED,
+                        5..=7 => abi::HELPER_PANICKED,
                         _ => abi::HELPER_COMPLETED,
                     };
                     assert_eq!(reports[1].0.result & !READY, expected);

@@ -323,6 +323,7 @@ fn refuse_functional(ctx: Context<'_>, library: &str) {
 impl Lua {
     /// Create a new `Lua` instance with no parts of the stdlib loaded.
     pub fn empty() -> Self {
+        #[allow(clippy::redundant_closure)]
         let arena = Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc));
         #[cfg(feature = "jit")]
         let jit = arena.mutate(|_, state| Gc::as_ref(state.jit).clone());

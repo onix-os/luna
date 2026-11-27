@@ -21,6 +21,7 @@ pub(in crate::jit) fn with_enabled<T>(enabled: bool, run: impl FnOnce() -> T) ->
     (result, COMPILES.get())
 }
 
+#[cfg_attr(not(feature = "jit-worker-embedded"), allow(dead_code))]
 pub(in crate::jit) fn enabled() -> bool {
     ENABLED.get()
 }

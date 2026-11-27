@@ -10,6 +10,167 @@ pub(super) struct Plan {
     constant: Option<i64>,
 }
 
+impl Plan {
+    pub(super) fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
+        let pattern = leaf::Pattern::recognize(snapshot)
+            .ok_or_else(|| CompileError::Compilation("invalid integer activation source".into()))?;
+        let constant = match pattern.right {
+            leaf::Operand::Register(_) => None,
+            leaf::Operand::Constant(index) => {
+                let slot = snapshot.constants[usize::from(index)];
+                if slot.tag != abi::INTEGER {
+                    return Err(CompileError::Compilation(
+                        "non-integer activation constant".into(),
+                    ));
+                }
+                Some(slot.bits as i64)
+            }
+        };
+        Ok(Self { pattern, constant })
+    }
+
+    pub(super) fn function(
+        &self,
+        name: UserFuncName,
+        signature: Signature,
+        config: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Result<Function, CompileError> {
+        let pointer = config.pointer_type();
+        let expected = [pointer, types::I64, types::I32, pointer, pointer];
+        if signature.params.len() != 5
+            || !signature.returns.is_empty()
+            || signature
+                .params
+                .iter()
+                .zip(expected)
+                .any(|(param, ty)| param.value_type != ty)
+        {
+            return Err(CompileError::Compilation(
+                "invalid integer activation signature".into(),
+            ));
+        }
+        let mut function = Function::with_name_signature(name, signature);
+        let mut context = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut function, &mut context);
+        let entry = b.create_block();
+        b.append_block_params_for_function_params(entry);
+        b.switch_to_block(entry);
+        let p: [_; 5] = b.block_params(entry).try_into().unwrap();
+        let decline = b.create_block();
+        let version = b.create_block();
+        let cell = b.create_block();
+        let operands = b.create_block();
+        let body = b.create_block();
+        let pc = b.ins().icmp_imm_s(IntCC::Equal, p[1], 0);
+        let budget = b.ins().icmp_imm_s(IntCC::UnsignedGreaterThan, p[2], 3);
+        let view = b.ins().icmp_imm_s(IntCC::NotEqual, p[4], 0);
+        let admitted = b.ins().band(pc, budget);
+        let admitted = b.ins().band(admitted, view);
+        b.ins().brif(admitted, version, &[], decline, &[]);
+        b.switch_to_block(version);
+        let magic = b.ins().load(types::I64, MemFlagsData::new(), p[4], 0);
+        let valid = b
+            .ins()
+            .icmp_imm_s(IntCC::Equal, magic, leaf::VERSION as i64);
+        b.ins().brif(valid, cell, &[], decline, &[]);
+        b.switch_to_block(cell);
+        let cell_pointer = b.ins().load(pointer, MemFlagsData::new(), p[4], 8);
+        let nonnull = b.ins().icmp_imm_s(IntCC::NotEqual, cell_pointer, 0);
+        b.ins().brif(nonnull, operands, &[], decline, &[]);
+        b.switch_to_block(operands);
+        let tag = b
+            .ins()
+            .load(types::I64, MemFlagsData::new(), cell_pointer, 0);
+        let integer = b.ins().icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+        let reads = b.ins().load(types::I32, MemFlagsData::new(), p[4], 16);
+        let writes = b.ins().load(types::I32, MemFlagsData::new(), p[4], 20);
+        let dirty = b.ins().load(types::I64, MemFlagsData::new(), p[4], 24);
+        let reads = b.ins().icmp_imm_s(IntCC::Equal, reads, 0);
+        let writes = b.ins().icmp_imm_s(IntCC::Equal, writes, 0);
+        let dirty = b.ins().icmp_imm_s(IntCC::Equal, dirty, 0);
+        let fresh = b.ins().band(reads, writes);
+        let fresh = b.ins().band(fresh, dirty);
+        let integer = b.ins().band(integer, fresh);
+        let left = b
+            .ins()
+            .load(types::I64, MemFlagsData::new(), cell_pointer, 8);
+        let (right, integer) = match self.pattern.right {
+            leaf::Operand::Constant(_) => {
+                (b.ins().iconst(types::I64, self.constant.unwrap()), integer)
+            }
+            leaf::Operand::Register(index) if index == self.pattern.read => (left, integer),
+            leaf::Operand::Register(index) => {
+                let offset = i32::from(index.0) * 16;
+                let tag = b.ins().load(types::I64, MemFlagsData::new(), p[0], offset);
+                let valid = b.ins().icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+                let value = b
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), p[0], offset + 8);
+                (value, b.ins().band(integer, valid))
+            }
+        };
+        b.ins().brif(integer, body, &[], decline, &[]);
+        b.switch_to_block(body);
+        let result = match self.pattern.arithmetic {
+            leaf::Arithmetic::Add => b.ins().iadd(left, right),
+            leaf::Arithmetic::Sub => b.ins().isub(left, right),
+            leaf::Arithmetic::Mul => b.ins().imul(left, right),
+        };
+        let tag = b.ins().iconst(types::I64, abi::INTEGER as i64);
+        if self.pattern.read != self.pattern.result {
+            let offset = i32::from(self.pattern.read.0) * 16;
+            b.ins().store(MemFlagsData::new(), tag, p[0], offset);
+            b.ins().store(MemFlagsData::new(), left, p[0], offset + 8);
+        }
+        let offset = i32::from(self.pattern.result.0) * 16;
+        b.ins().store(MemFlagsData::new(), tag, p[0], offset);
+        b.ins().store(MemFlagsData::new(), result, p[0], offset + 8);
+        b.ins().store(MemFlagsData::new(), tag, cell_pointer, 0);
+        b.ins().store(MemFlagsData::new(), result, cell_pointer, 8);
+        let one32 = b.ins().iconst(types::I32, 1);
+        let one64 = b.ins().iconst(types::I64, 1);
+        b.ins().store(MemFlagsData::new(), one32, p[4], 16);
+        b.ins().store(MemFlagsData::new(), one32, p[4], 20);
+        b.ins().store(MemFlagsData::new(), one64, p[4], 24);
+        let pc = b.ins().iconst(types::I64, 3);
+        let count = b.ins().iconst(types::I32, 3);
+        let reason = b
+            .ins()
+            .iconst(types::I32, super::exits::Kind::Interpreter as i64);
+        b.ins().store(MemFlagsData::new(), pc, p[3], 0);
+        b.ins().store(MemFlagsData::new(), count, p[3], 8);
+        b.ins().store(MemFlagsData::new(), reason, p[3], 12);
+        b.ins().return_(&[]);
+        b.switch_to_block(decline);
+        let count = b.ins().iconst(types::I32, 0);
+        let reason = b
+            .ins()
+            .iconst(types::I32, super::exits::Kind::Interpreter as i64);
+        b.ins().store(MemFlagsData::new(), p[1], p[3], 0);
+        b.ins().store(MemFlagsData::new(), count, p[3], 8);
+        b.ins().store(MemFlagsData::new(), reason, p[3], 12);
+        b.ins().return_(&[]);
+        b.seal_all_blocks();
+        b.finalize(config);
+        Ok(function)
+    }
+
+    pub(super) fn verify(
+        &self,
+        function: &Function,
+        signature: Signature,
+        config: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Result<(), CompileError> {
+        let expected = self.function(function.name.clone(), signature, config)?;
+        if function != &expected {
+            return Err(CompileError::Compilation(
+                "integer activation differs from source template".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,166 +528,5 @@ mod tests {
                 before
             );
         }
-    }
-}
-
-impl Plan {
-    pub(super) fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
-        let pattern = leaf::Pattern::recognize(snapshot)
-            .ok_or_else(|| CompileError::Compilation("invalid integer activation source".into()))?;
-        let constant = match pattern.right {
-            leaf::Operand::Register(_) => None,
-            leaf::Operand::Constant(index) => {
-                let slot = snapshot.constants[usize::from(index)];
-                if slot.tag != abi::INTEGER {
-                    return Err(CompileError::Compilation(
-                        "non-integer activation constant".into(),
-                    ));
-                }
-                Some(slot.bits as i64)
-            }
-        };
-        Ok(Self { pattern, constant })
-    }
-
-    pub(super) fn function(
-        &self,
-        name: UserFuncName,
-        signature: Signature,
-        config: cranelift_codegen::isa::TargetFrontendConfig,
-    ) -> Result<Function, CompileError> {
-        let pointer = config.pointer_type();
-        let expected = [pointer, types::I64, types::I32, pointer, pointer];
-        if signature.params.len() != 5
-            || !signature.returns.is_empty()
-            || signature
-                .params
-                .iter()
-                .zip(expected)
-                .any(|(param, ty)| param.value_type != ty)
-        {
-            return Err(CompileError::Compilation(
-                "invalid integer activation signature".into(),
-            ));
-        }
-        let mut function = Function::with_name_signature(name, signature);
-        let mut context = FunctionBuilderContext::new();
-        let mut b = FunctionBuilder::new(&mut function, &mut context);
-        let entry = b.create_block();
-        b.append_block_params_for_function_params(entry);
-        b.switch_to_block(entry);
-        let p: [_; 5] = b.block_params(entry).try_into().unwrap();
-        let decline = b.create_block();
-        let version = b.create_block();
-        let cell = b.create_block();
-        let operands = b.create_block();
-        let body = b.create_block();
-        let pc = b.ins().icmp_imm_s(IntCC::Equal, p[1], 0);
-        let budget = b.ins().icmp_imm_s(IntCC::UnsignedGreaterThan, p[2], 3);
-        let view = b.ins().icmp_imm_s(IntCC::NotEqual, p[4], 0);
-        let admitted = b.ins().band(pc, budget);
-        let admitted = b.ins().band(admitted, view);
-        b.ins().brif(admitted, version, &[], decline, &[]);
-        b.switch_to_block(version);
-        let magic = b.ins().load(types::I64, MemFlagsData::new(), p[4], 0);
-        let valid = b
-            .ins()
-            .icmp_imm_s(IntCC::Equal, magic, leaf::VERSION as i64);
-        b.ins().brif(valid, cell, &[], decline, &[]);
-        b.switch_to_block(cell);
-        let cell_pointer = b.ins().load(pointer, MemFlagsData::new(), p[4], 8);
-        let nonnull = b.ins().icmp_imm_s(IntCC::NotEqual, cell_pointer, 0);
-        b.ins().brif(nonnull, operands, &[], decline, &[]);
-        b.switch_to_block(operands);
-        let tag = b
-            .ins()
-            .load(types::I64, MemFlagsData::new(), cell_pointer, 0);
-        let integer = b.ins().icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
-        let reads = b.ins().load(types::I32, MemFlagsData::new(), p[4], 16);
-        let writes = b.ins().load(types::I32, MemFlagsData::new(), p[4], 20);
-        let dirty = b.ins().load(types::I64, MemFlagsData::new(), p[4], 24);
-        let reads = b.ins().icmp_imm_s(IntCC::Equal, reads, 0);
-        let writes = b.ins().icmp_imm_s(IntCC::Equal, writes, 0);
-        let dirty = b.ins().icmp_imm_s(IntCC::Equal, dirty, 0);
-        let fresh = b.ins().band(reads, writes);
-        let fresh = b.ins().band(fresh, dirty);
-        let integer = b.ins().band(integer, fresh);
-        let left = b
-            .ins()
-            .load(types::I64, MemFlagsData::new(), cell_pointer, 8);
-        let (right, integer) = match self.pattern.right {
-            leaf::Operand::Constant(_) => {
-                (b.ins().iconst(types::I64, self.constant.unwrap()), integer)
-            }
-            leaf::Operand::Register(index) if index == self.pattern.read => (left, integer),
-            leaf::Operand::Register(index) => {
-                let offset = i32::from(index.0) * 16;
-                let tag = b.ins().load(types::I64, MemFlagsData::new(), p[0], offset);
-                let valid = b.ins().icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
-                let value = b
-                    .ins()
-                    .load(types::I64, MemFlagsData::new(), p[0], offset + 8);
-                (value, b.ins().band(integer, valid))
-            }
-        };
-        b.ins().brif(integer, body, &[], decline, &[]);
-        b.switch_to_block(body);
-        let result = match self.pattern.arithmetic {
-            leaf::Arithmetic::Add => b.ins().iadd(left, right),
-            leaf::Arithmetic::Sub => b.ins().isub(left, right),
-            leaf::Arithmetic::Mul => b.ins().imul(left, right),
-        };
-        let tag = b.ins().iconst(types::I64, abi::INTEGER as i64);
-        if self.pattern.read != self.pattern.result {
-            let offset = i32::from(self.pattern.read.0) * 16;
-            b.ins().store(MemFlagsData::new(), tag, p[0], offset);
-            b.ins().store(MemFlagsData::new(), left, p[0], offset + 8);
-        }
-        let offset = i32::from(self.pattern.result.0) * 16;
-        b.ins().store(MemFlagsData::new(), tag, p[0], offset);
-        b.ins().store(MemFlagsData::new(), result, p[0], offset + 8);
-        b.ins().store(MemFlagsData::new(), tag, cell_pointer, 0);
-        b.ins().store(MemFlagsData::new(), result, cell_pointer, 8);
-        let one32 = b.ins().iconst(types::I32, 1);
-        let one64 = b.ins().iconst(types::I64, 1);
-        b.ins().store(MemFlagsData::new(), one32, p[4], 16);
-        b.ins().store(MemFlagsData::new(), one32, p[4], 20);
-        b.ins().store(MemFlagsData::new(), one64, p[4], 24);
-        let pc = b.ins().iconst(types::I64, 3);
-        let count = b.ins().iconst(types::I32, 3);
-        let reason = b
-            .ins()
-            .iconst(types::I32, super::exits::Kind::Interpreter as i64);
-        b.ins().store(MemFlagsData::new(), pc, p[3], 0);
-        b.ins().store(MemFlagsData::new(), count, p[3], 8);
-        b.ins().store(MemFlagsData::new(), reason, p[3], 12);
-        b.ins().return_(&[]);
-        b.switch_to_block(decline);
-        let count = b.ins().iconst(types::I32, 0);
-        let reason = b
-            .ins()
-            .iconst(types::I32, super::exits::Kind::Interpreter as i64);
-        b.ins().store(MemFlagsData::new(), p[1], p[3], 0);
-        b.ins().store(MemFlagsData::new(), count, p[3], 8);
-        b.ins().store(MemFlagsData::new(), reason, p[3], 12);
-        b.ins().return_(&[]);
-        b.seal_all_blocks();
-        b.finalize(config);
-        Ok(function)
-    }
-
-    pub(super) fn verify(
-        &self,
-        function: &Function,
-        signature: Signature,
-        config: cranelift_codegen::isa::TargetFrontendConfig,
-    ) -> Result<(), CompileError> {
-        let expected = self.function(function.name.clone(), signature, config)?;
-        if function != &expected {
-            return Err(CompileError::Compilation(
-                "integer activation differs from source template".into(),
-            ));
-        }
-        Ok(())
     }
 }

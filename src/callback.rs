@@ -386,7 +386,7 @@ impl<'gc> BoxSequence<'gc> {
     }
 
     pub fn poll(
-        self: &mut Self,
+        &mut self,
         ctx: Context<'gc>,
         exec: Execution<'gc, '_>,
         stack: Stack<'gc, '_>,
@@ -395,7 +395,7 @@ impl<'gc> BoxSequence<'gc> {
     }
 
     pub fn error(
-        self: &mut Self,
+        &mut self,
         ctx: Context<'gc>,
         exec: Execution<'gc, '_>,
         error: Error<'gc>,

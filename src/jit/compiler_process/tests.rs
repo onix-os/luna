@@ -507,6 +507,7 @@ fn child() {
 
 #[test]
 fn real_owned_snapshots_compile_after_cross_process_arena_release() {
+    #[allow(dead_code)]
     mod workloads {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1138,6 +1139,7 @@ fn successful_but_malformed_workers_are_not_valid_compiler_refusals() {
 
 #[test]
 fn child_generated_artifacts_run_all_production_entries_in_the_parent() {
+    #[allow(dead_code)]
     mod workloads {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),

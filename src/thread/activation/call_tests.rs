@@ -77,7 +77,7 @@ fn in_place_calls_match_generic_frames_slots_fuel_and_refusals() {
     .unwrap();
     lua.enter(|ctx| {
         for source in sources {
-            let closure = Closure::load(ctx, None, *source).unwrap();
+            let closure = Closure::load(ctx, None, source).unwrap();
             let (pc, function, arguments) = closure.prototype().opcodes.iter().enumerate().find_map(|(pc, op)| {
                 match op.decode() {
                     Operation::Call { func, args, .. } => Some((pc, func, args.to_constant().unwrap())),

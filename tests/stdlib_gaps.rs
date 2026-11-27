@@ -80,9 +80,8 @@ fn tmpfile_round_trips_and_setvbuf_answers() -> Result<(), ExternError> {
 
 #[test]
 fn package_exposes_config_searchers_and_searchpath() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             -- config is five lines, the first being the directory separator
             local sep = package.config:match("^([^\n]+)")
             assert(sep == "/" or sep == "\\", "bad separator")
@@ -94,18 +93,15 @@ fn package_exposes_config_searchers_and_searchpath() -> Result<(), ExternError> 
             assert(found == nil and tried:match("no file"))
             return true
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
 /// The native fast path must agree with the Lua implementation it bypasses.
 #[test]
 fn table_sort_and_move_agree_with_the_fallback() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local function eq(a, b)
                 if #a ~= #b then return false end
                 for i = 1, #a do if a[i] ~= b[i] then return false end end
@@ -132,9 +128,7 @@ fn table_sort_and_move_agree_with_the_fallback() -> Result<(), ExternError> {
             assert(eq(table.move(proxy, 1, 3, 1, {}), {10, 20, 30}))
             return true
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
@@ -171,17 +165,14 @@ mod common;
 /// length without going through `__len` on the string metatable.
 #[test]
 fn rawlen_accepts_strings() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             assert(rawlen("abcd") == 4)
             assert(rawlen({1, 2, 3}) == 3)
             -- and still refuses what has no raw length
             assert(not pcall(rawlen, 42))
             return true
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }

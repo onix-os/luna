@@ -65,13 +65,13 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
                     return None;
                 }
             }
-            Operand::Constant(index) => {
+            Operand::Constant(index)
                 if !matches!(
                     callee.constants.get(usize::from(index)),
                     Some(crate::Constant::Integer(_))
-                ) {
-                    return None;
-                }
+                ) =>
+            {
+                return None;
             }
             _ => {}
         }

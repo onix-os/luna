@@ -373,10 +373,11 @@ impl Runtime {
                     return;
                 }
             }
-            super::leaf::Operand::Register(register) if register != pattern.read => {
-                if register.0 >= arguments || register.0 >= prototype.fixed_params {
-                    return;
-                }
+            super::leaf::Operand::Register(register)
+                if register != pattern.read
+                    && (register.0 >= arguments || register.0 >= prototype.fixed_params) =>
+            {
+                return;
             }
             _ => {}
         }

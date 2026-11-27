@@ -198,6 +198,27 @@ impl PartialEq for EntryBytes {
 }
 
 #[cfg(test)]
+fn feedback_default() -> bool {
+    match std::env::var("LUNA_TEST_GUARD_FEEDBACK").as_deref() {
+        Ok("1") => true,
+        Ok("0") | Err(_) => false,
+        _ => panic!("invalid test feedback selection"),
+    }
+}
+
+#[cfg(test)]
+fn without_feedback<R>(run: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FEEDBACK.set(self.0);
+        }
+    }
+    let _restore = Restore(FEEDBACK.replace(false));
+    run()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::jit::resources::Ledger;
@@ -336,7 +357,7 @@ mod tests {
                         let hint = entries.hint(pc).unwrap();
                         hint.remember(Some((iteration + worker) % 256));
                         assert!(hint.load().is_none_or(|offset| offset < 127));
-                        assert_eq!(entries[pc], pc % 3 == 0);
+                        assert_eq!(entries[pc], pc.is_multiple_of(3));
                     }
                 });
             }
@@ -355,25 +376,4 @@ mod tests {
             std::mem::size_of::<Vec<bool, BudgetAllocator>>()
         );
     }
-}
-
-#[cfg(test)]
-fn feedback_default() -> bool {
-    match std::env::var("LUNA_TEST_GUARD_FEEDBACK").as_deref() {
-        Ok("1") => true,
-        Ok("0") | Err(_) => false,
-        _ => panic!("invalid test feedback selection"),
-    }
-}
-
-#[cfg(test)]
-fn without_feedback<R>(run: impl FnOnce() -> R) -> R {
-    struct Restore(bool);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            FEEDBACK.set(self.0);
-        }
-    }
-    let _restore = Restore(FEEDBACK.replace(false));
-    run()
 }

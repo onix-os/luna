@@ -268,11 +268,7 @@ impl Supervisor {
                 .completion
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) = Some(handle);
-            self.0
-                .wake
-                .set(wake)
-                .ok()
-                .expect("compiler wake already set");
+            self.0.wake.set(wake).expect("compiler wake already set");
         }
         queue.slots[index] = Slot::Reserved;
         Ok(Ticket {

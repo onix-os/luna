@@ -190,7 +190,7 @@ fn native_guards_refuse_before_any_slot_or_marker_write() {
         match case {
             0..=3 => view.binding[case] ^= 1,
             4 => view.completed = 1,
-            5 => pc = pc - 1,
+            5 => pc -= 1,
             6 => pc += 1,
             7 => pc = u64::MAX,
             8..=14 => budget = (case - 8) as u32,

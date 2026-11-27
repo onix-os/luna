@@ -12,7 +12,7 @@ fn print_function<S: AsRef<[u8]>>(function: &CompiledPrototype<S>, depth: usize)
         "{indent}fixed_params: {}, has_varargs: {}, stack_size: {}",
         function.fixed_params, function.has_varargs, function.stack_size
     );
-    if function.constants.len() > 0 {
+    if !function.constants.is_empty() {
         println!("{indent}---constants---");
         for (i, c) in function.constants.iter().enumerate() {
             println!(
@@ -23,7 +23,7 @@ fn print_function<S: AsRef<[u8]>>(function: &CompiledPrototype<S>, depth: usize)
             );
         }
     }
-    if function.opcodes.len() > 0 {
+    if !function.opcodes.is_empty() {
         println!("{indent}---opcodes---");
 
         let mut line_number_ind = 0;
@@ -41,13 +41,13 @@ fn print_function<S: AsRef<[u8]>>(function: &CompiledPrototype<S>, depth: usize)
             println!("{indent}{}: {:?}", i, c);
         }
     }
-    if function.upvalues.len() > 0 {
+    if !function.upvalues.is_empty() {
         println!("{indent}---upvalues---");
         for (i, u) in function.upvalues.iter().enumerate() {
             println!("{indent}{}: {:?}", i, u);
         }
     }
-    if function.prototypes.len() > 0 {
+    if !function.prototypes.is_empty() {
         println!("{indent}---prototypes---");
         for p in &function.prototypes {
             print_function(p, depth + 1);

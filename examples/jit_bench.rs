@@ -2,6 +2,7 @@ use std::{error::Error, hint::black_box, time::Instant};
 
 use luna::{Callback, CallbackReturn, Closure, Executor, JitConfig, JitMode, Lua, StashedClosure};
 
+#[allow(dead_code)]
 #[path = "jit_support/workloads.rs"]
 mod workloads;
 use workloads::{Workload, COLD_SOURCE, PREDICATE_SOURCE, WORKLOADS};

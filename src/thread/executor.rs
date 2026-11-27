@@ -341,7 +341,7 @@ impl<'gc> Executor<'gc> {
                         top_state.return_to(&mut top_stack, bottom);
                     }
                     Err(err) => {
-                        top_state.frames.push(Frame::Error(err.into()));
+                        top_state.frames.push(Frame::Error(err));
                     }
                 }
                 drop(res_state);
@@ -1032,7 +1032,7 @@ impl<'gc, 'a> Execution<'gc, 'a> {
         // Filtered on lookup rather than pre-collected: this is read by `error(msg, level)`,
         // `debug.getinfo` and `debug.traceback` only, so paying per lookup beats paying per native
         // call — which is what snapshotting the chain up front cost.
-        let Some((closure, pc, base)) = self
+        let (closure, pc, base) = self
             .lua_frames
             .iter()
             .rev()
@@ -1042,10 +1042,7 @@ impl<'gc, 'a> Execution<'gc, 'a> {
                 } => Some((*closure, *pc, *base)),
                 _ => None,
             })
-            .nth(level)
-        else {
-            return None;
-        };
+            .nth(level)?;
         self.describe(closure, pc, base)
     }
 
@@ -1621,7 +1618,7 @@ mod builtin_tests;
 #[cfg(all(test, feature = "jit"))]
 mod static_off_tests;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "jit"))]
 impl Executor<'_> {
     pub(crate) fn test_frame_snapshot(
         self,

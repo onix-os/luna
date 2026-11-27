@@ -2921,9 +2921,7 @@ fmt:
 fmt-check:
 	@$(CARGO) fmt --all -- --check
 
-# Warnings are reported, not denied. The code inherited from upstream carries ~137 lints, and a
-# gate that fails on all of them from day one is a gate nobody can run. `clippy-strict` is the
-# version to switch `verify` to once that backlog is cleared.
+# `clippy` reports warnings; `clippy-strict` denies them with default features and with the JIT.
 clippy:
 	@$(CARGO) clippy --workspace --all-targets $(TARGET_ARG)
 
@@ -2932,6 +2930,7 @@ jit-clippy:
 
 clippy-strict:
 	@$(CARGO) clippy --workspace --all-targets $(TARGET_ARG) -- -D warnings
+	@$(CARGO) clippy --workspace --all-targets --features luna/jit $(TARGET_ARG) -- -D warnings
 
 rustdoc:
 	@RUSTDOCFLAGS="-Dwarnings" $(CARGO) doc --workspace --no-deps $(TARGET_ARG)
@@ -2944,14 +2943,11 @@ print-name:
 clean:
 	@$(CARGO) clean
 
-# Clippy is deliberately not in the gate yet: the code inherited from upstream carries 135
-# warnings and 2 deny-by-default `never_loop` errors in src/meta_ops.rs, so a `verify` that
-# included it would be red on arrival and stop being run. Put it back once that is cleared.
 .PHONY: make-default-tests
 make-default-tests:
 	@bash tests/test-make-default.sh
 
-verify: fmt-check check check-all test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests make-default-tests
+verify: fmt-check check check-all clippy-strict test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests make-default-tests
 
 # Order matters: luna depends on luna-derive and luna-util depends on luna, so each has to be in
 # the registry before the one that needs it.

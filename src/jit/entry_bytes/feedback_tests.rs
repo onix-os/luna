@@ -212,7 +212,7 @@ fn feedback_preserves_every_executor_slice_frame_fuel_gc_and_error() {
                 })
                 .unwrap();
                 let executor = lua.enter(|ctx| {
-                    let closure = Closure::load(ctx, None, *source).unwrap();
+                    let closure = Closure::load(ctx, None, source).unwrap();
                     ctx.stash(Executor::start(ctx, closure.into(), ()))
                 });
                 lua.prepare_jit().unwrap();

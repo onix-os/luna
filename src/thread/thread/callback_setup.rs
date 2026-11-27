@@ -11,6 +11,7 @@ fn values(stack: &[Value<'_>]) -> Vec<std::string::String> {
 }
 
 #[test]
+#[cfg_attr(feature = "jit", allow(clippy::needless_borrow))]
 fn callback_setup_matches_physical_call_and_declines_without_effects() {
     crate::Lua::empty().enter(|ctx| {
         let caller = Closure::load(ctx, None, &b"return"[..]).unwrap();

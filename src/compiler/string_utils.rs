@@ -251,7 +251,7 @@ pub fn read_hex_float(s: &[u8]) -> Option<f64> {
 
 fn ldexp(mut val: f64, exp: i32) -> f64 {
     fn iexp2(exp: i32) -> f64 {
-        assert!(exp >= -1022 && exp <= 1023);
+        assert!((-1022..=1023).contains(&exp));
         f64::from_bits(((exp + 1023) as u64) << 52)
     }
     fn extract_exp(val: f64) -> u64 {
@@ -293,7 +293,7 @@ fn ldexp(mut val: f64, exp: i32) -> f64 {
 /// Read an optional '-' or '+' prefix and return whether the value is negated (starts with a '-'
 /// prefix).
 pub fn read_neg(s: &[u8]) -> (bool, &[u8]) {
-    if s.len() > 0 {
+    if !s.is_empty() {
         if s[0] == b'-' {
             (true, &s[1..])
         } else if s[0] == b'+' {
@@ -321,11 +321,11 @@ pub fn is_space(c: u8) -> bool {
 
 /// Is this character a Lua alpha, which is A-Z, a-z, and _
 pub fn is_alpha(c: u8) -> bool {
-    (c >= b'a' && c <= b'z') || (c >= b'A' && c <= b'Z') || c == b'_'
+    c.is_ascii_lowercase() || c.is_ascii_uppercase() || c == b'_'
 }
 
 pub fn from_digit(c: u8) -> Option<u8> {
-    if c >= b'0' && c <= b'9' {
+    if c.is_ascii_digit() {
         Some(c - b'0')
     } else {
         None
@@ -337,11 +337,11 @@ pub fn is_digit(c: u8) -> bool {
 }
 
 pub fn from_hex_digit(c: u8) -> Option<u8> {
-    if c >= b'0' && c <= b'9' {
+    if c.is_ascii_digit() {
         Some(c - b'0')
-    } else if c >= b'a' && c <= b'f' {
+    } else if (b'a'..=b'f').contains(&c) {
         Some(10 + c - b'a')
-    } else if c >= b'A' && c <= b'F' {
+    } else if (b'A'..=b'F').contains(&c) {
         Some(10 + c - b'A')
     } else {
         None
