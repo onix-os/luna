@@ -271,13 +271,6 @@ pub(crate) fn install<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "setmetatable",
         Callback::from_fn_with(&ctx, set_metatable, |set_metatable, ctx, _, stack| {
-            if let Value::Table(table) = stack.get(0) {
-                if table.is_readonly() {
-                    return Err("cannot change the metatable of a frozen table"
-                        .into_value(ctx)
-                        .into());
-                }
-            }
             if let Value::Table(metatable) = stack.get(1) {
                 if !metatable.get_value(ctx, MetaMethod::Gc).is_nil()
                     || !metatable.get_value(ctx, MetaMethod::Mode).is_nil()
