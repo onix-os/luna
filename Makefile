@@ -463,12 +463,13 @@ jit-miri:
 # The native backend on macOS hardware: every workspace test with the JIT compiled in, in each
 # mode. The out-of-process compiler worker is Linux-only, so its gates are not part of this.
 .PHONY: jit-macos
+MACOS_TESTS := $(patsubst tests/%.rs,--test %,$(filter-out tests/jit_worker.rs,$(wildcard tests/*.rs)))
 jit-macos:
 	@case "$$(uname -sm)" in 'Darwin arm64'|'Darwin x86_64') ;; *) echo 'jit-macos needs macOS hardware, not a cross-build' >&2; exit 2;; esac
 	@status=0; \
 	LUNA_TEST_JIT_MODE=off $(CARGO) test --workspace --all-targets --features luna/jit --no-fail-fast || status=1; \
 	for mode in auto force; do \
-		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --workspace --test '*' --features luna/jit --no-fail-fast || status=1; \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test -p luna --features jit --no-fail-fast $(MACOS_TESTS) || status=1; \
 	done; \
 	exit $$status
 
