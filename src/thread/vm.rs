@@ -275,13 +275,16 @@ fn run_vm_slice<'gc>(
     let mut backoff_key = None;
     #[cfg(feature = "jit")]
     let native_id = if !hook_enabled && ctx.jit().active() && {
-        let key = super::thread::backoff_key(
-            lua_frame.frame_depth(),
-            ottavino_gc_arena::Gc::as_ptr(current_function.into_inner()) as usize,
-            lua_frame.frame_pc(),
-        );
-        backoff_key = Some(key);
-        !lua_frame.state.native_backed_off(key)
+        let pc = lua_frame.frame_pc();
+        !current_function.native_skipped(pc) && {
+            let key = super::thread::backoff_key(
+                lua_frame.frame_depth(),
+                ottavino_gc_arena::Gc::as_ptr(current_function.into_inner()) as usize,
+                pc,
+            );
+            backoff_key = Some((key, pc));
+            !lua_frame.state.native_backed_off(key)
+        }
     } {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
     } else {
@@ -406,8 +409,15 @@ fn run_vm_slice<'gc>(
                 native_instructions += completed;
                 if completed < SHORT_NATIVE_ENTRY.min(budget) {
                     drop(registers);
-                    if let Some(key) = backoff_key.filter(|_| ctx.jit().native_backoff()) {
-                        lua_frame.state.back_off_native(key, NATIVE_BACKOFF_SLICES);
+                    if let Some((key, pc)) = backoff_key.filter(|_| {
+                        ctx.jit().native_backoff() && super::thread::native_backoff_allowed()
+                    }) {
+                        // A key backing off again arms the closure's own slot, not the table.
+                        if !(lua_frame.state.native_backoff_seen(key)
+                            && current_function.skip_native(pc, NATIVE_BACKOFF_SLICES))
+                        {
+                            lua_frame.state.back_off_native(key, NATIVE_BACKOFF_SLICES);
+                        }
                     }
                     registers = lua_frame.registers();
                 }

@@ -70,6 +70,41 @@ fn a_numeric_loop_stays_native() {
 }
 
 #[test]
+fn a_loop_that_ends_with_a_short_run_stays_native_on_later_runs() {
+    let mut lua = Lua::core();
+    if !lua.jit_capabilities().supported_target {
+        return;
+    }
+    let mut config = JitConfig::default();
+    config.mode = JitMode::Auto;
+    config.hot_threshold = 1;
+    lua.set_jit_config(config).unwrap();
+    let closure = lua
+        .try_enter(|ctx| {
+            let source = b"local s = 0 for i = 1, 20000 do s = s + i end return s";
+            Ok(ctx.stash(Closure::load(ctx, None, &source[..])?))
+        })
+        .unwrap();
+    let run = |lua: &mut Lua| {
+        let executor = lua.enter(|ctx| {
+            let closure = ctx.fetch(&closure);
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        let before = lua.jit_stats().native_instructions;
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 200_010_000);
+        lua.jit_stats().native_instructions - before
+    };
+    run(&mut lua);
+    lua.prepare_jit().unwrap();
+    let first = run(&mut lua);
+    assert!(first > 30_000, "{first}");
+    for later in 0..3 {
+        let native = run(&mut lua);
+        assert!(native * 10 >= first * 9, "run {later}: {native} of {first}");
+    }
+}
+
+#[test]
 fn long_native_work_before_each_call_stays_native() {
     let Some((value, stats)) = run(
         "local s = 0 for i = 1, 2000 do for j = 1, 50 do s = s + j end s = s + host_increment(0) end return s",

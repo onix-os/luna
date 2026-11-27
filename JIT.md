@@ -527,13 +527,19 @@ slices of the same frame that start at the same pc skip native dispatch
 entirely, including the registry identity and code lookups, and then native
 code is tried again. Slices that start elsewhere in the function, and native
 runs that do real work before leaving, are unaffected; `tests/jit_backoff.rs`
-checks a host-call loop, a metamethod loop, a numeric loop and long native work
-before each call.
+checks a host-call loop, a metamethod loop, a numeric loop, a loop run again
+through the same closure, and long native work before each call.
 
 Each thread keeps eight back-off slots in four sets of two. A slice's frame
 depth, closure and start pc are mixed into one word whose top bits pick the
-set, so the check before every Auto slice is at most two compares; words that
-collide only share a back-off. Call-pair observation returns before its
+set, so that check is at most two compares; words that collide only share a
+back-off. A full set replaces the entry armed longest ago, so slices that ran
+short once and never recur cannot crowd out hot ones. When a key's back-off has
+run out and its slices go short again, the closure takes it over in a slot of
+its own (one pc and a count), which every Auto slice checks first, before
+building the key. Any slice of the closure counts that slot down, so a claim on
+a pc that stops running expires; a loop that ends with one short run per
+execution never leaves a claim behind. Call-pair observation returns before its
 out-of-line pattern match for calls that cannot pair, such as calls whose
 results are used. Auto also continues ordinary interpreted Lua-to-Lua slices
 inside one executor step, as Off does, unless native call pairs are installed;
@@ -545,20 +551,20 @@ and in-crate unit tests leave it off unless `LUNA_TEST_NATIVE_BACKOFF=1`.
 
 | Case | Native entries | Auto/Off instructions | Off/Auto wall time |
 |---|---|---|---|
-| `rust_callbacks` | 64,849 → 271 | 1.046 → 1.031 | 0.904 → 0.964 |
-| `polymorphic_metamethod` | 13,353 → 102 | 1.125 → 1.004 | 0.936 → 0.977 |
-| `closure_upvalue` | 37,589 → 35,311 | 0.358 → 0.336 | 2.30 → 2.37 |
+| `rust_callbacks` | 64,849 → 271 | 1.046 → 1.023 | 0.918 → 0.984 |
+| `polymorphic_metamethod` | 13,353 → 102 | 1.125 → 1.005 | 0.907 → 0.978 |
+| `closure_upvalue` | 37,589 → 35,311 | 0.358 → 0.344 | 2.30 → 2.37 |
 | `integer_loop` | unchanged | 0.284 → 0.264 | 3.70 → 4.03 |
-| `array_table` | unchanged | 0.623 → 0.610 | 1.50 → 1.66 |
+| `array_table` | unchanged | 0.623 → 0.608 | 1.50 → 1.63 |
 
 Instruction ratios are warm per-sample Callgrind counts (23 minus 3 samples),
-starting from the first, call-only version; wall ratios are medians of three
-21-sample paired runs on one pinned core, starting from before any back-off
-(the last two rows from the version before slice continuation). With every
-callback-loop slice backed off, Auto still spends about 45 more instructions
-per slice than Off: about 19 in the back-off check, and the rest spread over
-the slice key, activation policy and call-pair checks. That is the cost of
-deciding per slice whether to dispatch natively.
+starting from the first, call-only version. Wall ratios are medians of paired
+runs on one pinned core, starting from before any back-off: five 31-sample runs
+for the first two rows, three 21-sample runs for the rest, whose starting
+column is the version before slice continuation. With every callback-loop slice
+backed off, Auto still spends about 33 more instructions per slice than Off,
+spread over the closure check, the slice pc read, activation policy and
+call-pair checks: the cost of deciding per slice whether to dispatch natively.
 
 ## Current execution coverage
 
