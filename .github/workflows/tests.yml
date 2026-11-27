@@ -155,7 +155,7 @@ jobs:
         with:
           toolchain: 1.97.1
           targets: ${{ matrix.target }}
-          components: rustfmt
+          components: rustfmt, clippy
       - name: Install musl linker
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
