@@ -32,14 +32,6 @@ impl Plan<'_> {
         self.callee
     }
 
-    /// The cell pattern of a plan whose callee is a cell leaf.
-    pub fn cell(&self) -> leaf::Pattern {
-        match self.leaf {
-            leaf::Leaf::Cell(pattern) => pattern,
-            leaf::Leaf::Value(_) => unreachable!("callers check for a cell leaf first"),
-        }
-    }
-
     pub fn operands(&self) -> (u64, u8, u8, u8) {
         let Operation::Return { start, .. } = self.callee.operations[self.leaf.return_pc()] else {
             unreachable!()
@@ -203,6 +195,14 @@ impl Plan<'_> {
 }
 
 impl<'a> Plan<'a> {
+    /// The cell pattern of a plan whose callee is a cell leaf.
+    pub fn cell(&self) -> leaf::Pattern {
+        match self.leaf {
+            leaf::Leaf::Cell(pattern) => pattern,
+            leaf::Leaf::Value(_) => unreachable!("callers check for a cell leaf first"),
+        }
+    }
+
     pub fn new(
         caller: &'a Snapshot,
         callee: &'a Snapshot,
