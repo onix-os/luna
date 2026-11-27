@@ -275,10 +275,10 @@ fn run_vm_slice<'gc>(
     let mut backoff_key = None;
     #[cfg(feature = "jit")]
     let native_id = if !hook_enabled && ctx.jit().active() && {
-        let key = (
+        let key = super::thread::backoff_key(
             lua_frame.frame_depth(),
             ottavino_gc_arena::Gc::as_ptr(current_function.into_inner()) as usize,
-            *lua_frame.registers().pc,
+            lua_frame.frame_pc(),
         );
         backoff_key = Some(key);
         !lua_frame.state.native_backed_off(key)

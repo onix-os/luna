@@ -330,8 +330,10 @@ impl Runtime {
         arguments: crate::types::VarCount,
         returns: crate::types::VarCount,
     ) {
-        if let (Some(arguments), Some(0)) = (arguments.to_constant(), returns.to_constant()) {
-            self.observe_fixed_call(ctx, caller, registers, function, arguments);
+        if returns.to_constant() == Some(0) {
+            if let Some(arguments) = arguments.to_constant() {
+                self.observe_fixed_call(ctx, caller, registers, function, arguments);
+            }
         }
     }
 

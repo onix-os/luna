@@ -104,7 +104,7 @@ impl<'gc> Thread<'gc> {
                 error_taken: false,
                 max_call_depth: ctx.max_call_depth(),
                 #[cfg(feature = "jit")]
-                native_backoff: [NativeBackoff::default(); 4],
+                native_backoff: [NativeBackoff::default(); 8],
                 #[cfg(feature = "jit")]
                 native_backoff_armed: false,
             }),
@@ -492,16 +492,30 @@ pub struct ThreadState<'gc> {
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
     #[cfg(feature = "jit")]
-    pub(super) native_backoff: [NativeBackoff; 4],
-    // Whether any slot of `native_backoff` may still be counting down.
+    pub(super) native_backoff: [NativeBackoff; 8],
+    // Whether any slot of `native_backoff` has ever been armed.
     #[cfg(feature = "jit")]
     pub(super) native_backoff_armed: bool,
 }
 
 /// Which slices skip native dispatch: those of the Lua frame at a depth, running a closure, that
-/// start at one pc.
+/// start at one pc, mixed into one word. Slices whose words collide share a back-off.
 #[cfg(feature = "jit")]
-pub(super) type BackoffKey = (usize, usize, usize);
+pub(super) type BackoffKey = u64;
+
+#[cfg(feature = "jit")]
+#[inline]
+pub(super) fn backoff_key(depth: usize, closure: usize, pc: usize) -> BackoffKey {
+    ((closure as u64) ^ (pc as u64).rotate_left(40) ^ (depth as u64).rotate_left(20))
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
+/// The two `native_backoff` slots a key may occupy, chosen by its top bits.
+#[cfg(feature = "jit")]
+#[inline]
+fn backoff_set(key: BackoffKey) -> usize {
+    (key >> 62) as usize * 2
+}
 
 /// Slices left that skip native dispatch for one [`BackoffKey`].
 #[cfg(feature = "jit")]
@@ -541,38 +555,35 @@ impl<'gc> ThreadState<'gc> {
         if !self.native_backoff_armed {
             return false;
         }
-        let mut armed = false;
-        for slot in &mut self.native_backoff {
-            if slot.remaining > 0 && slot.key == key {
+        let set = backoff_set(key);
+        for slot in &mut self.native_backoff[set..set + 2] {
+            if slot.key == key && slot.remaining > 0 {
                 slot.remaining -= 1;
                 return true;
             }
-            armed |= slot.remaining > 0;
         }
-        self.native_backoff_armed = armed;
         false
     }
 
-    /// Skip native dispatch for the next `slices` slices for `key`, replacing its own slot or the
-    /// one closest to expiring.
+    /// Skip native dispatch for the next `slices` slices for `key`, replacing in its set its own
+    /// slot, an expired one, or else the one closer to expiring.
     #[cfg(feature = "jit")]
     pub(super) fn back_off_native(&mut self, key: BackoffKey, slices: u16) {
         #[cfg(test)]
         if !NATIVE_BACKOFF.get() {
             return;
         }
-        let slot = self
-            .native_backoff
-            .iter_mut()
-            .min_by_key(|slot| {
-                if slot.key == key {
-                    0
-                } else {
-                    u32::from(slot.remaining) + 1
-                }
-            })
-            .unwrap();
-        *slot = NativeBackoff {
+        let set = backoff_set(key);
+        let pair = &mut self.native_backoff[set..set + 2];
+        let free = |slot: &NativeBackoff| slot.key == key || slot.remaining == 0;
+        let index = if free(&pair[0]) {
+            0
+        } else if free(&pair[1]) || pair[1].remaining < pair[0].remaining {
+            1
+        } else {
+            0
+        };
+        pair[index] = NativeBackoff {
             key,
             remaining: slices,
         };
@@ -997,6 +1008,16 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     /// How many frames are on this thread. Read before the register borrow is taken.
     pub(super) fn frame_depth(&self) -> usize {
         self.state.frames.len()
+    }
+
+    /// The pc of the top Lua frame, without borrowing its registers.
+    #[cfg(feature = "jit")]
+    #[inline]
+    pub(super) fn frame_pc(&self) -> usize {
+        match self.state.frames.last() {
+            Some(Frame::Lua { pc, .. }) => *pc,
+            _ => panic!("top frame is not lua frame"),
+        }
     }
 
     /// Call the installed debug hook with `event` and `line`.
@@ -1879,30 +1900,44 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
 
 #[cfg(all(test, feature = "jit"))]
 mod native_backoff_tests {
-    use super::{with_native_backoff, Thread};
+    use super::{backoff_key, backoff_set, with_native_backoff, Thread};
 
     #[test]
-    fn back_off_counts_down_per_slice_start_and_replaces_the_nearest_expiry() {
+    fn back_off_counts_down_per_slice_start() {
         with_native_backoff(|| {
             crate::Lua::empty().enter(|ctx| {
                 let thread = Thread::new(ctx);
                 let mut state = thread.0.borrow_mut(&ctx);
-                assert!(!state.native_backed_off((1, 7, 3)));
-                state.back_off_native((1, 7, 3), 2);
+                assert!(!state.native_backed_off(backoff_key(1, 7, 3)));
+                state.back_off_native(backoff_key(1, 7, 3), 2);
                 for other in [(2, 7, 3), (1, 8, 3), (1, 7, 4)] {
-                    assert!(!state.native_backed_off(other), "{other:?}");
+                    let key = backoff_key(other.0, other.1, other.2);
+                    assert!(!state.native_backed_off(key), "{other:?}");
                 }
-                assert!(state.native_backed_off((1, 7, 3)) && state.native_backed_off((1, 7, 3)));
-                assert!(!state.native_backed_off((1, 7, 3)));
-                assert!(!state.native_backoff_armed);
-                for (frame, slices) in [(1, 10), (2, 3), (3, 20), (4, 30)] {
-                    state.back_off_native((frame, 7, 0), slices);
-                }
-                state.back_off_native((5, 7, 0), 40);
-                assert!(!state.native_backed_off((2, 7, 0)));
-                for frame in [1, 3, 4, 5] {
-                    assert!(state.native_backed_off((frame, 7, 0)), "frame {frame}");
-                }
+                let key = backoff_key(1, 7, 3);
+                assert!(state.native_backed_off(key) && state.native_backed_off(key));
+                assert!(!state.native_backed_off(key));
+            });
+        });
+    }
+
+    #[test]
+    fn back_off_replaces_the_nearer_expiry_in_a_full_set() {
+        with_native_backoff(|| {
+            crate::Lua::empty().enter(|ctx| {
+                let thread = Thread::new(ctx);
+                let mut state = thread.0.borrow_mut(&ctx);
+                let set = backoff_set(backoff_key(1, 7, 0));
+                let keys: std::vec::Vec<_> = (1..)
+                    .map(|depth| backoff_key(depth, 7, 0))
+                    .filter(|key| backoff_set(*key) == set)
+                    .take(3)
+                    .collect();
+                state.back_off_native(keys[0], 10);
+                state.back_off_native(keys[1], 3);
+                state.back_off_native(keys[2], 40);
+                assert!(!state.native_backed_off(keys[1]));
+                assert!(state.native_backed_off(keys[0]) && state.native_backed_off(keys[2]));
             });
         });
     }
@@ -1912,8 +1947,8 @@ mod native_backoff_tests {
         crate::Lua::empty().enter(|ctx| {
             let thread = Thread::new(ctx);
             let mut state = thread.0.borrow_mut(&ctx);
-            state.back_off_native((1, 7, 0), 10);
-            assert!(!state.native_backed_off((1, 7, 0)));
+            state.back_off_native(backoff_key(1, 7, 0), 10);
+            assert!(!state.native_backed_off(backoff_key(1, 7, 0)));
         });
     }
 }
