@@ -11,8 +11,10 @@ remain open; `PLAN_JIT.md` records all results and collateral measurements.
 
 Fresh compiled-disabled cost checks also fail: shipping upvalue overhead is
 8–9% on CPU 0 and 23–25% on CPU 16, above the unchanged 5% ceiling. Speed-profile
-callback and other cost failures remain. These are separate from Auto speedups;
-enabling the feature is not yet performance-neutral when JIT is switched off.
+callback and other cost failures remain. These are separate from Auto speedups.
+Compiled-Off no longer runs more interpreter instructions than the feature-disabled
+build (see "Compiled-Off instruction cost"); the wall-time gate has not been rerun
+on an idle machine since.
 
 Ordinary constant-string upvalue-table reads can embed a process-seeded key hash.
 Each lookup still checks the current table and full key equality; no GC pointers
@@ -565,6 +567,36 @@ column is the version before slice continuation. With every callback-loop slice
 backed off, Auto still spends about 33 more instructions per slice than Off,
 spread over the closure check, the slice pc read, activation policy and
 call-pair checks: the cost of deciding per slice whether to dispatch natively.
+
+### Compiled-Off instruction cost
+
+Built with `jit` but run in Off, the interpreter used to count every dispatched
+instruction for `JitStats::total_dispatches`, one memory add per instruction that
+the feature-disabled build does not have. A slice leaves its loop exactly once, so
+the count is now derived when it does: the instructions counted at the loop end,
+less native completions, plus the decoded instruction that left the loop unless
+the exit came before decoding or handed the instruction back. Errors leave through
+`vm_try!`, which records the same count before returning, so failing slices still
+count. Test builds keep the per-instruction count and assert that the two agree on
+every slice, error exits included.
+
+| Case | Off/no-JIT before | after |
+| --- | --- | --- |
+| integer_loop | +1.75% | −4.59% |
+| float_loop | +1.63% | −4.76% |
+| array_table | +2.47% | −4.17% |
+| closure_upvalue | −0.82% | −3.21% |
+| polymorphic_metamethod | +1.57% | +0.01% |
+| rust_callbacks | −0.61% | −2.13% |
+| allocation_gc | +3.52% | −0.62% |
+
+These are Callgrind instruction counts inside `Executor::step` for three warm
+iterations of each `jit_feature_cost` case at opt-level 3 with LTO, compiled-Off
+against the feature-disabled build. Instructions are no longer the gap: compiled-Off
+runs fewer in six cases and the same in the seventh. The binary is four times larger,
+so instruction-cache misses rise (about 1.5× in these runs), and the wall-time
+`make jit-size` gate still decides acceptance. Run it on an idle machine; with other
+builds running, its paired ratios spread from 0.3 to 3.0.
 
 ## Current execution coverage
 
