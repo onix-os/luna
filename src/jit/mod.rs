@@ -3324,7 +3324,8 @@ mod eviction_tests {
         request(&runtime, 1).unwrap();
         let bytes = runtime.usage();
         runtime.0.borrow_mut().config.max_code_bytes = bytes;
-        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(64));
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as usize;
+        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(64 * page / 4096));
         let snapshot = || {
             crate::Lua::empty().enter(|ctx| {
                 let prototype =

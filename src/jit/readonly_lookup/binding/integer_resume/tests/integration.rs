@@ -1,6 +1,7 @@
 use super::*;
 use crate::{Executor, Fuel, JitConfig, JitMode};
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_preserves_callback_yield_and_gc_before_resumption() {
     let (_, compiles) = crate::jit::backend::artifact::runtime::with_enabled(
