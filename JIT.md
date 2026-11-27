@@ -528,8 +528,16 @@ entirely, including the registry identity and code lookups, and then native
 code is tried again. Slices that start elsewhere in the function, and native
 runs that do real work before leaving, are unaffected; `tests/jit_backoff.rs`
 checks a host-call loop, a metamethod loop, a numeric loop and long native work
-before each call. Call-pair observation also returns before its out-of-line
-pattern match for calls that cannot pair, such as calls whose results are used.
+before each call.
+
+Each thread keeps eight back-off slots in four sets of two. A slice's frame
+depth, closure and start pc are mixed into one word whose top bits pick the
+set, so the check before every Auto slice is at most two compares; words that
+collide only share a back-off. Call-pair observation returns before its
+out-of-line pattern match for calls that cannot pair, such as calls whose
+results are used. Auto also continues ordinary interpreted Lua-to-Lua slices
+inside one executor step, as Off does, unless native call pairs are installed;
+each slice still runs `run_vm` with the same fuel and statistics.
 
 The policy is `JitConfig::native_backoff`, on by default. The integration
 harness turns it off because those suites assert native execution on every path,
@@ -537,16 +545,20 @@ and in-crate unit tests leave it off unless `LUNA_TEST_NATIVE_BACKOFF=1`.
 
 | Case | Native entries | Auto/Off instructions | Off/Auto wall time |
 |---|---|---|---|
-| `rust_callbacks` | 64,849 → 271 | 1.046 → 1.033 | 0.904 → 0.953 |
-| `polymorphic_metamethod` | 13,353 → 102 | 1.125 → 1.015 | 0.936 → 0.969 |
-| `closure_upvalue` | 37,589 → 35,311 | 0.358 → 0.346 | 2.30 → 2.43 |
+| `rust_callbacks` | 64,849 → 271 | 1.046 → 1.031 | 0.904 → 0.964 |
+| `polymorphic_metamethod` | 13,353 → 102 | 1.125 → 1.004 | 0.936 → 0.977 |
+| `closure_upvalue` | 37,589 → 35,311 | 0.358 → 0.336 | 2.30 → 2.37 |
+| `integer_loop` | unchanged | 0.284 → 0.264 | 3.70 → 4.03 |
+| `array_table` | unchanged | 0.623 → 0.610 | 1.50 → 1.66 |
 
 Instruction ratios are warm per-sample Callgrind counts (23 minus 3 samples),
 starting from the first, call-only version; wall ratios are medians of three
-21-sample paired runs on one pinned core, starting from before any back-off.
-Numeric and table loops are unchanged. The remaining Auto cost in both cases is
-fixed per-slice bookkeeping for an enabled JIT (activation policy, slice key,
-statistics), not native entry.
+21-sample paired runs on one pinned core, starting from before any back-off
+(the last two rows from the version before slice continuation). With every
+callback-loop slice backed off, Auto still spends about 45 more instructions
+per slice than Off: about 19 in the back-off check, and the rest spread over
+the slice key, activation policy and call-pair checks. That is the cost of
+deciding per slice whether to dispatch natively.
 
 ## Current execution coverage
 

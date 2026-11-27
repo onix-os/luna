@@ -32,7 +32,7 @@ pub(super) fn after<'gc>(
     step_charged: &mut bool,
 ) -> Result<u32, VMError> {
     #[cfg(test)]
-    if !SELECTOR.get().0 || ctx.jit().active() {
+    if !SELECTOR.get().0 {
         return Ok(instructions);
     }
     if *step_charged
@@ -131,9 +131,6 @@ fn interpreted_continuations_preserve_complete_executor_slices() {
                 assert_eq!((scopes, slices), (0, 0));
                 let (candidate, scopes, slices) = scoped(true, run);
                 assert_eq!(reference, candidate, "{source}, {budget}, {native}");
-                if native {
-                    assert_eq!((scopes, slices), (0, 0));
-                }
                 assert!(scopes <= slices && slices <= scopes * 63);
                 selected += slices;
             }

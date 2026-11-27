@@ -19,6 +19,7 @@ pub(crate) use compile_error::Error as CompileError;
 #[cfg(any(test, all(not(miri), luna_jit_native)))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActivationPolicy {
+    #[cfg(test)]
     Ordinary,
     Native,
     InterpretedTail,
@@ -1497,7 +1498,7 @@ impl Runtime {
         {
             return ActivationPolicy::Native;
         }
-        ActivationPolicy::Ordinary
+        ActivationPolicy::InterpretedTail
     }
 
     #[cfg(test)]
