@@ -1,4 +1,5 @@
-//! `luna eval FILE`: evaluate a functional configuration and print it as canonical JSON.
+//! `luna eval FILE`: evaluate a functional configuration and print it as canonical JSON, TOML,
+//! YAML or INI, or as raw text.
 
 use std::{path::PathBuf, process::ExitCode};
 
@@ -11,6 +12,8 @@ Evaluates FILE in a pure functional state and prints the result as canonical JSO
 options:
   --json                 print JSON (the default)
   --pretty               indent the JSON
+  --format FORMAT        print json, toml, yaml or ini
+  --raw                  print a string result as it is, without quotes or a newline
   --input NAME=JSON      add an input, read as JSON
   --input-string NAME=TEXT
                          add an input, taken as a string
@@ -25,7 +28,8 @@ options:
   --fuel N               the most VM instructions the evaluation may run
   --memory BYTES         the most bytes the evaluation may allocate
   --declarations         print {\"value\", \"declarations\"} instead of the value
-  --hash                 print the input and output hashes instead of the value";
+  --hash                 print the input and output hashes instead of the value
+  --files                print every file read, with the SHA-256 of its contents";
 
 struct Command {
     file: PathBuf,
@@ -34,8 +38,11 @@ struct Command {
     api_name: Option<String>,
     api: Api,
     pretty: bool,
+    format: String,
+    raw: bool,
     declarations: bool,
     hash: bool,
+    files: bool,
 }
 
 fn split(argument: &str, flag: &str) -> Result<(String, String), String> {
@@ -63,13 +70,27 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
         api_name: None,
         api: Api::new(),
         pretty: false,
+        format: "json".to_owned(),
+        raw: false,
         declarations: false,
         hash: false,
+        files: false,
     };
     while let Some(argument) = args.next() {
         let mut value = |flag: &str| args.next().ok_or_else(|| format!("{flag} expects a value"));
         match argument.as_str() {
-            "--json" => {}
+            "--json" => command.format = "json".to_owned(),
+            "--format" => {
+                let format = value("--format")?;
+                if !matches!(format.as_str(), "json" | "toml" | "yaml" | "ini") {
+                    return Err(format!(
+                        "--format expects json, toml, yaml or ini, got '{format}'"
+                    ));
+                }
+                command.format = format;
+            }
+            "--raw" => command.raw = true,
+            "--files" => command.files = true,
             "--pretty" => command.pretty = true,
             "--declarations" => command.declarations = true,
             "--hash" => command.hash = true,
@@ -156,12 +177,38 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if command.raw {
+        return match &evaluated.value {
+            Data::String(bytes) => {
+                use std::io::Write;
+                match std::io::stdout().write_all(bytes) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(error) => {
+                        eprintln!("luna: {error}");
+                        ExitCode::from(1)
+                    }
+                }
+            }
+            _ => {
+                eprintln!("luna: --raw needs the configuration to return a string");
+                ExitCode::from(1)
+            }
+        };
+    }
     let output = if command.hash {
         Data::map(vec![
             (Data::from("cached"), Data::Boolean(evaluated.cached)),
             (Data::from("input"), Data::from(evaluated.input_hash)),
             (Data::from("output"), Data::from(evaluated.output_hash)),
         ])
+    } else if command.files {
+        Data::map(
+            evaluated
+                .files
+                .into_iter()
+                .map(|(name, hash)| (Data::from(name), Data::from(hash)))
+                .collect(),
+        )
     } else if command.declarations {
         Data::map(vec![
             (Data::from("declarations"), evaluated.declarations),
@@ -170,9 +217,15 @@ fn main() -> ExitCode {
     } else {
         Ok(evaluated.value)
     };
-    match output.and_then(|output| output.to_json(command.pretty)) {
+    let text = output.and_then(|output| match command.format.as_str() {
+        "toml" => output.to_toml(),
+        "yaml" => output.to_yaml(),
+        "ini" => output.to_ini(),
+        _ => output.to_json(command.pretty).map(|text| text + "\n"),
+    });
+    match text {
         Ok(text) => {
-            println!("{text}");
+            print!("{text}");
             ExitCode::SUCCESS
         }
         Err(error) => {

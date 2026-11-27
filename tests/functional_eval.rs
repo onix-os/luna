@@ -418,3 +418,91 @@ fn the_command_prints_canonical_json() {
     let (code, _, _) = luna(&["eval", arg(&file), "--bogus"]);
     assert_eq!(code, 2);
 }
+
+#[test]
+fn data_files_import_as_frozen_data_and_key_the_cache() {
+    let project = Project::new(&[
+        (
+            "a.lua",
+            r#"
+            local pkgs, lock = import("pkgs.toml"), import("lock.json")
+            local ok = pcall(function() pkgs.extra = 1 end)
+            return { version = pkgs.tool.version, pinned = lock.pins[1], frozen = not ok }
+            "#,
+        ),
+        ("pkgs.toml", "[tool]\nversion = \"1.2\"\n"),
+        ("lock.json", r#"{"pins": ["abc"]}"#),
+        ("bad.lua", "return import('broken.toml')"),
+        ("broken.toml", "x = = 1"),
+    ]);
+    let options = Options {
+        cache: Some(project.path("cache")),
+        ..Options::default()
+    };
+    let first = project.eval("a.lua", &options).unwrap();
+    assert_eq!(
+        json(&first.value),
+        r#"{"frozen":true,"pinned":"abc","version":"1.2"}"#
+    );
+    assert!(first.files.contains_key("pkgs.toml") && first.files.contains_key("lock.json"));
+    assert!(project.eval("a.lua", &options).unwrap().cached);
+    project.write("pkgs.toml", "[tool]\nversion = \"1.3\"\n");
+    let edited = project.eval("a.lua", &options).unwrap();
+    assert!(!edited.cached);
+    assert!(json(&edited.value).contains(r#""version":"1.3""#));
+
+    let error = project.eval("bad.lua", &Options::default()).unwrap_err();
+    assert!(
+        error.to_string().contains("cannot import 'broken.toml'")
+            && error.to_string().contains("line 1: expected a value"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_command_prints_toml_yaml_ini_raw_text_and_files() {
+    let project = Project::new(&[
+        (
+            "c.lua",
+            "return { name = 'box', ports = { 80 }, tls = { on = true } }",
+        ),
+        ("text.lua", "return lib.to_ini({ k = 'v' })"),
+    ]);
+    let file = project.path("c.lua");
+    let run = |extra: &[&str]| {
+        let mut args = vec!["eval", arg(&file)];
+        args.extend(extra);
+        luna(&args)
+    };
+    assert_eq!(
+        run(&["--format", "toml"]),
+        (
+            0,
+            "name = \"box\"\nports = [80]\n\n[tls]\non = true\n".to_owned(),
+            String::new()
+        )
+    );
+    assert_eq!(
+        run(&["--format", "yaml"]).1,
+        "name: \"box\"\nports:\n  - 80\ntls:\n  \"on\": true\n"
+    );
+    assert_eq!(
+        run(&["--format", "ini"]).1,
+        "name=box\nports=80\n\n[tls]\non=true\n"
+    );
+    let (code, _, err) = run(&["--format", "xml"]);
+    assert_eq!(code, 2);
+    assert!(
+        err.contains("--format expects json, toml, yaml or ini"),
+        "{err}"
+    );
+    let (code, _, err) = run(&["--raw"]);
+    assert_eq!(code, 1);
+    assert!(err.contains("--raw needs the configuration to return a string"));
+    let (code, out, _) = run(&["--files"]);
+    assert_eq!(code, 0);
+    assert!(out.starts_with(r#"{"c.lua":""#), "{out}");
+
+    let text = project.path("text.lua");
+    assert_eq!(luna(&["eval", arg(&text), "--raw"]).1, "k=v\n");
+}

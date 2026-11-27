@@ -88,7 +88,8 @@ pure, for example by recording declarations and applying them after evaluation.
 
 `functional::evaluate(path, &options)` does all of the above in one call and returns plain
 `Data`, and `luna eval` is the same thing from a shell, printing canonical JSON the way
-`nix eval --json` does:
+`nix eval --json` does, or TOML, YAML or INI with `--format`, or a string result as-is with
+`--raw`:
 
 ```sh
 luna eval service.lua --input-string env=prod --schema schema.lua --cache ~/.cache/luna
@@ -98,13 +99,16 @@ luna eval service.lua --input-string env=prod --schema schema.lua --cache ~/.cac
   a function is called with them, as a Nix file returning a function is.
 - **Imports** read `import("lib/x.lua")` relative to the configuration's directory, or `--root`.
   Absolute paths, `.`/`..` and symlinks that leave the root are refused.
+- **Data files**: `import("pkgs.toml")` and `import("lock.json")` return the parsed file as frozen
+  data, the way Nix's `fromTOML` and `fromJSON` are used. Dates and times stay as their text.
 - **Limits**: a total instruction budget (`--fuel`) and a memory ceiling (`--memory`) stop
   runaway configurations with an error instead of hanging the host.
 - **Errors** name the import chain: `c.lua:1: broken config` followed by
   `in 'c.lua', imported from b.lua:3` and `in 'b.lua', imported from a.lua:2`.
 - **Hashes**: every result carries the SHA-256 of every file read with the inputs, API and
   schema (`input_hash`), and of the canonical result (`output_hash`), so a configuration has a
-  reproducible identity. `--hash` prints them.
+  reproducible identity. `--hash` prints them. `--files` prints every file read with its hash, for
+  build systems that track dependencies.
 - **Cache**: with `--cache DIR`, a result is reused without evaluating while the file, its
   inputs, its API, its schema and every file it imported are byte-for-byte unchanged.
 
@@ -141,10 +145,55 @@ arguments, so it works on frozen and imported data.
 | Maps | `keys`, `values`, `map_values`, `filter_values`, `from_pairs` (all in canonical key order) |
 | Structure | `equal` (deep, cycle-safe), `copy` (a mutable deep copy) |
 | Overrides | `rewrite(tree, replace)`: Guix-style input rewriting. Replaces nodes by identity, through a table keyed by old nodes or a function, rebuilds only what contains them and keeps everything else shared |
+| Encodings | `to_json(v, { pretty = true })`, `to_toml`, `to_yaml`, `to_ini` produce text in canonical key order; `from_json`, `from_toml` parse it |
+| Modules | `modules.evaluate{ modules, args, rounds }`, `modules.options{ modules }`, `option{ type, default, description }`, `mk_default`, `mk_force`, `mk_override`, `mk_if`, `mk_merge`, `mk_before`, `mk_after`, `mk_order` |
 | Schemas | `check(value, type)` with `lib.types`: `any`, `string`, `integer`, `number`, `boolean`, `func`, `list(t)`, `map(t)`, `record(fields, { open = true })`, `optional(t)`, `default(t, v)`, `enum{...}`, `one_of(...)`, `custom(name, test)` |
 
 A schema both validates and normalises: defaults are filled in, unknown record fields are
 refused, and errors name the exact path, as in `config.hosts[2]: expected a string, got number 3`.
+
+### Modules
+
+`lib.modules.evaluate` is the NixOS module system in strict form. Each module declares options
+and defines values for any option, and the definitions are merged by the option's type:
+
+```lua
+-- server.lua
+local types = lib.types
+return {
+    options = { server = {
+        enable = lib.option{ type = types.boolean, default = false },
+        port = lib.option{ type = types.integer, default = 80 },
+    } },
+    config = function(config)
+        return lib.mk_if(config.server.enable, { firewall = { ports = { config.server.port } } })
+    end,
+}
+
+-- host.lua
+return lib.modules.evaluate{ modules = {
+    import("server.lua"), import("firewall.lua"),
+    { server = { enable = true, port = lib.mk_default(8080) } },
+} }
+```
+
+- **Merging**: lists concatenate (`mk_before`/`mk_after` order them), maps and records merge key
+  by key, and every other value must be defined the same everywhere. Otherwise the error lists
+  each definition and its module.
+- **Priorities**: a plain definition beats `mk_default`, which beats the option's `default`;
+  `mk_force` beats them all. Wrappers work at any depth and push down through sets of options.
+- **Modules** are tables of `imports`, `options` and `config`, or functions of `args` returning
+  one. A table with neither `options` nor `config` is all config. A module imported twice counts
+  once.
+- **The configuration** is visible through `config = function(config) ... end`. Without
+  laziness, these functions run again until the configuration stops changing, at most `rounds`
+  times (16 by default), and a final strict round reports errors against the settled result.
+  A configuration that keeps changing is an error naming the path. Calls to a recorded API made
+  inside these functions are recorded once per round, so make them outside.
+- **Errors** name the option and the modules: `config.server.prot: no such option, defined in
+  host.lua`, or `config.x: no value is defined and the option has no default`.
+- `lib.modules.options{ modules = ... }` lists every option by dotted name with its type,
+  default, description and the module that declared it, which is enough to generate docs.
 
 ## Status
 
