@@ -268,4 +268,136 @@ fn errors_name_the_option_and_the_modules() {
     }
 }
 
+#[test]
+fn computed_defaults_follow_other_options() {
+    let project = Project::new(&[(
+        "config.lua",
+        r#"
+        local types = lib.types
+        local base = { options = {
+            home = lib.option{ type = types.string },
+            bin = lib.option{ type = types.string, default_from = function(c) return c.home .. "/bin" end },
+            data = lib.option{ type = types.string, default_from = function(c) return c.bin .. "/../data" end },
+        } }
+        local config = lib.modules.evaluate{ modules = { base, { home = "/h" } } }
+        local moved = lib.modules.evaluate{ modules = { base, { home = "/h", bin = lib.mk_default("/b") } } }
+        return { config.bin, config.data, moved.bin, moved.data,
+                 lib.modules.options{ modules = { base } }.bin.computed }
+        "#,
+    )]);
+    assert_eq!(
+        project.json("config.lua").unwrap(),
+        r#"["/h/bin","/h/bin/../data","/b","/b/../data",true]"#
+    );
+}
+
+#[test]
+fn map_items_can_depend_on_their_key() {
+    let project = Project::new(&[(
+        "config.lua",
+        r#"
+        local types = lib.types
+        local user = function(key) return types.record{ name = types.default(types.string, key) } end
+        return lib.modules.evaluate{ modules = {
+            { options = {
+                users = lib.option{ type = types.map(user), default = {} },
+                on = lib.enable_option("the thing"),
+            } },
+            { users = { alice = {}, bob = { name = "Robert" } } },
+        } }
+        "#,
+    )]);
+    assert_eq!(
+        project.json("config.lua").unwrap(),
+        r#"{"on":false,"users":{"alice":{"name":"alice"},"bob":{"name":"Robert"}}}"#
+    );
+}
+
+#[test]
+fn modules_are_named_by_their_file_or_their_call_site() {
+    let project = project(
+        r#"
+        local config = lib.modules.evaluate{ modules = {
+            import("server.lua"), import("firewall.lua"),
+            { firewall = { ports = "22" } },
+        } }
+        return config
+        "#,
+    );
+    let error = project.json("config.lua").unwrap_err();
+    assert!(
+        error.contains(
+            "config.firewall.ports: expected a list, got string \"22\" in module 3 at config.lua:2"
+        ),
+        "{error}"
+    );
+    let project = project_with_conflict();
+    let error = project.json("config.lua").unwrap_err();
+    assert!(
+        error.contains("  number 1 in firewall.lua\n  number 2 in server.lua"),
+        "{error}"
+    );
+}
+
+fn project_with_conflict() -> Project {
+    Project::new(&[
+        (
+            "server.lua",
+            "return { options = { port = lib.option{} }, config = { port = 2 } }",
+        ),
+        ("firewall.lua", "return { port = 1 }"),
+        (
+            "config.lua",
+            "return lib.modules.evaluate{ modules = { import('firewall.lua'), import('server.lua') } }",
+        ),
+    ])
+}
+
+/// The geto Home Manager module ported to luna, in examples/functional/home.
+#[test]
+fn the_geto_port_writes_its_manifest_activation_and_path() {
+    let example = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/functional/home");
+    let options = Options {
+        inputs: luna::functional::Data::from_json(r#"{"home": "/home/me"}"#).unwrap(),
+        ..Options::default()
+    };
+    let evaluated = evaluate(example.join("home.lua"), &options).unwrap();
+    let files = evaluated
+        .value
+        .get("home")
+        .and_then(|home| home.get("files"))
+        .unwrap();
+    let out = Project::new(&[]);
+    let written = luna::functional::write_files(files, &out.0, false).unwrap();
+    assert_eq!(
+        written.written,
+        [
+            ".config/geto/list.json",
+            ".config/luna/env.sh",
+            ".local/share/luna/activate"
+        ]
+    );
+    let read = |name: &str| fs::read_to_string(out.0.join(name)).unwrap();
+    let manifest = luna::functional::Data::from_json(&read(".config/geto/list.json")).unwrap();
+    assert_eq!(
+        manifest.to_json(false).unwrap(),
+        concat!(
+            r#"{"bins":{"/home/me/.local/bin/atuin":{"patch":true,"path":"/home/me/.local/bin/atuin","#,
+            r#""tags":["shell","essential"],"url":"github.com/atuinsh/atuin"},"#,
+            r#""/home/me/.local/bin/git-town":{"patch":true,"path":"/home/me/.local/bin/git-town","#,
+            r#""tags":["essential"],"url":"github.com/git-town/git-town"},"#,
+            r#""/home/me/.local/bin/mdBook":{"patch":true,"path":"/home/me/.local/bin/mdBook","#,
+            r#""tags":["default"],"url":"github.com/rust-lang/mdBook"}},"#,
+            r#""default_path":"/home/me/.local/bin"}"#
+        )
+    );
+    assert!(
+        read(".local/share/luna/activate").contains("GETO_NONINTERACTIVE=1 geto --tag all ensure")
+    );
+    assert_eq!(
+        read(".config/luna/env.sh"),
+        "export PATH=/home/me/.local/bin:\"$PATH\"\n"
+    );
+}
+
 mod common;

@@ -220,6 +220,121 @@ function lib.from_pairs(list)
     return out
 end
 
+-- Strings. Separators, affixes and replacements are plain text, never patterns.
+
+function lib.split(text, separator)
+    if separator == "" then
+        error("split needs a non-empty separator", 2)
+    end
+    local out = {}
+    local start = 1
+    while true do
+        local first, last = string.find(text, separator, start, true)
+        if first == nil then
+            out[#out + 1] = string.sub(text, start)
+            return out
+        end
+        out[#out + 1] = string.sub(text, start, first - 1)
+        start = last + 1
+    end
+end
+
+function lib.join(list, separator)
+    return table.concat(list, separator or "")
+end
+
+function lib.replace(text, from, to)
+    return table.concat(lib.split(text, from), to)
+end
+
+function lib.starts_with(text, prefix)
+    return string.sub(text, 1, #prefix) == prefix
+end
+
+function lib.ends_with(text, suffix)
+    return suffix == "" or string.sub(text, -#suffix) == suffix
+end
+
+function lib.remove_prefix(text, prefix)
+    if lib.starts_with(text, prefix) then
+        return string.sub(text, #prefix + 1)
+    end
+    return text
+end
+
+function lib.remove_suffix(text, suffix)
+    if suffix ~= "" and lib.ends_with(text, suffix) then
+        return string.sub(text, 1, #text - #suffix)
+    end
+    return text
+end
+
+local function is_space(byte)
+    return byte == 32 or (byte >= 9 and byte <= 13)
+end
+
+function lib.trim(text)
+    local first, last = 1, #text
+    while first <= last and is_space(string.byte(text, first)) do
+        first = first + 1
+    end
+    while last >= first and is_space(string.byte(text, last)) do
+        last = last - 1
+    end
+    return string.sub(text, first, last)
+end
+
+-- Remove the indentation every non-blank line shares, and a blank first line, as Nix's `''`
+-- strings do. Blank lines become empty.
+function lib.dedent(text)
+    local lines = lib.split(text, "\n")
+    if #lines > 1 and string.find(lines[1], "^%s*$") then
+        table.remove(lines, 1)
+    end
+    local indent = math.huge
+    for _, line in ipairs(lines) do
+        if string.find(line, "%S") then
+            indent = math.min(indent, #string.match(line, "^[ \t]*"))
+        end
+    end
+    local out = {}
+    for i, line in ipairs(lines) do
+        out[i] = string.find(line, "%S") and string.sub(line, indent + 1) or ""
+    end
+    return table.concat(out, "\n")
+end
+
+-- `path` without trailing slashes, keeping a lone "/".
+local function strip_slashes(path)
+    local last = #path
+    while last > 1 and string.byte(path, last) == 47 do
+        last = last - 1
+    end
+    return string.sub(path, 1, last)
+end
+
+function lib.basename(path)
+    return string.match(strip_slashes(path), "([^/]*)$")
+end
+
+function lib.dirname(path)
+    local parent = string.match(strip_slashes(path), "^(.*)/[^/]*$")
+    if parent == nil then
+        return "."
+    elseif parent == "" then
+        return "/"
+    end
+    return parent
+end
+
+-- A shell word for `text`: unchanged when it is only safe characters, otherwise single-quoted.
+function lib.escape_shell(text)
+    if string.find(text, "^[%w,._+:@%%/-]+$") then
+        return text
+    end
+    return "'" .. string.gsub(text, "'", "'\\''") .. "'"
+end
+
 -- Structure.
 
 function lib.equal(a, b)
@@ -527,10 +642,18 @@ local function by_key(defs, path)
     return keyed
 end
 
+-- `item` is the type of every value, or a function from a key to the type of its value.
+local function item_type(item, key)
+    if type(item) == "function" then
+        return item(key)
+    end
+    return item
+end
+
 local function merge_map(item, defs, path)
     local out = {}
     for key, list in pairs(by_key(defs, path)) do
-        out[key] = merge_with(item, list, child(path, key))
+        out[key] = merge_with(item_type(item, key), list, child(path, key))
     end
     return out
 end
@@ -627,21 +750,22 @@ function types.list(item)
 end
 
 function types.map(item)
+    local name = type(item) == "function" and "map" or "map of " .. item.name
     return {
-        name = "map of " .. item.name,
+        name = name,
         merge = function(defs, path)
             return merge_map(item, defs, path)
         end,
         check = function(value, path)
             if type(value) ~= "table" or is_list(value) then
-                fail(path, "a map of " .. item.name, value)
+                fail(path, "a " .. name, value)
             end
             local out = {}
             for k, v in pairs(value) do
                 if type(k) ~= "string" then
                     error(child(path, k) .. ": map keys must be strings", 0)
                 end
-                out[k] = item.check(v, child(path, k))
+                out[k] = item_type(item, k).check(v, child(path, k))
             end
             return out
         end,
@@ -759,11 +883,13 @@ local ARGUMENTS = {
     end,
 }
 
+-- `default_from`, a function of the configuration, computes a default from other options.
 function lib.option(spec)
     spec = spec or {}
     return setmetatable({
         type = spec.type or types.any,
         default = spec.default,
+        default_from = spec.default_from,
         description = spec.description,
         example = spec.example,
     }, OPTION)
@@ -773,17 +899,23 @@ function lib.is_option(value)
     return getmetatable(value) == OPTION
 end
 
-local function module_name(module, parent, index)
-    local source = native.source(module)
-    if source == nil and type(module) == "table" then
-        source = native.source(module.config)
+function lib.enable_option(description)
+    return lib.option{
+        type = types.boolean,
+        default = false,
+        description = "Whether to enable " .. description .. ".",
+    }
+end
+
+-- A module is named by the file that returned it, or by its place in the list.
+local function module_name(module, parent, index, site)
+    local imported = native.imported(module)
+    if imported ~= nil then
+        return imported
+    elseif parent == nil then
+        return "module " .. index .. (site and " at " .. site or "")
     end
-    if source ~= nil then
-        return source
-    elseif parent ~= nil then
-        return "import " .. index .. " of " .. parent
-    end
-    return "module " .. index
+    return "import " .. index .. " of " .. parent
 end
 
 local function module_parts(value, from)
@@ -814,7 +946,7 @@ local function module_parts(value, from)
     return { from = from, imports = imports, options = value.options or {}, config = config or {} }
 end
 
-local function collect(list, args, out, seen, parent)
+local function collect(list, args, out, seen, parent, site)
     for index, module in ipairs(list) do
         if type(module) == "string" then
             error((parent or "modules") .. ": modules are values; write import(\"" .. module
@@ -822,14 +954,14 @@ local function collect(list, args, out, seen, parent)
         end
         if not seen[module] then
             seen[module] = true
-            local from = module_name(module, parent, index)
+            local from = module_name(module, parent, index, site)
             local value = module
             if type(module) == "function" then
                 value = module(args)
             end
             local parts = module_parts(value, from)
             out[#out + 1] = parts
-            collect(parts.imports, args, out, seen, parts.from)
+            collect(parts.imports, args, out, seen, parts.from, site)
         end
     end
     return out
@@ -866,9 +998,13 @@ local function declare(tree, options, path, from, declared)
     end
 end
 
-local function option_value(option, defs, path)
-    if option.default ~= nil then
-        defs = lib.concat(defs, { definition(option.default, OPTION_DEFAULT, ORDER, "the default") })
+local function option_value(option, defs, path, config)
+    local default = option.default
+    if option.default_from ~= nil then
+        default = option.default_from(config)
+    end
+    if default ~= nil then
+        defs = lib.concat(defs, { definition(default, OPTION_DEFAULT, ORDER, "the default") })
     end
     local winners = winning(defs)
     if #winners == 0 then
@@ -886,12 +1022,12 @@ local function option_value(option, defs, path)
 end
 
 -- The configuration for an option tree. Outside strict rounds an option that fails is left unset.
-local function settle(node, defs, path, strict)
+local function settle(node, defs, path, strict, config)
     if getmetatable(node) == OPTION then
         if strict then
-            return option_value(node, defs, path)
+            return option_value(node, defs, path, config)
         end
-        local ok, value = pcall(option_value, node, defs, path)
+        local ok, value = pcall(option_value, node, defs, path, config)
         if ok then
             return value
         end
@@ -917,7 +1053,7 @@ local function settle(node, defs, path, strict)
     end
     local out = {}
     for key, sub in pairs(node) do
-        out[key] = settle(sub, keyed[key] or {}, child(path, key), strict)
+        out[key] = settle(sub, keyed[key] or {}, child(path, key), strict, config)
     end
     return out
 end
@@ -953,9 +1089,16 @@ local function difference(a, b, path, seen)
     return nil
 end
 
+local function computes(node)
+    if getmetatable(node) == OPTION then
+        return node.default_from ~= nil
+    end
+    return lib.any(lib.values(node), computes)
+end
+
 local function prepare(spec)
     local args = setmetatable(lib.merge(spec.args or {}, { lib = lib }), ARGUMENTS)
-    local list = collect(spec.modules or {}, args, {}, {}, nil)
+    local list = collect(spec.modules or {}, args, {}, {}, nil, native.caller())
     local tree, declared = {}, {}
     for _, module in ipairs(list) do
         declare(tree, module.options, "options", module.from, declared)
@@ -975,8 +1118,8 @@ function modules.evaluate(spec)
             static[#static + 1] = definition(module.config, NORMAL, ORDER, module.from)
         end
     end
-    if #dynamic == 0 then
-        return settle(tree, static, "config", true)
+    if #dynamic == 0 and not computes(tree) then
+        return settle(tree, static, "config", true, {})
     end
     local function round(config, strict)
         native.freeze(config)
@@ -992,7 +1135,7 @@ function modules.evaluate(spec)
                 defs[#defs + 1] = definition(value, NORMAL, ORDER, module.from)
             end
         end
-        return settle(tree, defs, "config", strict)
+        return settle(tree, defs, "config", strict, config)
     end
     -- Two rounds agree when their results match, taking the configurations each was computed
     -- from as equal wherever a closure captured them.
@@ -1004,7 +1147,7 @@ function modules.evaluate(spec)
         return difference(new, old, "config", seen)
     end
     local limit = spec.rounds or 16
-    local config = settle(tree, static, "config", false)
+    local config = settle(tree, static, "config", false, {})
     local before = nil
     for _ = 1, limit do
         local next_config = round(config, false)
@@ -1035,6 +1178,7 @@ function modules.options(spec)
                 out[full] = {
                     type = value.type.name,
                     default = value.default,
+                    computed = value.default_from ~= nil or nil,
                     description = value.description,
                     example = value.example,
                     declared = declared[at],

@@ -20,6 +20,7 @@ use crate::{
 
 mod data;
 mod evaluate;
+mod files;
 mod formats;
 mod import;
 mod natives;
@@ -28,6 +29,7 @@ mod sha256;
 
 pub use data::{Data, DataError};
 pub use evaluate::{content_hash, evaluate, EvalError, Evaluated, Options};
+pub use files::{write_files, WriteError, Written, MANIFEST};
 pub use import::{import_environment, import_environment_with};
 pub use record::{Api, Declaration, Recorder};
 
@@ -306,6 +308,10 @@ pub(crate) fn install<'gc>(ctx: Context<'gc>) {
 }
 
 const LIBRARY: &[u8] = include_bytes!("lib.lua");
+
+/// lua-language-server definitions for the globals of functional states: `lib`, `inputs`, `import`,
+/// `read_file` and `read_dir`.
+pub const DEFINITIONS: &str = include_str!("definitions.lua");
 
 /// Evaluate the `lib` global in the prepared state, then freeze the globals and the string
 /// metatable.

@@ -164,4 +164,61 @@ fn schemas_normalise_and_explain() -> Result<(), ExternError> {
     Ok(())
 }
 
+#[test]
+fn string_helpers_take_text_literally() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local function same(a, b) return lib.equal(a, b) end
+        return same(lib.split("a.b..c", "."), { "a", "b", "", "c" })
+            and same(lib.split("", ","), { "" })
+            and lib.join({ "a", "b" }, ", ") == "a, b" and lib.join({}) == ""
+            and lib.replace("1+1+1", "+", "%") == "1%1%1"
+            and lib.starts_with("main.lua", "main") and not lib.starts_with("a", "ab")
+            and lib.ends_with("main.lua", ".lua") and lib.ends_with("x", "")
+            and lib.remove_prefix("github.com/x", "github.com/") == "x"
+            and lib.remove_suffix("repo.git", ".git") == "repo"
+            and lib.remove_suffix("repo", "") == "repo"
+            and lib.trim("  \t x y \n") == "x y" and lib.trim("   ") == ""
+            and lib.dedent("\n    a\n      b\n\n    c\n  ") == "a\n  b\n\nc\n"
+            and lib.basename("/a/b/") == "b" and lib.basename("c") == "c"
+            and lib.dirname("/a/b") == "/a" and lib.dirname("/a") == "/"
+            and lib.dirname("a") == "."
+            and lib.escape_shell("/usr/bin") == "/usr/bin"
+            and lib.escape_shell("it's here") == "'it'\\''s here'"
+            and lib.escape_shell("") == "''"
+            and not pcall(lib.split, "a", "")
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn the_editor_definitions_cover_every_lib_function() {
+    let mut lua = common::functional();
+    let executor = lua
+        .try_enter(|ctx| {
+            let source = br#"
+                local names = {}
+                for _, space in ipairs({ { "lib", lib }, { "lib.types", lib.types }, { "lib.modules", lib.modules } }) do
+                    for key in pairs(space[2]) do names[#names + 1] = space[1] .. "." .. key end
+                end
+                return table.concat(names, "\n")
+            "#;
+            let closure = Closure::load_with_env(ctx, None, &source[..], functional::environment(ctx))?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })
+        .unwrap();
+    let names: String = lua.execute(&executor).unwrap();
+    assert!(names.lines().count() > 70, "{names}");
+    for name in names.lines() {
+        let field = name.rsplit('.').next().unwrap();
+        assert!(
+            functional::DEFINITIONS.contains(&format!("function {name}("))
+                || functional::DEFINITIONS.contains(&format!("{name} = {{}}"))
+                || functional::DEFINITIONS.contains(&format!("---@field {field} luna.Type")),
+            "{name} is missing from definitions.lua"
+        );
+    }
+}
+
 mod common;

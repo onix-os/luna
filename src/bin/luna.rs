@@ -1,13 +1,25 @@
-//! `luna eval FILE`: evaluate a functional configuration and print it as canonical JSON, TOML,
-//! YAML or INI, or as raw text.
+//! `luna eval FILE` evaluates a functional configuration and prints it as canonical JSON, TOML,
+//! YAML or INI, or as raw text. `luna build FILE --out DIR` writes the files it describes.
 
 use std::{path::PathBuf, process::ExitCode};
 
-use luna::functional::{evaluate, Api, Data, Options};
+use luna::functional::{evaluate, write_files, Api, Data, Options};
 
 const USAGE: &str = "usage: luna eval FILE [options]
+       luna build FILE --out DIR [--attr PATH] [--force] [options]
+       luna definitions
 
-Evaluates FILE in a pure functional state and prints the result as canonical JSON.
+`eval` evaluates FILE in a pure functional state and prints the result as canonical JSON.
+`build` writes the files the result describes into DIR: a map from relative paths to their
+contents, or to { text = ..., executable = true }. A manifest in DIR records them, so later
+builds replace and remove only files luna wrote.
+`definitions` prints lua-language-server definitions for lib, inputs, import, read_file and
+read_dir.
+
+build options:
+  --out DIR              the directory to write into
+  --attr PATH            build the files at PATH in the result, such as home.files
+  --force                replace files luna did not write
 
 options:
   --json                 print JSON (the default)
@@ -43,6 +55,9 @@ struct Command {
     declarations: bool,
     hash: bool,
     files: bool,
+    out: Option<PathBuf>,
+    attr: Option<String>,
+    force: bool,
 }
 
 fn split(argument: &str, flag: &str) -> Result<(String, String), String> {
@@ -57,11 +72,12 @@ fn json(text: &str, flag: &str) -> Result<Data, String> {
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
-    match args.next().as_deref() {
-        Some("eval") => {}
+    let build = match args.next().as_deref() {
+        Some("eval") => false,
+        Some("build") => true,
         Some("--help" | "-h") | None => return Err(String::new()),
         Some(other) => return Err(format!("unknown command '{other}'")),
-    }
+    };
     let mut file = None;
     let mut command = Command {
         file: PathBuf::new(),
@@ -75,6 +91,9 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
         declarations: false,
         hash: false,
         files: false,
+        out: None,
+        attr: None,
+        force: false,
     };
     while let Some(argument) = args.next() {
         let mut value = |flag: &str| args.next().ok_or_else(|| format!("{flag} expects a value"));
@@ -91,6 +110,9 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
             }
             "--raw" => command.raw = true,
             "--files" => command.files = true,
+            "--out" if build => command.out = Some(value("--out")?.into()),
+            "--attr" if build => command.attr = Some(value("--attr")?),
+            "--force" if build => command.force = true,
             "--pretty" => command.pretty = true,
             "--declarations" => command.declarations = true,
             "--hash" => command.hash = true,
@@ -143,11 +165,18 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
             extra => return Err(format!("unexpected argument '{extra}'")),
         }
     }
-    command.file = file.ok_or("eval expects a FILE")?;
+    command.file = file.ok_or("expected a FILE")?;
+    if build && command.out.is_none() {
+        return Err("build expects --out DIR".to_owned());
+    }
     Ok(command)
 }
 
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("definitions") {
+        print!("{}", luna::functional::DEFINITIONS);
+        return ExitCode::SUCCESS;
+    }
     let mut command = match parse(std::env::args().skip(1)) {
         Ok(command) => command,
         Err(message) => {
@@ -177,6 +206,36 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if let Some(out) = &command.out {
+        let mut files = &evaluated.value;
+        for key in command.attr.iter().flat_map(|attr| attr.split('.')) {
+            match files.get(key) {
+                Some(value) => files = value,
+                None => {
+                    eprintln!("luna: --attr: the result has no '{key}'");
+                    return ExitCode::from(1);
+                }
+            }
+        }
+        return match write_files(files, out, command.force) {
+            Ok(written) => {
+                for (mark, names) in [
+                    ("+", &written.written),
+                    ("-", &written.removed),
+                    ("kept, changed since written:", &written.kept),
+                ] {
+                    for name in names {
+                        println!("{mark} {name}");
+                    }
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("luna: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if command.raw {
         return match &evaluated.value {
             Data::String(bytes) => {

@@ -146,6 +146,107 @@ fn resolve(root: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+/// The entries of a directory inside `root`, by name, as `"file"`, `"directory"` or `"other"`.
+/// `"."` names the root itself.
+fn listing(root: &Path, name: &str) -> Result<Data, String> {
+    let path = if name == "." {
+        root.to_owned()
+    } else {
+        resolve(root, name)?
+    };
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(&path).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let kind = match fs::metadata(entry.path()) {
+            Ok(metadata) if metadata.is_dir() => "directory",
+            Ok(metadata) if metadata.is_file() => "file",
+            _ => "other",
+        };
+        entries.push((
+            Data::String(entry.file_name().into_encoded_bytes()),
+            Data::from(kind),
+        ));
+    }
+    Data::map(entries).map_err(|error| error.to_string())
+}
+
+/// Reads confined to the root, each recorded with the hash of what it saw. A directory listing is
+/// recorded under its name with a trailing `/`.
+#[derive(Clone)]
+struct Reads {
+    root: PathBuf,
+    imported: Rc<RefCell<BTreeMap<String, String>>>,
+}
+
+impl Reads {
+    fn file(&self, name: &str) -> Result<Vec<u8>, String> {
+        let text = fs::read(resolve(&self.root, name)?).map_err(|error| error.to_string())?;
+        self.imported
+            .borrow_mut()
+            .insert(name.to_owned(), content_hash(&text));
+        Ok(text)
+    }
+
+    fn directory(&self, name: &str) -> Result<Data, String> {
+        let entries = listing(&self.root, name)?;
+        self.imported
+            .borrow_mut()
+            .insert(format!("{name}/"), content_hash(&entries.canonical()));
+        Ok(entries)
+    }
+
+    /// `read_file(name)` returns a file's bytes as a string; `read_dir(name)` maps each entry of a
+    /// directory to its kind.
+    fn install<'gc>(&self, ctx: Context<'gc>, globals: Table<'gc>) -> Result<(), Error<'gc>> {
+        let name =
+            |ctx: Context<'gc>, stack: &mut crate::Stack<'gc, '_>, function: &str| match stack
+                .get(0)
+            {
+                Value::String(name) => std::str::from_utf8(name.as_bytes())
+                    .map(str::to_owned)
+                    .map_err(|_| super::message(ctx, format!("{function}: the name is not UTF-8"))),
+                _ => Err(super::message(
+                    ctx,
+                    format!("bad argument #1 to '{function}' (string expected)"),
+                )),
+            };
+        let reads = self.clone();
+        globals.set(
+            ctx,
+            "read_file",
+            crate::Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                let file = name(ctx, &mut stack, "read_file")?;
+                let text = reads.file(&file).map_err(|error| {
+                    super::message(ctx, format!("cannot read '{file}': {error}"))
+                })?;
+                stack.replace(ctx, ctx.intern(&text));
+                Ok(crate::CallbackReturn::Return)
+            }),
+        )?;
+        let reads = self.clone();
+        globals.set(
+            ctx,
+            "read_dir",
+            crate::Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                let directory = name(ctx, &mut stack, "read_dir")?;
+                let entries = reads
+                    .directory(&directory)
+                    .and_then(|entries| entries.to_value(ctx).map_err(|error| error.to_string()))
+                    .map_err(|error| {
+                        super::message(
+                            ctx,
+                            format!("cannot read the directory '{directory}': {error}"),
+                        )
+                    })?;
+                freeze(ctx, entries);
+                stack.replace(ctx, entries);
+                Ok(crate::CallbackReturn::Return)
+            }),
+        )?;
+        Ok(())
+    }
+}
+
 fn lua_message<'gc>(error: &Error<'gc>) -> String {
     match error {
         Error::Lua(lua) => match lua.0 {
@@ -312,14 +413,13 @@ fn run_config(
         .memory
         .map(|memory| lua.accounted_memory().saturating_add(memory));
     let mut fuel = options.fuel;
-    let loader_root = root.to_owned();
-    let loader = move |import: &str| {
-        let path = resolve(&loader_root, import)?;
-        let text = fs::read(&path).map_err(|error| error.to_string())?;
-        imported
-            .borrow_mut()
-            .insert(import.to_owned(), content_hash(&text));
-        Ok(text)
+    let reads = Reads {
+        root: root.to_owned(),
+        imported,
+    };
+    let loader = {
+        let reads = reads.clone();
+        move |import: &str| reads.file(import)
     };
 
     let (executor, recorder, scope, inputs) = lua
@@ -328,6 +428,7 @@ fn run_config(
             let inputs = options.inputs.to_value(ctx).map_err(data_error)?;
             freeze(ctx, inputs);
             globals.set(ctx, "inputs", inputs)?;
+            reads.install(ctx, globals)?;
             let recorder = match &options.api {
                 Some((global, api)) => {
                     let (table, recorder) = api.install(ctx).map_err(data_error)?;
@@ -473,8 +574,12 @@ fn cached(cache: &Path, key: &str, root: &Path) -> Option<Evaluated> {
         return None;
     };
     for (name, hash) in imports {
-        let path = resolve(root, name.as_str()?).ok()?;
-        if content_hash(&fs::read(path).ok()?) != hash.as_str()? {
+        let name = name.as_str()?;
+        let current = match name.strip_suffix('/') {
+            Some(directory) => content_hash(&listing(root, directory).ok()?.canonical()),
+            None => content_hash(&fs::read(resolve(root, name).ok()?).ok()?),
+        };
+        if current != hash.as_str()? {
             return None;
         }
     }

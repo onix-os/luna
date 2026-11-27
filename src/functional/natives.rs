@@ -1,11 +1,11 @@
 //! The Rust helpers the functional `lib` is built on: data encodings, deep freezing and closure
-//! identity and chunk names. `lib.lua` receives them as its chunk argument and keeps them private.
+//! identity, and where modules came from. `lib.lua` receives them as its chunk argument and keeps them private.
 
-use ottavino_gc_arena::Gc;
+use ottavino_gc_arena::{Gc, Rootable};
 
 use crate::{Callback, CallbackReturn, Context, Function, Table, Value};
 
-use super::{freeze, message, Data, DataError};
+use super::{freeze, import::ImportNames, message, Data, DataError};
 
 fn data_message<'gc>(ctx: Context<'gc>, error: DataError) -> crate::Error<'gc> {
     message(ctx, format!("value{}: {}", error.path, error.message))
@@ -94,15 +94,35 @@ pub(super) fn natives<'gc>(ctx: Context<'gc>) -> Table<'gc> {
     );
     natives.set_field(
         ctx,
-        "source",
+        "imported",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let source = match stack.get(0) {
-                Value::Function(Function::Closure(closure)) => {
-                    Value::String(closure.prototype().chunk_name)
-                }
+            let value = stack.get(0);
+            let names = ctx.singleton::<Rootable![ImportNames<'_>]>().0;
+            let name = match value {
+                Value::Table(_) | Value::Function(_) => names.get_raw(&ctx, value),
                 _ => Value::Nil,
             };
-            stack.replace(ctx, source);
+            stack.replace(ctx, name);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    natives.set_field(
+        ctx,
+        "caller",
+        Callback::from_fn(&ctx, |ctx, exec, mut stack| {
+            let site = (0..)
+                .map_while(|level| exec.lua_frame_at(level))
+                .find(|frame| frame.chunk_name.as_bytes() != b"lib")
+                .map(|frame| {
+                    let site = format!(
+                        "{}:{}",
+                        frame.chunk_name.display_lossy(),
+                        frame.current_line
+                    );
+                    Value::String(ctx.intern(site.as_bytes()))
+                })
+                .unwrap_or_default();
+            stack.replace(ctx, site);
             Ok(CallbackReturn::Return)
         }),
     );

@@ -506,3 +506,103 @@ fn the_command_prints_toml_yaml_ini_raw_text_and_files() {
     let text = project.path("text.lua");
     assert_eq!(luna(&["eval", arg(&text), "--raw"]).1, "k=v\n");
 }
+
+#[test]
+fn files_and_directories_are_read_inside_the_root_and_key_the_cache() {
+    let project = Project::new(&[
+        (
+            "a.lua",
+            r#"
+            local modules = {}
+            for name, kind in pairs(read_dir("modules")) do
+                if kind == "file" then modules[#modules + 1] = import("modules/" .. name) end
+            end
+            return { motd = read_file("motd.txt"), modules = modules, root = read_dir(".")["a.lua"] }
+            "#,
+        ),
+        ("motd.txt", "hello\n"),
+        ("modules/a.lua", "return 'a'"),
+        ("modules/b.lua", "return 'b'"),
+        ("escape.lua", "return read_file('../x')"),
+        ("missing.lua", "return read_dir('nowhere')"),
+    ]);
+    let cache = Project::new(&[]);
+    let options = Options {
+        cache: Some(cache.path("cache")),
+        ..Options::default()
+    };
+    let first = project.eval("a.lua", &options).unwrap();
+    assert_eq!(
+        json(&first.value),
+        r#"{"modules":["a","b"],"motd":"hello\n","root":"file"}"#
+    );
+    assert!(first.files.contains_key("motd.txt") && first.files.contains_key("modules/"));
+    assert!(project.eval("a.lua", &options).unwrap().cached);
+    project.write("modules/c.lua", "return 'c'");
+    let grown = project.eval("a.lua", &options).unwrap();
+    assert!(!grown.cached);
+    assert!(json(&grown.value).contains(r#"["a","b","c"]"#));
+    project.write("motd.txt", "bye\n");
+    assert!(!project.eval("a.lua", &options).unwrap().cached);
+
+    let error = project.eval("escape.lua", &Options::default()).unwrap_err();
+    assert!(error.to_string().contains("cannot read '../x'"), "{error}");
+    let error = project
+        .eval("missing.lua", &Options::default())
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("cannot read the directory 'nowhere'"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_build_command_writes_and_removes_only_its_own_files() {
+    let project = Project::new(&[
+        (
+            "home.lua",
+            r##"return { files = {
+                ["a/b.txt"] = "b\n",
+                ["bin/x"] = { text = "#!/bin/sh\n", executable = true },
+            } }"##,
+        ),
+        (
+            "less.lua",
+            r##"return { files = { ["bin/x"] = { text = "#!/bin/sh\n", executable = true } } }"##,
+        ),
+    ]);
+    let out = project.path("out");
+    let build = |file: &str, extra: &[&str]| {
+        let path = project.path(file);
+        let mut args = vec!["build", arg(&path), "--out", arg(&out), "--attr", "files"];
+        args.extend(extra);
+        luna(&args)
+    };
+    assert_eq!(
+        build("home.lua", &[]),
+        (0, "+ a/b.txt\n+ bin/x\n".to_owned(), String::new())
+    );
+    assert_eq!(build("home.lua", &[]).1, "");
+    assert_eq!(build("less.lua", &[]).1, "- a/b.txt\n");
+    assert!(!out.join("a").exists(), "an emptied directory is removed");
+
+    fs::write(out.join("bin/x"), "edited").unwrap();
+    let (code, _, err) = build("home.lua", &[]);
+    assert_eq!(code, 1);
+    assert!(err.contains("bin/x (changed since luna wrote it)"), "{err}");
+    assert_eq!(fs::read_to_string(out.join("bin/x")).unwrap(), "edited");
+    assert_eq!(build("home.lua", &["--force"]).0, 0);
+    assert_eq!(
+        fs::read_to_string(out.join("bin/x")).unwrap(),
+        "#!/bin/sh\n"
+    );
+
+    let (code, _, err) = luna(&["build", arg(&project.path("home.lua"))]);
+    assert_eq!(code, 2);
+    assert!(err.contains("build expects --out DIR"));
+    let (code, _, err) = build("home.lua", &["--attr", "nope"]);
+    assert_eq!(code, 1);
+    assert!(err.contains("--attr: the result has no 'nope'"), "{err}");
+}

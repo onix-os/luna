@@ -2,8 +2,9 @@
 
 use std::pin::Pin;
 
-use ottavino_gc_arena::Collect;
+use ottavino_gc_arena::{Collect, Rootable};
 
+use crate::registry::Singleton;
 use crate::{
     BoxSequence, Callback, CallbackReturn, Closure, CompilerError, Context, Error, Execution,
     IntoValue, Sequence, SequencePoll, Stack, Table, Value,
@@ -139,6 +140,22 @@ pub(crate) fn import_scope<'gc>(
     scope
 }
 
+/// The import that first returned each table or function, held weakly, for naming modules in
+/// errors.
+#[derive(Collect, Clone, Copy)]
+#[collect(no_drop)]
+pub(super) struct ImportNames<'gc>(pub(super) Table<'gc>);
+
+impl<'gc> Singleton<'gc> for ImportNames<'gc> {
+    fn create(ctx: Context<'gc>) -> Self {
+        let names = Table::new(&ctx);
+        let metatable = Table::new(&ctx);
+        metatable.set_field(ctx, "__mode", "k");
+        names.set_metatable(ctx, Some(metatable));
+        ImportNames(names)
+    }
+}
+
 type Parse = fn(&str) -> Result<Data, DataError>;
 
 /// Names ending in `.json` or `.toml` are data files, imported as frozen data.
@@ -191,6 +208,12 @@ impl<'gc> Sequence<'gc> for Imported<'gc> {
         let value = stack.get(0);
         freeze(ctx, value);
         freeze(ctx, self.env.into());
+        if matches!(value, Value::Table(_) | Value::Function(_)) {
+            let names = ctx.singleton::<Rootable![ImportNames<'_>]>().0;
+            if names.get_raw(&ctx, value).is_nil() {
+                names.set_raw(&ctx, value, self.key)?;
+            }
+        }
         let entry = Table::new(&ctx);
         entry.set_raw(&ctx, Value::Integer(1), value)?;
         self.imports.finish(ctx, self.key)?;
