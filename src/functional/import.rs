@@ -9,7 +9,7 @@ use crate::{
     IntoValue, Sequence, SequencePoll, Stack, Table, Value,
 };
 
-use super::{environment_over, freeze, message};
+use super::{environment_over, freeze, message, Data, DataError};
 
 /// An [`environment`](super::environment) whose chunks can call `import(name)`.
 ///
@@ -17,7 +17,8 @@ use super::{environment_over, freeze, message};
 /// decides which names exist and how they resolve. Each name is evaluated once, in its own
 /// environment that can import further. Its first result and environment are frozen, and later
 /// imports return that same value. Importing a name that is still being evaluated is an error.
-/// An error raised inside an import gains a line naming the import and where it was called.
+/// An error raised inside an import gains a line naming the import and where it was called. A name
+/// ending in `.json` or `.toml` is parsed as data instead of run.
 pub fn import_environment<'gc>(
     ctx: Context<'gc>,
     loader: impl Fn(&str) -> Result<Vec<u8>, String> + 'static,
@@ -89,6 +90,19 @@ pub(crate) fn import_scope<'gc>(
         let failed =
             |detail: String| message(ctx, format!("cannot import '{text}' from {site}: {detail}"));
         let source = loader(text).map_err(failed)?;
+        if let Some(parse) = data_format(text) {
+            let value = std::str::from_utf8(&source)
+                .map_err(|_| "the file is not UTF-8".to_owned())
+                .and_then(|source| parse(source).map_err(|error| error.to_string()))
+                .and_then(|data| data.to_value(ctx).map_err(|error| error.to_string()))
+                .map_err(failed)?;
+            freeze(ctx, value);
+            let entry = Table::new(&ctx);
+            entry.set_raw(&ctx, Value::Integer(1), value)?;
+            imports.cache.set_raw(&ctx, key, entry.into())?;
+            stack.replace(ctx, value);
+            return Ok(CallbackReturn::Return);
+        }
         let env = environment_over(ctx, imports.scope);
         let closure = Closure::load_with_env(ctx, Some(text), &source, env).map_err(|error| {
             failed(match error {
@@ -123,6 +137,19 @@ pub(crate) fn import_scope<'gc>(
     scope.set_metatable(ctx, Some(metatable));
     freeze(ctx, scope.into());
     scope
+}
+
+type Parse = fn(&str) -> Result<Data, DataError>;
+
+/// Names ending in `.json` or `.toml` are data files, imported as frozen data.
+fn data_format(name: &str) -> Option<Parse> {
+    if name.ends_with(".json") {
+        Some(Data::from_json)
+    } else if name.ends_with(".toml") {
+        Some(Data::from_toml)
+    } else {
+        None
+    }
 }
 
 #[derive(Collect, Clone, Copy)]

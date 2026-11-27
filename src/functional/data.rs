@@ -39,14 +39,14 @@ impl fmt::Display for DataError {
 
 impl std::error::Error for DataError {}
 
-fn fail<T>(path: &str, message: impl Into<String>) -> Result<T, DataError> {
+pub(super) fn fail<T>(path: &str, message: impl Into<String>) -> Result<T, DataError> {
     Err(DataError {
         path: path.to_owned(),
         message: message.into(),
     })
 }
 
-const MAX_DEPTH: usize = 512;
+pub(super) const MAX_DEPTH: usize = 512;
 
 impl Data {
     /// Build a map, sorting entries into canonical order. Keys must be unique scalars.
@@ -106,7 +106,7 @@ impl Data {
         }
     }
 
-    fn kind(&self) -> &'static str {
+    pub(super) fn kind(&self) -> &'static str {
         match self {
             Data::Nil => "nil",
             Data::Boolean(_) => "a boolean",
@@ -231,7 +231,7 @@ pub fn compare_keys(a: &Data, b: &Data) -> Ordering {
     }
 }
 
-fn describe_key(key: &Data) -> String {
+pub(super) fn describe_key(key: &Data) -> String {
     match key {
         Data::String(bytes) => {
             let text = String::from_utf8_lossy(bytes);
@@ -538,7 +538,7 @@ fn encode_json(
     Ok(())
 }
 
-fn encode_json_string(text: &str, out: &mut String) {
+pub(super) fn encode_json_string(text: &str, out: &mut String) {
     out.push('"');
     for c in text.chars() {
         match c {

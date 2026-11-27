@@ -4,7 +4,7 @@
 //! tables it creates, and [`freeze`] makes everything it produced read-only once it finishes.
 //! Nothing in the library reads the clock, the environment or the filesystem, and table
 //! iteration follows a canonical key order instead of hash layout. Every functional state has a
-//! frozen `lib` global of merging, list, map, rewriting and schema helpers.
+//! frozen `lib` global of merging, list, map, rewriting, encoding, schema and module helpers.
 //!
 //! [`evaluate`] runs a configuration file end to end and returns [`Data`]: imports confined to a
 //! root, inputs, a recorded [`Api`], limits, schema checking, content hashes and a cache.
@@ -20,7 +20,9 @@ use crate::{
 
 mod data;
 mod evaluate;
+mod formats;
 mod import;
+mod natives;
 mod record;
 mod sha256;
 
@@ -312,7 +314,8 @@ pub(crate) fn seal(lua: &mut crate::Lua) {
         .try_enter(|ctx| {
             let prototype = crate::FunctionPrototype::compile(ctx, "lib", LIBRARY)?;
             let closure = crate::Closure::new(&ctx, prototype, Some(environment(ctx)))?;
-            Ok(ctx.stash(crate::Executor::start(ctx, closure.into(), ())))
+            let natives = natives::natives(ctx);
+            Ok(ctx.stash(crate::Executor::start(ctx, closure.into(), natives)))
         })
         .expect("the functional library compiles");
     lua.finish(&executor)
