@@ -234,6 +234,10 @@ pub struct JitConfig {
     /// entering native code for a while. On by default; off makes every slice try native code,
     /// which tests of native re-entry rely on.
     pub native_backoff: bool,
+    /// Whether calls with fixed arguments and one result into `return a + b`-shaped integer
+    /// functions pair like upvalue leaves do. Off by default: native regions do not admit these
+    /// pairs yet, so each call ends the caller's slice and costs more than the interpreter.
+    pub value_pairs: bool,
 }
 
 impl Default for JitConfig {
@@ -251,6 +255,7 @@ impl Default for JitConfig {
             max_metadata_bytes: 2 * 1024 * 1024,
             max_compile_attempts: 2,
             native_backoff: true,
+            value_pairs: false,
         }
     }
 }
@@ -1264,7 +1269,7 @@ impl PreparedPair {
     ) -> Option<PairOutcome> {
         let outcome = self.program.invoke_result(ctx, host, budget, prefix);
         if let Some(outcome) = &outcome {
-            if outcome.calls > 0 && outcome.result.is_ok() {
+            if outcome.calls > 0 && outcome.result.is_ok() && self.program.forms_regions() {
                 ctx.jit().observe_region(self.program.key());
             }
             ctx.jit().record_pair_execution(

@@ -59,8 +59,9 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         {
             return None;
         }
-        match site.pattern.right {
-            Operand::Register(register) if register != site.pattern.read => {
+        let pattern = site.cell()?;
+        match pattern.right {
+            Operand::Register(register) if register != pattern.read => {
                 if register.0 >= site.arguments || register.0 >= callee.fixed_params {
                     return None;
                 }
@@ -120,7 +121,10 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             if !Gc::ptr_eq(callee.prototype(), self.callee) {
                 return false;
             }
-            let Some(upvalue) = callee.upvalues().get(usize::from(site.pattern.upvalue)) else {
+            let Some(pattern) = site.cell() else {
+                return false;
+            };
+            let Some(upvalue) = callee.upvalues().get(usize::from(pattern.upvalue)) else {
                 return false;
             };
             let Some(origin) = registers.projection_origin(upvalue.get()) else {
@@ -135,8 +139,8 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             {
                 return false;
             }
-            match site.pattern.right {
-                Operand::Register(register) if register != site.pattern.read => matches!(
+            match pattern.right {
+                Operand::Register(register) if register != pattern.read => matches!(
                     registers
                         .stack_frame
                         .get(index + 1 + usize::from(register.0)),

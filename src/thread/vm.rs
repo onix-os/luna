@@ -325,7 +325,9 @@ fn run_vm_slice<'gc>(
     }
 
     #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
-    let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
+    let observe_pairs = (!hook_enabled)
+        .then(|| ctx.jit().pair_observation())
+        .flatten();
 
     #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     let mut pair_scope = lua_frame.pair_handoff.take();
@@ -506,7 +508,7 @@ fn run_vm_slice<'gc>(
                             returns,
                         } => {
                             #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
-                            if observe_pairs {
+                            if let Some(values) = observe_pairs {
                                 ctx.jit().observe_call(
                                     ctx,
                                     current_function,
@@ -514,6 +516,7 @@ fn run_vm_slice<'gc>(
                                     func,
                                     args,
                                     returns,
+                                    values,
                                 );
                             }
                             vm_try!(lua_frame.call_function(ctx, func, args, returns));
@@ -723,9 +726,16 @@ fn run_vm_slice<'gc>(
                     }
                 }
                 #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
-                if observe_pairs {
-                    ctx.jit()
-                        .observe_call(ctx, current_function, &registers, func, args, returns);
+                if let Some(values) = observe_pairs {
+                    ctx.jit().observe_call(
+                        ctx,
+                        current_function,
+                        &registers,
+                        func,
+                        args,
+                        returns,
+                        values,
+                    );
                 }
                 vm_try!(lua_frame.call_function(ctx, func, args, returns));
                 break;

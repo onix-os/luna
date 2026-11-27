@@ -116,7 +116,7 @@ fn call_observation_rejects_result_and_variable_shapes_without_effects() {
                             continue;
                         }
                         ctx.jit()
-                            .observe_call(ctx, caller, &registers, func, arguments, results);
+                            .observe_call(ctx, caller, &registers, func, arguments, results, false);
                         rejected += 1;
                     }
                 }
@@ -134,7 +134,7 @@ fn call_observation_rejects_result_and_variable_shapes_without_effects() {
                 assert_eq!(*registers.pc, key.pc + 1);
                 drop(manager);
                 ctx.jit()
-                    .observe_call(ctx, caller, &registers, func, args, returns);
+                    .observe_call(ctx, caller, &registers, func, args, returns, false);
                 assert!(ctx
                     .jit()
                     .0

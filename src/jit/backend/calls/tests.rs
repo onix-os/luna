@@ -299,8 +299,8 @@ fn native_budgets_aliases_and_wrapping_extremes_are_source_exact() {
             for alias in [
                 None,
                 Some(0),
-                Some(usize::from(plan.pattern.read.0)),
-                Some(usize::from(plan.pattern.result.0)),
+                Some(usize::from(plan.cell().read.0)),
+                Some(usize::from(plan.cell().result.0)),
             ] {
                 for left in [i64::MIN, -1, 0, i64::MAX] {
                     let mut bridge = Bridge::new((
@@ -337,9 +337,9 @@ fn native_budgets_aliases_and_wrapping_extremes_are_source_exact() {
                         let expected = left.wrapping_add(right) as u64;
                         assert_eq!(result, 2);
                         let mut expected_slots = before;
-                        expected_slots[usize::from(plan.pattern.read.0)] =
+                        expected_slots[usize::from(plan.cell().read.0)] =
                             (abi::INTEGER, left as u64);
-                        expected_slots[usize::from(plan.pattern.result.0)] =
+                        expected_slots[usize::from(plan.cell().result.0)] =
                             (abi::INTEGER, expected);
                         if let Some(index) = alias {
                             expected_slots[index] = (abi::INTEGER, expected);

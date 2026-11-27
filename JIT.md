@@ -598,6 +598,39 @@ so instruction-cache misses rise (about 1.5× in these runs), and the wall-time
 `make jit-size` gate still decides acceptance. Run it on an idle machine; with other
 builds running, its paired ratios spread from 0.3 to 3.0.
 
+### Value-returning pairs
+
+Pairs also cover small helpers that return one value: a callee of exactly
+`Add`/`Sub`/`Mul` over its arguments and integer constants, `Return` of that
+register, and the compiler's trailing `Return`, called with fixed arguments and one
+result, as in `local function add(a, b) return a + b end ... s = add(s, i)`. `leaf::Leaf`
+distinguishes these value leaves from upvalue cell leaves throughout planning,
+code generation and admission:
+
+- `integer::ValuePlan` emits the callee: both operands checked for integer tags,
+  wrapping arithmetic into the result slot, and an exit at the `Return` (pc 1) for the
+  canonical return to finish. Any other input declines with no instructions run.
+- `ActivationHost::atomic_value_call` runs the whole call with no callee frame and
+  leaves the stack, the caller's frame and the fuel exactly as the canonical call,
+  one instruction and one-value return would. Interpreted callers try it first; the
+  session path (canonical call, native leaf, canonical return) is the fallback, and
+  its canonical call now asks for the call's own result count.
+- The atomic, rooted, compact and inline-loop paths stay cell-only; value leaves are
+  refused there and do not request native regions.
+
+`value_leaves_match_physical_frames_fuel_and_dispatches` compares the session, plain
+leaf and atomic paths against physical frames (stack slots, open upvalues, fuel,
+dispatches and instructions) across fuel levels, integer overflow, a float operand
+and extra arguments. `tests/jit_call_pairs.rs` checks Off and Auto results and
+per-step fuel and dispatch traces, float fallback and errors raised inside the pair.
+
+`JitConfig::value_pairs` is off by default because pairing only pays inside native
+regions. For an interpreted caller every pair still ends the caller's slice, so a
+10 000-call loop measured 0.875 ms in Auto with value pairs against 0.758 ms in Off,
+where Auto without them matches Off. Admitting value leaves into native regions is the
+remaining step: `canonical::admission`, the rooted snapshot publication of the result
+into the caller's function register, and the region driver's view of that register.
+
 ## Current execution coverage
 
 `nix develop .#miri -c make jit-miri` uses the separately pinned nightly

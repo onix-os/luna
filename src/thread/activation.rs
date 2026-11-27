@@ -254,14 +254,20 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         ctx: Context<'gc>,
         function: crate::types::RegisterIndex,
         arguments: u8,
+        returns: u8,
     ) -> Result<(), VMError> {
-        if self.call_in_place(function, arguments) {
+        if self.call_in_place(function, arguments, returns) {
             return Ok(());
         }
-        self.call_generic(ctx, function, arguments)
+        self.call_generic(ctx, function, arguments, returns)
     }
 
-    fn call_in_place(&mut self, function: crate::types::RegisterIndex, arguments: u8) -> bool {
+    fn call_in_place(
+        &mut self,
+        function: crate::types::RegisterIndex,
+        arguments: u8,
+        returns: u8,
+    ) -> bool {
         use super::thread::LuaReturn;
         use crate::{Function, Value};
 
@@ -298,7 +304,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         }
         *pc += 1;
         self.fuel.consume(LuaFrame::FUEL_PER_CALL);
-        *expected_return = Some(LuaReturn::Normal(crate::types::VarCount::constant(0)));
+        *expected_return = Some(LuaReturn::Normal(crate::types::VarCount::constant(returns)));
         self.fuel
             .consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, count));
         self.stack
@@ -323,6 +329,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         ctx: Context<'gc>,
         function: crate::types::RegisterIndex,
         arguments: u8,
+        returns: u8,
     ) -> Result<(), VMError> {
         let result = self.with_frame(|mut frame| {
             *frame.registers().pc += 1;
@@ -330,7 +337,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 ctx,
                 function,
                 crate::types::VarCount::constant(arguments),
-                crate::types::VarCount::constant(0),
+                crate::types::VarCount::constant(returns),
             )
         });
         self.fuel.consume(4);
@@ -426,7 +433,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     args,
                     returns,
                 } => {
-                    if ctx.jit().call_pairs_enabled() {
+                    if let Some(values) = ctx.jit().pair_observation() {
                         ctx.jit().observe_call(
                             ctx,
                             frame.closure(),
@@ -434,6 +441,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                             func,
                             args,
                             returns,
+                            values,
                         );
                     }
                     frame.call_function(ctx, func, args, returns)

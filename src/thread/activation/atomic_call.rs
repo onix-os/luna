@@ -15,6 +15,14 @@ pub(crate) struct Spec<'gc> {
     pub prefix: u32,
 }
 
+pub(crate) struct ValueSpec<'gc> {
+    pub callee: Closure<'gc>,
+    pub function: RegisterIndex,
+    pub arguments: u8,
+    pub result: RegisterIndex,
+    pub prefix: u32,
+}
+
 pub(crate) struct Window<'gc, 'borrow, 'host> {
     host: &'borrow mut ActivationHost<'gc, 'host>,
     fuel: Fuel,
@@ -220,6 +228,75 @@ impl<'gc> ActivationHost<'gc, '_> {
         *current = pc + 1;
         fuel.consume(LuaFrame::FUEL_PER_CALL);
         fuel.consume(3);
+        fuel.consume(4);
+        *self.fuel = fuel;
+        true
+    }
+
+    /// A paired call to a value leaf, leaving the stack, the caller's frame and the fuel as the
+    /// canonical call, the leaf's one instruction and its return of one value would, without
+    /// pushing the callee frame. `compute` receives the arguments and returns the result.
+    pub(crate) fn atomic_value_call(
+        &mut self,
+        spec: ValueSpec<'gc>,
+        compute: impl FnOnce(&[Value<'gc>]) -> Option<i64>,
+    ) -> bool {
+        let Some(Frame::Lua {
+            base,
+            stack_size,
+            is_variable: false,
+            expected_return: None,
+            pc,
+            ..
+        }) = self.state.frames.last()
+        else {
+            return false;
+        };
+        let (base, caller_top, pc) = (*base, *base + *stack_size, *pc);
+        let bottom = base + usize::from(spec.function.0);
+        let prototype = spec.callee.prototype();
+        let count = usize::from(spec.arguments);
+        let width = usize::from(prototype.stack_size);
+        let top = bottom + width;
+        if self.state.frames.len() >= self.state.max_call_depth
+            || self.state.frames.len() == self.state.frames.capacity()
+            || self.stack.len() != caller_top
+            || !matches!(self.stack.get(bottom), Some(Value::Function(Function::Closure(callee))) if *callee == spec.callee)
+            || spec.arguments > prototype.fixed_params
+            || count > width
+            || bottom + 1 + count > self.stack.len()
+            || top > self.stack.capacity()
+            || usize::from(spec.result.0) >= width
+            || spec.prefix > 64
+            || !self.state.captures_below(bottom)
+        {
+            return false;
+        }
+        let mut fuel = self.fuel.clone();
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+        fuel.consume(4);
+        fuel.consume(spec.prefix as i32);
+        if !fuel.should_continue() {
+            return false;
+        }
+        let Some(result) = compute(&self.stack[bottom + 1..bottom + 1 + count]) else {
+            return false;
+        };
+        self.stack
+            .copy_within(bottom + 1..bottom + 1 + count, bottom);
+        self.stack.resize(top, Value::Nil);
+        self.stack[bottom + count..top].fill(Value::Nil);
+        self.stack[bottom + usize::from(spec.result.0)] = Value::Integer(result);
+        self.stack[bottom] = Value::Integer(result);
+        self.stack.resize(caller_top, Value::Nil);
+        let Some(Frame::Lua { pc: current, .. }) = self.state.frames.last_mut() else {
+            unreachable!()
+        };
+        *current = pc + 1;
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, 1));
+        fuel.consume(1);
         fuel.consume(4);
         *self.fuel = fuel;
         true

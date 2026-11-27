@@ -171,6 +171,181 @@ impl Plan {
     }
 }
 
+/// Native code for a [`leaf::ValuePattern`]. Both operands must be integers; the result is stored
+/// in its register and the leaf leaves at the `Return` for the interpreter to finish.
+pub(super) struct ValuePlan {
+    pattern: leaf::ValuePattern,
+    constant: Option<i64>,
+}
+
+impl ValuePlan {
+    pub(super) fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
+        let pattern = leaf::ValuePattern::recognize(snapshot)
+            .ok_or_else(|| CompileError::Compilation("invalid value activation source".into()))?;
+        let constant = match pattern.right {
+            leaf::Operand::Register(_) => None,
+            leaf::Operand::Constant(index) => {
+                let slot = snapshot.constants[usize::from(index)];
+                if slot.tag != abi::INTEGER {
+                    return Err(CompileError::Compilation(
+                        "non-integer activation constant".into(),
+                    ));
+                }
+                Some(slot.bits as i64)
+            }
+        };
+        Ok(Self { pattern, constant })
+    }
+
+    pub(super) fn function(
+        &self,
+        name: UserFuncName,
+        signature: Signature,
+        config: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Result<Function, CompileError> {
+        let pointer = config.pointer_type();
+        let expected = [pointer, types::I64, types::I32, pointer, pointer];
+        if signature.params.len() != 5
+            || !signature.returns.is_empty()
+            || signature
+                .params
+                .iter()
+                .zip(expected)
+                .any(|(param, ty)| param.value_type != ty)
+        {
+            return Err(CompileError::Compilation(
+                "invalid value activation signature".into(),
+            ));
+        }
+        let return_pc = leaf::ValuePattern::RETURN_PC as i64;
+        let mut function = Function::with_name_signature(name, signature);
+        let mut context = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut function, &mut context);
+        let entry = b.create_block();
+        b.append_block_params_for_function_params(entry);
+        b.switch_to_block(entry);
+        let p: [_; 5] = b.block_params(entry).try_into().unwrap();
+        let decline = b.create_block();
+        let operands = b.create_block();
+        let body = b.create_block();
+        let pc = b.ins().icmp_imm_s(IntCC::Equal, p[1], 0);
+        let budget = b
+            .ins()
+            .icmp_imm_s(IntCC::UnsignedGreaterThan, p[2], return_pc);
+        let admitted = b.ins().band(pc, budget);
+        b.ins().brif(admitted, operands, &[], decline, &[]);
+        b.switch_to_block(operands);
+        let load = |b: &mut FunctionBuilder<'_>, register: crate::types::RegisterIndex| {
+            let offset = i32::from(register.0) * 16;
+            let tag = b.ins().load(types::I64, MemFlagsData::new(), p[0], offset);
+            let valid = b.ins().icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+            let value = b
+                .ins()
+                .load(types::I64, MemFlagsData::new(), p[0], offset + 8);
+            (value, valid)
+        };
+        let (left, integer) = load(&mut b, self.pattern.left);
+        let (right, integer) = match self.pattern.right {
+            leaf::Operand::Constant(_) => {
+                (b.ins().iconst(types::I64, self.constant.unwrap()), integer)
+            }
+            leaf::Operand::Register(index) => {
+                let (value, valid) = load(&mut b, index);
+                (value, b.ins().band(integer, valid))
+            }
+        };
+        b.ins().brif(integer, body, &[], decline, &[]);
+        b.switch_to_block(body);
+        let result = match self.pattern.arithmetic {
+            leaf::Arithmetic::Add => b.ins().iadd(left, right),
+            leaf::Arithmetic::Sub => b.ins().isub(left, right),
+            leaf::Arithmetic::Mul => b.ins().imul(left, right),
+        };
+        let tag = b.ins().iconst(types::I64, abi::INTEGER as i64);
+        let offset = i32::from(self.pattern.result.0) * 16;
+        b.ins().store(MemFlagsData::new(), tag, p[0], offset);
+        b.ins().store(MemFlagsData::new(), result, p[0], offset + 8);
+        let pc = b.ins().iconst(types::I64, return_pc);
+        let count = b.ins().iconst(types::I32, return_pc);
+        let reason = b
+            .ins()
+            .iconst(types::I32, super::exits::Kind::Interpreter as i64);
+        b.ins().store(MemFlagsData::new(), pc, p[3], 0);
+        b.ins().store(MemFlagsData::new(), count, p[3], 8);
+        b.ins().store(MemFlagsData::new(), reason, p[3], 12);
+        b.ins().return_(&[]);
+        b.switch_to_block(decline);
+        let count = b.ins().iconst(types::I32, 0);
+        let reason = b
+            .ins()
+            .iconst(types::I32, super::exits::Kind::Interpreter as i64);
+        b.ins().store(MemFlagsData::new(), p[1], p[3], 0);
+        b.ins().store(MemFlagsData::new(), count, p[3], 8);
+        b.ins().store(MemFlagsData::new(), reason, p[3], 12);
+        b.ins().return_(&[]);
+        b.seal_all_blocks();
+        b.finalize(config);
+        Ok(function)
+    }
+
+    pub(super) fn verify(
+        &self,
+        function: &Function,
+        signature: Signature,
+        config: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Result<(), CompileError> {
+        let expected = self.function(function.name.clone(), signature, config)?;
+        if function != &expected {
+            return Err(CompileError::Compilation(
+                "value activation differs from source template".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The native code for either leaf shape.
+pub(super) enum LeafPlan {
+    Cell(Plan),
+    Value(ValuePlan),
+}
+
+impl LeafPlan {
+    pub(super) fn new(snapshot: &Snapshot) -> Result<Self, CompileError> {
+        match leaf::Leaf::recognize(snapshot) {
+            Some(leaf::Leaf::Cell(_)) => Plan::new(snapshot).map(Self::Cell),
+            Some(leaf::Leaf::Value(_)) => ValuePlan::new(snapshot).map(Self::Value),
+            None => Err(CompileError::Compilation(
+                "invalid integer activation source".into(),
+            )),
+        }
+    }
+
+    pub(super) fn function(
+        &self,
+        name: UserFuncName,
+        signature: Signature,
+        config: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Result<Function, CompileError> {
+        match self {
+            Self::Cell(plan) => plan.function(name, signature, config),
+            Self::Value(plan) => plan.function(name, signature, config),
+        }
+    }
+
+    pub(super) fn verify(
+        &self,
+        function: &Function,
+        signature: Signature,
+        config: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Result<(), CompileError> {
+        match self {
+            Self::Cell(plan) => plan.verify(function, signature, config),
+            Self::Value(plan) => plan.verify(function, signature, config),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -37,11 +37,11 @@ fn in_place_growth_refusal_preserves_caller_before_generic_allocation() {
                 let capacity = host.stack.capacity();
                 if fast {
                     let before = format!("{:?}", host.test_trace());
-                    assert!(!host.call_in_place(function, 0));
+                    assert!(!host.call_in_place(function, 0, 0));
                     assert_eq!(before, format!("{:?}", host.test_trace()));
-                    host.call(ctx, function, 0).unwrap();
+                    host.call(ctx, function, 0, 0).unwrap();
                 } else {
-                    host.call_generic(ctx, function, 0).unwrap();
+                    host.call_generic(ctx, function, 0, 0).unwrap();
                 }
                 assert!(host.stack.capacity() > capacity);
                 let (frames, values, open, fuel) = host.test_trace();
@@ -100,14 +100,14 @@ fn in_place_calls_match_generic_frames_slots_fuel_and_refusals() {
                             if interrupted { host.fuel.interrupt(); }
                             if fast {
                                 let before = format!("{:?}", host.test_trace());
-                                let accepted = host.call_in_place(function, arguments);
+                                let accepted = host.call_in_place(function, arguments, 0);
                                 assert_eq!(accepted, refusal == 0 && arguments <= 3 && *source != sources[3]);
                                 if !accepted {
                                     assert_eq!(before, format!("{:?}", host.test_trace()));
-                                    host.call_generic(ctx, function, arguments).unwrap();
+                                    host.call_generic(ctx, function, arguments, 0).unwrap();
                                 }
                             } else {
-                                host.call_generic(ctx, function, arguments).unwrap();
+                                host.call_generic(ctx, function, arguments, 0).unwrap();
                             }
                             let (frames, stack, open, fuel) = host.test_trace();
                             let values: Vec<_> = stack.iter().map(|value| match value {

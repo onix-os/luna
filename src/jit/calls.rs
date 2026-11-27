@@ -8,7 +8,7 @@ pub(super) struct Plan<'a> {
     pc: usize,
     pub function: RegisterIndex,
     pub arguments: u8,
-    pub pattern: leaf::Pattern,
+    pub leaf: leaf::Leaf,
     pub expansion: work::Expansion,
 }
 
@@ -32,8 +32,16 @@ impl Plan<'_> {
         self.callee
     }
 
+    /// The cell pattern of a plan whose callee is a cell leaf.
+    pub fn cell(&self) -> leaf::Pattern {
+        match self.leaf {
+            leaf::Leaf::Cell(pattern) => pattern,
+            leaf::Leaf::Value(_) => unreachable!("callers check for a cell leaf first"),
+        }
+    }
+
     pub fn operands(&self) -> (u64, u8, u8, u8) {
-        let Operation::Return { start, .. } = self.callee.operations[3] else {
+        let Operation::Return { start, .. } = self.callee.operations[self.leaf.return_pc()] else {
             unreachable!()
         };
         (self.pc as u64, self.function.0, self.arguments, start.0)
@@ -66,7 +74,7 @@ impl Plan<'_> {
             signature
         };
         let leaf_signature = signature(&[pointer, types::I64, types::I32, pointer, pointer], None);
-        let callee = super::integer::Plan::new(self.callee)?.function(
+        let callee = super::integer::LeafPlan::new(self.callee)?.function(
             UserFuncName::user(0, 1),
             leaf_signature.clone(),
             config,
@@ -139,10 +147,12 @@ impl Plan<'_> {
         builder
             .ins()
             .call(leaf, &[slots, zero, parameters[1], exit, view]);
-        let Operation::Return { start, .. } = self.callee.operations[3] else {
+        let Operation::Return { start, .. } = self.callee.operations[self.leaf.return_pc()] else {
             unreachable!()
         };
-        let return_pc = builder.ins().iconst(types::I64, 3);
+        let return_pc = builder
+            .ins()
+            .iconst(types::I64, self.leaf.return_pc() as i64);
         let start = builder.ins().iconst(types::I32, i64::from(start.0));
         let result = builder
             .ins()
@@ -184,7 +194,7 @@ impl Plan<'_> {
                 "aggregate program differs from source".into(),
             ));
         }
-        super::integer::Plan::new(self.callee)?.verify(
+        super::integer::LeafPlan::new(self.callee)?.verify(
             &program.callee,
             expected.callee.signature.clone(),
             config,
@@ -219,14 +229,14 @@ impl<'a> Plan<'a> {
                 "variable aggregate arguments".into(),
             ));
         };
-        if returns.to_constant() != Some(0) {
+        let leaf = leaf::Leaf::recognize(callee)
+            .ok_or_else(|| CompileError::Compilation("invalid aggregate callee".into()))?;
+        if returns.to_constant() != Some(leaf.call_returns()) {
             return Err(CompileError::Compilation(
                 "aggregate call returns values".into(),
             ));
         }
-        let pattern = leaf::Pattern::recognize(callee)
-            .ok_or_else(|| CompileError::Compilation("invalid aggregate callee".into()))?;
-        let Operation::Return { count, .. } = callee.operations[3] else {
+        let Operation::Return { count, .. } = callee.operations[leaf.return_pc()] else {
             unreachable!()
         };
         if count.to_constant().is_none() {
@@ -234,7 +244,18 @@ impl<'a> Plan<'a> {
                 "variable aggregate return".into(),
             ));
         }
-        match pattern.right {
+        let (right, read) = match leaf {
+            leaf::Leaf::Cell(pattern) => (pattern.right, Some(pattern.read)),
+            leaf::Leaf::Value(pattern) => {
+                if !pattern.reads_arguments(arguments, u8::MAX) {
+                    return Err(CompileError::Compilation(
+                        "aggregate operand is not an argument".into(),
+                    ));
+                }
+                (pattern.right, None)
+            }
+        };
+        match right {
             leaf::Operand::Constant(index) => {
                 if callee.constants[usize::from(index)].tag != abi::INTEGER {
                     return Err(CompileError::Compilation(
@@ -243,7 +264,7 @@ impl<'a> Plan<'a> {
                 }
             }
             leaf::Operand::Register(register)
-                if register != pattern.read && register.0 >= arguments =>
+                if Some(register) != read && register.0 >= arguments =>
             {
                 return Err(CompileError::Compilation(
                     "aggregate operand is not an argument".into(),
@@ -268,7 +289,7 @@ impl<'a> Plan<'a> {
             pc,
             function: func,
             arguments,
-            pattern,
+            leaf,
             expansion,
         })
     }
@@ -291,7 +312,7 @@ impl<'a> Plan<'a> {
         )?;
         if rebuilt.function != self.function
             || rebuilt.arguments != self.arguments
-            || rebuilt.pattern != self.pattern
+            || rebuilt.leaf != self.leaf
             || rebuilt.expansion != self.expansion
         {
             return Err(CompileError::Compilation("aggregate plan mismatch".into()));
@@ -441,7 +462,11 @@ mod tests {
                 match fault {
                     0 => plan.function.0 ^= 1,
                     1 => plan.arguments ^= 1,
-                    2 => plan.pattern.upvalue ^= 1,
+                    2 => {
+                        if let leaf::Leaf::Cell(pattern) = &mut plan.leaf {
+                            pattern.upvalue ^= 1;
+                        }
+                    }
                     3 => plan.expansion.instructions -= 1,
                     4 => plan.pc = 0,
                     _ => unreachable!(),
