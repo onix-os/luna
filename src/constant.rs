@@ -98,11 +98,7 @@ impl<S> Constant<S> {
     }
 
     pub fn to_bool(&self) -> bool {
-        match self {
-            Self::Nil => false,
-            Self::Boolean(false) => false,
-            _ => true,
-        }
+        !matches!(self, Self::Nil | Self::Boolean(false))
     }
 
     pub fn not(&self) -> Constant<S> {
@@ -140,10 +136,8 @@ impl<S: AsRef<[u8]>> Constant<S> {
                 let a = trim_whitespace(a.as_ref());
                 if let Some(i) = read_integer(a) {
                     Some(Constant::Integer(i))
-                } else if let Some(n) = read_float(a) {
-                    Some(Constant::Number(n))
                 } else {
-                    None
+                    read_float(a).map(Constant::Number)
                 }
             }
             _ => None,
@@ -166,8 +160,7 @@ impl<S: AsRef<[u8]>> Constant<S> {
             Some(Self::Number(a)) => {
                 // `a as i64` saturates, so `2^63` used to answer `maxinteger` even though it is
                 // one past the top of the range. The upper bound is exclusive for that reason.
-                if a >= -9_223_372_036_854_775_808.0
-                    && a < 9_223_372_036_854_775_808.0
+                if (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&a)
                     && a.floor() == a
                 {
                     Some(a as i64)

@@ -61,7 +61,7 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
     })
     .into();
 
-    table.set_field(ctx, "unpack", unpack.clone());
+    table.set_field(ctx, "unpack", unpack);
 
     table.set_field(
         ctx,
@@ -465,12 +465,12 @@ fn table_remove_impl<'gc>(
                 if let Some(call) = call {
                     seq.call(&call, 0).await?;
                 }
-                let len = seq.try_enter(|ctx, _, _, mut stack| {
+
+                seq.try_enter(|ctx, _, _, mut stack| {
                     Ok(stack
                         .consume::<i64>(ctx)
                         .context("__len returned invalid length")?)
-                })?;
-                len
+                })?
             };
 
             let index = index.unwrap_or(length);
@@ -497,7 +497,7 @@ fn table_remove_impl<'gc>(
                     index_set_helper(&mut seq, &table, i, value, 1).await?;
 
                     seq.enter(|_, _, mut exec, _| {
-                        exec.fuel().consume(FUEL_PER_SHIFTED_ITEM as i32);
+                        exec.fuel().consume(FUEL_PER_SHIFTED_ITEM);
                     });
                 }
 
@@ -608,12 +608,12 @@ fn table_insert_impl<'gc>(
                 if let Some(call) = call {
                     seq.call(&call, 0).await?;
                 }
-                let len = seq.try_enter(|ctx, _, _, mut stack| {
+
+                seq.try_enter(|ctx, _, _, mut stack| {
                     Ok(stack
                         .consume::<i64>(ctx)
                         .context("__len returned invalid length")?)
-                })?;
-                len
+                })?
             };
 
             let end_index = match length.checked_add(1) {
@@ -652,7 +652,7 @@ fn table_insert_impl<'gc>(
                     index_set_helper(&mut seq, &table, i, value, 0).await?;
 
                     seq.enter(|_, _, mut exec, _| {
-                        exec.fuel().consume(FUEL_PER_SHIFTED_ITEM as i32);
+                        exec.fuel().consume(FUEL_PER_SHIFTED_ITEM);
                     });
                 }
             }

@@ -672,10 +672,8 @@ impl Drop for Child<'_> {
     fn drop(&mut self) {
         while !self.reaped {
             let _ = self.cleanup_once();
-            if !self.reaped {
-                if self.ready(20).unwrap_or(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
+            if !self.reaped && self.ready(20).unwrap_or(true) {
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }
     }

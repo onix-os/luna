@@ -1342,7 +1342,8 @@ fn bound_write_binding_avoids_scalar_materialization() {
         });
         assert_eq!(masks[0][0] & 1, 0);
         assert_eq!(masks[1][0] & 1, 1);
-        let entry = unsafe { std::mem::transmute(writes.0.entry) };
+        let entry: crate::jit::abi::payload::runtime::BoundEntry =
+            unsafe { std::mem::transmute(writes.0.entry) };
         crate::jit::abi::payload::runtime::check_native_write_binding(
             entry,
             snapshot.registers,

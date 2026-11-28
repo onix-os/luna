@@ -255,6 +255,17 @@ pub struct ClosureInner<'gc> {
     /// another's. `UpValue` is `Copy`, so reading a slot is a plain load with no borrow flag —
     /// which matters, because the VM reads these on every upvalue access.
     upvalues: vec::Vec<Lock<UpValue<'gc>>, MetricsAlloc<'gc>>,
+    #[cfg(feature = "jit")]
+    #[collect(require_static)]
+    native_skip: std::cell::Cell<NativeSkip>,
+}
+
+/// The pc whose VM slices skip native dispatch for a closure, and how many slices are left.
+#[cfg(feature = "jit")]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct NativeSkip {
+    pc: u32,
+    remaining: u16,
 }
 
 /// As [`FunctionPrototype`]: the upvalue *count*, not every captured value. Walking them would
@@ -315,7 +326,15 @@ impl<'gc> Closure<'gc> {
             }
         }
 
-        Ok(Closure(Gc::new(mc, ClosureInner { proto, upvalues })))
+        Ok(Closure(Gc::new(
+            mc,
+            ClosureInner {
+                proto,
+                upvalues,
+                #[cfg(feature = "jit")]
+                native_skip: std::cell::Cell::default(),
+            },
+        )))
     }
 
     pub fn from_parts(
@@ -323,7 +342,15 @@ impl<'gc> Closure<'gc> {
         proto: Gc<'gc, FunctionPrototype<'gc>>,
         upvalues: vec::Vec<Lock<UpValue<'gc>>, MetricsAlloc<'gc>>,
     ) -> Self {
-        Self(Gc::new(mc, ClosureInner { proto, upvalues }))
+        Self(Gc::new(
+            mc,
+            ClosureInner {
+                proto,
+                upvalues,
+                #[cfg(feature = "jit")]
+                native_skip: std::cell::Cell::default(),
+            },
+        ))
     }
 
     pub fn from_inner(inner: Gc<'gc, ClosureInner<'gc>>) -> Self {
@@ -332,6 +359,39 @@ impl<'gc> Closure<'gc> {
 
     pub fn into_inner(self) -> Gc<'gc, ClosureInner<'gc>> {
         self.0
+    }
+
+    /// Whether this closure's slice starting at `pc` skips native dispatch. Any slice of the
+    /// closure uses up one slice of the wait, so a claim on a pc that stops running expires.
+    #[cfg(feature = "jit")]
+    #[inline]
+    pub(crate) fn native_skipped(self, pc: usize) -> bool {
+        let skip = self.0.native_skip.get();
+        if skip.remaining > 0 {
+            self.0.native_skip.set(NativeSkip {
+                remaining: skip.remaining - 1,
+                ..skip
+            });
+            return skip.pc as usize == pc;
+        }
+        false
+    }
+
+    /// Skip native dispatch for this closure's next `slices` slices starting at `pc`, if its slot
+    /// is free or already holds `pc`.
+    #[cfg(feature = "jit")]
+    pub(crate) fn skip_native(self, pc: usize, slices: u16) -> bool {
+        let skip = self.0.native_skip.get();
+        match u32::try_from(pc) {
+            Ok(pc) if skip.remaining == 0 || skip.pc == pc => {
+                self.0.native_skip.set(NativeSkip {
+                    pc,
+                    remaining: slices,
+                });
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Compile a top-level closure from source, using the globals table as the `_ENV` table.

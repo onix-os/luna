@@ -257,7 +257,7 @@ impl Plan<'_> {
                     let identity = e.b.ins().icmp(IntCC::Equal, bits, expected);
                     e.guard(identity, GUARD);
                     let left = e.cell_integer(cell);
-                    let pattern = self.pair.pattern;
+                    let pattern = self.pair.cell();
                     let right = match pattern.right {
                         leaf::Operand::Register(index) if index == pattern.read => left,
                         leaf::Operand::Register(index) => {

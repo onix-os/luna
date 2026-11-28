@@ -1140,10 +1140,7 @@ mod tests {
         assert!(graph.nodes.iter().all(|node| node.reachable));
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[test]
     fn host_cfg_quota_refusal_precedes_codegen_and_preserves_interpreter_execution() {
         let mut lua = crate::Lua::empty();

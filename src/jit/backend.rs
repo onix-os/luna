@@ -974,6 +974,7 @@ fn compile_image(
     .installed()
 }
 
+#[allow(clippy::result_large_err)]
 fn compile_image_to(
     snapshot: &Snapshot,
     total: MappingCounter,
@@ -7031,6 +7032,7 @@ mod memory_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn finalized_image_retains_only_charged_runtime_storage() {
         let mut lua = crate::Lua::empty();
         let snapshot = lua.enter(|ctx| {
@@ -7099,6 +7101,7 @@ mod memory_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn detached_provider_cannot_allocate_finalize_or_release_image() {
         let memory = memory(1);
         let total = memory.total.clone();
@@ -7147,6 +7150,7 @@ mod memory_tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn segment_permissions(pointer: *const u8) -> Option<String> {
         let address = pointer as usize;
         std::fs::read_to_string("/proc/self/maps")
@@ -7217,6 +7221,7 @@ mod memory_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn segment_permissions_and_repeated_finalization_keep_record_storage_fixed() {
         let mut memory = memory(16);
         let metadata = memory.allocations.allocator().0.clone();
@@ -7289,6 +7294,7 @@ mod memory_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn segment_partial_protection_failure_retains_every_mapping_until_reclamation() {
         let mut memory = memory(8);
         let metadata = memory.allocations.allocator().0.clone();
@@ -7359,6 +7365,7 @@ mod memory_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn segment_reclamation_os_worker() {
         const FILTER: &str = "jit::backend::memory_tests::segment_reclamation_os_worker";
         if std::env::var_os("LUNA_SEGMENT_RECLAIM_WORKER").is_none() {

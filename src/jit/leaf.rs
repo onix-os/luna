@@ -84,6 +84,100 @@ impl Pattern {
     }
 }
 
+/// `return left OP right` over arguments and integer constants: the shape of small arithmetic
+/// helpers. The compiler follows the explicit `Return` with an unreachable one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ValuePattern {
+    pub left: RegisterIndex,
+    pub result: RegisterIndex,
+    pub arithmetic: Arithmetic,
+    pub right: Operand,
+}
+
+impl ValuePattern {
+    /// The instruction the leaf leaves at, to return its result canonically.
+    pub(super) const RETURN_PC: usize = 1;
+
+    pub(super) fn recognize(snapshot: &Snapshot) -> Option<Self> {
+        snapshot.verify().ok()?;
+        Self::from_operations(&snapshot.operations)
+    }
+
+    pub(super) fn from_operations(operations: &[Operation]) -> Option<Self> {
+        use crate::opcode::RCIndex;
+        use Operation::*;
+
+        let [math, Return { start, count }, Return { .. }] = operations else {
+            return None;
+        };
+        let (arithmetic, result, left, right) = match math {
+            Add { dest, left, right } => (Arithmetic::Add, dest, left, right),
+            Sub { dest, left, right } => (Arithmetic::Sub, dest, left, right),
+            Mul { dest, left, right } => (Arithmetic::Mul, dest, left, right),
+            _ => return None,
+        };
+        let RCIndex::Register(left) = left else {
+            return None;
+        };
+        if start != result || count.to_constant() != Some(1) {
+            return None;
+        }
+        Some(Self {
+            left: *left,
+            result: *result,
+            arithmetic,
+            right: match right {
+                RCIndex::Register(register) => Operand::Register(*register),
+                RCIndex::Constant(constant) => Operand::Constant(constant.0),
+            },
+        })
+    }
+
+    /// Whether `arguments` fixed arguments supply every register the leaf reads.
+    pub(super) fn reads_arguments(self, arguments: u8, fixed_params: u8) -> bool {
+        let supplied =
+            |register: RegisterIndex| register.0 < arguments && register.0 < fixed_params;
+        supplied(self.left)
+            && match self.right {
+                Operand::Register(register) => supplied(register),
+                Operand::Constant(_) => true,
+            }
+    }
+}
+
+/// The callee shapes a paired call can run natively.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Leaf {
+    /// Updates one integer upvalue and returns nothing.
+    Cell(Pattern),
+    /// Returns one integer computed from its arguments.
+    Value(ValuePattern),
+}
+
+impl Leaf {
+    pub(super) fn recognize(snapshot: &Snapshot) -> Option<Self> {
+        Pattern::recognize(snapshot)
+            .map(Self::Cell)
+            .or_else(|| ValuePattern::recognize(snapshot).map(Self::Value))
+    }
+
+    /// The instruction the native leaf leaves at, where the canonical `Return` runs.
+    pub(super) fn return_pc(self) -> usize {
+        match self {
+            Self::Cell(_) => 3,
+            Self::Value(_) => ValuePattern::RETURN_PC,
+        }
+    }
+
+    /// The results a call site must ask for.
+    pub(super) fn call_returns(self) -> u8 {
+        match self {
+            Self::Cell(_) => 0,
+            Self::Value(_) => 1,
+        }
+    }
+}
+
 #[repr(C)]
 pub(super) struct View {
     pub version: u64,
@@ -93,11 +187,7 @@ pub(super) struct View {
     pub dirty: u64,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(super) type CellEntry =
     unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut abi::Exit, *mut View);
 
@@ -276,11 +366,7 @@ mod tests {
         assert!(!floating.integer_activation(pattern, abi::Slot::from_value(Value::Integer(2))));
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     mod native {
         use super::*;
 
@@ -1897,5 +1983,59 @@ mod tests {
         let mut upper = [Value::Integer(13)];
         assert_eq!(delta.apply_upper(&mut upper), Err(Error::TargetRange));
         assert!(matches!(upper[0], Value::Integer(13)));
+    }
+}
+
+#[test]
+fn value_patterns_are_one_result_arithmetic_over_registers() {
+    use crate::{
+        opcode::RCIndex,
+        types::{ConstantIndex8, VarCount},
+    };
+    let add = |left: RCIndex, right: RCIndex| Operation::Add {
+        dest: RegisterIndex(2),
+        left,
+        right,
+    };
+    let ret = |start: u8, count: u8| Operation::Return {
+        start: RegisterIndex(start),
+        count: VarCount::constant(count),
+    };
+    let r = |index: u8| RCIndex::Register(RegisterIndex(index));
+    let k = RCIndex::Constant(ConstantIndex8(0));
+    let pattern = ValuePattern::from_operations(&[add(r(0), r(1)), ret(2, 1), ret(0, 0)]).unwrap();
+    assert_eq!(
+        (pattern.left, pattern.result, pattern.right),
+        (
+            RegisterIndex(0),
+            RegisterIndex(2),
+            Operand::Register(RegisterIndex(1))
+        )
+    );
+    assert!(pattern.reads_arguments(2, 2));
+    assert!(!pattern.reads_arguments(1, 2));
+    assert!(!pattern.reads_arguments(2, 1));
+    let constant = ValuePattern::from_operations(&[add(r(0), k), ret(2, 1), ret(0, 0)]).unwrap();
+    assert_eq!(constant.right, Operand::Constant(0));
+    assert!(constant.reads_arguments(1, 1));
+    for operations in [
+        vec![add(k, r(0)), ret(2, 1), ret(0, 0)],
+        vec![add(r(0), r(1)), ret(1, 1), ret(0, 0)],
+        vec![add(r(0), r(1)), ret(2, 2), ret(0, 0)],
+        vec![add(r(0), r(1)), ret(2, 1)],
+        vec![
+            Operation::Div {
+                dest: RegisterIndex(2),
+                left: r(0),
+                right: r(1),
+            },
+            ret(2, 1),
+            ret(0, 0),
+        ],
+    ] {
+        assert!(
+            ValuePattern::from_operations(&operations).is_none(),
+            "{operations:?}"
+        );
     }
 }

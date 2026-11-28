@@ -10,11 +10,13 @@ use std::sync::atomic::Ordering;
 
 const SOURCE: &[u8] = b"local sum=0 for i=1,80 do sum=sum+host_increment(i) end return sum";
 
+#[cfg(target_os = "linux")]
 fn worker_artifacts(run: impl FnOnce()) {
     let (_, compiles) = backend::artifact::runtime::with_enabled(true, run);
     assert!(compiles > 0);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_preserves_fuel_callbacks_rebinding_gc_and_helper_counts() {
     worker_artifacts(
@@ -22,26 +24,31 @@ fn worker_artifact_preserves_fuel_callbacks_rebinding_gc_and_helper_counts() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_preserves_retirement_modes_weakness_and_hooks() {
     worker_artifacts(canonical_resume_preserves_retirement_modes_weakness_and_count_one_hooks);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_preserves_typed_errors_and_fault_frames() {
     worker_artifacts(canonical_resume_preserves_typed_errors_and_noncallable_fault_frames);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_refuses_open_environments_without_changing_slices() {
     worker_artifacts(canonical_resume_refuses_open_environments_without_changing_slices);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_late_cache_refusal_keeps_ordinary_owner() {
     worker_artifacts(canonical_resume_releases_refused_runtime_owners);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn worker_artifact_lease_pins_mappings_until_final_release() {
     worker_artifacts(canonical_resume_lease_pins_extra_mapping_until_last_release);

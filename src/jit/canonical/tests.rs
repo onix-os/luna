@@ -388,7 +388,7 @@ fn generated_caller_callee_caller_preserves_pending_values_and_full_trace() {
                                 else {
                                     panic!("expected closure");
                                 };
-                                callee.upvalues()[usize::from(site.pattern.upvalue)].get()
+                                callee.upvalues()[usize::from(site.cell().unwrap().upvalue)].get()
                             });
                             let transfer = host.with_registers(|caller, mut registers| {
                                 shadow
@@ -481,7 +481,7 @@ fn suspended_caller_prefix_rejects_wrong_pc_host_source_and_overlap() {
                                 Closure::load(ctx, None, b"return 1").unwrap(),
                             );
                         }
-                        host.call(ctx, site.function, site.arguments).unwrap();
+                        host.call(ctx, site.function, site.arguments, 0).unwrap();
                         let mut before = stats(ctx);
                         let mut original = trace(ctx, host, before);
                         match case {
@@ -511,7 +511,7 @@ fn suspended_caller_prefix_rejects_wrong_pc_host_source_and_overlap() {
                                 &mut Fuel::with(10000),
                                 |foreign| {
                                     position(foreign, ctx, site.pc);
-                                    foreign.call(ctx, site.function, site.arguments).unwrap();
+                                    foreign.call(ctx, site.function, site.arguments, 0).unwrap();
                                     before = stats(ctx);
                                     original = trace(ctx, host, before);
                                     assert!(foreign
@@ -558,8 +558,9 @@ fn caller_shadow_recovers_pending_values_after_partial_calls_and_errors() {
                                                 caller, &registers,
                                             )
                                             .unwrap(),
-                                            callee.upvalues()[usize::from(site.pattern.upvalue)]
-                                                .get(),
+                                            callee.upvalues()
+                                                [usize::from(site.cell().unwrap().upvalue)]
+                                            .get(),
                                         )
                                     });
                                 shadow.slots_mut()[0] = Slot::from_value(Value::Integer(12));
@@ -641,7 +642,7 @@ fn caller_shadow_transfer_refreshes_after_real_native_call_and_return() {
                         (
                             crate::jit::caller_shadow::Shadow::<256>::capture(caller, &registers)
                                 .unwrap(),
-                            callee.upvalues()[usize::from(site.pattern.upvalue)].get(),
+                            callee.upvalues()[usize::from(site.cell().unwrap().upvalue)].get(),
                         )
                     });
                     shadow.slots_mut()[0] = Slot::from_value(Value::Integer(12));
@@ -775,13 +776,13 @@ fn fixture_layout(
         pc,
         function: plan.function,
         arguments: plan.arguments,
-        pattern: plan.pattern,
+        leaf: plan.leaf,
         registers: callee.registers,
-        start: match callee.operations[3] {
+        start: match callee.operations[plan.leaf.return_pc()] {
             Operation::Return { start, .. } => start,
             _ => unreachable!(),
         },
-        returns: match callee.operations[3] {
+        returns: match callee.operations[plan.leaf.return_pc()] {
             Operation::Return { count, .. } => count.to_constant().unwrap(),
             _ => unreachable!(),
         },
@@ -885,7 +886,7 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
                     if case == 2 {
                         replacement.set_upvalue(
                             &ctx,
-                            usize::from(site.pattern.upvalue),
+                            usize::from(site.cell().unwrap().upvalue),
                             crate::closure::UpValue::new(
                                 &ctx,
                                 crate::closure::UpValueState::Closed(Value::Integer(99)),
@@ -922,7 +923,7 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
                     }
                     if case == 2 {
                         assert!(matches!(
-                            replacement.upvalues()[usize::from(site.pattern.upvalue)]
+                            replacement.upvalues()[usize::from(site.cell().unwrap().upvalue)]
                                 .get()
                                 .get(),
                             crate::closure::UpValueState::Closed(Value::Integer(99))
@@ -970,7 +971,7 @@ fn changed_physical_prototype_refuses_leave_before_materialization() {
                         instructions: 3,
                         reason: Kind::Interpreter as u32,
                     };
-                    session.slots[usize::from(site.pattern.result.0)]
+                    session.slots[usize::from(site.cell().unwrap().result.0)]
                         .write(Slot::from_value(Value::Integer(999)));
                     session.host.test_replace_closure(replacement);
                     let before = stats(ctx);
@@ -1332,7 +1333,7 @@ fn hooks_callbacks_tables_and_closed_captures_decline_before_call() {
                             };
                             callee.set_upvalue(
                                 &ctx,
-                                usize::from(site.pattern.upvalue),
+                                usize::from(site.cell().unwrap().upvalue),
                                 crate::closure::UpValue::new(
                                     &ctx,
                                     crate::closure::UpValueState::Closed(Value::Integer(7)),
@@ -1368,7 +1369,7 @@ fn foreign_thread_capture_declines_without_borrowing_its_stack() {
                         else {
                             panic!();
                         };
-                        callee.upvalues()[usize::from(site.pattern.upvalue)].get()
+                        callee.upvalues()[usize::from(site.cell().unwrap().upvalue)].get()
                     });
                     with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                         position(host, ctx, site.pc);
@@ -1378,7 +1379,11 @@ fn foreign_thread_capture_declines_without_borrowing_its_stack() {
                             else {
                                 panic!();
                             };
-                            callee.set_upvalue(&ctx, usize::from(site.pattern.upvalue), capture);
+                            callee.set_upvalue(
+                                &ctx,
+                                usize::from(site.cell().unwrap().upvalue),
+                                capture,
+                            );
                         });
                         let before = stats(ctx);
                         let original = trace(ctx, host, before);
@@ -1461,7 +1466,7 @@ fn host_releases_before_collection_callbacks_and_nested_executor_steps() {
                         else {
                             panic!();
                         };
-                        callee.upvalues()[usize::from(site.pattern.upvalue)].get()
+                        callee.upvalues()[usize::from(site.cell().unwrap().upvalue)].get()
                     });
                     let nested =
                         Closure::load(ctx, None, b"local n=0 for i=1,7 do n=n+i end return n")
@@ -1566,7 +1571,11 @@ fn argument_shifting_rebinds_current_frame_aliases_and_preserves_late_declines()
                             };
                             let capture = registers
                                 .open_test_upvalue(&ctx, RegisterIndex(site.function.0 + 1));
-                            callee.set_upvalue(&ctx, usize::from(site.pattern.upvalue), capture);
+                            callee.set_upvalue(
+                                &ctx,
+                                usize::from(site.cell().unwrap().upvalue),
+                                capture,
+                            );
                             capture
                         });
                         let before = stats(ctx);
@@ -2157,4 +2166,77 @@ fn generated_hook_panic_resumes_only_after_native_return() {
             });
         },
     );
+}
+
+#[test]
+fn value_leaves_match_physical_frames_fuel_and_dispatches() {
+    for source in [
+        &b"local function f(a, b) return a + b end local x = f(2, 5) return x"[..],
+        &b"local function f(a, b) return a - b end local x = f(2, 5) return x"[..],
+        &b"local function f(a) return a * 3 end local x = f(7) return x"[..],
+        &b"local function f(a, b) return a + b end local x = f(9223372036854775807, 2) return x"[..],
+        &b"local function f(a, b) return a * b end local x = f(-9223372036854775807-1, -1) return x"[..],
+        &b"local function f(a, b) return a + b end local x = f(2.5, 5) return x"[..],
+        &b"local function f(a, b) return a + b end local x = f(2, 5, 'extra') return x"[..],
+    ] {
+        fixture(source, |lua, closure, site, code| {
+            assert!(matches!(site.leaf, Leaf::Value(_)), "{source:?}");
+            for available in [-1, 0, 1, 8, 9, 10, 19, 20, 21, 1000] {
+                let fuel = Fuel::with(available);
+                let interpreted = lua.enter(|ctx| {
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, site.pc);
+                        host.test_fuel(fuel.clone());
+                        let before = stats(ctx);
+                        let outcome = host.run(ctx, 2, 64, 4);
+                        assert!(outcome.result.is_ok());
+                        trace(ctx, host, before)
+                    })
+                });
+                for path in 0..3 {
+                    let native = lua.enter(|ctx| {
+                        with_test_thread(
+                            ctx,
+                            ctx.fetch(&closure),
+                            &mut Fuel::with(10000),
+                            |host| {
+                                position(host, ctx, site.pc);
+                                host.test_fuel(fuel.clone());
+                                let before = stats(ctx);
+                                let paired = match path {
+                                    0 => invoke(ctx, host, &site, &code, 64).is_some(),
+                                    1 => {
+                                        let mut scratch = [MaybeUninit::uninit(); 256];
+                                        let mut session =
+                                            Session::new(ctx, host, &site, &mut scratch);
+                                        let admitted = session.preflight(64);
+                                        if admitted {
+                                            session.invoke_leaf(&code, 64);
+                                            session.finish().result.unwrap();
+                                        }
+                                        admitted
+                                    }
+                                    _ => super::atomic::invoke_value(ctx, host, &site, 64, 0),
+                                };
+                                let has = |text: &[u8]| source.windows(text.len()).any(|w| w == text);
+                                let integers = !has(b"2.5") && (path != 2 || !has(b"extra"));
+                                assert!(
+                                    paired || !integers || available < 1000,
+                                    "path {path} declined {source:?}"
+                                );
+                                if !paired {
+                                    assert!(host.run(ctx, 2, 64, 4).result.is_ok());
+                                }
+                                trace(ctx, host, before)
+                            },
+                        )
+                    });
+                    assert_eq!(
+                        native, interpreted,
+                        "source={source:?}, fuel={available}, path={path}"
+                    );
+                }
+            }
+        });
+    }
 }

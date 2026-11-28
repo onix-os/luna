@@ -13,7 +13,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 authors = ["Trim Bresilla <kushtrimbresilla@gmail.com>"]
 license = "MIT"
@@ -35,8 +35,8 @@ serde = "1.0"
 serde_json = "1.0"
 thiserror = "1.0"
 
-luna = { path = "./", version = "0.6.0" }
-luna-derive = { path = "./derive", version = "0.6.0" }
+luna = { path = "./", version = "0.7.0" }
+luna-derive = { path = "./derive", version = "0.7.0" }
 
 [package]
 name = "luna"
@@ -58,9 +58,9 @@ libm.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 luna-derive = { workspace = true, optional = true }
-luna-jit-embed = { path = "worker", version = "=0.6.1", optional = true }
+luna-jit-embed = { path = "worker", version = "=0.7.0", optional = true }
 
-[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+[target.'cfg(all(any(target_os = "linux", target_os = "macos"), any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
 cranelift-codegen = { version = "=0.136.1", optional = true }
 cranelift-frontend = { version = "=0.136.1", optional = true }
 cranelift-jit = { version = "=0.136.1", optional = true }
@@ -71,6 +71,11 @@ memmap2 = { version = "=0.9.11", optional = true }
 wasmtime-jit-icache-coherence = { package = "wasmtime-internal-jit-icache-coherence", version = "=49.0.1", optional = true }
 sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"], optional = true }
 target-lexicon = { version = "=0.13.5", optional = true }
+
+[[bin]]
+name = "luna"
+path = "src/bin/luna.rs"
+doc = false
 
 [[bin]]
 name = "luna-jit-worker"
@@ -123,7 +128,7 @@ jit-worker-embedded = ["jit-worker-bootstrap", "dep:luna-jit-embed"]
 # into every `cargo test`.
 rustyline = "14.0"
 
-[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
+[target.'cfg(all(any(target_os = "linux", target_os = "macos"), any(target_arch = "x86_64", target_arch = "aarch64")))'.dev-dependencies]
 target-lexicon = "=0.13.5"
 sha2 = { version = "=0.10.9", default-features = false, features = ["force-soft"] }
 

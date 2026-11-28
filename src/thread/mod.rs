@@ -1,14 +1,4 @@
-#[cfg(all(
-    feature = "jit",
-    any(
-        test,
-        all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    )
-))]
+#[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
 pub(crate) mod activation;
 mod close;
 mod executor;
@@ -21,13 +11,7 @@ mod vm;
 pub(crate) use self::thread::LuaRegisters;
 #[cfg(all(test, feature = "jit"))]
 pub(crate) use self::thread::ScopedUpvalue;
-#[cfg(all(
-    test,
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
 pub(crate) use self::vm::NativeResume;
 
 use thiserror::Error;

@@ -234,7 +234,7 @@ fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
     for block in original.function.layout.blocks() {
         for inst in original.function.layout.block_insts(block) {
             let mut program = binding.program(module.isa());
-            let mut instruction = program.function.dfg.insts[inst].clone();
+            let mut instruction = program.function.dfg.insts[inst];
             let changed = match &mut instruction {
                 InstructionData::MultiAry {
                     opcode: Opcode::Return,

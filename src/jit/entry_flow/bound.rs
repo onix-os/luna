@@ -334,7 +334,7 @@ mod tests {
                             };
                             *imm = 2.into();
                         }
-                        1 | 2 | 3 => {
+                        1..=3 => {
                             let other = function.dfg.block_params(entry)[0];
                             let InstructionData::IntCompare { cond, args, .. } =
                                 &mut function.dfg.insts[comparison]

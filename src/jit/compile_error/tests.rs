@@ -10,13 +10,13 @@ fn formatted_errors_retain_charge_through_internal_cleanup() {
         }
     }
     let ledger = Ledger::new(64);
-    let result: Result<(), Error> = (|| {
+    let result: Result<(), Error> = {
         let _cleanup = Cleanup(ledger.clone());
         Err(Error::compilation(
             format_args!("failure {}", 42),
             BudgetAllocator(ledger.clone()),
         ))
-    })();
+    };
     assert_eq!(ledger.current(), "failure 42".len());
     let error = result.unwrap_err();
     assert_eq!(error.class(), Class::Compilation);

@@ -1013,7 +1013,7 @@ pub fn concat_separated<'gc>(
                 _ => unreachable!(),
             }
 
-            while let Some(val) = iter.next() {
+            for val in iter.by_ref() {
                 bytes.extend(&*sep_str);
                 match val {
                     Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),

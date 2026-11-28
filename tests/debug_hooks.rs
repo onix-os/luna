@@ -15,7 +15,7 @@ mod common;
 
 #[test]
 fn a_line_hook_sees_each_line() -> Result<(), ExternError> {
-    assert_eq!(
+    assert!(
         eval::<i64>(
             r#"
             local seen = 0
@@ -28,8 +28,7 @@ fn a_line_hook_sees_each_line() -> Result<(), ExternError> {
             debug.sethook()
             return seen
         "#
-        )? > 0,
-        true
+        )? > 0
     );
     Ok(())
 }
@@ -38,11 +37,10 @@ fn a_line_hook_sees_each_line() -> Result<(), ExternError> {
 #[test]
 fn a_line_hook_reports_the_line_it_is_about_to_run() -> Result<(), ExternError> {
     // The assignment is on line 4 of the chunk; the hook must see that number.
-    assert_eq!(
+    assert!(
         eval::<bool>(
             "local hit = false\ndebug.sethook(function(e, l) if l == 4 then hit = true end end, \"l\")\nlocal a = 1\nlocal b = 2\ndebug.sethook()\nreturn hit"
-        )?,
-        true
+        )?
     );
     Ok(())
 }
@@ -92,34 +90,28 @@ fn a_hook_does_not_trigger_itself() -> Result<(), ExternError> {
 
 #[test]
 fn sethook_with_no_arguments_clears_it() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             debug.sethook(function() end, "l")
             debug.sethook()
             local hook = debug.gethook()
             return hook == nil
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
 #[test]
 fn gethook_reports_what_was_installed() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local f = function() end
             debug.sethook(f, "l")
             local hook, mask = debug.gethook()
             debug.sethook()
             return hook == f and mask == "l"
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
@@ -127,17 +119,14 @@ fn gethook_reports_what_was_installed() -> Result<(), ExternError> {
 /// it will never honour — the same rule applied to weak keys.
 #[test]
 fn unimplemented_masks_are_rejected_not_ignored() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local ok_call = pcall(debug.sethook, function() end, "c")
             local ok_ret = pcall(debug.sethook, function() end, "r")
             local ok_empty = pcall(debug.sethook, function() end, "")
             return not ok_call and not ok_ret and not ok_empty
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
@@ -148,9 +137,8 @@ fn unimplemented_masks_are_rejected_not_ignored() -> Result<(), ExternError> {
 /// fire again outside the `pcall`, which is correct but tests something else.
 #[test]
 fn an_erroring_hook_is_catchable() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local fired = 0
             local ok = pcall(function()
                 debug.sethook(function()
@@ -163,9 +151,7 @@ fn an_erroring_hook_is_catchable() -> Result<(), ExternError> {
             debug.sethook()
             return not ok
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }
 
@@ -250,17 +236,14 @@ fn setlocal_changes_the_variable() -> Result<(), ExternError> {
 
 #[test]
 fn getlocal_out_of_range_is_nil() -> Result<(), ExternError> {
-    assert_eq!(
-        eval::<bool>(
-            r#"
+    assert!(eval::<bool>(
+        r#"
             local function probe()
                 local a = 1
                 return debug.getlocal(1, 99) == nil and debug.getlocal(99, 1) == nil
             end
             return probe()
         "#
-        )?,
-        true
-    );
+    )?);
     Ok(())
 }

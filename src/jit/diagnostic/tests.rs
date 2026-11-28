@@ -16,7 +16,7 @@ fn exact_utf8_charge_outlives_moves_and_nested_results() {
         assert_eq!(ledger.current(), text.len());
         let result: Result<(), Message> = Err(message);
         assert_eq!(ledger.current(), text.len());
-        let moved = result.unwrap_err();
+        let Err(moved) = result else { unreachable!() };
         assert_eq!(&moved, text);
         drop(moved);
         assert_eq!(ledger.current(), 0);

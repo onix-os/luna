@@ -74,7 +74,7 @@ $(info ------------------------------------------)
 $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b dev compile c run r repl test t test-all test-doc check check-all clippy clippy-strict rustdoc fmt fmt-check print-name clean verify publish release help h
+.PHONY: build b dev compile c run r repl test t test-all test-doc check check-all clippy clippy-strict rustdoc fmt fmt-check print-name clean verify publish bump release help h
 .PHONY: jit-deps jit-check jit-test jit-test-all jit-test-doc jit-rustdoc jit-verify jit-tree jit-reference jit-backend jit-boundary jit-native jit-numeric jit-heap jit-registers jit-policy jit-resources jit-example jit-bench jit-bench-paired jit-performance jit-profile jit-profile-build jit-rust-assembly jit-fuzz-smoke jit-fuzz jit-evidence environment
 .PHONY: ci-check jit-platform
 .PHONY: jit-size jit-size-build jit-cost-tests jit-cost-native jit-shipping
@@ -459,6 +459,19 @@ jit-miri:
 	@set -e -o pipefail; for filter in jit::handoff::tests jit::arrays::tests jit::array_window:: jit::runtime_owner_tests jit::global_owner::tests jit::resources::bootstrap_tests jit::resources::mapping_tests jit::abi::tests jit::abi::transport_inputs::tests jit::entry_admission::tests jit::readonly_lookup::tests jit::readonly_lookup::scalar_entry jit::readonly_lookup::binding::tests jit::readonly_lookup::binding::integer_resume::tests table::raw::code_read_hint_tests::strong_peek jit::helpers::tests jit::helpers::existing_entry_tests jit::scoped_helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::global_box::tests jit::segments::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$${filter//::/-}".log; \
 	done
+
+# The native backend on macOS hardware: every workspace test with the JIT compiled in, in each
+# mode. The out-of-process compiler worker is Linux-only, so its gates are not part of this.
+.PHONY: jit-macos
+MACOS_TESTS := $(patsubst tests/%.rs,--test %,$(filter-out tests/jit_worker.rs,$(wildcard tests/*.rs)))
+jit-macos:
+	@case "$$(uname -sm)" in 'Darwin arm64'|'Darwin x86_64') ;; *) echo 'jit-macos needs macOS hardware, not a cross-build' >&2; exit 2;; esac
+	@status=0; \
+	LUNA_TEST_JIT_MODE=off $(CARGO) test --workspace --all-targets --features luna/jit --no-fail-fast || status=1; \
+	for mode in auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test -p luna --features jit --no-fail-fast $(MACOS_TESTS) || status=1; \
+	done; \
+	exit $$status
 
 jit-platform:
 	@case '$(TARGET)' in \
@@ -2908,9 +2921,7 @@ fmt:
 fmt-check:
 	@$(CARGO) fmt --all -- --check
 
-# Warnings are reported, not denied. The code inherited from upstream carries ~137 lints, and a
-# gate that fails on all of them from day one is a gate nobody can run. `clippy-strict` is the
-# version to switch `verify` to once that backlog is cleared.
+# `clippy` reports warnings; `clippy-strict` denies them with default features and with the JIT.
 clippy:
 	@$(CARGO) clippy --workspace --all-targets $(TARGET_ARG)
 
@@ -2919,6 +2930,7 @@ jit-clippy:
 
 clippy-strict:
 	@$(CARGO) clippy --workspace --all-targets $(TARGET_ARG) -- -D warnings
+	@$(CARGO) clippy --workspace --all-targets --features luna/jit $(TARGET_ARG) -- -D warnings
 
 rustdoc:
 	@RUSTDOCFLAGS="-Dwarnings" $(CARGO) doc --workspace --no-deps $(TARGET_ARG)
@@ -2931,14 +2943,11 @@ print-name:
 clean:
 	@$(CARGO) clean
 
-# Clippy is deliberately not in the gate yet: the code inherited from upstream carries 135
-# warnings and 2 deny-by-default `never_loop` errors in src/meta_ops.rs, so a `verify` that
-# included it would be red on arrival and stop being run. Put it back once that is cleared.
 .PHONY: make-default-tests
 make-default-tests:
 	@bash tests/test-make-default.sh
 
-verify: fmt-check check check-all test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests make-default-tests
+verify: fmt-check check check-all clippy-strict test test-all rustdoc jit-compiler-jobs-memcheck-reader-tests make-default-tests
 
 # Order matters: luna depends on luna-derive and luna-util depends on luna, so each has to be in
 # the registry before the one that needs it.
@@ -2948,6 +2957,21 @@ publish:
 	@$(CARGO) publish -p $(PROJECT_NAME)
 	@$(CARGO) publish -p $(PROJECT_NAME)-util
 
+# Sets the workspace version, the internal dependency requirements, the exact release pins and
+# both lockfiles to VERSION.
+bump:
+	@case '$(VERSION)' in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "Use 'make bump VERSION=M.m.p'" >&2; exit 2;; esac
+	@sed -i -E '/^\[workspace\.package\]/,/^\[/s/^version = "[^"]*"/version = "$(VERSION)"/' Cargo.toml
+	@sed -i -E 's/^(luna(-derive)? = \{ path = "[^"]*", version = ")[^"]*"/\1$(VERSION)"/' Cargo.toml
+	@sed -i -E 's/^(luna-jit-embed = \{ path = "worker", version = "=)[^"]*"/\1$(VERSION)"/' Cargo.toml
+	@sed -i -E 's/^(luna(-util)? = \{ version = "=)[^"]*"/\1$(VERSION)"/' tests/release_consumer/Cargo.toml
+	@sed -i -E 's/(\$$name-)[0-9]+\.[0-9]+\.[0-9]+/\1$(VERSION)/g; s/(\.version == ")[0-9]+\.[0-9]+\.[0-9]+"/\1$(VERSION)"/' tests/support/package_smoke.sh
+	@$(CARGO) update --offline --workspace --quiet
+	@sed -i -E '/^name = "luna(-derive)?"$$/{n;s/^version = "[^"]*"/version = "$(VERSION)"/}' fuzz/Cargo.lock
+	@grep -q '^version = "$(VERSION)"' Cargo.toml
+	@test "$$(grep -c '$(VERSION)' tests/release_consumer/Cargo.toml tests/support/package_smoke.sh | awk -F: '{n += $$2} END {print n}')" -eq 5
+
+# Bumps every version and pin in one commit, then lets git-rel tag, write the changelog and push.
 release:
 	@if [ -z "$(HAS_REL)" ]; then \
 		echo "git-rel is not installed. Please install it first."; \
@@ -2957,7 +2981,17 @@ release:
 		echo "Release type not specified. Use 'make release TYPE=[patch|minor|major|M.m.p]'"; \
 		exit 1; \
 	fi
-	@git rel $(TYPE)
+	@[ "$$(git rev-parse --abbrev-ref HEAD)" = develop ] || { echo "Release from develop" >&2; exit 1; }
+	@git diff --quiet HEAD || { echo "Commit or stash local changes first" >&2; exit 1; }
+	@version=$$(echo '$(PROJECT_VERSION)' | awk -F. -v type='$(TYPE)' ' \
+		type ~ /^[0-9]+\.[0-9]+\.[0-9]+$$/ { print type; exit } \
+		type == "patch" { print $$1 "." $$2 "." $$3 + 1; exit } \
+		type == "minor" { print $$1 "." $$2 + 1 ".0"; exit } \
+		type == "major" { print $$1 + 1 ".0.0"; exit } \
+		{ exit 1 }') || { echo "Unknown release type '$(TYPE)'" >&2; exit 1; }; \
+	$(MAKE) --no-print-directory bump VERSION=$$version && \
+	{ git diff --quiet HEAD || git commit --quiet -am "chore: bump version and internal deps to $$version"; } && \
+	git rel $$version
 
 help:
 	@echo
@@ -3078,7 +3112,8 @@ help:
 	@echo "  jit-clean-release-package Clean only luna's release cache (TARGET=...)"
 	@echo "  jit-rust-assembly Inspect symbol-retained Rust dispatch/helper assembly"
 	@echo "  publish      Publish $(PROJECT_NAME)-derive, $(PROJECT_NAME), then $(PROJECT_NAME)-util"
-	@echo "  release      Release a new version"
+	@echo "  bump         Set every version and release pin (make bump VERSION=M.m.p)"
+	@echo "  release      Bump, tag and push a release (make release TYPE=patch|minor|major|M.m.p)"
 	@echo
 
 h: help

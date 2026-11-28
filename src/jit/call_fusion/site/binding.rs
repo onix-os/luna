@@ -80,11 +80,7 @@ impl Input {
         }))
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(in crate::jit) fn sources(&self) -> (&Snapshot, &Snapshot, Site) {
         (&self.parent, &self.child, self.site)
     }

@@ -1,6 +1,13 @@
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(luna_jit_embedded_worker)");
+    println!("cargo::rustc-check-cfg=cfg(luna_jit_native)");
     println!("cargo::rerun-if-changed=build.rs");
+    // The native backend runs on Linux and macOS, on x86-64 and AArch64.
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    if matches!(os.as_str(), "linux" | "macos") && matches!(arch.as_str(), "x86_64" | "aarch64") {
+        println!("cargo::rustc-cfg=luna_jit_native");
+    }
     if std::env::var_os("CARGO_FEATURE_JIT_WORKER_EMBEDDED").is_none()
         || std::env::var_os("CARGO_CFG_MIRI").is_some()
         || std::env::var_os("MIRI_SYSROOT").is_some()

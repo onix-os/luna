@@ -255,7 +255,7 @@ impl Runtime {
         else {
             return None;
         };
-        if args.to_constant().is_none() || returns.to_constant() != Some(0) {
+        if args.to_constant().is_none() || !matches!(returns.to_constant(), Some(0 | 1)) {
             return None;
         }
         let crate::Value::Function(crate::Function::Closure(callee)) =
@@ -319,6 +319,15 @@ impl Runtime {
         manager.config.mode == JitMode::Auto && manager.pairs.is_some()
     }
 
+    /// Whether calls are observed for pairing, and if so whether value leaves pair too.
+    pub(crate) fn pair_observation(&self) -> Option<bool> {
+        let manager = self.0.borrow();
+        (manager.config.mode == JitMode::Auto && manager.pairs.is_some())
+            .then_some(manager.config.value_pairs)
+    }
+
+    /// Observe a call for pairing; only calls with fixed arguments and at most one result can pair.
+    #[inline]
     pub(crate) fn observe_call<'gc>(
         &self,
         ctx: crate::Context<'gc>,
@@ -327,46 +336,74 @@ impl Runtime {
         function: crate::types::RegisterIndex,
         arguments: crate::types::VarCount,
         returns: crate::types::VarCount,
+        values: bool,
     ) {
-        if arguments.to_constant().is_none() || returns.to_constant() != Some(0) {
-            return;
+        if let (Some(returns), Some(arguments)) = (returns.to_constant(), arguments.to_constant()) {
+            if returns == 0 || (values && returns == 1) {
+                self.observe_fixed_call(ctx, caller, registers, function, arguments, returns);
+            }
         }
+    }
+
+    fn observe_fixed_call<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        registers: &crate::thread::LuaRegisters<'gc, '_>,
+        function: crate::types::RegisterIndex,
+        arguments: u8,
+        returns: u8,
+    ) {
+        use super::leaf::{Leaf, Operand, Pattern, ValuePattern};
+
         let Some(crate::Value::Function(crate::Function::Closure(callee))) =
             registers.stack_frame.get(usize::from(function.0)).copied()
         else {
             return;
         };
-        if callee.prototype().opcodes.len() != 4 {
-            return;
-        }
         let prototype = callee.prototype();
-        let operations: [_; 4] = std::array::from_fn(|index| prototype.opcodes[index].decode());
-        let Some(pattern) = super::leaf::Pattern::from_operations(&operations) else {
-            return;
-        };
-        let crate::opcode::Operation::Return { count, .. } = operations[3] else {
-            return;
-        };
-        if count.to_constant().is_none() {
-            return;
-        }
-        match pattern.right {
-            super::leaf::Operand::Constant(index) => {
-                if !matches!(
-                    prototype.constants.get(usize::from(index)),
-                    Some(crate::Constant::Integer(_))
-                ) {
+        let leaf = match prototype.opcodes.len() {
+            4 => {
+                let operations: [_; 4] =
+                    std::array::from_fn(|index| prototype.opcodes[index].decode());
+                let Some(pattern) = Pattern::from_operations(&operations) else {
                     return;
-                }
-            }
-            super::leaf::Operand::Register(register) if register != pattern.read => {
-                if register.0 >= arguments.to_constant().unwrap()
-                    || register.0 >= prototype.fixed_params
+                };
+                let crate::opcode::Operation::Return { count, .. } = operations[3] else {
+                    return;
+                };
+                if count.to_constant().is_none()
+                    || matches!(pattern.right, Operand::Register(register)
+                        if register != pattern.read
+                            && (register.0 >= arguments || register.0 >= prototype.fixed_params))
                 {
                     return;
                 }
+                Leaf::Cell(pattern)
             }
-            _ => {}
+            3 if returns == 1 => {
+                let operations: [_; 3] =
+                    std::array::from_fn(|index| prototype.opcodes[index].decode());
+                match ValuePattern::from_operations(&operations) {
+                    Some(pattern) if pattern.reads_arguments(arguments, prototype.fixed_params) => {
+                        Leaf::Value(pattern)
+                    }
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+        let right = match leaf {
+            Leaf::Cell(pattern) => pattern.right,
+            Leaf::Value(pattern) => pattern.right,
+        };
+        if leaf.call_returns() != returns
+            || matches!(right, Operand::Constant(index) if !matches!(
+                prototype.constants.get(usize::from(index)),
+                Some(crate::Constant::Integer(_))
+            ))
+        {
+            return;
         }
         let registry = ctx.jit_registry().borrow();
         let Some(caller) = registry.identity(ctx, caller.prototype()) else {

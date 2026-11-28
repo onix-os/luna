@@ -135,7 +135,7 @@ impl Segment {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub fn base(&self) -> *const u8 {
         match &self.pages {
             Some(Pages::Writable(map)) => map.as_ptr(),
@@ -150,17 +150,17 @@ impl Segment {
             return Err(Fault::SegmentUnavailable);
         };
         #[cfg(target_arch = "aarch64")]
-        if protection == BranchProtection::BTI && std::arch::is_aarch64_feature_detected!("bti") {
-            if unsafe {
+        if protection == BranchProtection::BTI
+            && std::arch::is_aarch64_feature_detected!("bti")
+            && unsafe {
                 libc::mprotect(
                     map.as_ptr().cast_mut().cast(),
                     map.len(),
                     libc::PROT_READ | libc::PROT_EXEC | 0x10,
                 )
             } < 0
-            {
-                return Err(Fault::capture(operation, io::Error::last_os_error()));
-            }
+        {
+            return Err(Fault::capture(operation, io::Error::last_os_error()));
         }
         #[cfg(not(target_arch = "aarch64"))]
         let _ = (protection, map, operation);

@@ -39,7 +39,7 @@ fn fixed_returns_match_generic_frames_values_captures_and_fuel() {
     .unwrap();
     lua.enter(|ctx| {
         for source in sources {
-            let closure = Closure::load(ctx, None, *source).unwrap();
+            let closure = Closure::load(ctx, None, source).unwrap();
             for available in [i32::MIN, -1, 0, 8, 10000] {
                 for interrupted in [false, true] {
                     let run = |fast| {

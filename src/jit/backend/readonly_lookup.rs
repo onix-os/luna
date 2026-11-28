@@ -19,7 +19,7 @@ pub(in crate::jit) struct ReadCode {
     )>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(super) fn from_artifact(
     memory: Memory,
     entry: *const u8,

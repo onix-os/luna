@@ -1,9 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", not(miri), luna_jit_native))]
 
 use luna::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode, JitStats, Lua};
 

@@ -107,18 +107,10 @@ pub(in crate::jit) fn probe<const KIND: u32>(
     args: [u32; 4],
     native: bool,
 ) -> u32 {
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let code = native.then(|| native::compile(helper::<KIND>));
     let entry: Transition = rust_transition::<KIND>;
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     let entry = code.as_ref().map_or(entry, |code| code.entry);
     #[cfg(miri)]
     assert!(!native);
@@ -136,11 +128,7 @@ pub(in crate::jit) fn probe<const KIND: u32>(
     status
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod native;
 
 mod tests;

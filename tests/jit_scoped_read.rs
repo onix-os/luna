@@ -1,9 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", not(miri), luna_jit_native))]
 
 use std::{cell::Cell, rc::Rc};
 
@@ -17,6 +12,7 @@ const SOURCE: &[u8] = b"local sum=0 for i=1,5000 do sum=sum+host_increment(i) en
 fn setup(limit: usize) -> (Lua, StashedClosure) {
     let mut lua = Lua::core();
     lua.set_jit_config(JitConfig {
+        native_backoff: false,
         mode: JitMode::Auto,
         max_code_bytes: limit,
         ..Default::default()

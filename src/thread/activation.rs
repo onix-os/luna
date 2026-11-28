@@ -8,47 +8,21 @@ use super::{
     VMError,
 };
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod fused_region;
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod call_tests;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(crate) mod atomic_call;
 
 pub(crate) struct ActivationHost<'gc, 'a> {
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pair: crate::jit::PairScope<'gc>,
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     select_pairs: bool,
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     decline_pairs: bool,
     state: &'a mut ThreadState<'gc>,
@@ -64,12 +38,7 @@ pub(crate) struct Outcome {
     pub stack_growths: usize,
 }
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 pub(crate) struct CallerFrame<'gc> {
     state: usize,
     depth: usize,
@@ -90,23 +59,11 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             state,
             stack,
             fuel,
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             pair: crate::jit::PairScope::default(),
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             select_pairs: false,
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             #[cfg(test)]
             decline_pairs: false,
         }
@@ -114,11 +71,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 
     fn with_frame<R>(&mut self, f: impl for<'frame> FnOnce(LuaFrame<'gc, 'frame>) -> R) -> R {
         f(LuaFrame {
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             pair_handoff: self.select_pairs.then_some(&mut self.pair),
             state: self.state,
             stack: &mut self.stack,
@@ -126,14 +79,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         })
     }
 
-    #[cfg(any(
-        test,
-        all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
+    #[cfg(any(test, all(not(miri), luna_jit_native)))]
     pub(crate) fn with_registers<R>(
         &mut self,
         f: impl for<'frame> FnOnce(crate::Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
@@ -176,11 +122,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     }
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub(crate) fn clear_hook(&mut self, ctx: Context<'gc>) {
         self.with_frame(|frame| ctx.clear_hook_at(frame.frame_depth()));
@@ -312,14 +254,20 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         ctx: Context<'gc>,
         function: crate::types::RegisterIndex,
         arguments: u8,
+        returns: u8,
     ) -> Result<(), VMError> {
-        if self.call_in_place(function, arguments) {
+        if self.call_in_place(function, arguments, returns) {
             return Ok(());
         }
-        self.call_generic(ctx, function, arguments)
+        self.call_generic(ctx, function, arguments, returns)
     }
 
-    fn call_in_place(&mut self, function: crate::types::RegisterIndex, arguments: u8) -> bool {
+    fn call_in_place(
+        &mut self,
+        function: crate::types::RegisterIndex,
+        arguments: u8,
+        returns: u8,
+    ) -> bool {
         use super::thread::LuaReturn;
         use crate::{Function, Value};
 
@@ -356,7 +304,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         }
         *pc += 1;
         self.fuel.consume(LuaFrame::FUEL_PER_CALL);
-        *expected_return = Some(LuaReturn::Normal(crate::types::VarCount::constant(0)));
+        *expected_return = Some(LuaReturn::Normal(crate::types::VarCount::constant(returns)));
         self.fuel
             .consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, count));
         self.stack
@@ -381,6 +329,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         ctx: Context<'gc>,
         function: crate::types::RegisterIndex,
         arguments: u8,
+        returns: u8,
     ) -> Result<(), VMError> {
         let result = self.with_frame(|mut frame| {
             *frame.registers().pc += 1;
@@ -388,7 +337,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 ctx,
                 function,
                 crate::types::VarCount::constant(arguments),
-                crate::types::VarCount::constant(0),
+                crate::types::VarCount::constant(returns),
             )
         });
         self.fuel.consume(4);
@@ -413,11 +362,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         result
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     pub(crate) fn test_trace(&self) -> (Vec<String>, Vec<crate::Value<'gc>>, usize, i32) {
         let frames = self
@@ -445,11 +390,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         )
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     pub(crate) fn test_fuel(&mut self, fuel: Fuel) {
         *self.fuel = fuel;
@@ -468,11 +409,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         *is_variable = true;
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     pub(crate) fn test_replace_closure(&mut self, replacement: crate::Closure<'gc>) {
         let Some(Frame::Lua { closure, .. }) = self.state.frames.last_mut() else {
@@ -481,11 +418,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         *closure = replacement;
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(crate) fn native_transition(
         &mut self,
         ctx: Context<'gc>,
@@ -500,7 +433,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     args,
                     returns,
                 } => {
-                    if ctx.jit().call_pairs_enabled() {
+                    if let Some(values) = ctx.jit().pair_observation() {
                         ctx.jit().observe_call(
                             ctx,
                             frame.closure(),
@@ -508,6 +441,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                             func,
                             args,
                             returns,
+                            values,
                         );
                     }
                     frame.call_function(ctx, func, args, returns)
@@ -531,11 +465,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         result
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     pub(crate) fn resume_native(
         &mut self,
@@ -546,11 +476,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.resume_native_paired(ctx, budget, resume, None)
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     pub(crate) fn resume_native_paired(
         &mut self,
@@ -570,11 +496,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         super::vm::resume_vm(ctx, frame, budget, resume)
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(crate) fn canonical_slice(
         &mut self,
         ctx: Context<'gc>,
@@ -583,11 +505,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.canonical_slice_paired(ctx, budget, None)
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(crate) fn canonical_slice_paired(
         &mut self,
         ctx: Context<'gc>,
@@ -610,11 +528,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         run_vm(ctx, frame, budget)
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(crate) fn frame_identity(&self) -> (usize, usize) {
         (
             std::ptr::from_ref(&*self.state) as usize,
@@ -633,11 +547,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             assert!(matches!(self.state.frames.last(), Some(Frame::Lua { .. })));
             #[cfg(test)]
             let capacity = self.stack.capacity();
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             if step_fuel == 4 {
                 assert!(self.pair.handoff.is_none());
                 self.select_pairs = false;
@@ -665,11 +575,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     continue;
                 }
             }
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             {
                 assert!(self.pair.handoff.is_none());
                 self.select_pairs = limit - activations >= 2
@@ -683,11 +589,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             }
             let result = self.with_frame(|frame| run_vm(ctx, frame, budget));
             activations += 1;
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             let (result, step_charged) = if let Some(pair) = self.pair.handoff.take() {
                 let prefix = result.expect("pair handoff with VM error");
                 assert!(prefix < budget);
@@ -713,19 +615,11 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             }
             let result =
                 result.map(|instructions| self.fuel.consume(instructions.try_into().unwrap()));
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             if !step_charged {
                 self.fuel.consume(step_fuel);
             }
-            #[cfg(not(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )))]
+            #[cfg(not(all(not(miri), luna_jit_native)))]
             self.fuel.consume(step_fuel);
             if result.is_err()
                 || activations == limit
@@ -756,11 +650,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     }
 }
 
-#[cfg(all(
-    test,
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, luna_jit_native))]
 pub(crate) fn with_test_thread<'gc, R>(
     ctx: Context<'gc>,
     closure: crate::Closure<'gc>,
@@ -772,11 +662,7 @@ pub(crate) fn with_test_thread<'gc, R>(
     with_test_existing_thread(ctx, thread, fuel, test)
 }
 
-#[cfg(all(
-    test,
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, luna_jit_native))]
 pub(crate) fn with_test_existing_thread<'gc, R>(
     ctx: Context<'gc>,
     thread: crate::Thread<'gc>,
@@ -790,12 +676,7 @@ pub(crate) fn with_test_existing_thread<'gc, R>(
     test(&mut host)
 }
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod return_tests;
 
 #[cfg(test)]

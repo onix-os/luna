@@ -752,7 +752,7 @@ impl<S: StringInterner> Compiler<S> {
             } => {
                 let loop_label = self.unique_jump_label();
 
-                assert!(arguments.len() >= 1);
+                assert!(!arguments.is_empty());
                 let base = if arguments.len() == 1 {
                     let args = self.expression(&arguments[0])?;
                     self.expr_push_count(args, 3)?
@@ -1120,8 +1120,8 @@ impl<S: StringInterner> Compiler<S> {
         let val_len = assignment.values.len();
         assert!(val_len != 0);
 
-        fn assign<'a, S: StringInterner>(
-            this: &'a mut Compiler<S>,
+        fn assign<S: StringInterner>(
+            this: &mut Compiler<S>,
             target: &AssignmentTarget<S::String>,
             expr: ExprDescriptor<S::String>,
         ) -> Result<(), CompileErrorKind> {
@@ -1257,7 +1257,7 @@ impl<S: StringInterner> Compiler<S> {
     ) -> Result<ExprDescriptor<S::String>, CompileErrorKind> {
         let mut expr = self.head_expression(&expression.head)?;
         for (binop, right) in &expression.tail {
-            let right = self.expression(&right)?;
+            let right = self.expression(right)?;
             expr = self.binary_operator_expression(expr, *binop, right)?;
         }
         Ok(expr)
@@ -1516,10 +1516,10 @@ impl<S: StringInterner> Compiler<S> {
         // We need to be able to index functions from the top-level chunk function (index 0), up to
         // the current function
         let current_function = self.upper_functions.len();
-        fn get_function<'a, S: StringInterner>(
-            this: &'a mut Compiler<S>,
+        fn get_function<S: StringInterner>(
+            this: &mut Compiler<S>,
             i: usize,
-        ) -> &'a mut CompilerFunction<S::String> {
+        ) -> &mut CompilerFunction<S::String> {
             if i == this.upper_functions.len() {
                 &mut this.current_function
             } else {
@@ -2706,10 +2706,8 @@ impl<S: Clone> CompilerFunction<S> {
             if *curr_opi == *next_opi {
                 *curr_ln = *next_ln;
                 true
-            } else if *curr_ln == *next_ln {
-                true
             } else {
-                false
+                *curr_ln == *next_ln
             }
         });
 
@@ -2727,7 +2725,7 @@ impl<S: Clone> CompilerFunction<S> {
                 .collect(),
             opcode_line_numbers: operation_lines,
             upvalues: self.upvalues.iter().map(|(_, d)| *d).collect(),
-            prototypes: self.functions.into_iter().map(|f| Box::new(f)).collect(),
+            prototypes: self.functions.into_iter().map(Box::new).collect(),
             locals: self.local_debug,
         })
     }

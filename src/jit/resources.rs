@@ -14,25 +14,13 @@ use super::global_owner::GlobalShared;
 
 pub(crate) type LedgerRef = GlobalShared<Ledger, HeaderCharge>;
 
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 pub(super) struct Reservation {
     ledger: LedgerRef,
     bytes: usize,
 }
 
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 impl Reservation {
     pub fn new(ledger: LedgerRef, bytes: usize) -> Result<Self, AllocError> {
         ledger.reserve(bytes)?;
@@ -51,13 +39,7 @@ mod reservation_tests;
 #[cfg(test)]
 mod compaction_delta_tests;
 
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 impl Drop for Reservation {
     fn drop(&mut self) {
         self.ledger.release(self.bytes);
@@ -294,16 +276,12 @@ impl Ledger {
 pub(crate) struct MappingCounter(LedgerRef);
 
 impl MappingCounter {
-    #[cfg(any(test, feature = "jit-worker-bootstrap"))]
+    #[cfg(any(all(test, target_os = "linux"), feature = "jit-worker-bootstrap"))]
     pub(super) fn host(&self) -> LedgerRef {
         self.0.clone()
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(crate) fn same_root(&self, other: &Self) -> bool {
         LedgerRef::ptr_eq(&self.0, &other.0)
     }
@@ -319,24 +297,12 @@ impl MappingCounter {
         self.0.requested.load(Ordering::Relaxed)
     }
 
-    #[cfg(any(
-        test,
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
+    #[cfg(any(test, luna_jit_native))]
     pub fn add_requested(&self, bytes: usize) {
         self.0.requested.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    #[cfg(any(
-        test,
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
+    #[cfg(any(test, luna_jit_native))]
     pub fn release_requested(&self, bytes: usize) {
         self.0.requested.fetch_sub(bytes, Ordering::Relaxed);
     }
@@ -1127,10 +1093,7 @@ mod tests {
         assert_eq!(manager.tracked[&1].attempts, 1);
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[test]
     fn installation_refusal_reclaims_generated_mappings() {
         let mut lua = crate::Lua::empty();

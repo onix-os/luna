@@ -144,7 +144,7 @@ mod tests {
     }
 }
 
-#[cfg(not(miri))]
+#[cfg(all(not(miri), target_os = "linux"))]
 mod native {
     use super::*;
 

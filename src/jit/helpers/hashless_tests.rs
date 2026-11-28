@@ -131,11 +131,7 @@ fn packed_helper_matches_prepared_pc_declines_and_panic_state() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn independent_flow_verifier_refuses_hashless_call_corruption() {
     use crate::jit::{
@@ -192,11 +188,7 @@ fn independent_flow_verifier_refuses_hashless_call_corruption() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn native_canonical_reads_reduce_real_workload_snapshot_peaks() {
     use crate::jit::{backend, ir::Snapshot, resources::MappingCounter, work, CompileError};

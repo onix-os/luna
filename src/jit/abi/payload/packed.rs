@@ -3,11 +3,7 @@ use super::*;
 #[path = "packed/scoped.rs"]
 pub(crate) mod scoped;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[path = "packed/native.rs"]
 mod native;
 

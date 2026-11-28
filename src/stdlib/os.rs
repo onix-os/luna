@@ -127,7 +127,11 @@ fn format_date(format: &str, t: &Broken) -> std::string::String {
                     'H' => out.push_str(&format!("{:02}", t.hour)),
                     'I' => out.push_str(&format!(
                         "{:02}",
-                        if t.hour % 12 == 0 { 12 } else { t.hour % 12 }
+                        if t.hour.is_multiple_of(12) {
+                            12
+                        } else {
+                            t.hour % 12
+                        }
                     )),
                     'j' => out.push_str(&format!("{:03}", t.yday)),
                     'm' => out.push_str(&format!("{:02}", t.month)),

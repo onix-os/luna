@@ -52,6 +52,7 @@ fn load(
     )
 }
 
+#[cfg(target_os = "linux")]
 fn executable(pointer: *const u8) {
     let address = pointer.expose_provenance();
     let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
@@ -69,6 +70,7 @@ fn executable(pointer: *const u8) {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn bounded_loader_preserves_mapping_layout_wx_and_owned_storage() {
     let image = image();
     let metadata = allocator();

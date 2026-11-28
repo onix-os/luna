@@ -341,23 +341,13 @@ impl<'gc> Executor<'gc> {
                         top_state.return_to(&mut top_stack, bottom);
                     }
                     Err(err) => {
-                        top_state.frames.push(Frame::Error(err.into()));
+                        top_state.frames.push(Frame::Error(err));
                     }
                 }
                 drop(res_state);
             }
 
-            #[cfg(all(
-                feature = "jit",
-                any(
-                    test,
-                    all(
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
-                    )
-                )
-            ))]
+            #[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
             let mut step_charged = false;
             if top_thread.mode() == ThreadMode::Normal {
                 fn do_yield<'gc>(
@@ -639,12 +629,7 @@ impl<'gc> Executor<'gc> {
                         #[cfg(feature = "jit")]
                         let mut frame_stack = frame_stack;
                         let lua_frame = LuaFrame {
-                            #[cfg(all(
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            ))]
+                            #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                             pair_handoff: None,
                             state: top_state,
                             #[cfg(feature = "jit")]
@@ -677,12 +662,7 @@ impl<'gc> Executor<'gc> {
                             #[cfg(feature = "jit")]
                             let mut frame_stack = frame_stack;
                             let lua_frame = LuaFrame {
-                                #[cfg(all(
-                                    feature = "jit",
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                ))]
+                                #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                                 pair_handoff: None,
                                 state: top_state,
                                 #[cfg(feature = "jit")]
@@ -691,21 +671,9 @@ impl<'gc> Executor<'gc> {
                                 stack: frame_stack,
                                 fuel,
                             };
-                            #[cfg(all(
-                                test,
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            ))]
+                            #[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
                             let mut lua_frame = lua_frame;
-                            #[cfg(all(
-                                test,
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            ))]
+                            #[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
                             let result = if let Some((completed, start, count)) =
                                 super::vm::try_scalar_activation(
                                     ctx,
@@ -724,39 +692,13 @@ impl<'gc> Executor<'gc> {
                             } else {
                                 run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
                             };
-                            #[cfg(not(all(
-                                test,
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            )))]
+                            #[cfg(not(all(test, feature = "jit", not(miri), luna_jit_native)))]
                             let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
                             result
                         };
-                        #[cfg(all(
-                            feature = "jit",
-                            any(
-                                test,
-                                all(
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                )
-                            )
-                        ))]
+                        #[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
                         let policy = ctx.jit().activation_policy();
-                        #[cfg(all(
-                            feature = "jit",
-                            any(
-                                test,
-                                all(
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                )
-                            )
-                        ))]
+                        #[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
                         let result = if let Some(limit) = policy.native_limit() {
                             let outcome = {
                                 let mut host = super::activation::ActivationHost::new(
@@ -802,14 +744,7 @@ impl<'gc> Executor<'gc> {
                         };
                         #[cfg(not(all(
                             feature = "jit",
-                            any(
-                                test,
-                                all(
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                )
-                            )
+                            any(test, all(not(miri), luna_jit_native))
                         )))]
                         let result = ordinary(top_state, fuel);
                         match result {
@@ -904,31 +839,11 @@ impl<'gc> Executor<'gc> {
                 }
             }
 
-            #[cfg(all(
-                feature = "jit",
-                any(
-                    test,
-                    all(
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
-                    )
-                )
-            ))]
+            #[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
             if !step_charged {
                 fuel.consume(Self::FUEL_PER_STEP);
             }
-            #[cfg(not(all(
-                feature = "jit",
-                any(
-                    test,
-                    all(
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
-                    )
-                )
-            )))]
+            #[cfg(not(all(feature = "jit", any(test, all(not(miri), luna_jit_native)))))]
             fuel.consume(Self::FUEL_PER_STEP);
 
             if !fuel.should_continue() {
@@ -1117,7 +1032,7 @@ impl<'gc, 'a> Execution<'gc, 'a> {
         // Filtered on lookup rather than pre-collected: this is read by `error(msg, level)`,
         // `debug.getinfo` and `debug.traceback` only, so paying per lookup beats paying per native
         // call — which is what snapshotting the chain up front cost.
-        let Some((closure, pc, base)) = self
+        let (closure, pc, base) = self
             .lua_frames
             .iter()
             .rev()
@@ -1127,10 +1042,7 @@ impl<'gc, 'a> Execution<'gc, 'a> {
                 } => Some((*closure, *pc, *base)),
                 _ => None,
             })
-            .nth(level)
-        else {
-            return None;
-        };
+            .nth(level)?;
         self.describe(closure, pc, base)
     }
 
@@ -1492,23 +1404,13 @@ mod activation_tests {
         compare_canonical_slices(false);
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     #[test]
     fn scalar_kernels_have_identical_canonical_slices() {
         compare_canonical_slices(true);
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     #[test]
     fn direct_scalar_activations_preserve_canonical_slices() {
         for (source, expected, activations) in [
@@ -1562,12 +1464,7 @@ mod activation_tests {
         }
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     #[test]
     fn scalar_activation_executes_without_upvalue_helpers() {
         let mut lua = Lua::empty();
@@ -1599,12 +1496,7 @@ mod activation_tests {
         );
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     #[test]
     fn integer_activations_execute_without_upvalue_helpers() {
         for (initial, operation, argument, expected) in [
@@ -1720,19 +1612,13 @@ mod mode_tests;
 #[cfg(test)]
 mod callback_chain_tests;
 
-#[cfg(all(
-    test,
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, feature = "jit", not(miri), luna_jit_native))]
 mod builtin_tests;
 
 #[cfg(all(test, feature = "jit"))]
 mod static_off_tests;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "jit"))]
 impl Executor<'_> {
     pub(crate) fn test_frame_snapshot(
         self,
@@ -1776,17 +1662,7 @@ impl Executor<'_> {
     }
 }
 
-#[cfg(all(
-    feature = "jit",
-    any(
-        test,
-        all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    )
-))]
+#[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
 mod interpreted_tail;
 
 #[cfg(all(test, feature = "jit"))]

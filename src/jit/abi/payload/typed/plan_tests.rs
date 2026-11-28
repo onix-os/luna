@@ -6,6 +6,7 @@ use crate::{
 };
 
 #[cfg(not(miri))]
+#[allow(dead_code)]
 #[path = "../../../../../examples/jit_support/workloads.rs"]
 mod workloads;
 

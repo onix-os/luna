@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;
 
 thread_local! {
@@ -21,6 +21,7 @@ pub(in crate::jit) fn with_enabled<T>(enabled: bool, run: impl FnOnce() -> T) ->
     (result, COMPILES.get())
 }
 
+#[cfg_attr(not(feature = "jit-worker-embedded"), allow(dead_code))]
 pub(in crate::jit) fn enabled() -> bool {
     ENABLED.get()
 }
@@ -34,71 +35,79 @@ pub(in crate::jit) fn compile(
     work: crate::jit::work::Limits,
     failure: Failure,
 ) -> Option<Result<Code, CompileError>> {
-    if !ENABLED.get() {
-        return None;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (route, source, total, limit, metadata, work, failure);
+        None
     }
-    COMPILES.set(COMPILES.get() + 1);
-    Some((|| {
-        if !matches!(
-            failure,
-            Failure::None
-                | Failure::RefuseReadonlyOwnerStorage
-                | Failure::RefuseReadonlyOwnerAllocation
-                | Failure::RefuseReadonlyCacheAllocation
-                | Failure::RefuseOwnerStorage
-                | Failure::RefuseOwnerAllocation
-                | Failure::Allocate
-                | Failure::Protect
-                | Failure::Cache
-                | Failure::Pipeline
-                | Failure::RequireReleasedSnapshot
-        ) {
-            return Err(CompileError::Unavailable(
-                "unsupported artifact compiler injection",
-            ));
+    #[cfg(target_os = "linux")]
+    {
+        if !ENABLED.get() {
+            return None;
         }
-        crate::jit::work::Expansion::admit(source, work)?;
-        let resume = crate::jit::readonly_lookup::binding::integer_resume::enabled();
-        let packet = crate::jit::compiler_process::request_packet_in(
-            source,
-            route,
-            resume,
-            work,
-            total.host(),
-            metadata.clone(),
-            crate::jit::compiler_jobs::current(),
-        )?;
-        assemble(
-            &packet.bytes,
-            packet.binding(),
-            Limits {
-                bytes: 2 << 20,
-                modules: 16,
-                declarations: 256,
-                functions: 128,
-                relocations: 8192,
-            },
-            Assembly {
+        COMPILES.set(COMPILES.get() + 1);
+        Some((|| {
+            if !matches!(
+                failure,
+                Failure::None
+                    | Failure::RefuseReadonlyOwnerStorage
+                    | Failure::RefuseReadonlyOwnerAllocation
+                    | Failure::RefuseReadonlyCacheAllocation
+                    | Failure::RefuseOwnerStorage
+                    | Failure::RefuseOwnerAllocation
+                    | Failure::Allocate
+                    | Failure::Protect
+                    | Failure::Cache
+                    | Failure::Pipeline
+                    | Failure::RequireReleasedSnapshot
+            ) {
+                return Err(CompileError::Unavailable(
+                    "unsupported artifact compiler injection",
+                ));
+            }
+            crate::jit::work::Expansion::admit(source, work)?;
+            let resume = crate::jit::readonly_lookup::binding::integer_resume::enabled();
+            let packet = crate::jit::compiler_process::request_packet_in(
                 source,
                 route,
                 resume,
-                total,
-                limit,
-                metadata,
                 work,
-                failure,
-            },
-        )
-        .map_err(|error| match error {
-            InstallError::Native(error) => error,
-            InstallError::Packet(Error::Allocation | Error::Limit) => {
-                CompileError::ResourceLimit("compiler artifact")
-            }
-            InstallError::Packet(_) => {
-                CompileError::Compilation("compiler artifact source or identity".into())
-            }
-        })
-    })())
+                total.host(),
+                metadata.clone(),
+                crate::jit::compiler_jobs::current(),
+            )?;
+            assemble(
+                &packet.bytes,
+                packet.binding(),
+                Limits {
+                    bytes: 2 << 20,
+                    modules: 16,
+                    declarations: 256,
+                    functions: 128,
+                    relocations: 8192,
+                },
+                Assembly {
+                    source,
+                    route,
+                    resume,
+                    total,
+                    limit,
+                    metadata,
+                    work,
+                    failure,
+                },
+            )
+            .map_err(|error| match error {
+                InstallError::Native(error) => error,
+                InstallError::Packet(Error::Allocation | Error::Limit) => {
+                    CompileError::ResourceLimit("compiler artifact")
+                }
+                InstallError::Packet(_) => {
+                    CompileError::Compilation("compiler artifact source or identity".into())
+                }
+            })
+        })())
+    }
 }
 
 #[test]

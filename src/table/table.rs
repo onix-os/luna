@@ -1,7 +1,7 @@
 use std::{
     fmt,
     hash::{Hash, Hasher},
-    i64, mem,
+    mem,
 };
 
 use ottavino_gc_arena::{lock::RefLock, Collect, Gc, Mutation};
@@ -157,7 +157,7 @@ impl<'gc> Table<'gc> {
         if self.0.borrow().readonly {
             return Err(InvalidTableKey::ReadOnly);
         }
-        self.0.borrow_mut(&mc).raw_table.set(&mc, key, value)
+        self.0.borrow_mut(mc).raw_table.set(mc, key, value)
     }
 
     /// Remove every entry, releasing the memory rather than leaving tombstones behind.

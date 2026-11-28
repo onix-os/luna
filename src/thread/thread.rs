@@ -54,7 +54,7 @@ pub enum ThreadMode {
 #[error("bad thread mode: {found:?}{}", if let Some(expected) = *.expected {
         format!(", expected {:?}", expected)
     } else {
-        format!("")
+        std::string::String::new()
     })]
 pub struct BadThreadMode {
     pub found: ThreadMode,
@@ -103,6 +103,12 @@ impl<'gc> Thread<'gc> {
                 deferred_error: false,
                 error_taken: false,
                 max_call_depth: ctx.max_call_depth(),
+                #[cfg(feature = "jit")]
+                native_backoff: [NativeBackoff::default(); 8],
+                #[cfg(feature = "jit")]
+                native_backoff_armed: false,
+                #[cfg(feature = "jit")]
+                native_backoff_clock: 0,
             }),
         );
         ctx.finalizers().register_thread(&ctx, p);
@@ -487,9 +493,135 @@ pub struct ThreadState<'gc> {
     pub(super) error_taken: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
+    #[cfg(feature = "jit")]
+    pub(super) native_backoff: [NativeBackoff; 8],
+    // Whether any slot of `native_backoff` has ever been armed.
+    #[cfg(feature = "jit")]
+    pub(super) native_backoff_armed: bool,
+    // Counts armings; each slot records the count it was armed at.
+    #[cfg(feature = "jit")]
+    pub(super) native_backoff_clock: u16,
+}
+
+/// Which slices skip native dispatch: those of the Lua frame at a depth, running a closure, that
+/// start at one pc, mixed into one word. Slices whose words collide share a back-off.
+#[cfg(feature = "jit")]
+pub(super) type BackoffKey = u64;
+
+#[cfg(feature = "jit")]
+#[inline]
+pub(super) fn backoff_key(depth: usize, closure: usize, pc: usize) -> BackoffKey {
+    ((closure as u64) ^ (pc as u64).rotate_left(40) ^ (depth as u64).rotate_left(20))
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
+/// The two `native_backoff` slots a key may occupy, chosen by its top bits.
+#[cfg(feature = "jit")]
+#[inline]
+fn backoff_set(key: BackoffKey) -> usize {
+    (key >> 62) as usize * 2
+}
+
+/// Slices left that skip native dispatch for one [`BackoffKey`], and when it was armed.
+#[cfg(feature = "jit")]
+#[derive(Debug, Default, Copy, Clone, Collect)]
+#[collect(require_static)]
+pub(super) struct NativeBackoff {
+    key: BackoffKey,
+    remaining: u16,
+    armed: u16,
+}
+
+#[cfg(all(test, feature = "jit"))]
+thread_local! {
+    static NATIVE_BACKOFF: std::cell::Cell<bool> = std::cell::Cell::new(
+        std::env::var("LUNA_TEST_NATIVE_BACKOFF").as_deref() == Ok("1"),
+    );
+}
+
+/// Whether native back-off may arm; unit tests leave it off unless asked.
+#[cfg(feature = "jit")]
+#[inline]
+pub(super) fn native_backoff_allowed() -> bool {
+    #[cfg(test)]
+    return NATIVE_BACKOFF.get();
+    #[cfg(not(test))]
+    true
+}
+
+/// Run `body` with native back-off enabled, which unit tests otherwise leave off so their exact
+/// native counts stay those of the code under test.
+#[cfg(all(test, feature = "jit"))]
+pub(crate) fn with_native_backoff<R>(body: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            NATIVE_BACKOFF.set(self.0);
+        }
+    }
+    let _restore = Restore(NATIVE_BACKOFF.replace(true));
+    body()
 }
 
 impl<'gc> ThreadState<'gc> {
+    /// Whether slices for `key` are skipping native dispatch, using up one slice of the wait if so.
+    #[cfg(feature = "jit")]
+    #[inline]
+    pub(super) fn native_backed_off(&mut self, key: BackoffKey) -> bool {
+        if !self.native_backoff_armed {
+            return false;
+        }
+        let set = backoff_set(key);
+        for slot in &mut self.native_backoff[set..set + 2] {
+            if slot.key == key && slot.remaining > 0 {
+                slot.remaining -= 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether `key` holds a slot whose back-off has run out, so its slices went short again after
+    /// waiting a full back-off.
+    #[cfg(feature = "jit")]
+    pub(super) fn native_backoff_seen(&self, key: BackoffKey) -> bool {
+        let set = backoff_set(key);
+        self.native_backoff_armed
+            && self.native_backoff[set..set + 2]
+                .iter()
+                .any(|slot| slot.key == key && slot.remaining == 0)
+    }
+
+    /// Skip native dispatch for the next `slices` slices for `key`, replacing in its set its own
+    /// slot, an expired one, or else the one armed longest ago.
+    #[cfg(feature = "jit")]
+    pub(super) fn back_off_native(&mut self, key: BackoffKey, slices: u16) {
+        #[cfg(test)]
+        if !NATIVE_BACKOFF.get() {
+            return;
+        }
+        self.native_backoff_clock = self.native_backoff_clock.wrapping_add(1);
+        let clock = self.native_backoff_clock;
+        let set = backoff_set(key);
+        let pair = &mut self.native_backoff[set..set + 2];
+        let age = |slot: &NativeBackoff| clock.wrapping_sub(slot.armed);
+        let index = if pair[1].key == key {
+            1
+        } else if pair[0].key == key || pair[0].remaining == 0 {
+            0
+        } else if pair[1].remaining == 0 || age(&pair[1]) > age(&pair[0]) {
+            1
+        } else {
+            0
+        };
+        pair[index] = NativeBackoff {
+            key,
+            remaining: slices,
+            armed: clock,
+        };
+        self.native_backoff_armed = true;
+    }
+
     /// This thread's value stack.
     ///
     /// Exposed so `debug.getlocal` can read a register by index; it locks independently of the
@@ -584,11 +716,7 @@ impl<'gc> ThreadState<'gc> {
                 let stack_size = proto.stack_size as usize;
                 let given_params = stack.len() - bottom;
 
-                let var_params = if given_params > fixed_params {
-                    given_params - fixed_params
-                } else {
-                    0
-                };
+                let var_params = given_params.saturating_sub(fixed_params);
                 stack[bottom..].rotate_right(var_params);
                 let base = bottom + var_params;
 
@@ -792,12 +920,7 @@ impl<'gc> ThreadState<'gc> {
         self.open_upvalues.truncate(start);
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) fn captures_below(&self, bottom: usize) -> bool {
         self.open_upvalues.last().is_none_or(|&upvalue| {
             matches!(upvalue.get(), UpValueState::Open(open) if open.stack_index < bottom)
@@ -850,12 +973,7 @@ type FrameStack<'gc, 'a> = RefMut<'a, StackVec<'gc>>;
 type FrameStack<'gc, 'a> = &'a mut StackVec<'gc>;
 
 pub(super) struct LuaFrame<'gc, 'a> {
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) pair_handoff: Option<&'a mut crate::jit::PairScope<'gc>>,
     pub(super) state: &'a mut ThreadState<'gc>,
     // The executor or activation host owns this stack borrow.
@@ -863,13 +981,9 @@ pub(super) struct LuaFrame<'gc, 'a> {
     pub(super) fuel: &'a mut Fuel,
 }
 
+#[cfg_attr(feature = "jit", allow(clippy::needless_borrow))]
 impl<'gc, 'a> LuaFrame<'gc, 'a> {
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     pub(super) fn pair_fixed_stack(&self) -> bool {
         matches!(
             self.state.frames.last(),
@@ -923,6 +1037,16 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     /// How many frames are on this thread. Read before the register borrow is taken.
     pub(super) fn frame_depth(&self) -> usize {
         self.state.frames.len()
+    }
+
+    /// The pc of the top Lua frame, without borrowing its registers.
+    #[cfg(feature = "jit")]
+    #[inline]
+    pub(super) fn frame_pc(&self) -> usize {
+        match self.state.frames.last() {
+            Some(Frame::Lua { pc, .. }) => *pc,
+            _ => panic!("top frame is not lua frame"),
+        }
     }
 
     /// Call the installed debug hook with `event` and `line`.
@@ -1525,17 +1649,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         true
     }
 
-    #[cfg(all(
-        feature = "jit",
-        any(
-            test,
-            all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )
-        )
-    ))]
+    #[cfg(all(feature = "jit", any(test, all(not(miri), luna_jit_native))))]
     pub(crate) fn shadow_key(&self) -> (usize, usize) {
         (Gc::as_ptr(self.stack) as usize, self.base)
     }
@@ -1810,5 +1924,76 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
                 stack_index: index,
             }),
         )
+    }
+}
+
+#[cfg(all(test, feature = "jit"))]
+mod native_backoff_tests {
+    use super::{backoff_key, backoff_set, with_native_backoff, Thread};
+
+    #[test]
+    fn back_off_counts_down_per_slice_start() {
+        with_native_backoff(|| {
+            crate::Lua::empty().enter(|ctx| {
+                let thread = Thread::new(ctx);
+                let mut state = thread.0.borrow_mut(&ctx);
+                assert!(!state.native_backed_off(backoff_key(1, 7, 3)));
+                state.back_off_native(backoff_key(1, 7, 3), 2);
+                for other in [(2, 7, 3), (1, 8, 3), (1, 7, 4)] {
+                    let key = backoff_key(other.0, other.1, other.2);
+                    assert!(!state.native_backed_off(key), "{other:?}");
+                }
+                let key = backoff_key(1, 7, 3);
+                assert!(state.native_backed_off(key) && state.native_backed_off(key));
+                assert!(!state.native_backed_off(key));
+            });
+        });
+    }
+
+    #[test]
+    fn back_off_replaces_the_one_armed_longest_ago_in_a_full_set() {
+        with_native_backoff(|| {
+            crate::Lua::empty().enter(|ctx| {
+                let thread = Thread::new(ctx);
+                let mut state = thread.0.borrow_mut(&ctx);
+                let set = backoff_set(backoff_key(1, 7, 0));
+                let keys: std::vec::Vec<_> = (1..)
+                    .map(|depth| backoff_key(depth, 7, 0))
+                    .filter(|key| backoff_set(*key) == set)
+                    .take(3)
+                    .collect();
+                state.back_off_native(keys[0], 40);
+                state.back_off_native(keys[1], 3);
+                state.back_off_native(keys[2], 10);
+                assert!(!state.native_backed_off(keys[0]));
+                assert!(state.native_backed_off(keys[1]) && state.native_backed_off(keys[2]));
+            });
+        });
+    }
+
+    #[test]
+    fn a_key_is_seen_only_after_its_back_off_runs_out() {
+        with_native_backoff(|| {
+            crate::Lua::empty().enter(|ctx| {
+                let thread = Thread::new(ctx);
+                let mut state = thread.0.borrow_mut(&ctx);
+                let key = backoff_key(1, 7, 3);
+                assert!(!state.native_backoff_seen(key));
+                state.back_off_native(key, 1);
+                assert!(!state.native_backoff_seen(key));
+                assert!(state.native_backed_off(key));
+                assert!(state.native_backoff_seen(key));
+            });
+        });
+    }
+
+    #[test]
+    fn unit_tests_leave_back_off_off_unless_asked() {
+        crate::Lua::empty().enter(|ctx| {
+            let thread = Thread::new(ctx);
+            let mut state = thread.0.borrow_mut(&ctx);
+            state.back_off_native(backoff_key(1, 7, 0), 10);
+            assert!(!state.native_backed_off(backoff_key(1, 7, 0)));
+        });
     }
 }

@@ -1,10 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    not(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))
-))]
+#![cfg(all(feature = "jit", not(luna_jit_native)))]
 
 use luna::{
     Callback, CallbackReturn, Closure, Executor, ExecutorMode, Fuel, JitConfig, JitError, JitMode,

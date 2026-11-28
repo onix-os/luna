@@ -111,10 +111,8 @@ fn parse(arguments: &[String], cwd: &Path) -> Result<Context> {
             }
         } else if let Some(value) = argument.strip_prefix("-L") {
             Some(value.to_owned())
-        } else if let Some(value) = argument.strip_prefix("-C") {
-            Some(value.to_owned())
         } else {
-            None
+            argument.strip_prefix("-C").map(|value| value.to_owned())
         };
         if let Some(value) = value {
             if option == "--extern" {
@@ -281,65 +279,6 @@ fn wait_for_native(context: &Context) -> Result<()> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn metadata_checks_do_not_request_a_runtime_image() {
-        let arguments = ["rustc", "--emit=dep-info,metadata"];
-        let arguments = arguments.map(str::to_owned);
-        assert!(parse(&arguments, Path::new("/")).unwrap().metadata_only);
-        let arguments = ["rustc", "--emit=dep-info,metadata,link"];
-        assert!(
-            !parse(&arguments.map(str::to_owned), Path::new("/"))
-                .unwrap()
-                .metadata_only
-        );
-    }
-
-    #[test]
-    fn bootstrap_filters_only_embedding_and_preserves_source_features_and_panic() {
-        let arguments = [
-            "rustc",
-            "--cfg",
-            "feature=\"jit-worker-embedded\"",
-            "--cfg=feature=\"jit-worker-bootstrap\"",
-            "--cfg",
-            "feature=\"async\"",
-            "-Cpanic=abort",
-        ];
-        let context = parse(&arguments.map(str::to_owned), Path::new("/")).unwrap();
-        assert_eq!(
-            context.configurations,
-            ["feature=\"jit-worker-bootstrap\"", "feature=\"async\""]
-        );
-        assert_eq!(context.panic, "abort");
-        for cfg in ["test", "miri", "doctest"] {
-            assert!(parse(
-                &["rustc".into(), "--cfg".into(), cfg.into()],
-                Path::new("/")
-            )
-            .is_err());
-        }
-    }
-
-    #[test]
-    fn ambiguous_context_and_response_files_are_not_guessed() {
-        for arguments in [
-            vec!["rustc", "--extern", "crate_without_artifact"],
-            vec!["rustc", "@response"],
-            vec!["rustc", "--cfg"],
-        ] {
-            assert!(parse(
-                &arguments.into_iter().map(str::to_owned).collect::<Vec<_>>(),
-                Path::new("/")
-            )
-            .is_err());
-        }
-    }
-}
-
 fn build() -> Result<String> {
     if env::var_os("LUNA_EMBED_INNER").is_some() {
         return Err("recursive compiler-image bootstrap".into());
@@ -470,4 +409,63 @@ fn build() -> Result<String> {
         "Some((include_bytes!({:?}) as &'static [u8], {identity:?}, {target:?}))",
         image.to_str().ok_or("non-UTF8 image path")?
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metadata_checks_do_not_request_a_runtime_image() {
+        let arguments = ["rustc", "--emit=dep-info,metadata"];
+        let arguments = arguments.map(str::to_owned);
+        assert!(parse(&arguments, Path::new("/")).unwrap().metadata_only);
+        let arguments = ["rustc", "--emit=dep-info,metadata,link"];
+        assert!(
+            !parse(&arguments.map(str::to_owned), Path::new("/"))
+                .unwrap()
+                .metadata_only
+        );
+    }
+
+    #[test]
+    fn bootstrap_filters_only_embedding_and_preserves_source_features_and_panic() {
+        let arguments = [
+            "rustc",
+            "--cfg",
+            "feature=\"jit-worker-embedded\"",
+            "--cfg=feature=\"jit-worker-bootstrap\"",
+            "--cfg",
+            "feature=\"async\"",
+            "-Cpanic=abort",
+        ];
+        let context = parse(&arguments.map(str::to_owned), Path::new("/")).unwrap();
+        assert_eq!(
+            context.configurations,
+            ["feature=\"jit-worker-bootstrap\"", "feature=\"async\""]
+        );
+        assert_eq!(context.panic, "abort");
+        for cfg in ["test", "miri", "doctest"] {
+            assert!(parse(
+                &["rustc".into(), "--cfg".into(), cfg.into()],
+                Path::new("/")
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn ambiguous_context_and_response_files_are_not_guessed() {
+        for arguments in [
+            vec!["rustc", "--extern", "crate_without_artifact"],
+            vec!["rustc", "@response"],
+            vec!["rustc", "--cfg"],
+        ] {
+            assert!(parse(
+                &arguments.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                Path::new("/")
+            )
+            .is_err());
+        }
+    }
 }

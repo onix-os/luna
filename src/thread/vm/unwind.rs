@@ -21,7 +21,7 @@ fn interpreter_panics_unwind_through_the_vm_boundary() {
         })
         .unwrap();
         #[cfg(not(feature = "jit"))]
-        let _ = mode;
+        let () = mode;
         lua.enter(|ctx| {
             let closure = Closure::load(ctx, None, b"return 7").unwrap();
             assert!(matches!(
@@ -49,12 +49,7 @@ fn interpreter_panics_unwind_through_the_vm_boundary() {
                 super::run_vm_slice(
                     ctx,
                     LuaFrame {
-                        #[cfg(all(
-                            feature = "jit",
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        ))]
+                        #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
                         pair_handoff: None,
                         state: &mut state,
                         #[cfg(feature = "jit")]

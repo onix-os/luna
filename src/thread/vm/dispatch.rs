@@ -92,12 +92,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(feature = "jit", not(miri), luna_jit_native))]
     #[test]
     fn compiled_state_keeps_one_owner_through_retirement_and_gc() {
         use crate::{Closure, JitConfig, JitMode, Lua};

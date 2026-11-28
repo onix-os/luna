@@ -18,7 +18,7 @@ pub(crate) struct CallCode {
     _memory: Memory,
     entry: unsafe extern "C" fn(*mut c_void, u32) -> u32,
     leaf: crate::jit::leaf::CellEntry,
-    compact: super::compact::Entry,
+    compact: Option<super::compact::Entry>,
     operands: (u64, u8, u8, u8),
     #[cfg(test)]
     pub relocations: usize,
@@ -27,8 +27,11 @@ pub(crate) struct CallCode {
 }
 
 impl CallCode {
+    /// The compact entry of a cell leaf.
     pub(in crate::jit) fn compact(&self) -> &super::compact::Entry {
-        &self.compact
+        self.compact
+            .as_ref()
+            .expect("only cell leaves are invoked through compact code")
     }
 
     pub(crate) fn operands(&self) -> (u64, u8, u8, u8) {
@@ -120,6 +123,7 @@ fn verify_bound(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 pub(crate) fn compile(
     plan: &Plan<'_>,
     hooks: Hooks,
@@ -189,16 +193,24 @@ pub(crate) fn compile(
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     let mut program = plan.program(module.target_config(), module.isa().default_call_conv())?;
-    let compact_binding = super::compact::Binding::new(plan.callee())?;
-    let compact_program = compact_binding.program(module.isa());
-    compact_binding.verify(&compact_program, module.isa(), workspace.clone())?;
-    let functions = [&program.entry, &program.callee, &compact_program.function];
+    let compact_binding = matches!(plan.leaf, crate::jit::leaf::Leaf::Cell(_))
+        .then(|| super::compact::Binding::new(plan.callee()))
+        .transpose()?;
+    let compact_program = compact_binding
+        .as_ref()
+        .map(|binding| binding.program(module.isa()));
+    if let (Some(binding), Some(compact)) = (&compact_binding, &compact_program) {
+        binding.verify(compact, module.isa(), workspace.clone())?;
+    }
+    let functions = [&program.entry, &program.callee]
+        .into_iter()
+        .chain(compact_program.as_ref().map(|compact| &compact.function));
     plan.expansion.verify_actual(
         functions
-            .iter()
+            .clone()
             .flat_map(|f| f.layout.blocks().map(|b| f.layout.block_insts(b).count()))
             .sum(),
-        functions.iter().map(|f| f.layout.blocks().count()).sum(),
+        functions.map(|f| f.layout.blocks().count()).sum(),
     )?;
     plan.verify_program(
         &program,
@@ -211,10 +223,12 @@ pub(crate) fn compile(
     let leaf = module
         .declare_anonymous_function(&program.callee.signature)
         .map_err(fail)?;
-    let compact = module
-        .declare_anonymous_function(&compact_program.function.signature)
+    let compact = compact_program
+        .as_ref()
+        .map(|compact| module.declare_anonymous_function(&compact.function.signature))
+        .transpose()
         .map_err(fail)?;
-    if entry.as_u32() != 0 || leaf.as_u32() != 1 || compact.as_u32() != 2 {
+    if entry.as_u32() != 0 || leaf.as_u32() != 1 || compact.is_some_and(|id| id.as_u32() != 2) {
         return Err(CompileError::Compilation(
             "aggregate function identities".into(),
         ));
@@ -260,35 +274,35 @@ pub(crate) fn compile(
     entry_context.func = program.entry;
     let mut leaf_context = module.make_context();
     leaf_context.func = program.callee;
-    let mut compact_context = module.make_context();
-    compact_context.func = compact_program.function;
+    let mut compact_context = compact_program.map(|compact| {
+        let mut context = module.make_context();
+        context.func = compact.function;
+        context
+    });
     entry_context
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| fail(error.into()))?;
     leaf_context
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| fail(error.into()))?;
-    compact_context
-        .compile(module.isa(), &mut Default::default())
-        .map_err(|error| fail(error.into()))?;
-    if !compact_context
-        .compiled_code()
-        .unwrap()
-        .buffer
-        .relocs()
-        .is_empty()
+    if let Some(context) = &mut compact_context {
+        context
+            .compile(module.isa(), &mut Default::default())
+            .map_err(|error| fail(error.into()))?;
+    }
+    if compact_context
+        .as_ref()
+        .is_some_and(|context| !context.compiled_code().unwrap().buffer.relocs().is_empty())
     {
         return Err(CompileError::Compilation(
             "compact unexpected relocation".into(),
         ));
     }
-    let contexts = [
-        (entry, &entry_context),
-        (leaf, &leaf_context),
-        (compact, &compact_context),
-    ];
+    let contexts = [(entry, &entry_context), (leaf, &leaf_context)]
+        .into_iter()
+        .chain(compact.zip(compact_context.as_ref()));
     let relocations = contexts
-        .iter()
+        .clone()
         .map(|(_, ctx)| ctx.compiled_code().unwrap().buffer.relocs().len())
         .sum::<usize>();
     if relocations > limits.relocations {
@@ -334,7 +348,7 @@ pub(crate) fn compile(
     module.finalize_definitions().map_err(fail)?;
     let pointer = module.get_finalized_function(entry);
     let leaf_pointer = module.get_finalized_function(leaf);
-    let compact_pointer = module.get_finalized_function(compact);
+    let compact_pointer = compact.map(|id| module.get_finalized_function(id));
     let image = memory
         .take()
         .ok_or_else(|| CompileError::Compilation("missing aggregate mappings".into()))?;
@@ -349,7 +363,9 @@ pub(crate) fn compile(
             std::mem::transmute::<*const u8, crate::jit::leaf::CellEntry>(leaf_pointer)
         },
         operands: plan.operands(),
-        compact: unsafe { super::compact::Entry::new(compact_binding, compact_pointer) },
+        compact: compact_binding
+            .zip(compact_pointer)
+            .map(|(binding, pointer)| unsafe { super::compact::Entry::new(binding, pointer) }),
         #[cfg(test)]
         relocations,
         #[cfg(test)]

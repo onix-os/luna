@@ -551,7 +551,7 @@ where
             if c == b'\\' {
                 match self
                     .peek(0)?
-                    .ok_or_else(|| LexError::UnfinishedShortString(start_quote))?
+                    .ok_or(LexError::UnfinishedShortString(start_quote))?
                 {
                     b'a' => {
                         self.advance(1);

@@ -84,6 +84,139 @@ lua.try_enter(|ctx| {
 callbacks are opaque to the runtime: a host that registers one is responsible for keeping it
 pure, for example by recording declarations and applying them after evaluation.
 
+### Evaluating a configuration
+
+`functional::evaluate(path, &options)` does all of the above in one call and returns plain
+`Data`, and `luna eval` is the same thing from a shell, printing canonical JSON the way
+`nix eval --json` does, or TOML, YAML or INI with `--format`, or a string result as-is with
+`--raw`:
+
+```sh
+luna eval service.lua --input-string env=prod --schema schema.lua --cache ~/.cache/luna
+```
+
+- **Inputs** arrive as the frozen `inputs` global, an empty map by default. A file that returns
+  a function is called with them, as a Nix file returning a function is.
+- **Imports** read `import("lib/x.lua")` relative to the configuration's directory, or `--root`.
+  Absolute paths, `.`/`..` and symlinks that leave the root are refused.
+- **Data files**: `import("pkgs.toml")` and `import("lock.json")` return the parsed file as frozen
+  data, the way Nix's `fromTOML` and `fromJSON` are used. Dates and times stay as their text.
+- **Files and directories**: `read_file("motd.txt")` returns a file's bytes and
+  `read_dir("modules")` maps each entry to `"file"`, `"directory"` or `"other"`, like Nix's
+  `readFile` and `readDir`. Both are confined to the root, and what they saw keys the cache.
+- **Limits**: a total instruction budget (`--fuel`) and a memory ceiling (`--memory`) stop
+  runaway configurations with an error instead of hanging the host.
+- **Errors** name the import chain: `c.lua:1: broken config` followed by
+  `in 'c.lua', imported from b.lua:3` and `in 'b.lua', imported from a.lua:2`.
+- **Hashes**: every result carries the SHA-256 of every file read with the inputs, API and
+  schema (`input_hash`), and of the canonical result (`output_hash`), so a configuration has a
+  reproducible identity. `--hash` prints them. `--files` prints every file read with its hash, for
+  build systems that track dependencies.
+- **Cache**: with `--cache DIR`, a result is reused without evaluating while the file, its
+  inputs, its API, its schema and every file it imported are byte-for-byte unchanged.
+- **Writing files**: `luna build host.lua --out DIR --attr home.files` writes a map from relative
+  paths to contents (or to `{ text = ..., executable = true }`) into DIR, as Home Manager's
+  `home.file` does. A manifest in DIR records what was written: later builds rewrite and remove
+  only those files, and refuse to replace a file luna did not write or one changed since, unless
+  `--force`. `functional::write_files` is the same from Rust.
+- **Editors**: `luna definitions` prints lua-language-server definitions for `lib`, `inputs`,
+  `import`, `read_file` and `read_dir`. Save it in a directory listed in `workspace.library` of
+  `.luarc.json` for completion and type checks in configurations.
+
+The result must be data: nil, booleans, numbers, strings, lists (keys exactly `1..n`) and maps.
+A function in the result is an error naming its path, such as
+`value.services.web.start: cannot convert a function`. JSON output additionally needs string
+keys, UTF-8 strings and finite numbers.
+
+### Registration-style APIs
+
+A configuration written as calls, such as `oslo.env.set("TOP", oslo.sys.pwd())`, stays pure when
+the host describes its API with `functional::Api` instead of acting on each call:
+
+```rust
+let api = Api::new()
+    .record("env.set")            // calls are appended to a log the script cannot read
+    .returning("sys.pwd", "/srv") // host state becomes a fixed input
+    .value("version", "1.2");
+```
+
+The arguments of every recorded call are frozen when it is made, and `Evaluated::declarations`
+lists the calls in order for the host to apply afterwards. From the shell:
+`luna eval .env.lua --api oslo --record env.set --returning 'sys.pwd="/srv"' --declarations`.
+
+### The `lib` global
+
+Every functional state has a frozen `lib`, written in functional Lua. Nothing in it changes its
+arguments, so it works on frozen and imported data.
+
+| | |
+| --- | --- |
+| Merging | `merge(a, b, ...)` (Nix `//`), `deep_merge(a, b)` (`recursiveUpdate`; lists are replaced) |
+| Lists | `map`, `filter`, `fold`, `concat`, `flatten`, `range`, `find`, `any`, `all`, `contains`, `unique`, `sort`, `group_by`, `is_list` |
+| Maps | `keys`, `values`, `map_values`, `filter_values`, `from_pairs` (all in canonical key order) |
+| Strings | `split`, `join`, `replace`, `trim`, `starts_with`, `ends_with`, `remove_prefix`, `remove_suffix`, `dedent` (Nix's `''` strings), `basename`, `dirname`, `escape_shell` (all literal, never patterns) |
+| Structure | `equal` (deep, cycle-safe), `copy` (a mutable deep copy) |
+| Overrides | `rewrite(tree, replace)`: Guix-style input rewriting. Replaces nodes by identity, through a table keyed by old nodes or a function, rebuilds only what contains them and keeps everything else shared |
+| Encodings | `to_json(v, { pretty = true })`, `to_toml`, `to_yaml`, `to_ini` produce text in canonical key order; `from_json`, `from_toml` parse it |
+| Modules | `modules.evaluate{ modules, args, rounds }`, `modules.options{ modules }`, `option{ type, default, default_from, description, example }`, `enable_option(description)`, `mk_default`, `mk_force`, `mk_override`, `mk_if`, `mk_merge`, `mk_before`, `mk_after`, `mk_order` |
+| Schemas | `check(value, type)` with `lib.types`: `any`, `string`, `integer`, `number`, `boolean`, `func`, `list(t)`, `map(t)`, `record(fields, { open = true })`, `optional(t)`, `default(t, v)`, `enum{...}`, `one_of(...)`, `custom(name, test)` |
+
+A schema both validates and normalises: defaults are filled in, unknown record fields are
+refused, and errors name the exact path, as in `config.hosts[2]: expected a string, got number 3`.
+
+### Modules
+
+`lib.modules.evaluate` is the NixOS module system in strict form. Each module declares options
+and defines values for any option, and the definitions are merged by the option's type:
+
+```lua
+-- server.lua
+local types = lib.types
+return {
+    options = { server = {
+        enable = lib.option{ type = types.boolean, default = false },
+        port = lib.option{ type = types.integer, default = 80 },
+    } },
+    config = function(config)
+        return lib.mk_if(config.server.enable, { firewall = { ports = { config.server.port } } })
+    end,
+}
+
+-- host.lua
+return lib.modules.evaluate{ modules = {
+    import("server.lua"), import("firewall.lua"),
+    { server = { enable = true, port = lib.mk_default(8080) } },
+} }
+```
+
+- **Merging**: lists concatenate (`mk_before`/`mk_after` order them), maps and records merge key
+  by key, and every other value must be defined the same everywhere. Otherwise the error lists
+  each definition and its module.
+- **Priorities**: a plain definition beats `mk_default`, which beats the option's `default`;
+  `mk_force` beats them all. Wrappers work at any depth and push down through sets of options.
+- **Modules** are tables of `imports`, `options` and `config`, or functions of `args` returning
+  one. A table with neither `options` nor `config` is all config. A module imported twice counts
+  once.
+- **The configuration** is visible through `config = function(config) ... end`. Without
+  laziness, these functions run again until the configuration stops changing, at most `rounds`
+  times (16 by default), and a final strict round reports errors against the settled result.
+  A configuration that keeps changing is an error naming the path. Calls to a recorded API made
+  inside these functions are recorded once per round, so make them outside.
+- **Computed defaults**: `default_from = function(config) return config.home.directory .. "/bin" end`
+  derives a default from other options, as a Nix default that mentions `config` does.
+- **Keyed maps**: `types.map(function(key) return types.record{ name = types.default(types.string,
+  key) } end)` gives each entry a type that knows its key, like `attrsOf (submodule ({ name, ... }:
+  ...))`.
+- **Errors** name the option and the modules: `config.server.prot: no such option, defined in
+  host.lua`, or `config.x: no value is defined and the option has no default`. A module is named by
+  the file that returned it, or by its position, as in `module 3 at host.lua:2`.
+- `lib.modules.options{ modules = ... }` lists every option by dotted name with its type,
+  default, description and the module that declared it, which is enough to generate docs.
+
+[examples/functional/home](examples/functional/home) ports a real Home Manager module, geto's, with a
+small `home` module for it to build on. `luna build home.lua --out DIR --attr home.files` writes
+its manifest, an activation script and a PATH snippet.
+
 ## Status
 
 Pre-1.0 and experimental. Expect frequent breaking changes on minor version bumps.
@@ -148,7 +281,7 @@ every embedder wants to compile:
 | --- | --- | --- |
 | `async` | `AsyncSequence::await_future`, `Lua::execute_async` — awaiting foreign futures from a callback | Nothing but code. It is `std::task` throughout; choosing a runtime stays yours |
 | `derive` | `#[derive(FromValue)]`, `#[derive(IntoValue)]` | `syn`, `quote` and `proc-macro2` in the build |
-| `jit` | Experimental native scalar/heap slices; constructors remain interpreted by default | Pinned Cranelift on Linux x86-64/aarch64; see [JIT.md](JIT.md) for current coverage and limits |
+| `jit` | Experimental native scalar/heap slices; constructors remain interpreted by default | Pinned Cranelift on Linux and macOS, x86-64/aarch64; the out-of-process compiler worker is Linux-only. See [JIT.md](JIT.md) for current coverage and limits |
 
 ```rust
 # use luna::{FromValue, IntoValue};

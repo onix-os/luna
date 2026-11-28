@@ -54,6 +54,40 @@ fn table_insert_and_remove_cannot_bypass_a_freeze() -> Result<(), ExternError> {
 }
 
 #[test]
+fn a_frozen_table_keeps_its_metatable() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local mt = { __index = function() return "kept" end }
+        local t = table.freeze(setmetatable({}, mt))
+        local replaced = pcall(setmetatable, t, {})
+        local cleared = pcall(setmetatable, t, nil)
+        local bare = table.freeze({})
+        local attached = pcall(setmetatable, bare, mt)
+        return not replaced and not cleared and not attached
+            and getmetatable(t) == mt and t.anything == "kept" and getmetatable(bare) == nil
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn debug_setmetatable_cannot_bypass_a_freeze() {
+    let mut lua = common::full();
+    let executor = lua
+        .try_enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                None,
+                &b"local t = table.freeze({}) \
+                   return pcall(debug.setmetatable, t, {}) == false and getmetatable(t) == nil"[..],
+            )?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })
+        .unwrap();
+    assert!(lua.execute::<bool>(&executor).unwrap());
+}
+
+#[test]
 fn freezing_is_reportable() -> Result<(), ExternError> {
     assert!(eval(
         r#"

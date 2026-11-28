@@ -1,4 +1,4 @@
-use std::{f64, fmt, i64};
+use std::fmt;
 
 use ottavino_gc_arena::{Collect, Gc};
 
@@ -9,7 +9,9 @@ use crate::{Callback, Closure, Constant, Function, String, Table, Thread, UserDa
 /// Every value that Lua code can manipulate directly is ultimately a some kind of `Value`.
 #[derive(Debug, Copy, Clone, Collect)]
 #[collect(no_drop)]
+#[derive(Default)]
 pub enum Value<'gc> {
+    #[default]
     Nil,
     Boolean(bool),
     Integer(i64),
@@ -19,12 +21,6 @@ pub enum Value<'gc> {
     Function(Function<'gc>),
     Thread(Thread<'gc>),
     UserData(UserData<'gc>),
-}
-
-impl<'gc> Default for Value<'gc> {
-    fn default() -> Self {
-        Value::Nil
-    }
 }
 
 impl<'gc> Value<'gc> {
@@ -131,11 +127,7 @@ impl<'gc> Value<'gc> {
 
     /// Lua `nil` and `false` are false, anything else is true.
     pub fn to_bool(self) -> bool {
-        match self {
-            Value::Nil => false,
-            Value::Boolean(false) => false,
-            _ => true,
-        }
+        !matches!(self, Value::Nil | Value::Boolean(false))
     }
 
     /// Converts value to either a Number or an Integer, if possible.
@@ -171,12 +163,10 @@ impl<'gc> Value<'gc> {
     /// Indicates whether the value can be implicitly converted to a [`String`]; if so,
     /// [`Value::into_string`] will always return `Some`.
     pub fn is_implicit_string(self) -> bool {
-        match self {
-            Value::Integer(_) => true,
-            Value::Number(_) => true,
-            Value::String(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Value::Integer(_) | Value::Number(_) | Value::String(_)
+        )
     }
 
     pub fn to_constant(self) -> Option<Constant<String<'gc>>> {

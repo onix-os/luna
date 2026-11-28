@@ -167,8 +167,7 @@ fn return_spans_preserve_bounds_fuel_and_capture_closing() {
                                 #[cfg(all(
                                     feature = "jit",
                                     not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                    luna_jit_native
                                 ))]
                                 pair_handoff: None,
                                 state: &mut state,

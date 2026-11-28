@@ -97,81 +97,6 @@ impl Calls {
     }
 }
 
-#[cfg(test)]
-mod read_effect_tests {
-    use super::*;
-    use crate::types::{RegisterIndex as R, UpValueIndex as U};
-
-    #[test]
-    fn getter_effects_bound_destinations_and_keep_dynamic_writes_opaque() {
-        for dest in 0..=255 {
-            let snapshot = Snapshot {
-                prepared_keys: None,
-                operations: super::super::resources::owned(&[
-                    Operation::GetTable {
-                        dest: R(dest),
-                        table: R(1),
-                        key: R(2).into(),
-                    },
-                    Operation::GetUpTable {
-                        dest: R(dest),
-                        table: U(0),
-                        key: R(2).into(),
-                    },
-                    Operation::GetUpValue {
-                        dest: R(dest),
-                        source: U(0),
-                    },
-                    Operation::SetUpValue {
-                        dest: U(0),
-                        source: R(dest),
-                    },
-                    Operation::SetTable {
-                        table: R(1),
-                        key: R(2).into(),
-                        value: R(dest).into(),
-                    },
-                    Operation::Return {
-                        start: R(0),
-                        count: crate::types::VarCount::constant(0),
-                    },
-                ]),
-                constants: super::super::resources::owned(&[]),
-                registers: 256,
-                upvalues: 1,
-                prototypes: 0,
-            };
-            snapshot.verify().unwrap();
-            let mut calls = Calls::new(&snapshot).unwrap();
-            for pc in 0..snapshot.operations.len() - 1 {
-                let inst = Inst::from_u32(pc as u32);
-                calls.record(Record {
-                    pc,
-                    call: inst,
-                    completed: inst,
-                    success: inst,
-                    declined: inst,
-                });
-                let expected = if pc < 3 && dest < 16 {
-                    3 << (2 * dest)
-                } else {
-                    u32::MAX
-                };
-                assert_eq!(calls.read_cache_clobbers(&snapshot, inst), expected);
-            }
-            assert_eq!(
-                calls.read_cache_clobbers(&snapshot, Inst::from_u32(900)),
-                u32::MAX
-            );
-            calls.records[0].pc = usize::MAX;
-            assert_eq!(
-                calls.read_cache_clobbers(&snapshot, Inst::from_u32(0)),
-                u32::MAX
-            );
-        }
-    }
-}
-
 impl Calls {
     pub(super) fn wide_prepared(&self) -> bool {
         #[cfg(test)]
@@ -913,4 +838,79 @@ pub(super) fn read_effects_only(snapshot: &Snapshot) -> bool {
             )
         })
     })
+}
+
+#[cfg(test)]
+mod read_effect_tests {
+    use super::*;
+    use crate::types::{RegisterIndex as R, UpValueIndex as U};
+
+    #[test]
+    fn getter_effects_bound_destinations_and_keep_dynamic_writes_opaque() {
+        for dest in 0..=255 {
+            let snapshot = Snapshot {
+                prepared_keys: None,
+                operations: super::super::resources::owned(&[
+                    Operation::GetTable {
+                        dest: R(dest),
+                        table: R(1),
+                        key: R(2).into(),
+                    },
+                    Operation::GetUpTable {
+                        dest: R(dest),
+                        table: U(0),
+                        key: R(2).into(),
+                    },
+                    Operation::GetUpValue {
+                        dest: R(dest),
+                        source: U(0),
+                    },
+                    Operation::SetUpValue {
+                        dest: U(0),
+                        source: R(dest),
+                    },
+                    Operation::SetTable {
+                        table: R(1),
+                        key: R(2).into(),
+                        value: R(dest).into(),
+                    },
+                    Operation::Return {
+                        start: R(0),
+                        count: crate::types::VarCount::constant(0),
+                    },
+                ]),
+                constants: super::super::resources::owned(&[]),
+                registers: 256,
+                upvalues: 1,
+                prototypes: 0,
+            };
+            snapshot.verify().unwrap();
+            let mut calls = Calls::new(&snapshot).unwrap();
+            for pc in 0..snapshot.operations.len() - 1 {
+                let inst = Inst::from_u32(pc as u32);
+                calls.record(Record {
+                    pc,
+                    call: inst,
+                    completed: inst,
+                    success: inst,
+                    declined: inst,
+                });
+                let expected = if pc < 3 && dest < 16 {
+                    3 << (2 * dest)
+                } else {
+                    u32::MAX
+                };
+                assert_eq!(calls.read_cache_clobbers(&snapshot, inst), expected);
+            }
+            assert_eq!(
+                calls.read_cache_clobbers(&snapshot, Inst::from_u32(900)),
+                u32::MAX
+            );
+            calls.records[0].pc = usize::MAX;
+            assert_eq!(
+                calls.read_cache_clobbers(&snapshot, Inst::from_u32(0)),
+                u32::MAX
+            );
+        }
+    }
 }

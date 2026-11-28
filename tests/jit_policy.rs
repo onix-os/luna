@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", luna_jit_native))]
 
 use luna::{Closure, Executor, ExternError, Fuel, JitConfig, JitError, JitMode, Lua};
 

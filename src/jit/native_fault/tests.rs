@@ -130,7 +130,7 @@ fn coherence_shims_preserve_success_and_failure_phase() {
             Err::<(), _>(io::Error::from_raw_os_error(libc::EACCES)),
         )
     });
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), target_os = "linux"))]
     assert!(matches!(
         failed,
         Err(Fault::System(
@@ -141,7 +141,7 @@ fn coherence_shims_preserve_success_and_failure_phase() {
             }
         ))
     ));
-    #[cfg(miri)]
+    #[cfg(any(miri, not(target_os = "linux")))]
     assert!(matches!(
         failed,
         Err(Fault::System(

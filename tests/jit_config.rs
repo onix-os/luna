@@ -126,10 +126,7 @@ fn configuration_is_validated_transactionally() {
     }
 }
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 #[test]
 fn invalid_configuration_preserves_native_peer_and_queued_work() {
     let mut lua = Lua::empty();
@@ -181,10 +178,7 @@ fn invalid_configuration_preserves_native_peer_and_queued_work() {
     );
 }
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 #[test]
 fn queued_service_observes_each_current_snapshot_limit() {
     let mut lua = Lua::empty();
@@ -282,13 +276,7 @@ fn capability_reports_the_build_target() {
     let lua = Lua::empty();
     let capabilities = lua.jit_capabilities();
     assert_eq!(capabilities.architecture, std::env::consts::ARCH);
-    assert_eq!(
-        capabilities.supported_target,
-        cfg!(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))
-    );
+    assert_eq!(capabilities.supported_target, cfg!(luna_jit_native));
     assert_eq!(
         capabilities.unavailable_reason.is_some(),
         !capabilities.supported_target

@@ -11,8 +11,10 @@ remain open; `PLAN_JIT.md` records all results and collateral measurements.
 
 Fresh compiled-disabled cost checks also fail: shipping upvalue overhead is
 8–9% on CPU 0 and 23–25% on CPU 16, above the unchanged 5% ceiling. Speed-profile
-callback and other cost failures remain. These are separate from Auto speedups;
-enabling the feature is not yet performance-neutral when JIT is switched off.
+callback and other cost failures remain. These are separate from Auto speedups.
+Compiled-Off no longer runs more interpreter instructions than the feature-disabled
+build (see "Compiled-Off instruction cost"); the wall-time gate has not been rerun
+on an idle machine since.
 
 Ordinary constant-string upvalue-table reads can embed a process-seeded key hash.
 Each lookup still checks the current table and full key equality; no GC pointers
@@ -515,6 +517,120 @@ mapping-pressure retries refused because no unleased victim exists.
 `compilation_failures` counts each failed backend attempt, including failures
 recovered by eviction and retry.
 
+### Native back-off
+
+A native entry that leaves native code after fewer than 12 bytecodes, without
+using up its budget, costs more at the native boundary than it saves: register
+conversion, lookup checks, state publication, accounting and generic table
+helpers are paid for a few instructions. Loops around a host callback or a
+metamethod do exactly that on every iteration, whether the exit is the call
+itself or an operand that needs a metamethod. When it happens, the next 255 VM
+slices of the same frame that start at the same pc skip native dispatch
+entirely, including the registry identity and code lookups, and then native
+code is tried again. Slices that start elsewhere in the function, and native
+runs that do real work before leaving, are unaffected; `tests/jit_backoff.rs`
+checks a host-call loop, a metamethod loop, a numeric loop, a loop run again
+through the same closure, and long native work before each call.
+
+Each thread keeps eight back-off slots in four sets of two. A slice's frame
+depth, closure and start pc are mixed into one word whose top bits pick the
+set, so that check is at most two compares; words that collide only share a
+back-off. A full set replaces the entry armed longest ago, so slices that ran
+short once and never recur cannot crowd out hot ones. When a key's back-off has
+run out and its slices go short again, the closure takes it over in a slot of
+its own (one pc and a count), which every Auto slice checks first, before
+building the key. Any slice of the closure counts that slot down, so a claim on
+a pc that stops running expires; a loop that ends with one short run per
+execution never leaves a claim behind. Call-pair observation returns before its
+out-of-line pattern match for calls that cannot pair, such as calls whose
+results are used. Auto also continues ordinary interpreted Lua-to-Lua slices
+inside one executor step, as Off does, unless native call pairs are installed;
+each slice still runs `run_vm` with the same fuel and statistics.
+
+The policy is `JitConfig::native_backoff`, on by default. The integration
+harness turns it off because those suites assert native execution on every path,
+and in-crate unit tests leave it off unless `LUNA_TEST_NATIVE_BACKOFF=1`.
+
+| Case | Native entries | Auto/Off instructions | Off/Auto wall time |
+|---|---|---|---|
+| `rust_callbacks` | 64,849 → 271 | 1.046 → 1.023 | 0.918 → 0.984 |
+| `polymorphic_metamethod` | 13,353 → 102 | 1.125 → 1.005 | 0.907 → 0.978 |
+| `closure_upvalue` | 37,589 → 35,311 | 0.358 → 0.344 | 2.30 → 2.37 |
+| `integer_loop` | unchanged | 0.284 → 0.264 | 3.70 → 4.03 |
+| `array_table` | unchanged | 0.623 → 0.608 | 1.50 → 1.63 |
+
+Instruction ratios are warm per-sample Callgrind counts (23 minus 3 samples),
+starting from the first, call-only version. Wall ratios are medians of paired
+runs on one pinned core, starting from before any back-off: five 31-sample runs
+for the first two rows, three 21-sample runs for the rest, whose starting
+column is the version before slice continuation. With every callback-loop slice
+backed off, Auto still spends about 33 more instructions per slice than Off,
+spread over the closure check, the slice pc read, activation policy and
+call-pair checks: the cost of deciding per slice whether to dispatch natively.
+
+### Compiled-Off instruction cost
+
+Built with `jit` but run in Off, the interpreter used to count every dispatched
+instruction for `JitStats::total_dispatches`, one memory add per instruction that
+the feature-disabled build does not have. A slice leaves its loop exactly once, so
+the count is now derived when it does: the instructions counted at the loop end,
+less native completions, plus the decoded instruction that left the loop unless
+the exit came before decoding or handed the instruction back. Errors leave through
+`vm_try!`, which records the same count before returning, so failing slices still
+count. Test builds keep the per-instruction count and assert that the two agree on
+every slice, error exits included.
+
+| Case | Off/no-JIT before | after |
+| --- | --- | --- |
+| integer_loop | +1.75% | −4.59% |
+| float_loop | +1.63% | −4.76% |
+| array_table | +2.47% | −4.17% |
+| closure_upvalue | −0.82% | −3.21% |
+| polymorphic_metamethod | +1.57% | +0.01% |
+| rust_callbacks | −0.61% | −2.13% |
+| allocation_gc | +3.52% | −0.62% |
+
+These are Callgrind instruction counts inside `Executor::step` for three warm
+iterations of each `jit_feature_cost` case at opt-level 3 with LTO, compiled-Off
+against the feature-disabled build. Instructions are no longer the gap: compiled-Off
+runs fewer in six cases and the same in the seventh. The binary is four times larger,
+so instruction-cache misses rise (about 1.5× in these runs), and the wall-time
+`make jit-size` gate still decides acceptance. Run it on an idle machine; with other
+builds running, its paired ratios spread from 0.3 to 3.0.
+
+### Value-returning pairs
+
+Pairs also cover small helpers that return one value: a callee of exactly
+`Add`/`Sub`/`Mul` over its arguments and integer constants, `Return` of that
+register, and the compiler's trailing `Return`, called with fixed arguments and one
+result, as in `local function add(a, b) return a + b end ... s = add(s, i)`. `leaf::Leaf`
+distinguishes these value leaves from upvalue cell leaves throughout planning,
+code generation and admission:
+
+- `integer::ValuePlan` emits the callee: both operands checked for integer tags,
+  wrapping arithmetic into the result slot, and an exit at the `Return` (pc 1) for the
+  canonical return to finish. Any other input declines with no instructions run.
+- `ActivationHost::atomic_value_call` runs the whole call with no callee frame and
+  leaves the stack, the caller's frame and the fuel exactly as the canonical call,
+  one instruction and one-value return would. Interpreted callers try it first; the
+  session path (canonical call, native leaf, canonical return) is the fallback, and
+  its canonical call now asks for the call's own result count.
+- The atomic, rooted, compact and inline-loop paths stay cell-only; value leaves are
+  refused there and do not request native regions.
+
+`value_leaves_match_physical_frames_fuel_and_dispatches` compares the session, plain
+leaf and atomic paths against physical frames (stack slots, open upvalues, fuel,
+dispatches and instructions) across fuel levels, integer overflow, a float operand
+and extra arguments. `tests/jit_call_pairs.rs` checks Off and Auto results and
+per-step fuel and dispatch traces, float fallback and errors raised inside the pair.
+
+`JitConfig::value_pairs` is off by default because pairing only pays inside native
+regions. For an interpreted caller every pair still ends the caller's slice, so a
+10 000-call loop measured 0.875 ms in Auto with value pairs against 0.758 ms in Off,
+where Auto without them matches Off. Admitting value leaves into native regions is the
+remaining step: `canonical::admission`, the rooted snapshot publication of the result
+into the caller's function register, and the region driver's view of that register.
+
 ## Current execution coverage
 
 `nix develop .#miri -c make jit-miri` uses the separately pinned nightly
@@ -769,7 +885,7 @@ not the deferred performance acceptance.
 - `code_bytes` is live page-rounded mapped usage. `code_requested_bytes` is the provider-requested payload total before page/alignment padding, including linker veneers/GOT storage and any read-only/writable segments. It is not just machine instruction bytes. A zero-byte provider request contributes zero requested bytes but still reserves a live page. Both counters follow retired leases through final reclamation. Requested bytes are already included in mapped charges and are not added to `accounted_jit_bytes` again.
 - `snapshot_bytes` follows owned snapshot vectors; `installed_regions`, requests, failures, and execution counters are cumulative. Preparation is synchronous, so the host usually observes zero current snapshot usage after it returns. Benchmarks also report current/peak container charges and refusals. `make jit-example` reports both requested and mapped native bytes without timing acceptance.
 
-The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `2e21d80`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
+The backend is compiled for Linux and macOS on x86-64/aarch64, selected by the `luna_jit_native` cfg that `build.rs` sets. On macOS it compiles in process; the out-of-process compiler worker and its isolation gates are Linux-only, and enabling a worker feature elsewhere is a compile error. `make jit-macos` runs the workspace suite in each JIT mode on macOS hardware, and CI runs it on Apple silicon and Intel. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `2e21d80`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
 
 ## Unsafe boundary review: current scalar/heap tier
 

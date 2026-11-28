@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", luna_jit_native))]
 
 use luna::{
     Callback, CallbackReturn, Closure, Executor, ExternError, Fuel, Function, JitConfig, JitMode,
@@ -16,6 +12,7 @@ fn state(native: bool) -> Lua {
         lua.set_jit_config(JitConfig {
             mode: JitMode::Auto,
             hot_threshold: 1,
+            native_backoff: false,
             ..Default::default()
         })
         .unwrap();

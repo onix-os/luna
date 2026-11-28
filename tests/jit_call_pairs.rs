@@ -1,9 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", not(miri), luna_jit_native))]
 
 use luna::{
     Callback, CallbackReturn, Closure, Executor, ExternError, Fuel, Function, JitConfig, JitMode,
@@ -20,10 +15,21 @@ fn run(
     prepare: bool,
     available: i32,
 ) -> (i64, Vec<(i32, u64)>, JitStats) {
+    run_with(source, mode, prepare, available, false)
+}
+
+fn run_with(
+    source: &[u8],
+    mode: JitMode,
+    prepare: bool,
+    available: i32,
+    value_pairs: bool,
+) -> (i64, Vec<(i32, u64)>, JitStats) {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
         mode,
         hot_threshold: 1,
+        value_pairs,
         ..Default::default()
     })
     .unwrap();
@@ -337,4 +343,58 @@ fn production_pair_fallbacks_preserve_noninteger_upvalues_and_arguments() {
             assert_eq!(native.2.compilation_failures, 0);
         }
     }
+}
+
+#[test]
+fn value_returning_leaves_pair_with_exact_off_slice_traces() {
+    for source in [
+        &b"local function add(a, b) return a + b end local s = 0 for i = 1, 2000 do s = add(s, i) end return s"[..],
+        &b"local function triple(x) return x * 3 end local s = 0 for i = 1, 2000 do s = s + triple(i) end return s"[..],
+        &b"local function less(a, b) return a - b end local s = 0 for i = 1, 2000 do s = less(i, s) end return s"[..],
+        &b"local function add(a, b) return a + b end local s = 9223372036854775807 - 1000 for i = 1, 2000 do s = add(s, 1) end return s"[..],
+    ] {
+        let reference = run_with(source, JitMode::Off, true, 64, true);
+        let native = run_with(source, JitMode::Auto, true, 64, true);
+        assert_eq!((native.0, &native.1), (reference.0, &reference.1));
+        assert!(native.2.native_pair_returns > 0, "{:?}", native.2);
+        assert_eq!(reference.2.native_pair_returns, 0);
+        let unpaired = run(source, JitMode::Auto, true, 64);
+        assert_eq!((unpaired.0, &unpaired.1), (reference.0, &reference.1));
+        assert_eq!(unpaired.2.native_pair_returns, 0, "value pairs are off by default");
+    }
+}
+
+#[test]
+fn value_leaves_fall_back_for_floats_and_report_errors_in_place() {
+    let floats = b"local function add(a, b) return a + b end local s = 0 for i = 1, 600 do s = add(s, i) end for i = 1, 300 do s = add(s, 0.5) end s = add(s, 1) return s // 1";
+    let reference = run_with(floats, JitMode::Off, true, 64, true);
+    let native = run_with(floats, JitMode::Auto, true, 64, true);
+    assert_eq!((native.0, &native.1), (reference.0, &reference.1));
+    let execute = |mode| {
+        let mut lua = Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode,
+            hot_threshold: 1,
+            value_pairs: true,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                Some("value-errors"),
+                &b"local function add(a, b) return a + b end local s = 0 for i = 1, 400 do s = add(s, i) end return add(s, {})"[..],
+            )
+            .unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        lua.prepare_jit().unwrap();
+        let (result, trace, stats) = finish(lua, &executor, 64);
+        (result.unwrap_err().to_string(), trace, stats)
+    };
+    let reference = execute(JitMode::Off);
+    let native = execute(JitMode::Auto);
+    assert_eq!((&native.0, &native.1), (&reference.0, &reference.1));
+    assert!(native.0.contains("value-errors"), "{}", native.0);
+    assert!(native.2.native_pair_returns > 0);
 }

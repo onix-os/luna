@@ -81,6 +81,7 @@ fn packet(
 
 #[test]
 fn current_production_routes_roundtrip_without_sender_code_or_arena() {
+    #[allow(dead_code)]
     mod workloads {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),

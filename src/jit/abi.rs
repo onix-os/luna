@@ -4,13 +4,7 @@ pub(super) mod roots;
 
 pub(in crate::jit) mod transport_inputs;
 
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 pub(super) mod frame_publication;
 
 #[cfg(test)]

@@ -41,11 +41,7 @@ const SIMPLE: &[u8] = b"local sum=11 local function add(v) sum=sum+v end add(7) 
 const LOOP: &[u8] =
     b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn invalid_native_publication_preserves_every_canonical_value_and_pc() {
     use crate::{thread::LuaRegisters, Value};
@@ -165,8 +161,6 @@ fn materialization_matches_every_real_caller_slot_after_collection() {
     ];
     for (initial, argument) in cases {
         for kind in 0..3 {
-            let initial = initial as i64;
-            let argument = argument as i64;
             let source = match kind {
                 0 => format!("local sum=0x{:016x} local function add(v) sum=sum+v end add(0x{:016x}) return sum", initial as u64, argument as u64),
                 1 => format!("local amount=0x{:016x} local sum=0x{:016x} local function add(v) sum=sum+v end add(amount) return sum", argument as u64, initial as u64),

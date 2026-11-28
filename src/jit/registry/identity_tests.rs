@@ -3,7 +3,6 @@ use crate::{Closure, Lua};
 #[test]
 fn address_hashes_match_map_lookup_for_wide_keys_and_new_seeds() {
     use crate::jit::resources::{BudgetAllocator, Ledger};
-    use std::hash::{BuildHasher, Hash, Hasher};
 
     let keys = [
         0,
@@ -26,11 +25,9 @@ fn address_hashes_match_map_lookup_for_wide_keys_and_new_seeds() {
             }
             let before = ledger.current();
             for key in keys.into_iter().chain([7, 31, usize::MAX / 2]) {
-                let mut hasher = map.hasher().build_hasher();
-                key.hash(&mut hasher);
                 assert_eq!(
                     map.raw_entry()
-                        .from_hash(hasher.finish(), |stored| *stored == key)
+                        .from_hash(map.hasher().hash_one(key), |stored| *stored == key)
                         .map(|(_, value)| value),
                     map.get(&key),
                 );

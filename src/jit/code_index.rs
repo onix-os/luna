@@ -1,5 +1,4 @@
 use std::{
-    hash::{BuildHasher, Hash, Hasher},
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
 };
@@ -40,9 +39,8 @@ impl<V> Index<V> {
             } else {
                 self.hint = None;
                 self.previous = None;
-                let mut hasher = self.entries.hasher().build_hasher();
-                key.hash(&mut hasher);
-                let bucket = table.find(hasher.finish(), |(id, _)| *id == key)?;
+                let bucket =
+                    table.find(self.entries.hasher().hash_one(key), |(id, _)| *id == key)?;
                 // The found bucket belongs to this allocated table.
                 let offset = unsafe { table.bucket_index(&bucket) };
                 (NonZeroUsize::new(offset + 1).unwrap(), bucket)

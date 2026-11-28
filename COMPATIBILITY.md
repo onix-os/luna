@@ -165,6 +165,10 @@ bounded here instead. Each raises an ordinary catchable error.
 | 🔵     | `sort(list[, comp])`         |             | Native for the default ordering on a metatable-free list of all numbers or all strings; a comparator or mixed types fall back to a Lua merge sort |
 | 🔵     | `unpack(list[, i, j])`       |             |       |
 
+luna adds `table.freeze(t)`, `table.isfrozen(t)`, `table.clear(t)` and `table.interceptall(t[, on])`.
+A frozen table refuses every write: assignment, `rawset`, `table.insert`/`remove`/`clear`, and
+`setmetatable`/`debug.setmetatable`. Freezing is shallow and cannot be undone from Lua.
+
 ## Math
 
 I'm not going over these with a fine-tooth comb, if it exists (and takes the specified number of arguments), it's considered implemented. (Except for "basic" identities like $\cos(0) = 1$ and stuff like that.)

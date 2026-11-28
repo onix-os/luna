@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "jit",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#![cfg(all(feature = "jit", luna_jit_native))]
 
 #[path = "../examples/jit_support/suspension.rs"]
 mod suspension;
@@ -31,6 +27,7 @@ fn recursion_state(
 ) -> Result<(Lua, StashedExecutor, StackSamples), ExternError> {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
+        native_backoff: false,
         mode: if native { JitMode::Auto } else { JitMode::Off },
         hot_threshold: u32::MAX,
         ..Default::default()
@@ -232,6 +229,7 @@ fn coroutine_close_runs_pending_handlers_in_both_tiers() -> Result<(), ExternErr
     for native in [false, true] {
         let mut lua = Lua::core();
         lua.set_jit_config(JitConfig {
+            native_backoff: false,
             mode: if native { JitMode::Auto } else { JitMode::Off },
             hot_threshold: u32::MAX,
             ..Default::default()
@@ -272,6 +270,7 @@ fn cleanup_case(
 ) -> Result<(Vec<(bool, ExecutorMode, i32)>, luna::JitStats), ExternError> {
     let mut lua = Lua::core();
     lua.set_jit_config(JitConfig {
+        native_backoff: false,
         mode: if native { JitMode::Auto } else { JitMode::Off },
         hot_threshold: u32::MAX,
         ..Default::default()

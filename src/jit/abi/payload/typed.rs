@@ -326,10 +326,6 @@ fn terminal_scalar_stores_retire_only_their_destination_at_exact_budgets() {
     check_terminal_probe(rust_probe);
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[path = "typed/native.rs"]
 mod native;

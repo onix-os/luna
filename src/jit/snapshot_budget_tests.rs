@@ -133,11 +133,7 @@ fn off_and_idle_auto_execution_preserve_absent_snapshot_owner() {
     }
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn live_source_service_refusal_recovers_and_retains_owner_after_clear() {
     use crate::{Closure, Executor, Lua};
@@ -179,11 +175,7 @@ fn live_source_service_refusal_recovers_and_retains_owner_after_clear() {
     assert!(lua.jit_stats().snapshot_peak_bytes > 0);
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn collected_queued_source_is_discarded_before_snapshot_owner_initialization() {
     use crate::{Closure, Lua};

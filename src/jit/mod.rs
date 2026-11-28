@@ -16,16 +16,10 @@ mod snapshot_budget_tests;
 
 pub(crate) use compile_error::Error as CompileError;
 
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActivationPolicy {
+    #[cfg(test)]
     Ordinary,
     Native,
     InterpretedTail,
@@ -33,14 +27,7 @@ pub(crate) enum ActivationPolicy {
     Forced(std::num::NonZeroUsize),
 }
 
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 impl ActivationPolicy {
     pub(crate) fn native_limit(self) -> Option<std::num::NonZeroUsize> {
         match self {
@@ -54,77 +41,48 @@ impl ActivationPolicy {
 
 mod abi;
 mod access;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod arrays;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod atomic_owner;
 #[cfg(test)]
 mod atomic_stats;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod backend;
 #[cfg(test)]
 mod caller_shadow;
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 mod calls;
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod canonical;
 #[cfg(test)]
 mod canonical_cells;
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 pub(crate) mod chains;
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 mod code_index;
 mod compile_error;
+#[cfg(all(feature = "jit-worker-bootstrap", not(target_os = "linux")))]
+compile_error!("the out-of-process JIT compiler worker is only available on Linux");
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
     not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_image;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
     not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_jobs;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
     not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_launch;
 mod diagnostic;
@@ -143,36 +101,31 @@ pub fn __worker_embedded_image() -> Option<(&'static [u8], &'static [u8; 32], &'
         None
     }
 }
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native, target_os = "linux"))]
 mod compiler_process;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_reply;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_request;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
     not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_service;
 #[cfg(all(
     any(test, feature = "jit-worker-bootstrap"),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_stream;
 #[cfg(any(test, feature = "jit-worker-bootstrap"))]
@@ -181,143 +134,68 @@ mod compiler_wire;
 #[cfg(all(
     feature = "jit-worker-bootstrap",
     not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    luna_jit_native,
+    target_os = "linux"
 ))]
 mod compiler_worker;
 
 #[doc(hidden)]
-#[cfg(all(
-    feature = "jit-worker-bootstrap",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(feature = "jit-worker-bootstrap", not(miri), luna_jit_native))]
 pub fn __worker_bootstrap_main() -> u8 {
     compiler_worker::run()
 }
 #[cfg(test)]
 mod continuations;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod dominance;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod entry_flow;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod exit_flow;
 mod exits;
 mod flow;
-#[cfg(all(
-    test,
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, luna_jit_native, target_os = "linux"))]
 mod fuzz;
 mod global_box;
 mod global_owner;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod handoff;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod helper_flow;
 mod helpers;
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 mod inline_loop;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    any(test, not(miri))
-))]
+#[cfg(all(luna_jit_native, any(test, not(miri))))]
 mod integer;
 pub(crate) mod ir;
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 mod leaf;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod memory_status;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod model;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod native_fault;
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod native_region;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod owner;
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod pairs;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod preds;
 mod prepared_keys;
 pub(crate) mod registry;
 pub(crate) mod resources;
-#[cfg(all(
-    any(test, not(miri)),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(any(test, not(miri)), luna_jit_native))]
 mod scoped_helpers;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod segments;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod shape;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 mod tags;
 mod work;
 #[cfg(test)]
@@ -352,6 +230,14 @@ pub struct JitConfig {
     pub max_snapshot_bytes: usize,
     pub max_metadata_bytes: usize,
     pub max_compile_attempts: u32,
+    /// Whether a frame whose native entries keep leaving native code after a few bytecodes stops
+    /// entering native code for a while. On by default; off makes every slice try native code,
+    /// which tests of native re-entry rely on.
+    pub native_backoff: bool,
+    /// Whether calls with fixed arguments and one result into `return a + b`-shaped integer
+    /// functions pair like upvalue leaves do. Off by default: native regions do not admit these
+    /// pairs yet, so each call ends the caller's slice and costs more than the interpreter.
+    pub value_pairs: bool,
 }
 
 impl Default for JitConfig {
@@ -368,6 +254,8 @@ impl Default for JitConfig {
             max_snapshot_bytes: 2 * 1024 * 1024,
             max_metadata_bytes: 2 * 1024 * 1024,
             max_compile_attempts: 2,
+            native_backoff: true,
+            value_pairs: false,
         }
     }
 }
@@ -407,10 +295,7 @@ pub struct JitCapabilities {
 
 impl JitCapabilities {
     pub fn current() -> Self {
-        let supported = cfg!(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ));
+        let supported = cfg!(luna_jit_native);
         Self {
             supported_target: supported,
             architecture: std::env::consts::ARCH,
@@ -482,13 +367,7 @@ pub struct JitStats {
 }
 
 impl JitStats {
-    #[cfg(any(
-        test,
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
+    #[cfg(any(test, luna_jit_native))]
     fn record_native_exit(&mut self, exit: &abi::Exit) {
         self.total_dispatches = self
             .total_dispatches
@@ -882,17 +761,9 @@ pub enum JitError {
 pub(crate) struct Manager {
     #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
     compiler_jobs: Option<compiler_jobs::Supervisor>,
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     resume_scope: Option<native_region::resume::State>,
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pairs: Option<pairs::State>,
     #[cfg(test)]
     mock: Option<mock::Mock>,
@@ -923,30 +794,17 @@ pub(crate) struct Manager {
     queue: Vec<u64, BudgetAllocator>,
     tracked_compactor: Compactor,
     queue_compactor: Compactor,
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     code_compactor: Compactor,
     pub(crate) metadata: BudgetAllocator,
     pub(crate) snapshots: OnceCell<BudgetAllocator>,
     pub(crate) host: LedgerRef,
     pub(crate) memory: MappingCounter,
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     clock: u64,
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     code: code_index::Index<CachedCode>,
-    #[cfg(all(
-        test,
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(test, luna_jit_native))]
     memory_failure: backend::Failure,
 }
 
@@ -958,19 +816,11 @@ impl Default for Manager {
         Self {
             #[cfg(all(feature = "jit-worker-embedded", luna_jit_embedded_worker, not(miri)))]
             compiler_jobs: None,
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             pairs: None,
             #[cfg(test)]
             mock: None,
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             resume_scope: None,
             #[cfg(test)]
             before_compile: None,
@@ -999,30 +849,17 @@ impl Default for Manager {
             queue: Vec::new_in(metadata.clone()),
             tracked_compactor: Compactor::default(),
             queue_compactor: Compactor::default(),
-            #[cfg(all(
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(luna_jit_native)]
             code_compactor: Compactor::default(),
-            #[cfg(all(
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(luna_jit_native)]
             code: metadata_map(metadata.clone()).into(),
-            #[cfg(all(
-                test,
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(test, luna_jit_native))]
             memory_failure: backend::Failure::None,
             metadata,
             snapshots: OnceCell::new(),
             memory: MappingCounter::new(host.clone()),
             host,
-            #[cfg(all(
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(luna_jit_native)]
             clock: 0,
         }
     }
@@ -1035,19 +872,13 @@ pub(crate) struct Tracking {
     queued: bool,
 }
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 struct CachedCode {
     code: owner::Shared<backend::Code>,
     last_used: u64,
 }
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum CacheKey {
     Prototype(u64),
@@ -1084,11 +915,7 @@ impl Manager {
 
     fn queued_count(&self) -> usize {
         let count = self.queue.len();
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         let count = count + self.pairs.as_ref().map_or(0, pairs::State::queued);
         count
     }
@@ -1100,30 +927,20 @@ impl Manager {
             | self
                 .queue_compactor
                 .needed(self.queue.len(), self.queue.capacity());
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         let needed = needed
             | self
                 .pairs
                 .as_mut()
                 .is_some_and(pairs::State::needs_compaction);
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             needed
                 | self
                     .code_compactor
                     .needed(self.code.len(), self.code.capacity())
         }
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         {
             needed
         }
@@ -1149,11 +966,7 @@ impl Manager {
     }
 
     pub(crate) fn compact_metadata(&mut self) {
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         if let Some(pairs) = &mut self.pairs {
             let regions = pairs.regions.compact();
             let promotions = pairs.promotions.as_mut().map(|queue| queue.compact());
@@ -1172,20 +985,14 @@ impl Manager {
         self.record_compaction(result);
         let result = self.queue_compactor.vector(&mut self.queue);
         self.record_compaction(result);
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             let result = self.code_compactor.map(&mut self.code);
             self.record_compaction(result);
         }
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     fn evict_for_retry(&mut self, id: u64) -> bool {
         if self.config.mode != JitMode::Auto
             || !self
@@ -1202,10 +1009,7 @@ impl Manager {
         true
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     fn evict_cached(&mut self, exclude: CacheKey) -> bool {
         let victim = self
             .code
@@ -1300,11 +1104,7 @@ impl Manager {
                 retained += usize::from(keep);
                 keep
             });
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(all(not(miri), luna_jit_native))]
             if let Some(pairs) = &mut self.pairs {
                 pairs.configure(
                     &config,
@@ -1318,11 +1118,7 @@ impl Manager {
             allocator.0.set_limit(config.max_snapshot_bytes);
         }
         self.config = config;
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         if self.config.mode == JitMode::Auto && self.pairs.is_none() {
             self.pairs = Some(pairs::State::new(self.metadata.clone()));
         }
@@ -1332,18 +1128,11 @@ impl Manager {
         self.tracked.remove(&id);
         self.stats.registered_prototypes = self.tracked.len();
         self.queue.retain(|request| *request != id);
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         if let Some(pairs) = &mut self.pairs {
             pairs.retire(id);
         }
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         self.code.remove(&id);
         self.stats.queued_requests = self.queued_count();
         if self.tracked.is_empty() {
@@ -1352,10 +1141,7 @@ impl Manager {
         if self.queue.is_empty() {
             self.queue = Vec::new_in(self.metadata.clone());
         }
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         if self.code.is_empty() {
             self.code = metadata_map(self.metadata.clone()).into();
         }
@@ -1365,10 +1151,7 @@ impl Manager {
         if self.config.mode == JitMode::Off {
             return;
         }
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         if self.code.contains_key(&id) {
             return;
         }
@@ -1414,19 +1197,12 @@ impl Manager {
         {
             self.compiler_jobs = None;
         }
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         if let Some(pairs) = &mut self.pairs {
             pairs.clear();
         }
         self.queue_compactor = Compactor::default();
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             self.code_compactor = Compactor::default();
             self.code = metadata_map(self.metadata.clone()).into();
@@ -1454,27 +1230,16 @@ pub(crate) type RuntimeOwner =
     global_owner::GlobalShared<RefCell<Manager>, resources::HeaderCharge>;
 
 pub(crate) struct Prepared {
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     code: owner::Shared<backend::Code>,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(crate) struct PreparedPair {
     program: owner::Shared<canonical::Program>,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[derive(Default)]
 pub(crate) struct PairScope<'gc> {
     pub handoff: Option<PreparedPair>,
@@ -1486,22 +1251,14 @@ pub(crate) struct PairScope<'gc> {
     callee: usize,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(crate) struct PairOutcome {
     pub calls: usize,
     pub returns: usize,
     pub result: Result<(), crate::thread::VMError>,
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 impl PreparedPair {
     pub(crate) fn invoke<'gc>(
         &self,
@@ -1512,7 +1269,7 @@ impl PreparedPair {
     ) -> Option<PairOutcome> {
         let outcome = self.program.invoke_result(ctx, host, budget, prefix);
         if let Some(outcome) = &outcome {
-            if outcome.calls > 0 && outcome.result.is_ok() {
+            if outcome.calls > 0 && outcome.result.is_ok() && self.program.forms_regions() {
                 ctx.jit().observe_region(self.program.key());
             }
             ctx.jit().record_pair_execution(
@@ -1528,13 +1285,7 @@ impl PreparedPair {
     }
 }
 
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, luna_jit_native))]
 macro_rules! record_helper_counts {
     ($stats:expr, $counts:ident) => {{
         $stats.helper_calls = $stats.helper_calls.saturating_add($counts.calls);
@@ -1657,10 +1408,7 @@ impl Runtime {
         prepared: &Prepared,
         pc: usize,
     ) -> Option<crate::opcode::CallTransition> {
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             prepared
                 .code
@@ -1669,10 +1417,7 @@ impl Runtime {
                 .at(pc)
                 .map(|request| request.transition)
         }
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         {
             let _ = (prepared, pc);
             None
@@ -1731,14 +1476,11 @@ impl Runtime {
         self.0.borrow().config.mode == JitMode::Auto
     }
 
-    #[cfg(any(
-        test,
-        all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
+    pub(crate) fn native_backoff(&self) -> bool {
+        self.0.borrow().config.native_backoff
+    }
+
+    #[cfg(any(test, all(not(miri), luna_jit_native)))]
     pub(crate) fn activation_policy(&self) -> ActivationPolicy {
         let manager = self.0.borrow();
         #[cfg(test)]
@@ -1752,11 +1494,7 @@ impl Runtime {
         if manager.config.mode == JitMode::Off {
             return ActivationPolicy::InterpretedTail;
         }
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         if manager.config.mode == JitMode::Auto
             && manager
                 .pairs
@@ -1765,7 +1503,7 @@ impl Runtime {
         {
             return ActivationPolicy::Native;
         }
-        ActivationPolicy::Ordinary
+        ActivationPolicy::InterpretedTail
     }
 
     #[cfg(test)]
@@ -1775,11 +1513,7 @@ impl Runtime {
             .map_or(0, std::num::NonZeroUsize::get)
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     pub(crate) fn try_scalar_activation<'gc>(
         &self,
@@ -1847,10 +1581,7 @@ impl Runtime {
                 hook();
             }
         }
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             let (memory, limit, metadata, work) = {
                 let manager = self.0.borrow();
@@ -2116,10 +1847,7 @@ impl Runtime {
                 }
             }
         }
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         {
             let _ = (id, snapshot);
             Err(CompileError::Unavailable(
@@ -2129,10 +1857,7 @@ impl Runtime {
     }
 
     pub(crate) fn lookup(&self, id: u64) -> Option<Prepared> {
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             let mut manager = self.0.borrow_mut();
             if manager.config.mode == JitMode::Off {
@@ -2151,21 +1876,14 @@ impl Runtime {
             manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
             Some(Prepared { code })
         }
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         {
             let _ = id;
             None
         }
     }
 
-    #[cfg(all(
-        test,
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(test, luna_jit_native))]
     pub(crate) fn resume_lease(&self, id: u64, prepared: Prepared) -> Option<Prepared> {
         let manager = self.0.borrow();
         (manager.config.mode == JitMode::Auto
@@ -2177,23 +1895,13 @@ impl Runtime {
     }
 
     pub(crate) fn observe(&self, id: u64) {
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(all(not(miri), luna_jit_native))]
         if native_region::resume::skip_observation(&mut self.0.borrow_mut(), id) {
             return;
         }
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         self.0.borrow_mut().enqueue(id, false);
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         let _ = id;
     }
 
@@ -2205,10 +1913,7 @@ impl Runtime {
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
         budget: u32,
     ) -> u32 {
-        #[cfg(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
+        #[cfg(luna_jit_native)]
         {
             #[cfg(not(miri))]
             if native_region::resume::skip(self, prepared, closure, registers) {
@@ -2246,20 +1951,14 @@ impl Runtime {
                 _ => 0,
             }
         }
-        #[cfg(not(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
+        #[cfg(not(luna_jit_native))]
         {
             let _ = (prepared, ctx, closure, registers, budget);
             0
         }
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[inline(always)]
     fn invoke<'gc, const CAPACITY: usize, const EXACT: bool>(
         &self,
@@ -2277,11 +1976,7 @@ impl Runtime {
         self.invoke_transport::<CAPACITY, EXACT, false>(code, ctx, closure, registers, budget)
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     fn invoke_integer_resume<'gc>(
         &self,
         code: &backend::Code,
@@ -2339,11 +2034,7 @@ impl Runtime {
         None
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[inline(always)]
     fn invoke_lookup_transport<'gc, const CAPACITY: usize, const EXACT: bool>(
         &self,
@@ -2404,10 +2095,7 @@ impl Runtime {
         )
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[inline(never)]
     fn invoke_transport<'gc, const CAPACITY: usize, const EXACT: bool, const CANONICAL: bool>(
         &self,
@@ -2575,11 +2263,7 @@ impl Runtime {
         }
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     #[cfg(test)]
     fn invoke_scalar_kernel<'gc>(
         &self,
@@ -2626,10 +2310,7 @@ impl Runtime {
         exit.instructions
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[cfg(test)]
     #[inline(always)]
     fn invoke_frame<'gc, const CAPACITY: usize, const PROJECTED: bool, const DEFER: bool>(
@@ -2656,10 +2337,7 @@ impl Runtime {
         )
     }
 
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(luna_jit_native)]
     #[inline(always)]
     fn invoke_frame_transport<
         'gc,
@@ -3020,11 +2698,7 @@ mod runtime_owner_tests {
     }
 }
 
-#[cfg(all(
-    test,
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, luna_jit_native))]
 mod scheduling_tests;
 
 #[cfg(test)]
@@ -3145,11 +2819,7 @@ mod policy_tests {
     }
 }
 
-#[cfg(all(
-    test,
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, luna_jit_native))]
 mod eviction_tests {
     use super::*;
 
@@ -3660,7 +3330,9 @@ mod eviction_tests {
         request(&runtime, 1).unwrap();
         let bytes = runtime.usage();
         runtime.0.borrow_mut().config.max_code_bytes = bytes;
-        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(64));
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as usize;
+        let additions = 64 * page / 4096;
+        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(additions));
         let snapshot = || {
             crate::Lua::empty().enter(|ctx| {
                 let prototype =
@@ -3712,8 +3384,11 @@ mod eviction_tests {
             }
             pc = exit.pc as usize;
         }
-        assert!(instructions > 64);
-        assert_eq!((slots[0].tag, slots[0].bits), (abi::INTEGER, 64));
+        assert!(instructions > additions as u32);
+        assert_eq!(
+            (slots[0].tag, slots[0].bits),
+            (abi::INTEGER, additions as u64)
+        );
     }
 
     #[test]
@@ -3920,21 +3595,10 @@ mod eviction_tests {
 
 pub(crate) mod projection;
 
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 mod array_window;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[cfg(test)]
 mod runtime_projection_tests {
     use super::*;
@@ -4153,28 +3817,13 @@ mod invoke_dispatch;
 #[cfg(test)]
 mod helper_counts;
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod payload_runtime_tests;
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod transport_resource_tests;
 
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, not(miri), luna_jit_native))]
 mod packed_runtime;
 
 #[cfg(test)]
@@ -4188,14 +3837,7 @@ mod vm_progress;
 
 pub(crate) mod entry_bytes;
 
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(any(test, all(not(miri), luna_jit_native)))]
 mod readonly_lookup;
 
 #[cfg(test)]

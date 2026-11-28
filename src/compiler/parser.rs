@@ -381,11 +381,7 @@ impl<S: StringInterner> Parser<'_, S> {
         let mut statements = Vec::new();
         let mut return_statement = None;
 
-        loop {
-            let Some(next) = self.look_ahead(0)? else {
-                break;
-            };
-
+        while let Some(next) = self.look_ahead(0)? {
             match &next.inner {
                 Token::Else | Token::ElseIf | Token::End | Token::Until => break,
                 Token::SemiColon => {
@@ -948,18 +944,16 @@ impl<S: StringInterner> Parser<'_, S> {
     fn parse_suffixed_expression(&mut self) -> Result<SuffixedExpression<S::String>, ParseError> {
         let primary = self.parse_primary_expression()?;
         let mut suffixes = Vec::new();
-        loop {
-            match self.look_ahead(0)?.map(AsRef::as_ref) {
-                Some(&Token::Dot)
-                | Some(&Token::LeftBracket)
-                | Some(&Token::Colon)
-                | Some(&Token::LeftParen)
-                | Some(&Token::LeftBrace)
-                | Some(&Token::String(_)) => {
-                    suffixes.push(self.parse_suffix_part()?);
-                }
-                _ => break,
-            }
+        while let Some(
+            Token::Dot
+            | Token::LeftBracket
+            | Token::Colon
+            | Token::LeftParen
+            | Token::LeftBrace
+            | Token::String(_),
+        ) = self.look_ahead(0)?.map(AsRef::as_ref)
+        {
+            suffixes.push(self.parse_suffix_part()?);
         }
 
         Ok(SuffixedExpression { primary, suffixes })
@@ -1067,7 +1061,7 @@ impl<S: StringInterner> Parser<'_, S> {
     // Return a reference to the next token in the stream, erroring if we are at the end.
     fn get_next(&mut self) -> Result<&LineAnnotated<Token<S::String>>, ParseError> {
         self.read_ahead(1)?;
-        if let Some(token) = self.read_buffer.get(0) {
+        if let Some(token) = self.read_buffer.first() {
             Ok(token)
         } else {
             Err(ParseError {

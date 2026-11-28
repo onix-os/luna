@@ -30,7 +30,7 @@ pub(super) fn invoke<'gc>(
         let origin = registers.projection_origin(
             callee
                 .upvalues()
-                .get(usize::from(site.pattern.upvalue))?
+                .get(usize::from(site.cell()?.upvalue))?
                 .get(),
         )?;
         match origin {
@@ -49,7 +49,7 @@ pub(super) fn invoke<'gc>(
         input,
         callee
             .upvalues()
-            .get(usize::from(site.pattern.upvalue))
+            .get(usize::from(site.cell().unwrap().upvalue))
             .and_then(|value| {
                 host.snapshot_capture(binding.0, value.get(), |index| snapshot.integer(index))
             })
@@ -57,8 +57,11 @@ pub(super) fn invoke<'gc>(
     let Some((capture, value)) = input else {
         return false;
     };
-    let right = match site.pattern.right {
-        Operand::Register(index) if index != site.pattern.read => {
+    let Some(pattern) = site.cell() else {
+        return false;
+    };
+    let right = match pattern.right {
+        Operand::Register(index) if index != pattern.read => {
             if index.0 >= site.arguments {
                 return false;
             }
@@ -75,8 +78,8 @@ pub(super) fn invoke<'gc>(
         function: site.function,
         arguments: site.arguments,
         capture,
-        read: site.pattern.read,
-        result: site.pattern.result,
+        read: pattern.read,
+        result: pattern.result,
         start: site.start,
         prefix,
     };
@@ -91,8 +94,8 @@ pub(super) fn invoke<'gc>(
         function,
         usize::from(site.arguments),
         site.registers,
-        usize::from(site.pattern.read.0),
-        usize::from(site.pattern.result.0),
+        usize::from(pattern.read.0),
+        usize::from(pattern.result.0),
         (!capture.0).then_some(capture.1),
         (output.read, output.result, output.capture)
     ));

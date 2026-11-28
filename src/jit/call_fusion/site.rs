@@ -9,18 +9,10 @@ mod tests;
 
 mod binding;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(in crate::jit) mod kernel;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(in crate::jit) use binding::Input;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,11 +81,7 @@ pub(in crate::jit) struct Site {
 }
 
 impl Site {
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(in crate::jit) fn region(self) -> super::Region {
         super::Region {
             entry: self.region_pc as usize,
@@ -104,11 +92,7 @@ impl Site {
         }
     }
 
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(not(miri), luna_jit_native))]
     pub(in crate::jit) fn publish(
         self,
         registers: &mut crate::thread::LuaRegisters<'_, '_>,
@@ -165,13 +149,11 @@ impl Site {
                     func,
                     args,
                     returns,
-                } => {
-                    if args.to_constant() != Some(1)
-                        || returns.to_constant() != Some(0)
-                        || call.replace((pc, func.0)).is_some()
-                    {
-                        return None;
-                    }
+                } if (args.to_constant() != Some(1)
+                    || returns.to_constant() != Some(0)
+                    || call.replace((pc, func.0)).is_some()) =>
+                {
+                    return None;
                 }
                 _ => {}
             }

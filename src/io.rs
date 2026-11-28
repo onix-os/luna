@@ -9,15 +9,16 @@ use std::io::{self, BufRead, BufReader, Read};
 /// This mimics the initial behavior of luaL_loadfile(x). In order to correctly detect and skip the
 /// BOM and unix shebang, the internal buffer of the BufRead must be >= 3 bytes.
 pub fn skip_prefix<R: BufRead>(r: &mut R) -> Result<(), io::Error> {
-    if {
+    let res = {
         let buf = r.fill_buf()?;
         buf.len() >= 3 && buf[0] == 0xef && buf[1] == 0xbb && buf[2] == 0xbf
-    } {
+    };
+    if res {
         r.consume(3);
     }
 
     let buf = r.fill_buf()?;
-    let has_shebang = buf.len() >= 1 && buf[0] == b'#';
+    let has_shebang = !buf.is_empty() && buf[0] == b'#';
     if has_shebang {
         r.consume(1);
         loop {

@@ -1,10 +1,6 @@
 use super::*;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[path = "writer_native.rs"]
 mod native;
 

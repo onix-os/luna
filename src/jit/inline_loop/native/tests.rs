@@ -113,7 +113,7 @@ fn reference(plan: &Plan<'_>, capture: Option<usize>, state: &mut State) {
                 let captured = capture
                     .map(|index| state.slots[index])
                     .unwrap_or(state.upper);
-                let pattern = plan.pair.pattern;
+                let pattern = plan.pair.cell();
                 let right = match pattern.right {
                     leaf::Operand::Register(index) if index == pattern.read => captured,
                     leaf::Operand::Register(index) => {

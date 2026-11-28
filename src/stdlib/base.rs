@@ -379,6 +379,11 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
 
     let set_metatable = Callback::from_fn(&ctx, |ctx, _, mut stack| {
         let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
+        if t.is_readonly() {
+            return Err("cannot change the metatable of a frozen table"
+                .into_value(ctx)
+                .into());
+        }
         // A protected metatable refuses replacement, or the protection would be pointless.
         if let Some(existing) = t.metatable() {
             if !existing.get_value(ctx, MetaMethod::Metatable).is_nil() {

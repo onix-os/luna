@@ -113,6 +113,7 @@ fn compare(source: &Snapshot, route: Route, resume: bool, work: work::Limits) ->
 
 #[test]
 fn emission_matches_installed_compiler_bytes_for_production_routes() {
+    #[allow(dead_code)]
     mod workloads {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),

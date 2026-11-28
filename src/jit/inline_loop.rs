@@ -40,7 +40,7 @@ impl<'a> Plan<'a> {
             registers: self.caller.registers,
             function: self.pair.function,
             arguments: self.pair.arguments,
-            pattern: self.pair.pattern,
+            pattern: self.pair.cell(),
             return_start: start,
         })
     }
@@ -79,6 +79,11 @@ impl<'a> Plan<'a> {
         limits: work::Limits,
     ) -> Result<Self, CompileError> {
         let pair = calls::Plan::new(caller, callee, call, limits)?;
+        if !matches!(pair.leaf, super::leaf::Leaf::Cell(_)) {
+            return Err(CompileError::Compilation(
+                "inline loops need a cell leaf".into(),
+            ));
+        }
         let (start, end, base) = Self::region(caller, callee, call)
             .ok_or_else(|| CompileError::Compilation("unsupported inline loop region".into()))?;
         Ok(Self {
@@ -107,9 +112,5 @@ impl<'a> Plan<'a> {
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(super) mod native;

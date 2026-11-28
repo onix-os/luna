@@ -116,11 +116,7 @@ fn concurrent_hint_and_feedback_updates_cannot_clobber_other_fields() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn actual_metamethod_failures_do_not_poison_later_numeric_loops() {
     use crate::{Closure, Executor, JitConfig, JitMode, Lua};
@@ -196,11 +192,7 @@ fn only_short_helper_free_guards_defer_entries() {
     });
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[test]
 fn feedback_preserves_every_executor_slice_frame_fuel_gc_and_error() {
     use crate::{Closure, Executor, Fuel, JitConfig, JitMode, Lua};
@@ -220,7 +212,7 @@ fn feedback_preserves_every_executor_slice_frame_fuel_gc_and_error() {
                 })
                 .unwrap();
                 let executor = lua.enter(|ctx| {
-                    let closure = Closure::load(ctx, None, *source).unwrap();
+                    let closure = Closure::load(ctx, None, source).unwrap();
                     ctx.stash(Executor::start(ctx, closure.into(), ()))
                 });
                 lua.prepare_jit().unwrap();

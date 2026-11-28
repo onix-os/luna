@@ -1,3 +1,11 @@
+#![allow(
+    clippy::drop_non_drop,
+    clippy::duplicate_mod,
+    clippy::module_inception,
+    clippy::needless_range_loop,
+    clippy::neg_cmp_op_on_partial_ord
+)]
+
 pub mod any;
 pub mod async_callback;
 pub mod callback;

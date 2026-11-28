@@ -540,9 +540,11 @@ fn native_code_keeps_the_functional_guarantees() {
     if !lua.jit_capabilities().supported_target {
         return;
     }
-    let mut config = JitConfig::default();
-    config.mode = JitMode::Auto;
-    config.hot_threshold = 1;
+    let config = JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    };
     lua.set_jit_config(config).unwrap();
     let executor = lua.try_enter(|ctx| start(ctx, source)).unwrap();
     lua.prepare_jit().unwrap();
@@ -651,9 +653,11 @@ fn native_code_produces_identical_output() {
     if !lua.jit_capabilities().supported_target {
         return;
     }
-    let mut config = JitConfig::default();
-    config.mode = JitMode::Auto;
-    config.hot_threshold = 1;
+    let config = JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    };
     lua.set_jit_config(config).unwrap();
     let executor = lua.try_enter(|ctx| start(ctx, DETERMINISM_PROBE)).unwrap();
     lua.prepare_jit().unwrap();

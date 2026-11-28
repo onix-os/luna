@@ -219,11 +219,10 @@ fn read_one<'gc>(
             }
         }
         Some("n") => {
-            let buf;
-            match read_line(reader, false).map_err(|e| e.to_string().into_value(ctx))? {
-                Some(line) => buf = line,
+            let buf = match read_line(reader, false).map_err(|e| e.to_string().into_value(ctx))? {
+                Some(line) => line,
                 None => return Ok(Value::Nil),
-            }
+            };
             let text = std::string::String::from_utf8_lossy(&buf);
             Ok(text
                 .trim()

@@ -11,18 +11,11 @@ mod binding_tests;
 #[path = "payload/packed.rs"]
 pub(crate) mod packed;
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 #[path = "payload/native.rs"]
 mod native;
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 #[path = "payload/runtime.rs"]
 pub(crate) mod runtime;
 
@@ -35,11 +28,7 @@ pub(crate) struct Payload {
 
 pub(crate) const POINTER_OFFSET: usize = std::mem::offset_of!(Payload, pointer);
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 pub(crate) fn check_native_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();

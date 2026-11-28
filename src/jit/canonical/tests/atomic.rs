@@ -102,7 +102,7 @@ fn atomic_pairs_preserve_captures_in_an_upper_physical_frame() {
             pc,
             function: plan.function,
             arguments: plan.arguments,
-            pattern: plan.pattern,
+            leaf: plan.leaf,
             registers: callee_snapshot.registers,
             start,
             returns: count.to_constant().unwrap(),
@@ -182,7 +182,7 @@ fn atomic_capacity_and_tail_capture_refusals_preserve_physical_fallback() {
                                             );
                                             callee.set_upvalue(
                                                 &ctx,
-                                                usize::from(site.pattern.upvalue),
+                                                usize::from(site.cell().unwrap().upvalue),
                                                 upvalue,
                                             );
                                         });

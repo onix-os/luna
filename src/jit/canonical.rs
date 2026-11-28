@@ -17,7 +17,7 @@ use super::{
     backend::calls::{CallCode, Hooks},
     calls::NativeFrame,
     exits::Kind,
-    leaf::{self, Operand, Pattern},
+    leaf::{self, Leaf, Operand, Pattern},
     projection::Origin,
 };
 
@@ -27,10 +27,19 @@ pub(super) struct Site {
     pc: usize,
     function: RegisterIndex,
     arguments: u8,
-    pattern: Pattern,
+    leaf: Leaf,
     registers: usize,
     start: RegisterIndex,
     returns: u8,
+}
+
+impl Site {
+    fn cell(&self) -> Option<Pattern> {
+        match self.leaf {
+            Leaf::Cell(pattern) => Some(pattern),
+            Leaf::Value(_) => None,
+        }
+    }
 }
 
 pub(super) struct Program {
@@ -73,7 +82,7 @@ impl Program {
             }
             let capture = callee
                 .upvalues()
-                .get(usize::from(self.site.pattern.upvalue))?
+                .get(usize::from(self.site.cell()?.upvalue))?
                 .get();
             shadow.prepare_call(
                 caller,
@@ -83,6 +92,11 @@ impl Program {
                 capture,
             )
         })
+    }
+
+    /// Whether native regions can admit this pair; they only run cell leaves.
+    pub(super) fn forms_regions(&self) -> bool {
+        self.site.cell().is_some()
     }
 
     pub(super) fn key(&self) -> super::pairs::Key {
@@ -115,7 +129,7 @@ impl Program {
             ));
         }
         let plan = super::calls::Plan::new(caller, callee, key.pc, limits)?;
-        let Operation::Return { start, count } = callee.operations[3] else {
+        let Operation::Return { start, count } = callee.operations[plan.leaf.return_pc()] else {
             unreachable!()
         };
         let site = Site {
@@ -124,7 +138,7 @@ impl Program {
             pc: key.pc,
             function: plan.function,
             arguments: plan.arguments,
-            pattern: plan.pattern,
+            leaf: plan.leaf,
             registers: callee.registers,
             start,
             returns: count.to_constant().unwrap(),
@@ -176,6 +190,13 @@ impl Program {
             return None;
         }
         drop(manager);
+        if atomic::invoke_value(ctx, host, &self.site, budget, prefix) {
+            return Some(super::PairOutcome {
+                calls: 1,
+                returns: 1,
+                result: Ok(()),
+            });
+        }
         invoke_result(ctx, host, &self.site, &self.code, budget, prefix)
     }
 }
@@ -276,7 +297,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             };
             if func != site.function
                 || args.to_constant() != Some(site.arguments)
-                || returns.to_constant() != Some(0)
+                || returns.to_constant() != Some(site.leaf.call_returns())
             {
                 return false;
             }
@@ -288,40 +309,52 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             };
             if registry.identity(ctx, callee.prototype()) != Some(site.callee)
                 || usize::from(callee.prototype().stack_size) != site.registers
-            {
-                return false;
-            }
-            let Some(upvalue) = callee.upvalues().get(usize::from(site.pattern.upvalue)) else {
-                return false;
-            };
-            let Some(origin) = registers.projection_origin(upvalue.get()) else {
-                return false;
-            };
-            let capture = match origin {
-                Origin::Upper(_, value) | Origin::Register(_, value) => value,
-                Origin::Closed(_) => return false,
-            };
-            if !matches!(capture, Value::Integer(_))
                 || index + 1 + usize::from(site.arguments) > registers.stack_frame.len()
             {
                 return false;
             }
-            let supported = match site.pattern.right {
-                Operand::Register(register) if register == site.pattern.read => true,
-                Operand::Register(register) => {
-                    usize::from(register.0) < usize::from(site.arguments)
-                        && register.0 < callee.prototype().fixed_params
-                        && matches!(
-                            registers
-                                .stack_frame
-                                .get(index + 1 + usize::from(register.0)),
-                            Some(Value::Integer(_))
-                        )
-                }
-                Operand::Constant(constant) => matches!(
+            let integer_argument = |register: RegisterIndex| {
+                usize::from(register.0) < usize::from(site.arguments)
+                    && register.0 < callee.prototype().fixed_params
+                    && matches!(
+                        registers
+                            .stack_frame
+                            .get(index + 1 + usize::from(register.0)),
+                        Some(Value::Integer(_))
+                    )
+            };
+            let integer_constant = |constant: u8| {
+                matches!(
                     callee.prototype().constants.get(usize::from(constant)),
                     Some(crate::Constant::Integer(_))
-                ),
+                )
+            };
+            let supported = match site.leaf {
+                Leaf::Cell(pattern) => {
+                    let Some(upvalue) = callee.upvalues().get(usize::from(pattern.upvalue)) else {
+                        return false;
+                    };
+                    let Some(origin) = registers.projection_origin(upvalue.get()) else {
+                        return false;
+                    };
+                    let capture = match origin {
+                        Origin::Upper(_, value) | Origin::Register(_, value) => value,
+                        Origin::Closed(_) => return false,
+                    };
+                    matches!(capture, Value::Integer(_))
+                        && match pattern.right {
+                            Operand::Register(register) if register == pattern.read => true,
+                            Operand::Register(register) => integer_argument(register),
+                            Operand::Constant(constant) => integer_constant(constant),
+                        }
+                }
+                Leaf::Value(pattern) => {
+                    integer_argument(pattern.left)
+                        && match pattern.right {
+                            Operand::Register(register) => integer_argument(register),
+                            Operand::Constant(constant) => integer_constant(constant),
+                        }
+                }
             };
             if supported {
                 admitted = Some(callee.prototype());
@@ -352,7 +385,10 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         }
         let ctx = self.ctx;
         self.calls = 1;
-        let result = self.host.call(ctx, self.site.function, self.site.arguments);
+        let returns = self.site.leaf.call_returns();
+        let result = self
+            .host
+            .call(ctx, self.site.function, self.site.arguments, returns);
         let mut stats = ctx.jit().interpreter_stats();
         stats.dispatches = 1;
         stats.reported_instructions = result.as_ref().ok().map(|_| 0);
@@ -376,37 +412,50 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             {
                 return None;
             }
-            let upvalue = closure
-                .upvalues()
-                .get(usize::from(site.pattern.upvalue))?
-                .get();
-            let origin = registers.projection_origin(upvalue)?;
-            let (target, value) = match origin {
-                Origin::Upper(index, value) => ((true, index), value),
-                Origin::Register(index, value) if index < site.registers => ((false, index), value),
-                _ => return None,
+            let cell = match site.leaf {
+                Leaf::Cell(pattern) => {
+                    let upvalue = closure.upvalues().get(usize::from(pattern.upvalue))?.get();
+                    let origin = registers.projection_origin(upvalue)?;
+                    let (target, value) = match origin {
+                        Origin::Upper(index, value) => ((true, index), value),
+                        Origin::Register(index, value) if index < site.registers => {
+                            ((false, index), value)
+                        }
+                        _ => return None,
+                    };
+                    if !matches!(value, Value::Integer(_)) {
+                        return None;
+                    }
+                    Some((target, Slot::from_value(value)))
+                }
+                Leaf::Value(_) => None,
             };
-            if !matches!(value, Value::Integer(_)) {
-                return None;
-            }
             for (slot, value) in self.slots[..site.registers]
                 .iter_mut()
                 .zip(registers.stack_frame.iter().copied())
             {
                 slot.write(Slot::from_value(value));
             }
-            Some((target, Slot::from_value(value)))
+            Some(cell)
         });
-        let Some((target, cell)) = prepared else {
+        let Some(cell) = prepared else {
             return std::ptr::null_mut();
         };
-        self.target = Some(target);
-        self.cell = cell;
-        self.view.cell = if target.0 {
-            std::ptr::addr_of_mut!(self.cell)
-        } else {
-            self.slots[target.1].as_mut_ptr()
-        };
+        match cell {
+            Some((target, cell)) => {
+                self.target = Some(target);
+                self.cell = cell;
+                self.view.cell = if target.0 {
+                    std::ptr::addr_of_mut!(self.cell)
+                } else {
+                    self.slots[target.1].as_mut_ptr()
+                };
+            }
+            None => {
+                self.target = None;
+                self.view.cell = std::ptr::null_mut();
+            }
+        }
         self.frame.slots = self.slots.as_mut_ptr().cast();
         self.frame.view = std::ptr::addr_of_mut!(self.view);
         std::ptr::addr_of_mut!(self.frame)
@@ -414,31 +463,41 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
 
     fn leave(&mut self, frame: *mut NativeFrame, pc: u64, start: u32) -> u32 {
         assert_eq!(frame, std::ptr::addr_of_mut!(self.frame));
+        let return_pc = self.site.leaf.return_pc();
         assert_eq!(
             (pc, start, self.calls, self.returns),
-            (3, u32::from(self.site.start.0), 1, 0)
+            (return_pc as u64, u32::from(self.site.start.0), 1, 0)
         );
-        let (upper, index) = self.target.unwrap();
-        let cell = if upper {
-            std::ptr::addr_of_mut!(self.cell)
-        } else {
-            self.slots[index].as_mut_ptr()
-        };
-        assert_eq!(self.view.cell, cell);
-        assert_eq!(self.view.version, leaf::VERSION);
-        assert!(self.view.reads <= 1 && self.view.writes <= 1);
-        assert_eq!(self.view.dirty, u64::from(self.view.writes));
+        let target = self.target;
+        assert_eq!(target.is_some(), self.site.cell().is_some());
+        let cell = target.map(|(upper, index)| {
+            let cell = if upper {
+                std::ptr::addr_of_mut!(self.cell)
+            } else {
+                self.slots[index].as_mut_ptr()
+            };
+            assert_eq!(self.view.cell, cell);
+            assert_eq!(self.view.version, leaf::VERSION);
+            assert!(self.view.reads <= 1 && self.view.writes <= 1);
+            assert_eq!(self.view.dirty, u64::from(self.view.writes));
+            let cell = unsafe { cell.read() };
+            assert_eq!(cell.tag, abi::INTEGER);
+            cell
+        });
         assert_eq!(self.frame.slots, self.slots.as_mut_ptr().cast());
-        assert!(self.frame.exit.pc <= 3 && self.frame.exit.instructions <= 3);
+        assert!(
+            self.frame.exit.pc as usize <= return_pc
+                && self.frame.exit.instructions as usize <= return_pc
+        );
         let ctx = self.ctx;
         let site = self.site;
         let callee = self.callee;
-        let cell = unsafe { cell.read() };
-        assert_eq!(cell.tag, abi::INTEGER);
         self.host.with_registers(|closure, mut registers| {
             assert!(matches_callee(ctx, site, callee, closure));
             assert_eq!(*registers.pc, 0);
-            assert!(registers.projection_read(upper, index).is_some());
+            if let Some((upper, index)) = target {
+                assert!(registers.projection_read(upper, index).is_some());
+            }
             // Enter initializes the entire prefix before publishing the native frame.
             let slots = unsafe {
                 std::slice::from_raw_parts(self.slots.as_ptr().cast::<Slot>(), site.registers)
@@ -447,28 +506,32 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             for (slot, dest) in slots.iter().copied().zip(registers.stack_frame.iter_mut()) {
                 slot.write_back(dest);
             }
-            if upper && self.view.writes != 0 {
-                registers.projection_write(true, index, cell.value(Value::Nil));
+            if let (Some((true, index)), Some(cell)) = (target, cell) {
+                if self.view.writes != 0 {
+                    registers.projection_write(true, index, cell.value(Value::Nil));
+                }
             }
             *registers.pc = self.frame.exit.pc as usize;
         });
         {
             let mut manager = ctx.jit().0.borrow_mut();
-            manager.stats.native_upvalue_reads = manager
-                .stats
-                .native_upvalue_reads
-                .saturating_add(u64::from(self.view.reads));
-            manager.stats.native_upvalue_writes = manager
-                .stats
-                .native_upvalue_writes
-                .saturating_add(u64::from(self.view.writes));
+            if cell.is_some() {
+                manager.stats.native_upvalue_reads = manager
+                    .stats
+                    .native_upvalue_reads
+                    .saturating_add(u64::from(self.view.reads));
+                manager.stats.native_upvalue_writes = manager
+                    .stats
+                    .native_upvalue_writes
+                    .saturating_add(u64::from(self.view.writes));
+            }
             manager.stats.record_native_exit(&self.frame.exit);
         }
         if (
-            self.frame.exit.pc,
-            self.frame.exit.instructions,
+            self.frame.exit.pc as usize,
+            self.frame.exit.instructions as usize,
             self.frame.exit.reason,
-        ) != (3, 3, Kind::Interpreter as u32)
+        ) != (return_pc, return_pc, Kind::Interpreter as u32)
         {
             self.host.charge_native_slice(self.frame.exit.instructions);
             return 1;
@@ -496,7 +559,8 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             let frame = self.enter(pc, u32::from(function), u32::from(arguments));
             if !frame.is_null() {
                 unsafe { code.invoke_leaf(frame, budget) };
-                self.leave(frame, 3, u32::from(start));
+                let return_pc = self.site.leaf.return_pc() as u64;
+                self.leave(frame, return_pc, u32::from(start));
             }
         }));
         if let Err(payload) = result {
@@ -505,10 +569,10 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
     }
 
     fn invoke_compact(&mut self, code: &CallCode, budget: u32) {
-        if budget <= 3 {
+        let Some(pattern) = self.site.cell().filter(|_| budget > 3) else {
             self.invoke_leaf(code, budget);
             return;
-        }
+        };
         let (pc, function, arguments, start) = code.operands();
         let result = catch_unwind(AssertUnwindSafe(|| {
             if !self.enter_call(pc, u32::from(function), u32::from(arguments)) {
@@ -524,10 +588,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 {
                     return None;
                 }
-                let upvalue = closure
-                    .upvalues()
-                    .get(usize::from(site.pattern.upvalue))?
-                    .get();
+                let upvalue = closure.upvalues().get(usize::from(pattern.upvalue))?.get();
                 let (target, value) = match registers.projection_origin(upvalue)? {
                     Origin::Upper(index, Value::Integer(value)) => ((true, index), value),
                     Origin::Register(index, Value::Integer(value)) if index < site.registers => {
@@ -567,9 +628,8 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 assert_eq!(*registers.pc, 0);
                 assert!(registers.stack_frame.len() >= site.registers);
                 assert!(registers.projection_read(upper, index).is_some());
-                registers.stack_frame[usize::from(site.pattern.read.0)] =
-                    Value::Integer(output.read);
-                registers.stack_frame[usize::from(site.pattern.result.0)] =
+                registers.stack_frame[usize::from(pattern.read.0)] = Value::Integer(output.read);
+                registers.stack_frame[usize::from(pattern.result.0)] =
                     Value::Integer(output.result);
                 registers.projection_write(upper, index, Value::Integer(output.capture));
                 *registers.pc = 3;

@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(dead_code)]
 #[path = "../../../../examples/jit_support/workloads.rs"]
 mod workloads;
 

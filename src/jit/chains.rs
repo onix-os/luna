@@ -511,8 +511,10 @@ mod tests {
                 &mut Fuel::with(4096),
                 |host| {
                     let partial = prefix(ctx, host, 64).unwrap();
-                    let mut scope = PairScope::default();
-                    scope.resume = partial.resume;
+                    let mut scope = PairScope {
+                        resume: partial.resume,
+                        ..PairScope::default()
+                    };
                     assert!(scope.resume.is_some());
                     let frame = host.frame_identity();
                     let replacement = host.with_registers(|closure, registers| {

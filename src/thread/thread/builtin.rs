@@ -137,13 +137,16 @@ impl<'gc> LuaFrame<'gc, '_> {
                 )
             }
         };
-        if target.metatable.is_some_and(|existing| {
-            read(existing, MetaMethod::Metatable).is_none_or(|value| !value.is_nil())
-        }) || metatable.is_some_and(|new| {
-            [MetaMethod::Gc, MetaMethod::Mode]
-                .into_iter()
-                .any(|method| read(new, method).is_none_or(|value| !value.is_nil()))
-        }) {
+        if target.readonly
+            || target.metatable.is_some_and(|existing| {
+                read(existing, MetaMethod::Metatable).is_none_or(|value| !value.is_nil())
+            })
+            || metatable.is_some_and(|new| {
+                [MetaMethod::Gc, MetaMethod::Mode]
+                    .into_iter()
+                    .any(|method| read(new, method).is_none_or(|value| !value.is_nil()))
+            })
+        {
             return false;
         }
         target.metatable = metatable;

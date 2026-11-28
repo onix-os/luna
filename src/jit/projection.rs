@@ -9,10 +9,7 @@ use crate::{
 use super::abi::{self, Slot};
 
 mod bridge;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(luna_jit_native)]
 pub(super) mod lowering;
 mod native;
 

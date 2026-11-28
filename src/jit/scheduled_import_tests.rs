@@ -311,11 +311,7 @@ fn declined_imports_leave_initialized_slots_unchanged() {
     }
 }
 
-#[cfg(all(
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(not(miri), luna_jit_native))]
 mod native {
     use super::*;
     use cranelift_codegen::ir::{types, AbiParam, InstBuilder, MemFlagsData};

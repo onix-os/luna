@@ -291,11 +291,7 @@ impl StashedValue {
     }
 
     pub fn to_bool(self) -> bool {
-        match self {
-            StashedValue::Nil => false,
-            StashedValue::Boolean(false) => false,
-            _ => true,
-        }
+        !matches!(self, StashedValue::Nil | StashedValue::Boolean(false))
     }
 
     pub fn as_primitive<'gc>(&self) -> Option<Value<'gc>> {
