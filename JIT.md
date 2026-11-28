@@ -13,8 +13,8 @@ Fresh compiled-disabled cost checks also fail: shipping upvalue overhead is
 8–9% on CPU 0 and 23–25% on CPU 16, above the unchanged 5% ceiling. Speed-profile
 callback and other cost failures remain. These are separate from Auto speedups.
 Compiled-Off no longer runs more interpreter instructions than the feature-disabled
-build (see "Compiled-Off instruction cost"); the wall-time gate has not been rerun
-on an idle machine since.
+build (see "Compiled-Off instruction cost"), and all nine shipping controls pass the
+5% wall-time ceiling on a pinned core.
 
 Ordinary constant-string upvalue-table reads can embed a process-seeded key hash.
 Each lookup still checks the current table and full key equality; no GC pointers
@@ -595,8 +595,29 @@ iterations of each `jit_feature_cost` case at opt-level 3 with LTO, compiled-Off
 against the feature-disabled build. Instructions are no longer the gap: compiled-Off
 runs fewer in six cases and the same in the seventh. The binary is four times larger,
 so instruction-cache misses rise (about 1.5× in these runs), and the wall-time
-`make jit-size` gate still decides acceptance. Run it on an idle machine; with other
-builds running, its paired ratios spread from 0.3 to 3.0.
+`make jit-size` gate still decides acceptance. With other builds running its paired
+ratios spread from 0.3 to 3.0; pinned to one quiet core (`taskset -c 22 no-jit
+--compare no-jit jit-off --samples 11 --iterations 20`) they are stable:
+
+| Control | before | derived dispatches | and boxed back-off |
+| --- | --- | --- | --- |
+| integer_loop | −6.2% | −18.8% | −17.8% |
+| float_loop | −12.4% | −19.0% | −19.9% |
+| array_table | −7.8% | −17.0% | −16.1% |
+| closure_upvalue | −0.8% | −1.7% | −2.5% |
+| polymorphic_metamethod | −0.7% | −0.9% | +0.1% |
+| rust_callbacks | −9.2% | −7.6% | −7.8% |
+| allocation_gc | −2.0% | −3.3% | −3.1% |
+| oslo_predicate | +6.7% | +7.9% | +2.5% |
+| cold_config | +5.6% | +3.5% | +2.4% |
+
+`oslo_predicate` and `cold_config` are short executions: an executor per row and a
+fresh state per run. Callgrind traced their extra work to the thread state, which
+the native back-off table made larger for every `Thread::new`, to zero, copy and
+trace. The table is now boxed on the first back-off, so a thread that never backs off
+carries one pointer, and `oslo_predicate` runs 0.1% more instructions than the
+feature-disabled build instead of 2.3% more. A second pinned run passed every control
+as well.
 
 ### Value-returning pairs
 
