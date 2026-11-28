@@ -104,9 +104,7 @@ impl<'gc> Thread<'gc> {
                 error_taken: false,
                 max_call_depth: ctx.max_call_depth(),
                 #[cfg(feature = "jit")]
-                native_backoff: [NativeBackoff::default(); 8],
-                #[cfg(feature = "jit")]
-                native_backoff_armed: false,
+                native_backoff: None,
                 #[cfg(feature = "jit")]
                 native_backoff_clock: 0,
             }),
@@ -493,11 +491,9 @@ pub struct ThreadState<'gc> {
     pub(super) error_taken: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
+    // Allocated when the thread first backs off, so threads that never do stay small.
     #[cfg(feature = "jit")]
-    pub(super) native_backoff: [NativeBackoff; 8],
-    // Whether any slot of `native_backoff` has ever been armed.
-    #[cfg(feature = "jit")]
-    pub(super) native_backoff_armed: bool,
+    pub(super) native_backoff: Option<Box<[NativeBackoff; 8]>>,
     // Counts armings; each slot records the count it was armed at.
     #[cfg(feature = "jit")]
     pub(super) native_backoff_clock: u16,
@@ -568,11 +564,11 @@ impl<'gc> ThreadState<'gc> {
     #[cfg(feature = "jit")]
     #[inline]
     pub(super) fn native_backed_off(&mut self, key: BackoffKey) -> bool {
-        if !self.native_backoff_armed {
+        let Some(table) = &mut self.native_backoff else {
             return false;
-        }
+        };
         let set = backoff_set(key);
-        for slot in &mut self.native_backoff[set..set + 2] {
+        for slot in &mut table[set..set + 2] {
             if slot.key == key && slot.remaining > 0 {
                 slot.remaining -= 1;
                 return true;
@@ -586,10 +582,11 @@ impl<'gc> ThreadState<'gc> {
     #[cfg(feature = "jit")]
     pub(super) fn native_backoff_seen(&self, key: BackoffKey) -> bool {
         let set = backoff_set(key);
-        self.native_backoff_armed
-            && self.native_backoff[set..set + 2]
+        self.native_backoff.as_ref().is_some_and(|table| {
+            table[set..set + 2]
                 .iter()
                 .any(|slot| slot.key == key && slot.remaining == 0)
+        })
     }
 
     /// Skip native dispatch for the next `slices` slices for `key`, replacing in its set its own
@@ -603,7 +600,10 @@ impl<'gc> ThreadState<'gc> {
         self.native_backoff_clock = self.native_backoff_clock.wrapping_add(1);
         let clock = self.native_backoff_clock;
         let set = backoff_set(key);
-        let pair = &mut self.native_backoff[set..set + 2];
+        let table = self
+            .native_backoff
+            .get_or_insert_with(|| Box::new([NativeBackoff::default(); 8]));
+        let pair = &mut table[set..set + 2];
         let age = |slot: &NativeBackoff| clock.wrapping_sub(slot.armed);
         let index = if pair[1].key == key {
             1
@@ -619,7 +619,6 @@ impl<'gc> ThreadState<'gc> {
             remaining: slices,
             armed: clock,
         };
-        self.native_backoff_armed = true;
     }
 
     /// This thread's value stack.
