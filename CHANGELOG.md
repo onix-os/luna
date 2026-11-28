@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.7.0] - 2026-11-28
+
+### <!-- 0 -->⛰️  Features
+
+- Pair calls into value-returning leaves
+- Read and write files, add helpers
+- Add --format, --raw and --files
+- Add modules, formats and data imports
+- Run the native backend on macOS
+- Add evaluate, luna eval and lib
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Build cell plans on interpreter targets
+- Keep the metatable of frozen tables
+
+### <!-- 3 -->📚 Documentation
+
+- Document files, builds and editors
+
+### <!-- 4 -->⚡ Performance
+
+- Derive dispatch counts at slice exit
+- Keep repeated back-offs on the closure
+- Continue interpreted slices in Auto
+- Cut the per-slice back-off check
+- Back off short native runs at any exit
+- Back off from short native entries
+
+### <!-- 5 -->🎨 Styling
+
+- Collapse the aarch64 BTI check
+- Clear the clippy backlog and enforce it
+
+### <!-- 6 -->🧪 Testing
+
+- Scale eviction test result to page size
+- Gate Linux-only tests off macOS
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Bump version and internal deps to 0.7.0
+- Install clippy on native runners
+- Run the macOS gate on Intel as well
+- Skip worker test in macOS mode passes
+- Run the macOS gate without fail-fast
+
+### Build
+
+- Bump every version pin in make release
+
 ## [0.6.1] - 2026-11-26
 
 ### <!-- 1 -->🐛 Bug Fixes
